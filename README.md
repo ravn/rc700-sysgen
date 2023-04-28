@@ -18,6 +18,12 @@ Use
 
 to compile.  See http://www.cpm.z80.de/manuals/mac.pdf for documentation.
 
+Use 
+
+    grep -q '04EF SIGNON' SYSGEN.SYM && dhex RCSYSGEN.COM SYSGEN.COM
+
+to view the binary differences.
+
 Use
 
     ZSID SYSGEN.COM SYSGEN.SYM

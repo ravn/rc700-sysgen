@@ -8,7 +8,8 @@ VERS	EQU	20	;X.X
 ;NSECTS	EQU	26	;NO. OF SECTORS PER TRACK
 NSECTS	EQU	0	;NO. OF SECTORS PER TRACK
 NTRKS	EQU	2	;NO. OF OPERATING SYSTEM TRACKS
-NDISKS	EQU	4	;NUMBER OF DISK DRIVES
+;NDISKS	EQU	4	;NUMBER OF DISK DRIVES
+NDISKS	EQU	2	;NUMBER OF DISK DRIVES
 SECSIZ	EQU	128	;SIZE OF EACH SECTOR
 LOG2SEC	EQU	7	;LOG 2 SECSIZ
 SKEW	EQU	1	;SECTOR SKEW FACTOR
@@ -57,16 +58,16 @@ SPT:	DB	NSECTS	;SECTORS PER TRACK (CAN BE PATCHED)
 ; RC DATA START
 dskfmt:		db 08h			
 					
-te02:		db 10h			; DATA XREF: rc_track1+11r
+byte0172:		db 10h			; DATA XREF: rc_track1+11r
 					; getput+EEw
-te03:		db 18h			; DATA XREF: rc_track1+17r
+byte0173:		db 18h			; DATA XREF: rc_track1+17r
 					; getput+F3w
-te04:		db 68h			; DATA XREF: getput+D3r getput+F8w
-te05:		db 78h			; DATA XREF: getput+Br	getput+FDw
-te06:		db 19h			; DATA XREF: rc_track1+Dr getput+34r
+byte0174:		db 68h			; DATA XREF: getput+D3r getput+F8w
+byte0175:		db 78h			; DATA XREF: getput+Br	getput+FDw
+byte0176:		db 19h			; DATA XREF: rc_track1+Dr getput+34r
 					; ...
-te07:		db 34h			; DATA XREF: getput+3Br getput+107
-te08:		db 1Ah			; DATA XREF: getput+42r getput+10C
+byte0177:		db 34h			; DATA XREF: getput+3Br getput+107
+byte0178:		db 1Ah			; DATA XREF: getput+42r getput+10C
 maxitrans:	db 0
 		db    2	;  
 		db    4	;  
@@ -331,6 +332,9 @@ WRITE:	;PERFORM WRITE OPERATON
 	LHLD	WBOOT
 	LXI	D,WRITF
 	DAD	D
+; RC BEGIN
+	mvi	c,2
+; RC END
 	PCHL
 ;
 DREAD:	;DISK READ FUNCTION
@@ -340,6 +344,51 @@ DREAD:	;DISK READ FUNCTION
 OPEN:	;FILE OPEN FUNCTION
 	MVI C,OPENF ! JMP BDOS
 ;
+; RC BEGIN
+rctrack1:				; CODE XREF: getput+24p
+		lda	track
+		cpi	1
+		jnz	loc02BA
+		lda	sector
+		inr	a
+		mov	b, a
+		lda	byte0176
+		cmp	b
+		lda	byte0172
+		jnc	loc02BD
+		lda	byte0173
+		jmp	loc02BD
+
+; -
+
+loc02BA:				; CODE XREF: rc_track1+5j
+		lda	dskfmt
+
+loc02BD:				; CODE XREF: rc_track1+14j
+					; rc_track1+1Aj
+		lhld	1
+		lxi	d, 34h
+		dad	d
+		push	psw
+		lda	sdisk
+		mov	b, a
+		add	l
+		mov	l, a
+		jnc	loc02CF
+		inr	h
+
+loc02CF:				; CODE XREF: rc_track1+2Ej
+		pop	psw
+		mov	c, m
+		cmp	c
+		rz	
+		mov	m, a
+		mov	a, b
+		call	sel
+		ret	
+; End of function rc_track1
+
+
 GETPUT:
 ;	GET OR PUT CP/M (RW=0 FOR READ, 1 FOR WRITE)
 ;	DISK IS ALREADY SELECTED
@@ -347,24 +396,54 @@ GETPUT:
 	LXI	H,LOADP	;LOAD POINT IN RAM FOR CP/M DURING SYSGEN
 	SHLD	DMADDR
 ;
-;	CLEAR TRACK TO 00
-	MVI	A,-1	;START WITH TRACK EQUAL -1
-	STA	TRACK
-;
+;;	CLEAR TRACK TO 00
+;	MVI	A,-1	;START WITH TRACK EQUAL -1
+;	STA	TRACK
+
+	mvi	a, 3
+	sta	track
+	lda	byte0175
+	sta	spt
+
 RWTRK:	;READ OR WRITE NEXT TRACK
 	LXI	H,TRACK
-	INR	M	;TRACK = TRACK + 1
-	LDA	OST	;NUMBER OF OPERATING SYSTEM TRACKS
-	CMP	M	;= TRACK NUMBER ?
+;	INR	M	;TRACK = TRACK + 1
+;	LDA	OST	;NUMBER OF OPERATING SYSTEM TRACKS
+;	CMP	M	;= TRACK NUMBER ?
+
+	dcr	m
 	JZ	ENDRW	;END OF READ OR WRITE
 ;
 ;	OTHERWISE NOTDONE, GO TO NEXT TRACK
 	MOV	C,M	;TRACK NUMBER
+	dcr	c
+	mvi	b, 0
 	CALL	TRK	;TO SET TRACK
 	MVI	A,-1	;COUNTS 0, 1, 2, . . . 25
 	STA	SECTOR	;SECTOR INCREMENTED BEFORE READ OR WRITE
 ;
 RWSEC:	;READ OR WRITE SECTOR
+	call	rctrack1
+	lda	track
+	cpi	1
+	jnz	rwsec2
+	lda	sector
+	inr	a
+	mov	b, a
+	lda	byte0176
+	cmp	b
+	jnc	rwsec2
+	lda	byte0177
+	cmp	b
+	jc	rwsec2
+	lda	byte0178
+	add	b
+	dcr	a
+	sta	sector
+
+rwsec2:					; CODE XREF: getput+2Cj getput+38j
+					;
+
 	LDA	SPT	;SECTORS PER TRACK
 	LXI	H,SECTOR
 	INR	M	;TO NEXT SECTOR
@@ -373,12 +452,33 @@ RWSEC:	;READ OR WRITE SECTOR
 ;
 ;	READ OR WRITE SECTOR TO OR FROM CURRENT DMA ADDR
 	LXI	H,SECTOR
+
+rc1:
+	mov	c, m
+	mvi	b, 0
+	lda	track
+	cpi	1
+	jnz	rwsec1
+
+
 	MOV	E,M	;SECTOR NUMBER
 	MVI	D,0	;TO DE
-	LXI	H,TRAN
+;	LXI	H,TRAN
+
+	in	14h
+	ani	80h		; maxi?
+	lxi	h, maxitrans
+	jnz	rc2
+	lxi	h, minitrans
+
+rc2:					; CODE XREF: getput+6Dj
+
+
+
 	MOV	B,M	;TRAN(0) IN B
 	DAD	D	;SECTOR TRANSLATED
 	MOV	C,M	;VALUE TO C READY FOR SELECT
+rwsec1:					; CODE XREF: getput+60j
 	PUSH	B	;SAVE TRAN(0),TRAN(SECTOR)
 	CALL	SEC	;SET UP SECTOR NUMBER
 	POP	B	;RECALL TRAN(0),TRAN(SECTOR)
@@ -439,6 +539,10 @@ ENDTRK:
 	LHLD	DMADDR	;BASE DMA FOR THIS TRACK
 	DAD	D	;+SPT*SECSIZ
 	SHLD	DMADDR	;READY FOR NEXT TRACK
+	
+	lda	byte0174
+	sta	spt
+	
 	JMP	RWTRK	;FOR ANOTHER TRACK
 ;
 ENDRW:	;END OF READ OR WRITE, RETURN TO CALLER
@@ -448,6 +552,30 @@ ENDRW:	;END OF READ OR WRITE, RETURN TO CALLER
 START:
 ;
 	LXI	SP,STACK	;SET LOCAL STACK POINTER
+
+	in	14h
+	ani	80h
+	jz	rcnotmaxi
+	mvi	a, 10h
+	sta	dskfmt
+	mvi	a, 0
+	sta	byte0172
+	mvi	a, 8
+	sta	byte0173
+	mvi	a, 40h
+	sta	byte0174
+	mvi	a, 48h
+	sta	byte0175
+	mvi	a, 0Fh
+	sta	byte0176
+	mvi	a, 20h
+	sta	byte0177
+	mvi	a, 10h
+	sta	byte0178
+
+rcnotmaxi:				; CODE XREF: getput+E4j
+
+
 	LXI	H,SIGNON
 	CALL	OUTMSG
 ;
@@ -586,6 +714,14 @@ PUTC:
 	JMP	PUTSYS	;FOR ANOTHER PUT OPERATION
 ;
 REBOOT:
+	lda	dskfmt
+	lhld	1
+	lxi	d, 34h
+	dad	d
+	mov	m, a
+	inx	h
+	mov	m, a
+
 	MVI	A,0
 	CALL	SEL
 	CALL	CRLF
@@ -600,9 +736,6 @@ BADDISK:
 ;
 ;	DATA AREAS
 ;	MESSAGES
-
-; ALIGN
-	DS 	40H-4-036Ah+03EFh-1
 SIGNON:	DB	'SYSGEN VER '
 	DB	VERS/10+'0','.',VERS MOD 10+'0'
 	DB	0
