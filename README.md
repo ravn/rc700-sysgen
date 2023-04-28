@@ -24,11 +24,12 @@ Use
 
 to view the binary differences.
 
-Use
+Before committing to git, remove CP/M ^Z EOF characters so git will recognize the file as
+ascii:
 
-    ZSID SYSGEN.COM SYSGEN.SYM
+    perl -i -pe 's/\032//g' SYSGEN.SYM
 
-to run under a debugger.
+
 
 
 ##  MAC error codes
