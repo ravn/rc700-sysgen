@@ -5,7 +5,8 @@ VERS	EQU	20	;X.X
 ;	COPYRIGHT (C) DIGITAL RESEARCH
 ;	         1976, 1977, 1978, 1979
 ;
-NSECTS	EQU	26	;NO. OF SECTORS PER TRACK
+;NSECTS	EQU	26	;NO. OF SECTORS PER TRACK
+NSECTS	EQU	0	;NO. OF SECTORS PER TRACK
 NTRKS	EQU	2	;NO. OF OPERATING SYSTEM TRACKS
 NDISKS	EQU	4	;NUMBER OF DISK DRIVES
 SECSIZ	EQU	128	;SIZE OF EACH SECTOR
@@ -52,28 +53,209 @@ WRITF	EQU	39	;WBOOT+39 FOR WRITE FUNCTION
 ;
 OST:	DB	NTRKS	;OPERATING SYSTEM TRACKS
 SPT:	DB	NSECTS	;SECTORS PER TRACK (CAN BE PATCHED)
+
+; RC DATA START
+dskfmt:		db 08h			
+					
+te02:		db 10h			; DATA XREF: rc_track1+11r
+					; getput+EEw
+te03:		db 18h			; DATA XREF: rc_track1+17r
+					; getput+F3w
+te04:		db 68h			; DATA XREF: getput+D3r getput+F8w
+te05:		db 78h			; DATA XREF: getput+Br	getput+FDw
+te06:		db 19h			; DATA XREF: rc_track1+Dr getput+34r
+					; ...
+te07:		db 34h			; DATA XREF: getput+3Br getput+107
+te08:		db 1Ah			; DATA XREF: getput+42r getput+10C
+maxitrans:	db 0
+		db    2	;  
+		db    4	;  
+		db    6	;  
+		db    8	;  
+		db  0Ah	;  
+		db  0Ch	;  
+		db  0Eh	;  
+		db    1	;  
+		db    3	;  
+		db    5	;  
+		db    7	;  
+		db    9	;  
+		db  0Bh	;  
+		db  0Dh	;  
+		db  0Fh	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+asc0199:	db ' !'
+		db 22h
+		db '#$'
+unk019E:	db  25h	; %
+		db  26h	; &
+unk01A0:	db  27h	; '
+		db  28h	; (
+		db  29h	; )
+		db  2Ah	; *
+		db  2Bh	; +
+		db  2Ch	; ,
+byte01A6:	db 2Dh
+		db  2Eh	; .
+		db  2Fh	; /
+		db  30h	; 0
+		db  31h	; 1
+		db  32h	; 2
+		db  33h	; 3
+		db  34h	; 4
+		db  35h	; 5
+		db  36h	; 6
+		db  37h	; 7
+		db  38h	; 8
+		db  39h	; 9
+		db  3Ah	; :
+		db  3Bh	; ;
+		db  3Ch	; <
+		db  3Dh	; =
+		db  3Eh	; >
+		db  3Fh	; ?
+minitrans:	db    0	;  
+		db    4	;  
+		db    8	;  
+		db 0Ch
+		db  10h	;  
+		db  14h	;  
+		db  18h	;  
+		db    1	;  
+		db    5	;  
+		db    9	;  
+		db  0Dh	;  
+		db  11h	;  
+		db  15h	;  
+		db  19h	;  
+		db    2	;  
+		db    6	;  
+		db  0Ah	;  
+		db  0Eh	;  
+		db  12h	;  
+		db  16h	;  
+		db    3	;  
+		db    7	;  
+		db  0Bh	;  
+		db  0Fh	;  
+		db  13h	;  
+		db  17h	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db    0	;  
+		db  34h	; 4
+		db  35h	; 5
+		db  36h	; 6
+		db  37h	; 7
+		db  38h	; 8
+		db  39h	; 9
+		db  3Ah	; :
+		db  3Bh	; ;
+		db  3Ch	; <
+		db  3Dh	; =
+		db  3Eh	; >
+		db  3Fh	; ?
+		db  40h	; @
+		db  41h	; A
+		db  42h	; B
+		db  43h	; C
+		db  44h	; D
+		db  45h	; E
+		db  46h	; F
+		db  47h	; G
+		db  48h	; H
+		db  49h	; I
+		db  4Ah	; J
+		db  4Bh	; K
+		db  4Ch	; L
+		db  4Dh	; M
+		db  4Eh	; N
+		db  4Fh	; O
+		db  50h	; P
+		db  51h	; Q
+		db  52h	; R
+		db  53h	; S
+		db  54h	; T
+		db  55h	; U
+		db  56h	; V
+		db  57h	; W
+		db  58h	; X
+		db  59h	; Y
+		db  5Ah	; Z
+		db  5Bh	; [
+		db  5Ch	; \
+		db  5Dh	; ]
+		db  5Eh	; ^
+		db  5Fh	; _
+		db  60h	; `
+		db  61h	; a
+		db  62h	; b
+		db  63h	; c
+		db  64h	; d
+		db  65h	; e
+		db  66h	; f
+		db  67h	; g
+; RC DATA END
+
+
 TRAN:			;BASE OF TRANSLATE TABLE
-TRELT	SET	1	;FIRST/NEXT TRAN ELEMENT
-TRBASE	SET	1	;BASE FOR WRAPAROUND
-	REPT	NSECTS	;ONCE FOR EACH SECTOR ON A TRACK
-	DB	TRELT	;GENERATE FIRST/NEXT SECTOR
-TRELT	SET	TRELT+SKEW
-	IF	TRELT GT NSECTS
-TRBASE	SET	TRBASE+1
-TRELT	SET	TRBASE
-	ENDIF
-	ENDM
+;TRELT	SET	1	;FIRST/NEXT TRAN ELEMENT
+;TRBASE	SET	1	;BASE FOR WRAPAROUND
+;	REPT	NSECTS	;ONCE FOR EACH SECTOR ON A TRACK
+;	DB	TRELT	;GENERATE FIRST/NEXT SECTOR
+;TRELT	SET	TRELT+SKEW
+;	IF	TRELT GT NSECTS
+;TRBASE	SET	TRBASE+1
+;TRELT	SET	TRBASE
+;	ENDIF
+;	ENDM
 ;
 ;	NOW LEAVE SPACE FOR EXTENSIONS TO TRANSLATE TABLE
-	IF	NSECTS LT 64
-	REPT	64-NSECTS
-	DB	0
-	ENDM
+;	IF	NSECTS LT 64
+;	REPT	64-NSECTS
+;	DB	0
+;	ENDM 
 
-; INITIAL ALIGN
-	REPT	256-9
-	DB 	0
-	ENDM
+
+
 ;
 ;
 ;
@@ -118,6 +300,7 @@ OUTMSG:
 ;
 SEL:
 ;	SELECT DISK GIVEN BY REGISTER A
+	sta	sdisk
 	MOV C,A! LHLD WBOOT! LXI D,SELDSK! DAD D! PCHL
 ;
 TRK:	;SET UP TRACK
@@ -419,7 +602,7 @@ BADDISK:
 ;	MESSAGES
 
 ; ALIGN
-	DS 	40H-4
+	DS 	40H-4-036Ah+03EFh-1
 SIGNON:	DB	'SYSGEN VER '
 	DB	VERS/10+'0','.',VERS MOD 10+'0'
 	DB	0
