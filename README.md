@@ -14,15 +14,15 @@ SYSGEN.COM to get a rough disassembly of the code.
 Use
 
     MAC SYSGEN
-    MLOAD SYSGEN
+    LOAD SYSGEN
 
-to compile.  See http://www.cpm.z80.de/manuals/mac.pdf for documentation.
+to create a new SYSGEN.COM.  See http://www.cpm.z80.de/manuals/mac.pdf for documentation.
 
 Use 
 
     grep -q '04EF SIGNON' SYSGEN.SYM && dhex RCSYSGEN.COM SYSGEN.COM
 
-to view the binary differences.
+to view the binary differences.  The grep ensures that the alignment is correct.
 
 Before committing to git, remove CP/M ^Z EOF characters so git will recognize the file as
 ascii:

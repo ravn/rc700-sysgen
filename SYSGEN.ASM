@@ -6,13 +6,13 @@ VERS	EQU	20	;X.X
 ;	         1976, 1977, 1978, 1979
 ;
 ;NSECTS	EQU	26	;NO. OF SECTORS PER TRACK
-NSECTS	EQU	0	;NO. OF SECTORS PER TRACK
+NSECTS	EQU	16	;NO. OF SECTORS PER TRACK
 NTRKS	EQU	2	;NO. OF OPERATING SYSTEM TRACKS
 ;NDISKS	EQU	4	;NUMBER OF DISK DRIVES
 NDISKS	EQU	2	;NUMBER OF DISK DRIVES
 SECSIZ	EQU	128	;SIZE OF EACH SECTOR
 LOG2SEC	EQU	7	;LOG 2 SECSIZ
-SKEW	EQU	1	;SECTOR SKEW FACTOR
+SKEW	EQU	2	;SECTOR SKEW FACTOR
 ;
 FCB	EQU	005CH	;DEFAULT FCB LOCATION
 FCBCR	EQU	FCB+32	;CURRENT RECORD LOCATION
@@ -53,7 +53,8 @@ WRITF	EQU	39	;WBOOT+39 FOR WRITE FUNCTION
 ;	PLACE ACCORDING TO THE "SKEW" FACTOR SET ABOVE.
 ;
 OST:	DB	NTRKS	;OPERATING SYSTEM TRACKS
-SPT:	DB	NSECTS	;SECTORS PER TRACK (CAN BE PATCHED)
+;SPT:	DB	NSECTS	;SECTORS PER TRACK (CAN BE PATCHED)
+SPT:	DB	0	;SECTORS PER TRACK (CAN BE PATCHED)
 
 ; RC DATA START
 dskfmt:		db 08h			
@@ -68,38 +69,35 @@ byte0176:		db 19h			; DATA XREF: rc_track1+Dr getput+34r
 					; ...
 byte0177:		db 34h			; DATA XREF: getput+3Br getput+107
 byte0178:		db 1Ah			; DATA XREF: getput+42r getput+10C
-maxitrans:	db 0
-		db    2	;  
-		db    4	;  
-		db    6	;  
-		db    8	;  
-		db  0Ah	;  
-		db  0Ch	;  
-		db  0Eh	;  
-		db    1	;  
-		db    3	;  
-		db    5	;  
-		db    7	;  
-		db    9	;  
-		db  0Bh	;  
-		db  0Dh	;  
-		db  0Fh	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
+
+minitrans:
+
+TRAN:			;BASE OF TRANSLATE TABLE
+;TRELT	SET	1	;FIRST/NEXT TRAN ELEMENT
+TRELT	SET	0	;FIRST/NEXT TRAN ELEMENT
+;TRBASE	SET	1	;BASE FOR WRAPAROUND
+TRBASE	SET	0	;BASE FOR WRAPAROUND
+	REPT	NSECTS	;ONCE FOR EACH SECTOR ON A TRACK
+	DB	TRELT	;GENERATE FIRST/NEXT SECTOR
+TRELT	SET	TRELT+SKEW
+;	IF	TRELT GT NSECTS
+	IF	TRELT GE NSECTS
+TRBASE	SET	TRBASE+1
+TRELT	SET	TRBASE
+	ENDIF
+	ENDM
+;
+;	NOW LEAVE SPACE FOR EXTENSIONS TO TRANSLATE TABLE
+;	IF	NSECTS LT 64
+;	REPT	64-NSECTS
+	IF	NSECTS LT 32
+	REPT	32-NSECTS
+	DB	0
+	ENDM
+	endif
+
+
+
 asc0199:	db ' !'
 		db 22h
 		db '#$'
@@ -130,7 +128,7 @@ byte01A6:	db 2Dh
 		db  3Dh	; =
 		db  3Eh	; >
 		db  3Fh	; ?
-minitrans:	db    0	;  
+maxitrans:	db    0	;  
 		db    4	;  
 		db    8	;  
 		db 0Ch
@@ -237,23 +235,6 @@ minitrans:	db    0	;
 ; RC DATA END
 
 
-TRAN:			;BASE OF TRANSLATE TABLE
-;TRELT	SET	1	;FIRST/NEXT TRAN ELEMENT
-;TRBASE	SET	1	;BASE FOR WRAPAROUND
-;	REPT	NSECTS	;ONCE FOR EACH SECTOR ON A TRACK
-;	DB	TRELT	;GENERATE FIRST/NEXT SECTOR
-;TRELT	SET	TRELT+SKEW
-;	IF	TRELT GT NSECTS
-;TRBASE	SET	TRBASE+1
-;TRELT	SET	TRBASE
-;	ENDIF
-;	ENDM
-;
-;	NOW LEAVE SPACE FOR EXTENSIONS TO TRANSLATE TABLE
-;	IF	NSECTS LT 64
-;	REPT	64-NSECTS
-;	DB	0
-;	ENDM 
 
 
 
@@ -467,9 +448,9 @@ rc1:
 
 	in	14h
 	ani	80h		; maxi?
-	lxi	h, maxitrans
-	jnz	rc2
 	lxi	h, minitrans
+	jnz	rc2
+	lxi	h, maxitrans
 
 rc2:					; CODE XREF: getput+6Dj
 
