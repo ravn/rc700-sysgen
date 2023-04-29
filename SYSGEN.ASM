@@ -58,11 +58,11 @@ SPT:	DB	0	;SECTORS PER TRACK (CAN BE PATCHED)
 
 ; RC DATA START
 ;
-; The RC mapping from logical to physical sectors is slightly different than expected 
+; The RC mapping from logical to physical sectors is different than expected
 ; by SYSGEN and we therefore need to do a bit more housekeeping.   These values are for
-; maxi floppy systems.   Mini floppy systems are detected at runtime and these values 
+; maxi floppy systems.   Mini floppy systems are detected at runtime and these values
 ; overwritten accordingly.
-; 
+;
 ; From CPMBOOT.MAC:
 ;FD0:	DB	255		;    MAXI                MINI 96 tpi
 ;FD1:	DB	255		; 0: SS,128 B/S,25 S/T      not used
@@ -71,15 +71,15 @@ SPT:	DB	0	;SECTORS PER TRACK (CAN BE PATCHED)
 ;FD4:	DB	255		;24:*DD,256 B/S,26 S/T XXDD,512 B/S,30 S/T
 
 
-rccpmfmt:		db 08h			; diskette format for normal CP/M usage, restored at exit.
+rccpmfmt:	db 08h	; diskette format for normal CP/M usage, restored at exit.
 					
-rctrk1fmt1:		db 10h			; diskette format for track 1 for sectors LESS than rcmaxsect1s
-rctrk1fmt2:		db 18h			; diskette format for track 1 for sectors MORE than rcmaxsect1s
-byte0174:		db 68h			; DATA XREF: getput+D3r getput+F8w
-byte0175:		db 78h			; DATA XREF: getput+Br	getput+FDw
-rcmaxsect1:		db 19h			; largest sector that can fit in part _one_ of track 1.
-rcmaxsect2:		db 34h			; largest sector that can fit in part _two_ of track 1.
-rcoffset2:		db 1Ah			; offset for sectors in part _two_ of track 1.
+rctrk1fmt1:	db 10h	; diskette format for track 1 for sectors LESS than rcmaxsect1s
+rctrk1fmt2:	db 18h	; diskette format for track 1 for sectors MORE than rcmaxsect1s
+rcspt1:		db 68h	; 
+rcspt2:		db 78h	; 
+rcmaxsect1:	db 19h	; largest sector that can fit in part _one_ of track 1.
+rcmaxsect2:	db 34h	; largest sector that can fit in part _two_ of track 1.
+rcoffset2:	db 1Ah	; offset for sectors in part _two_ of track 1.
 
 minitrans:
 
@@ -107,65 +107,65 @@ TRELT	SET	TRBASE
 	ENDM
 	endif
 
-; The following is most likely random data from a DS statement.  
+; The following is most likely random data from a DS statement.
 		db ' !'
 		db 22h
 		db '#$%&'
 		db  27h	; '
 		db  '()*+,-./0123456789:;<=>?'
 
-maxitrans:	db    0	;  
-		db    4	;  
-		db    8	;  
+maxitrans:	db    0	;
+		db    4	;
+		db    8	;
 		db 0Ch
-		db  10h	;  
-		db  14h	;  
-		db  18h	;  
-		db    1	;  
-		db    5	;  
-		db    9	;  
-		db  0Dh	;  
-		db  11h	;  
-		db  15h	;  
-		db  19h	;  
-		db    2	;  
-		db    6	;  
-		db  0Ah	;  
-		db  0Eh	;  
-		db  12h	;  
-		db  16h	;  
-		db    3	;  
-		db    7	;  
-		db  0Bh	;  
-		db  0Fh	;  
-		db  13h	;  
-		db  17h	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	;  
-		db    0	; 
+		db  10h	;
+		db  14h	;
+		db  18h	;
+		db    1	;
+		db    5	;
+		db    9	;
+		db  0Dh	;
+		db  11h	;
+		db  15h	;
+		db  19h	;
+		db    2	;
+		db    6	;
+		db  0Ah	;
+		db  0Eh	;
+		db  12h	;
+		db  16h	;
+		db    3	;
+		db    7	;
+		db  0Bh	;
+		db  0Fh	;
+		db  13h	;
+		db  17h	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
+		db    0	;
 		db 	'456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefg'
 ; RC DATA END
 
@@ -257,7 +257,10 @@ OPEN:	;FILE OPEN FUNCTION
 	MVI C,OPENF ! JMP BDOS
 ;
 ; RC BEGIN
-rctrack1:				
+; Ensure before writing each sector that the format is set correctly.
+; Anything but track 1 is set to normal format, and track 1 is split in two
+; to be backwards compatible.
+rcsetfmt:				
 		lda	track
 		cpi	1
 		jnz	nottrack1
@@ -277,7 +280,7 @@ nottrack1:				; CODE XREF: rc_track1+5j
 		lda	rccpmfmt
 
 rcsel:				; CODE XREF: rc_track1+14j
-		; HL = ^bios[34h] - base of disk format bytes				; rc_track1+1Aj
+		; HL = ^bios[34h] - base of disk format bytes	
 		lhld	1
 		lxi	d, 34h
 		dad	d
@@ -313,7 +316,7 @@ GETPUT:
 
 	mvi	a, 3
 	sta	track
-	lda	byte0175
+	lda	rcspt2
 	sta	spt
 
 RWTRK:	;READ OR WRITE NEXT TRACK
@@ -334,7 +337,7 @@ RWTRK:	;READ OR WRITE NEXT TRACK
 	STA	SECTOR	;SECTOR INCREMENTED BEFORE READ OR WRITE
 ;
 RWSEC:	;READ OR WRITE SECTOR
-	call	rctrack1
+	call	rcsetfmt
 	lda	track
 	cpi	1
 	jnz	rwsec2		; if sector goes on another track than 1, write it
@@ -343,17 +346,16 @@ RWSEC:	;READ OR WRITE SECTOR
 	mov	b, a
 	lda	rcmaxsect1
 	cmp	b
-	jnc	rwsec2		; if sector is within max size of track 1 first part, write it
+	jnc	rwsec2		; if sector is within first part of track 1, write it
 	lda	rcmaxsect2
 	cmp	b
-	jc	rwsec2		; if sector is within max size of track 1 second part, do not 
-	lda	rcoffset2
-	add	b
+	jc	rwsec2		; if sector is within second part of track 1, 
+	lda	rcoffset2	; add offset to compensate for the different number of
+	add	b		; sectors per track.
 	dcr	a
 	sta	sector
 
-rwsec2:					; CODE XREF: getput+2Cj getput+38j
-					;
+rwsec2:
 
 	LDA	SPT	;SECTORS PER TRACK
 	LXI	H,SECTOR
@@ -367,7 +369,7 @@ rwsec2:					; CODE XREF: getput+2Cj getput+38j
 rc1:
 	mov	c, m
 	mvi	b, 0
-	lda	track
+	lda	track	; for tracks different than 1, do not translate sector
 	cpi	1
 	jnz	rwsec1
 
@@ -451,7 +453,7 @@ ENDTRK:
 	DAD	D	;+SPT*SECSIZ
 	SHLD	DMADDR	;READY FOR NEXT TRACK
 	
-	lda	byte0174
+	lda	rcspt1
 	sta	spt
 	
 	JMP	RWTRK	;FOR ANOTHER TRACK
@@ -475,9 +477,9 @@ START:
 	mvi	a, 8
 	sta	rctrk1fmt2
 	mvi	a, 40h
-	sta	byte0174
+	sta	rcspt1
 	mvi	a, 48h
-	sta	byte0175
+	sta	rcspt2
 	mvi	a, 0Fh
 	sta	rcmaxsect1
 	mvi	a, 20h
