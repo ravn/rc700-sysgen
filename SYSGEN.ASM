@@ -57,18 +57,29 @@ OST:	DB	NTRKS	;OPERATING SYSTEM TRACKS
 SPT:	DB	0	;SECTORS PER TRACK (CAN BE PATCHED)
 
 ; RC DATA START
-dskfmt:		db 08h			
+;
+; The RC mapping from logical to physical sectors is slightly different than expected 
+; by SYSGEN and we therefore need to do a bit more housekeeping.   These values are for
+; maxi floppy systems.   Mini floppy systems are detected at runtime and these values 
+; overwritten accordingly.
+; 
+; From CPMBOOT.MAC:
+;FD0:	DB	255		;    MAXI                MINI 96 tpi
+;FD1:	DB	255		; 0: SS,128 B/S,25 S/T      not used
+;FD2:	DB	255		; 8: DD,512 B/S,30 S/T  *DD,512 B/S,20 S/T
+;FD3:	DB	255		;16:*SS,128 B/S,26 S/T   DD,512 B/S,20 S/T
+;FD4:	DB	255		;24:*DD,256 B/S,26 S/T XXDD,512 B/S,30 S/T
+
+
+rccpmfmt:		db 08h			; diskette format for normal CP/M usage, restored at exit.
 					
-byte0172:		db 10h			; DATA XREF: rc_track1+11r
-					; getput+EEw
-byte0173:		db 18h			; DATA XREF: rc_track1+17r
-					; getput+F3w
+rctrk1fmt1:		db 10h			; diskette format for track 1 for sectors LESS than rcmaxsect1s
+rctrk1fmt2:		db 18h			; diskette format for track 1 for sectors MORE than rcmaxsect1s
 byte0174:		db 68h			; DATA XREF: getput+D3r getput+F8w
 byte0175:		db 78h			; DATA XREF: getput+Br	getput+FDw
-byte0176:		db 19h			; DATA XREF: rc_track1+Dr getput+34r
-					; ...
-byte0177:		db 34h			; DATA XREF: getput+3Br getput+107
-byte0178:		db 1Ah			; DATA XREF: getput+42r getput+10C
+rcmaxsect1:		db 19h			; largest sector that can fit in part _one_ of track 1.
+rcmaxsect2:		db 34h			; largest sector that can fit in part _two_ of track 1.
+rcoffset2:		db 1Ah			; offset for sectors in part _two_ of track 1.
 
 minitrans:
 
@@ -96,38 +107,13 @@ TRELT	SET	TRBASE
 	ENDM
 	endif
 
-
-
-asc0199:	db ' !'
+; The following is most likely random data from a DS statement.  
+		db ' !'
 		db 22h
-		db '#$'
-unk019E:	db  25h	; %
-		db  26h	; &
-unk01A0:	db  27h	; '
-		db  28h	; (
-		db  29h	; )
-		db  2Ah	; *
-		db  2Bh	; +
-		db  2Ch	; ,
-byte01A6:	db 2Dh
-		db  2Eh	; .
-		db  2Fh	; /
-		db  30h	; 0
-		db  31h	; 1
-		db  32h	; 2
-		db  33h	; 3
-		db  34h	; 4
-		db  35h	; 5
-		db  36h	; 6
-		db  37h	; 7
-		db  38h	; 8
-		db  39h	; 9
-		db  3Ah	; :
-		db  3Bh	; ;
-		db  3Ch	; <
-		db  3Dh	; =
-		db  3Eh	; >
-		db  3Fh	; ?
+		db '#$%&'
+		db  27h	; '
+		db  '()*+,-./0123456789:;<=>?'
+
 maxitrans:	db    0	;  
 		db    4	;  
 		db    8	;  
@@ -179,64 +165,9 @@ maxitrans:	db    0	;
 		db    0	;  
 		db    0	;  
 		db    0	;  
-		db    0	;  
-		db  34h	; 4
-		db  35h	; 5
-		db  36h	; 6
-		db  37h	; 7
-		db  38h	; 8
-		db  39h	; 9
-		db  3Ah	; :
-		db  3Bh	; ;
-		db  3Ch	; <
-		db  3Dh	; =
-		db  3Eh	; >
-		db  3Fh	; ?
-		db  40h	; @
-		db  41h	; A
-		db  42h	; B
-		db  43h	; C
-		db  44h	; D
-		db  45h	; E
-		db  46h	; F
-		db  47h	; G
-		db  48h	; H
-		db  49h	; I
-		db  4Ah	; J
-		db  4Bh	; K
-		db  4Ch	; L
-		db  4Dh	; M
-		db  4Eh	; N
-		db  4Fh	; O
-		db  50h	; P
-		db  51h	; Q
-		db  52h	; R
-		db  53h	; S
-		db  54h	; T
-		db  55h	; U
-		db  56h	; V
-		db  57h	; W
-		db  58h	; X
-		db  59h	; Y
-		db  5Ah	; Z
-		db  5Bh	; [
-		db  5Ch	; \
-		db  5Dh	; ]
-		db  5Eh	; ^
-		db  5Fh	; _
-		db  60h	; `
-		db  61h	; a
-		db  62h	; b
-		db  63h	; c
-		db  64h	; d
-		db  65h	; e
-		db  66h	; f
-		db  67h	; g
+		db    0	; 
+		db 	'456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefg'
 ; RC DATA END
-
-
-
-
 
 ;
 ;
@@ -326,48 +257,47 @@ OPEN:	;FILE OPEN FUNCTION
 	MVI C,OPENF ! JMP BDOS
 ;
 ; RC BEGIN
-rctrack1:				; CODE XREF: getput+24p
+rctrack1:				
 		lda	track
 		cpi	1
-		jnz	loc02BA
+		jnz	nottrack1
 		lda	sector
 		inr	a
 		mov	b, a
-		lda	byte0176
-		cmp	b
-		lda	byte0172
-		jnc	loc02BD
-		lda	byte0173
-		jmp	loc02BD
+		lda	rcmaxsect1
+		cmp	b		; first or second part of track 1?
+		lda	rctrk1fmt1
+		jnc	rcsel
+		lda	rctrk1fmt2
+		jmp	rcsel
 
 ; -
 
-loc02BA:				; CODE XREF: rc_track1+5j
-		lda	dskfmt
+nottrack1:				; CODE XREF: rc_track1+5j
+		lda	rccpmfmt
 
-loc02BD:				; CODE XREF: rc_track1+14j
-					; rc_track1+1Aj
+rcsel:				; CODE XREF: rc_track1+14j
+		; HL = ^bios[34h] - base of disk format bytes				; rc_track1+1Aj
 		lhld	1
 		lxi	d, 34h
 		dad	d
-		push	psw
+		push	psw		; save wanted disk format
 		lda	sdisk
-		mov	b, a
-		add	l
+		mov	b, a		; b = current disk
+		add	l		; hl = hl + current disk
 		mov	l, a
-		jnc	loc02CF
+		jnc	rcsel2
 		inr	h
 
-loc02CF:				; CODE XREF: rc_track1+2Ej
-		pop	psw
-		mov	c, m
+rcsel2:
+		pop	psw		; a = wanted disk format
+		mov	c, m		; c = current disk format
 		cmp	c
-		rz	
-		mov	m, a
-		mov	a, b
+		rz			; return if the same
+		mov	m, a		; otherwise set new disk format in bios
+		mov	a, b		; and select the disk
 		call	sel
 		ret	
-; End of function rc_track1
 
 
 GETPUT:
@@ -407,17 +337,17 @@ RWSEC:	;READ OR WRITE SECTOR
 	call	rctrack1
 	lda	track
 	cpi	1
-	jnz	rwsec2
+	jnz	rwsec2		; if sector goes on another track than 1, write it
 	lda	sector
 	inr	a
 	mov	b, a
-	lda	byte0176
+	lda	rcmaxsect1
 	cmp	b
-	jnc	rwsec2
-	lda	byte0177
+	jnc	rwsec2		; if sector is within max size of track 1 first part, write it
+	lda	rcmaxsect2
 	cmp	b
-	jc	rwsec2
-	lda	byte0178
+	jc	rwsec2		; if sector is within max size of track 1 second part, do not 
+	lda	rcoffset2
 	add	b
 	dcr	a
 	sta	sector
@@ -536,25 +466,26 @@ START:
 
 	in	14h
 	ani	80h
-	jz	rcnotmaxi
+	jz	start2
+	; This is a mini system.  Overwrite maxi values with mini values.
 	mvi	a, 10h
-	sta	dskfmt
+	sta	rccpmfmt
 	mvi	a, 0
-	sta	byte0172
+	sta	rctrk1fmt1
 	mvi	a, 8
-	sta	byte0173
+	sta	rctrk1fmt2
 	mvi	a, 40h
 	sta	byte0174
 	mvi	a, 48h
 	sta	byte0175
 	mvi	a, 0Fh
-	sta	byte0176
+	sta	rcmaxsect1
 	mvi	a, 20h
-	sta	byte0177
+	sta	rcmaxsect2
 	mvi	a, 10h
-	sta	byte0178
+	sta	rcoffset2
 
-rcnotmaxi:				; CODE XREF: getput+E4j
+start2:				; CODE XREF: getput+E4j
 
 
 	LXI	H,SIGNON
@@ -694,8 +625,9 @@ PUTC:
 	CALL	OUTMSG
 	JMP	PUTSYS	;FOR ANOTHER PUT OPERATION
 ;
-REBOOT:
-	lda	dskfmt
+REBOOT:	
+	; set the diskette format for A and B in bios to rccpmfmt before exiting
+	lda	rccpmfmt
 	lhld	1
 	lxi	d, 34h
 	dad	d
@@ -704,9 +636,9 @@ REBOOT:
 	mov	m, a
 
 	MVI	A,0
-	CALL	SEL
+	CALL	SEL		; select disk 0 to activate format
 	CALL	CRLF
-	JMP	BOOT
+	JMP	BOOT$
 BADDISK:
 	;BAD DISK NAME
 	LXI	H,QDISK
