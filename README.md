@@ -16,7 +16,14 @@ Use
     MAC SYSGEN
     LOAD SYSGEN
 
-to create a new SYSGEN.COM.  See http://www.cpm.z80.de/manuals/mac.pdf for documentation.
+under e.g. RunCMD to create a new SYSGEN.COM.  See http://www.cpm.z80.de/manuals/mac.pdf for documentation.
+
+If zmac is available on the host system, use
+
+    zmac -8 --dri SYSGEN.ASM
+
+to create zout/SYSGEN.cim which is binary identical to SYSGEN.COM generated above.  See http://48k.ca/zmac.html for details.
+
 
 Use 
 

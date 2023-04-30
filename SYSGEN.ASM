@@ -1,5 +1,5 @@
 	TITLE	'SYSGEN - SYSTEM GENERATION PROGRAM 8/79'
-;	SYSTEM GENERATION PROGRAM, VERSION FOR MDS
+;	SYSTEM GENERATION PROGRAM, REVERSE ENGINEERED VERSION FOR REGNECENTRALEN RC702
 VERS	EQU	20	;X.X
 ;
 ;	COPYRIGHT (C) DIGITAL RESEARCH
@@ -107,14 +107,10 @@ TRELT	SET	TRBASE
 	ENDM
 	endif
 
-; The following is most likely random data from a DS statement.
-		db ' !'
-		db 22h
-		db '#$%&'
-		db  27h	; '
-		db  '()*+,-./0123456789:;<=>?'
+; The following is most likely caused by a DS statement not zeroed out by the linker.
+		db ' !',22h,'#$%&', 27h,'()*+,-./0123456789:;<=>?'
 
-maxitrans:	db    0	;
+maxitrans:	db    0	; This could be calculated by the macro too.
 		db    4	;
 		db    8	;
 		db 0Ch
@@ -676,6 +672,14 @@ SECTOR:	DS	1	;CURRENT SECTOR
 RW:	DS	1	;READ IF 0, WRITE IF 1
 DMADDR:	DS	2	;CURRENT DMA ADDRESS
 RETRY:	DS	1	;NUMBER OF TRIES ON THIS SECTOR
-	DS	STACKSIZE*2
+;	DS	STACKSIZE*2
+	REPT	STACKSIZE
+	DW	0
+	ENDM
 STACK:
-	END
+; PAD TO 128 BYTE SECTOR SIZE FOR NON-CP/M ASSEMBLER.
+	if	($ MOD 128) GT 0	
+	rept 	128 - ($ MOD 128) 
+	db	0
+	endm
+	endif
