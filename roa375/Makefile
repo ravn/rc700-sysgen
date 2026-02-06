@@ -1,3 +1,3 @@
 foo:
-	../zmac/bin/zmac -z --dri roa375.asm
+	../zmac/bin/zmac -z --dri roa375.mac
 

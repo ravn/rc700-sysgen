@@ -1,0 +1,49 @@
+;************************************************************************
+;*									*
+;* AUTOLOAD-FILE FOR THE RC702 MICROCOMPUTER				*
+;*  									*
+;************************************************************************ 
+.Z80
+
+STACK	equ	0bfffh
+
+;*****************************************************************************
+;  START OF PROM CODE. THE FIRST CODE BYTES WILL MOVE THE BOOTSTRAP CODE     *
+;  IMAGE TO ADDRESS A000 AND FORWARD.                                        *
+;*****************************************************************************
+
+	ORG 0	;START IN ADDRESS 0 ABS.
+BEGIN:	DI		;
+	LD 	SP,STACK	;SET STACK AREA
+	LD 	HL,0068h	;FIRST BYTE TO BE MOVEN
+XX:	LD 	A,(HL)
+	OR 	A
+	INC 	(HL)
+	JP	Z, XX
+	CP	0FFh
+	JP	Z, YY
+	DEC	HL
+YY:	EX	DE,HL
+
+	LD	HL, 07000h
+	LD	BC, 0798h
+ZZ:
+	LD	A,(DE)
+	LD	(HL), A
+	INC	DE
+	INC	HL
+	DEC	BC
+	LD	A,C
+	OR	B
+	JP	NZ, ZZ
+
+	JP	070D0h
+MOVADR:
+PAGE
+	.PHASE 0A000H
+
+FMOVS:  dw	0
+FMOVE:	dw	0
+AUTOL:  dw	0
+	.dephase
+	

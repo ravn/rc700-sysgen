@@ -5,14 +5,15 @@ VERS	EQU	20	;X.X
 ;	COPYRIGHT (C) DIGITAL RESEARCH
 ;	         1976, 1977, 1978, 1979
 ;
-;NSECTS	EQU	26	;NO. OF SECTORS PER TRACK
-NSECTS	EQU	16	;NO. OF SECTORS PER TRACK
+;NSECTS	EQU	26	;NO. OF SECTORS PER TRACK (original DIGITAL RESEARCH value)
+NSECTS	EQU	16	;NO. OF SECTORS PER TRACK (RC702 system layout)
 NTRKS	EQU	2	;NO. OF OPERATING SYSTEM TRACKS
-;NDISKS	EQU	4	;NUMBER OF DISK DRIVES
-NDISKS	EQU	2	;NUMBER OF DISK DRIVES
+;NDISKS	EQU	4	;NUMBER OF DISK DRIVES (original DIGITAL RESEARCH value)
+NDISKS	EQU	2	;NUMBER OF DISK DRIVES (RC702 has two drives)
 SECSIZ	EQU	128	;SIZE OF EACH SECTOR
 LOG2SEC	EQU	7	;LOG 2 SECSIZ
-SKEW	EQU	2	;SECTOR SKEW FACTOR
+;SKEW	EQU	1	;SECTOR SKEW FACTOR (original DIGITAL RESEARCH value)
+SKEW	EQU	2	;SECTOR SKEW FACTOR (RC702 controller)
 ;
 FCB	EQU	005CH	;DEFAULT FCB LOCATION
 FCBCR	EQU	FCB+32	;CURRENT RECORD LOCATION
@@ -209,7 +210,7 @@ OUTMSG:
 ;
 SEL:
 ;	SELECT DISK GIVEN BY REGISTER A
-	sta	sdisk
+	sta	sdisk		; RC: remember selected disk for rcsetfmt
 	MOV C,A! LHLD WBOOT! LXI D,SELDSK! DAD D! PCHL
 ;
 TRK:	;SET UP TRACK
@@ -297,6 +298,7 @@ rcsel2:
 		mov	a, b		; and select the disk
 		call	sel
 		ret	
+; RC END
 
 
 GETPUT:
@@ -310,9 +312,11 @@ GETPUT:
 ;	MVI	A,-1	;START WITH TRACK EQUAL -1
 ;	STA	TRACK
 
-	mvi	a, 3
+; RC: RC702 system layout uses tracks 1–2 for directory/CP/M
+; RC: (UNSURE) and OS image on track 3 with different SPT; initialize accordingly.
+	mvi	a, 3		; RC: start from track 3 instead of -1
 	sta	track
-	lda	rcspt2
+	lda	rcspt2		; RC: sectors per track for upper OS area
 	sta	spt
 
 RWTRK:	;READ OR WRITE NEXT TRACK
@@ -449,7 +453,7 @@ ENDTRK:
 	DAD	D	;+SPT*SECSIZ
 	SHLD	DMADDR	;READY FOR NEXT TRACK
 	
-	lda	rcspt1
+	lda	rcspt1		; RC: restore SPT for lower OS area / track 1
 	sta	spt
 	
 	JMP	RWTRK	;FOR ANOTHER TRACK
@@ -461,7 +465,9 @@ ENDRW:	;END OF READ OR WRITE, RETURN TO CALLER
 START:
 ;
 	LXI	SP,STACK	;SET LOCAL STACK POINTER
-
+;
+; RC BEGIN
+; Detect RC702 mini vs. maxi system and override default RC data accordingly.
 	in	14h
 	ani	80h
 	jz	start2
@@ -482,6 +488,7 @@ START:
 	sta	rcmaxsect2
 	mvi	a, 10h
 	sta	rcoffset2
+; RC END
 
 start2:				; CODE XREF: getput+E4j
 
@@ -624,6 +631,7 @@ PUTC:
 	JMP	PUTSYS	;FOR ANOTHER PUT OPERATION
 ;
 REBOOT:	
+; RC BEGIN
 	; set the diskette format for A and B in bios to rccpmfmt before exiting
 	lda	rccpmfmt
 	lhld	1
@@ -632,11 +640,12 @@ REBOOT:
 	mov	m, a
 	inx	h
 	mov	m, a
-
+	
 	MVI	A,0
 	CALL	SEL		; select disk 0 to activate format
 	CALL	CRLF
 	JMP	BOOT$
+; RC END
 BADDISK:
 	;BAD DISK NAME
 	LXI	H,QDISK
