@@ -1,4 +1,5 @@
 *.PRN
 *.HEX
 zout
-
+.claude/
+.idea/

@@ -10,6 +10,8 @@ This repository contains Z80 assembly source code for the RC702 computer system,
 
 The goal is to recreate byte-exact source code for these RC702-specific components that were missing from Michael Ringgård's RC702 emulator project (http://www.jbox.dk/rc702/).
 
+**See `RC702_HARDWARE_TECHNICAL_REFERENCE.md` for comprehensive hardware documentation including I/O ports, memory maps, disk formats, and controller specifications.**
+
 ## Key Components
 
 ### sysgen/
@@ -90,9 +92,45 @@ The MAC assembler produces single-character error codes (see README.md section "
 
 ## Architecture Notes
 
-The RC702 required SYSGEN modifications because it supported multiple floppy densities on 8" disks, unlike standard CP/M 2.2 systems. The modifications involve:
-- Custom disk format parameters (`rc_diskformat`, `spt`)
-- Track skewing tables (`maxitrans`)
-- RC702-specific initialization
+The RC702 required SYSGEN modifications because it supported multiple floppy densities on 8" disks, unlike standard CP/M 2.2 systems.
 
-The autoload PROM (ROA375) bootstraps the system by loading the first sectors from disk or line program interface into memory at 0A000h and jumping to it.
+### RC702 8" Diskette Layout
+The 8" diskette uses a mixed-density format for backward compatibility:
+- **Track 0, Side 0**: FM encoding (single density), 26 sectors × 128 bytes
+- **Track 0, Side 1**: MFM encoding (double density), 26 sectors × 256 bytes
+- **Tracks 1-76, both sides**: MFM encoding (double density), 15 sectors × 512 bytes
+
+Total capacity: ~1.2MB (DS/DD format)
+
+### RC702 5.25" Diskette Layout
+The 5.25" diskette also uses multi-density:
+- **Track 0, Side 0**: FM encoding, 16 sectors × 128 bytes (2KB)
+- **Track 0, Side 1**: MFM encoding, 16 sectors × 256 bytes (4KB)
+- **Tracks 1-34, both sides**: MFM encoding, 9 sectors × 512 bytes with 2:1 interleave
+
+Total capacity: ~319KB
+
+### Multi-Density Implementation
+This multi-density format required extensive SYSGEN modifications:
+- Dynamic density switching during track read/write operations
+- Custom disk format parameters (`rc_diskformat`, `spt`, `rctrk1fmt1`, `rctrk1fmt2`)
+- Track skewing tables (`maxitrans`, `minitrans`) for 2:1 sector interleave
+- Sector mapping logic for Track 1's three density zones
+- RC702-specific BIOS calls for format detection
+
+### Hardware Controllers
+- **CPU**: Z80-A at 4 MHz
+- **FDC**: NEC µPD765 (or Intel 8272) floppy disk controller
+- **DMA**: AMD Am9517A-4 (or Intel 8237-2) for disk transfers
+- **CRT**: Intel 8275 programmable CRT controller
+- **Display**: 80×24 characters at memory address 0x7800
+
+### Boot Process
+The autoload PROM (ROA375) bootstraps the system:
+1. Self-relocate from ROM (0x0000) to RAM (0x7000)
+2. Initialize interrupt vectors at 0x7300 (Z80 Mode 2)
+3. Initialize PIO, DMA, CTC, and CRT controllers
+4. Attempt hard disk boot, fallback to floppy
+5. Read Track 0 (mixed density) to 0x0000
+6. Disable ROM via port 0x14
+7. Jump to 0x0000 (CP/M cold boot)
