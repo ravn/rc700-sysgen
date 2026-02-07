@@ -180,6 +180,7 @@ The ROA375 boot ROM is a 2KB PROM that is initially mapped into the Z80's addres
 
 ```
 0x14  SW1/RAMEN  - ROM disable / Mini/Maxi switch
+0x18  BEEPER     - Beeper/speaker output (any output triggers beep)
 0x19  RAMEN      - RAM enable port
 0x1C  BIB        - Speaker/beep control
 ```
