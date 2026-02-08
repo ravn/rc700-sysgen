@@ -103,7 +103,7 @@ MOVADR:
 ; Interrupt vectors and error handlers
 ;------------------------------------------------------------------------
 
-	RST	38H			;0xFF marker byte
+	DB	0FFH			;0xFF marker byte
 
 ; Error message display vectors
 ERRVEC1:

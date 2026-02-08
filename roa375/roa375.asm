@@ -171,7 +171,7 @@ DATASTART:
 
 	.PHASE	RELOCBASE		; Assemble for relocated address
 
-	RST	38H			; RST 38H vector (0xFF opcode)
+	DB	0FFH			; Relocatable marker (also used for scanning)
 
 ;-----------------------------------------------------------------------
 ; Code blocks for display initialization
@@ -282,10 +282,16 @@ SUB_COPY:
 ;-----------------------------------------------------------------------
 
 MSG_ERROR1:
-	DEFM	" RC700 RC702 "
-	DEFM	"**NO SYSTEM FILES** "
+	DEFM	" RC700"
+MSG_ERROR2:
+	DEFM    " RC702"
+MSG_ERROR3:
+	DEFM	" **NO SYSTEM FILES** "
+MSG_ERROR4:
 	DEFM	" **NO DISKETTE NOR LINEPROG** "
+MSG_ERROR5:
 	DEFM	" **NO KATALOG** "
+MSG_ERROR6:
 	DEFB	002H			; Control character
 
 ;-----------------------------------------------------------------------
