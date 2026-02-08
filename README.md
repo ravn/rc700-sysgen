@@ -21,9 +21,11 @@ under e.g. RunCMD to create a new SYSGEN.COM.  See http://www.cpm.z80.de/manuals
 
 If zmac is available on the host system, use
 
-    zmac -8 --dri SYSGEN.ASM
+    zmac -z --dri SYSGEN.ASM
 
 to create zout/SYSGEN.cim which is binary identical to SYSGEN.COM generated above.  See http://48k.ca/zmac.html for details.
+
+**Note**: Use `-z` flag for Z80 assembly (not `-8` which is for 8080 mode).
 
 
 Use 

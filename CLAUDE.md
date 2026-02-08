@@ -40,7 +40,7 @@ The preferred method uses zmac on macOS/Linux:
 
 ```bash
 cd sysgen
-zmac -8 --dri SYSGEN.ASM
+zmac -z --dri SYSGEN.ASM
 ```
 
 This generates `zout/SYSGEN.cim` which should be byte-identical to SYSGEN.COM.
