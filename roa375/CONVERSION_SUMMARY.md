@@ -56,7 +56,7 @@ Already in readable assembly format:
 
 ## Build Instructions
 ```bash
-zmac -8 --dri roa375.asm
+zmac -8 --dri roa375_abandoned.asm
 dd if=zout/roa375.cim bs=1 count=2048 | md5
 # Should output: a136b144885c2789ca75aee675c39d7e
 ```

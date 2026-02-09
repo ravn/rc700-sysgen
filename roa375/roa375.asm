@@ -1,531 +1,769 @@
 ;************************************************************************
 ;*									*
-;* AUTOLOAD ROM FOR THE RC702 MICROCOMPUTER				*
+;* AUTOLOAD-FILE FOR THE RC702 MICROCOMPUTER				*
+;*  									*
+;* REGNECENTRALEN 1982							*
 ;*									*
-;* ROM: ROA375 (2048 bytes)						*
-;* Disassembled and commented: 2026-02-08				*
+;* Complete disassembly - REFERENCE VERSION				*
+;* NOT byte-exact - see comments for differences			*
 ;*									*
 ;************************************************************************
-
 .Z80
 
-;=======================================================================
-; HARDWARE I/O PORT DEFINITIONS
-;=======================================================================
+;========================================================================
+; BOOT CODE - Executes from ROM at 0x0000-0x0066
+;========================================================================
 
-PORT14		EQU	014H		; Mini/Maxi switch & PROM disable
-					; Reading: bit 7 = diskette size
-					; Writing: disables PROM, enables RAM
-PORT18		EQU	018H		; Beeper/speaker port
-
-;=======================================================================
-; MEMORY ADDRESS DEFINITIONS
-;=======================================================================
-
-STACK		EQU	0BFFFH		; Stack pointer initialization
-RELOCBASE	EQU	07000H		; Relocation destination (RAM)
-RELOCSIZE	EQU	0798H		; Bytes to relocate (1944 bytes)
-EXECADDR	EQU	070D0H		; Jump to relocated code
-
-;=======================================================================
-; MEMORY MAPPED I/O ADDRESSES
-;=======================================================================
-
-IO_801C		EQU	0801CH		; I/O control register
-IO_801D		EQU	0801DH		; I/O control register
-IO_8042		EQU	08042H		; I/O control register
-IO_8033		EQU	08033H		; I/O control register
-IO_801B		EQU	0801BH		; I/O control register
-IO_8060		EQU	08060H		; I/O control register
-IO_8061		EQU	08061H		; I/O control register
-IO_8041		EQU	08041H		; I/O control register
-IO_8062		EQU	08062H		; I/O control register
-IO_8063		EQU	08063H		; I/O register array base (8 bytes)
-
-RELOCATED_DATA	EQU	07320H		; Storage for switch state
-JUMP_TARGET	EQU	07218H		; Final jump address
-
-;************************************************************************
-;*									*
-;* ROM START - COLD BOOT INITIALIZATION				*
-;*									*
-;* This section executes from ROM and relocates the bootstrap code	*
-;* to RAM at 0x7000 for execution.					*
-;*									*
-;************************************************************************
-
-	ORG	0000H			; ROM starts at address 0
+	ORG	0000H
 
 BEGIN:
-	DI				; Disable interrupts during init
-	LD	SP,STACK		; Initialize stack pointer to 0xBFFF
+	DI				;Disable interrupts
+	LD	SP,0BFFFH		;Set stack pointer
+	LD	HL,0068H		;Point to relocatable code start
 
-;-----------------------------------------------------------------------
-; Find end of ROM image (search for 0xFF terminator or zero bytes)
-;-----------------------------------------------------------------------
-
-	LD	HL,DATASTART		; Point to start of data section
-SCAN:
-	LD	A,(HL)			; Read byte from ROM
-	OR	A			; Check if zero
-	INC	HL			; Advance pointer
-	JP	Z,SCAN			; Continue scanning if zero
-	CP	0FFH			; Check for 0xFF marker
-	JP	Z,SKIP			; Found end marker
-	DEC	HL			; Back up one byte
+; Scan for actual code start (skip zeros)
+SCANLP:
+	LD	A,(HL)			;Get byte
+	OR	A			;Zero?
+	INC	HL
+	JP	Z,SCANLP		;Keep scanning
+	CP	0FFH			;Found 0xFF marker?
+	JP	Z,SKIP
+	DEC	HL			;Back up to non-zero
 SKIP:
-	EX	DE,HL			; DE = source address
+	EX	DE,HL			;DE = source address
 
-;-----------------------------------------------------------------------
-; Relocate code from ROM to RAM at 0x7000
-; This allows the ROM to be disabled and RAM to take over
-;-----------------------------------------------------------------------
+; Copy 0x798 bytes from ROM to RAM at 0x7000
+	LD	HL,07000H		;Destination
+	LD	BC,0798H		;Count = 1944 bytes
+COPYLP:
+	LD	A,(DE)			;Get source
+	LD	(HL),A			;Store
+	INC	DE
+	INC	HL
+	DEC	BC
+	LD	A,C
+	OR	B
+	JP	NZ,COPYLP
+	JP	070D0H			;Jump to relocated init
 
-	LD	HL,RELOCBASE		; HL = destination address (0x7000)
-	LD	BC,RELOCSIZE		; BC = number of bytes to copy
-COPY:
-	LD	A,(DE)			; Read byte from source
-	LD	(HL),A			; Write byte to destination
-	INC	DE			; Advance source pointer
-	INC	HL			; Advance destination pointer
-	DEC	BC			; Decrement byte counter
-	LD	A,C			; Check if counter reached zero
-	OR	B			;
-	JP	NZ,COPY			; Continue copying
-	JP	EXECADDR		; Jump to relocated code in RAM
+;========================================================================
+; PRE-INITIALIZATION - Executes from ROM at 0x0027-0x0066
+; This runs before the main relocated code
+;========================================================================
 
-;************************************************************************
-;*									*
-;* HARDWARE INITIALIZATION ROUTINE					*
-;*									*
-;* Initializes system I/O ports and control registers			*
-;*									*
-;************************************************************************
+PREINIT:
+	LD	A,003H
+	LD	(0801CH),A
+	INC	A
+	LD	(0801DH),A
+	LD	(08042H),A
 
-INIT_HW:
-	LD	A,003H			; Value 3
-	LD	(IO_801C),A		; Write to I/O control
-	INC	A			; A = 4
-	LD	(IO_801D),A		; Write to I/O control
-	LD	(IO_8042),A		; Write to I/O control
+	LD	A,000H
+	LD	B,A
+	IN	A,(014H)		;Read switch settings
+	AND	080H			;Mask mini/maxi bit
+	ADD	A,B
+	LD	(07320H),A
 
-	LD	A,000H			; Clear A
-	LD	B,A			; Clear B
-	IN	A,(PORT14)		; Read diskette size switch
-	AND	080H			; Mask bit 7 (1=mini/5.25", 0=maxi/8")
-	ADD	A,B			; Add to B (=0)
-	LD	(RELOCATED_DATA),A	; Store diskette type in RAM
+	XOR	A			;Clear A
+	LD	(08033H),A
+	LD	(0801BH),A
+	LD	(08060H),A
+	LD	(08061H),A
+	LD	(08041H),A
 
-;-----------------------------------------------------------------------
-; Clear I/O control registers
-;-----------------------------------------------------------------------
+	LD	C,008H
+	LD	HL,08063H
+CLRLP:
+	LD	(HL),A
+	INC	HL
+	DEC	C
+	JP	NZ,CLRLP
 
-	XOR	A			; A = 0
-	LD	(IO_8033),A		; Clear I/O registers
-	LD	(IO_801B),A		;
-	LD	(IO_8060),A		;
-	LD	(IO_8061),A		;
-	LD	(IO_8041),A		;
+	EI				;Enable interrupts
+	LD	A,001H
+	OUT	(014H),A		;ROM disable port
+	LD	A,005H
+	LD	(08062H),A
+	JP	07218H
 
-;-----------------------------------------------------------------------
-; Clear 8-byte I/O register array at 0x8063
-;-----------------------------------------------------------------------
+; FIXME NMIRETURN must be precise
+	RETN				;Padding
 
-	LD	C,008H			; Counter = 8 bytes
-	LD	HL,IO_8063		; Base address of array
-LOOP1:
-	LD	(HL),A			; Write zero (A=0)
-	INC	HL			; Next byte
-	DEC	C			; Decrement counter
-	JP	NZ,LOOP1		; Loop until done
+	DB	0FFH			;0xFF marker byte
 
-;-----------------------------------------------------------------------
-; Enable interrupts and complete initialization
-;-----------------------------------------------------------------------
+;========================================================================
+; RELOCATED CODE SECTION - Loaded to 0x7000, executed from there
+;========================================================================
 
-	EI				; Enable interrupts
-	LD	A,001H			; Value 1
-	OUT	(PORT14),A		; Disable PROM, enable full RAM access
+MOVADR:
+	phase	07000H
 
-	LD	A,005H			; Value 5
-	LD	(IO_8062),A		; Write to I/O register
-	JP	JUMP_TARGET		; Jump to main bootstrap code
+; This code gets copied from ROM offset 0x0068 to RAM at 0x7000
+; From here on, all addresses are runtime addresses (0x7000+)
 
-;-----------------------------------------------------------------------
-; Return from non-maskable interrupt
-;-----------------------------------------------------------------------
+;------------------------------------------------------------------------
+; Interrupt vectors and error handlers at 0x7000
+;------------------------------------------------------------------------
 
-	RETN				; NMI return
 
-;************************************************************************
-;*									*
-;* DATA SECTION - CODE AND STRINGS THAT GET RELOCATED TO RAM		*
-;*									*
-;************************************************************************
+; Error message display vectors
+ERRVEC1:
+	LD	BC,07800H		;Display buffer
+	LD	DE,ERMES1		;Error message 1
+	LD	HL,0014H		;Length
+	CALL	MOVCPY			;Copy to screen
+	JP	ERRDSP			;Display error
 
-DATASTART:
+ERRVEC2:
+	LD	BC,07800H
+	LD	DE,ERMES3
+	LD	HL,000FH
+	CALL	MOVCPY
+	JP	ERRDSP
 
-;-----------------------------------------------------------------------
-; This section starts at 0x68 in ROM and gets relocated to 0x7000
-;-----------------------------------------------------------------------
+ERRVEC3:
+	LD	BC,07800H
+	LD	DE,ERMES2
+	LD	HL,001DH
+	CALL	MOVCPY
+	JP	ERRDSP
 
-	.PHASE	RELOCBASE		; Assemble for relocated address
+;------------------------------------------------------------------------
+; Utility routines
+;------------------------------------------------------------------------
 
-	DB	0FFH			; Relocatable marker (also used for scanning)
+SUB_2E:
+	PUSH	HL
+	INC	HL
+	EX	DE,HL
+	LD	BC,070C3H
+	LD	HL,0004H
+	CALL	SUB_5C
+	POP	HL
+	JP	Z,SUB_4F
+	RET
 
-;-----------------------------------------------------------------------
-; Code blocks for display initialization
-;-----------------------------------------------------------------------
+SUB_3E:
+	PUSH	HL
+	INC	HL
+	EX	DE,HL
+	LD	BC,070C8H
+	LD	HL,0004H
+	CALL	SUB_5C
+	POP	HL
+	JP	Z,SUB_4F
+	RET
 
-CODE_BLK1:
-	LD	BC,07800H		; BC = display parameters
-	LD	DE,0707DH		; DE = message source address
-	LD	HL,0014H		; HL = length/offset
-	CALL	SUB_COPY		; Copy message to display
-	JP	073DAH			; Jump to display handler
+SUB_4F:
+	PUSH	HL
+	INC	HL
+	LD	DE,0007H
+	ADD	HL,DE
+	LD	A,(HL)
+	AND	03FH
+	CP	013H
+	POP	HL
+	RET
 
-CODE_BLK2:
-	LD	BC,07800H		; BC = display parameters
-	LD	DE,070B0H		; DE = message source address
-	LD	HL,000FH		; HL = length/offset
-	CALL	SUB_COPY		; Copy message
-	JP	073DAH			; Jump to display handler
+; Memory compare routine
+SUB_5C:
+	LD	A,(DE)
+	LD	H,A
+	LD	A,(BC)
+	CP	H
+	RET	NZ
+	INC	DE
+	INC	BC
+	DEC	L
+	JP	NZ,SUB_5C
+	RET
 
-CODE_BLK3:
-	LD	BC,07800H		; BC = display parameters
-	LD	DE,07092H		; DE = message source address
-	LD	HL,001DH		; HL = length/offset
-	CALL	SUB_COPY		; Copy message
-	JP	073DAH			; Jump to display handler
+; Memory copy routine
+MOVCPY:
+	LD	A,(DE)
+	LD	(BC),A
+	INC	BC
+	INC	DE
+	DEC	L
+	JP	NZ,MOVCPY
+	RET
 
-;-----------------------------------------------------------------------
-; Subroutine: String comparison helper
-;-----------------------------------------------------------------------
+;------------------------------------------------------------------------
+; Error message strings
+;------------------------------------------------------------------------
+RC700TXT:
+	DB	' RC700'
+RC702TXT:
+	DB	' RC702'
+ERMES1:
+	DB	' **NO SYSTEM FILES** '
 
-SUB_CMP1:
-	PUSH	HL			; Save HL
-	INC	HL			; Advance pointer
-	EX	DE,HL			; Swap DE and HL
-	LD	BC,070C3H		; BC = compare address
-	LD	HL,0004H		; HL = byte count
-	CALL	SUB_COMPARE		; Compare strings
-	POP	HL			; Restore HL
-	JP	Z,0704FH		; Jump if match
-	RET				; Return
+ERMES2:
+	DB	' **NO DISKETTE NOR LINEPROG** '
 
-SUB_CMP2:
-	PUSH	HL			; Save HL
-	INC	HL			; Advance pointer
-	EX	DE,HL			; Swap DE and HL
-	LD	BC,070C8H		; BC = compare address
-	LD	HL,0004H		; HL = byte count
-	CALL	SUB_COMPARE		; Compare strings
-	POP	HL			; Restore HL
-	JP	Z,0704FH		; Jump if match
-	RET				; Return
+ERMES3:
+	DB	' **NO KATALOG** '
 
-;-----------------------------------------------------------------------
-; Subroutine: Check byte at offset +7 and compare with 0x13
-;-----------------------------------------------------------------------
+NULLB:	DB	002H, 0C3H, 0C8H			;Control byte
 
-SUB_CHK:
-	PUSH	HL			; Save HL
-	INC	HL			; HL++
-	LD	DE,0007H		; Offset = 7
-	ADD	HL,DE			; HL = HL + 7
-	LD	A,(HL)			; Read byte
-	AND	03FH			; Mask lower 6 bits
-	CP	013H			; Compare with 0x13
-	POP	HL			; Restore HL
-	RET				; Return with flags set
+	; JP	073C8H			;Jump table entry
 
-;-----------------------------------------------------------------------
-; Subroutine: Compare memory regions byte by byte
-; Input: DE = source1, BC = source2, L = byte count
-; Output: Z flag set if equal
-;-----------------------------------------------------------------------
+FNAME1:	DB	'SYSM '			;System file name
+FNAME2:	DB	'SYSC '
 
-SUB_COMPARE:
-	LD	A,(DE)			; Read byte from source1
-	LD	H,A			; Store in H
-	LD	A,(BC)			; Read byte from source2
-	CP	H			; Compare bytes
-	RET	NZ			; Return if not equal
-	INC	DE			; Advance source1
-	INC	BC			; Advance source2
-	DEC	L			; Decrement counter
-	JP	NZ,SUB_COMPARE		; Loop if more bytes
-	RET				; Return (Z flag set)
+	DB	0C3H, 062H
+	;JP	07362H			;Jump table entry
 
-;-----------------------------------------------------------------------
-; Subroutine: Copy memory block
-; Input: DE = source, BC = destination, L = byte count
-;-----------------------------------------------------------------------
+;------------------------------------------------------------------------
+; INITIALIZATION ENTRY POINT at 070D0H
+; Hardware and display initialization
+;------------------------------------------------------------------------
 
-SUB_COPY:
-	LD	A,(DE)			; Read byte from source
-	LD	(BC),A			; Write byte to destination
-	INC	BC			; Advance destination
-	INC	DE			; Advance source
-	DEC	L			; Decrement counter
-	JP	NZ,SUB_COPY		; Loop if more bytes
-	RET				; Return
+INIT:
+	DB	073H ; -- FIXME DI
+	LD	SP,0BFFFH		;Reset stack
+	LD	A,073H			;Interrupt vector high byte
+	LD	I,A			;Set interrupt vector register
+	IM	2			;Interrupt mode 2
 
-;************************************************************************
-;*									*
-;* ERROR MESSAGES							*
-;*									*
-;************************************************************************
+; Initialize PIO for keyboard
+	LD	C,0FFH
+	LD	B,001H
+	CALL	SUB_B1			;Wait routine
 
-;-----------------------------------------------------------------------
-; Error message strings displayed when boot fails
-;-----------------------------------------------------------------------
+	LD	A,099H
+	CALL	PIOINT			;PIO init
+	LD	HL,00027H
+	JP	(HL)
 
-MSG_ERROR1:
-	DEFM	" RC700"
-MSG_ERROR2:
-	DEFM    " RC702"
-MSG_ERROR3:
-	DEFM	" **NO SYSTEM FILES** "
-MSG_ERROR4:
-	DEFM	" **NO DISKETTE NOR LINEPROG** "
-MSG_ERROR5:
-	DEFM	" **NO KATALOG** "
-MSG_ERROR6:
-	DEFB	002H			; Control character
+; PIO initialization
+PIOINT:
+	PUSH	AF
+	LD	A,002H
+	OUT	(012H),A		;PIO control
+	LD	A,004H
+	OUT	(013H),A
+	LD	A,04FH
+	OUT	(012H),A		;Set mode
+	LD	A,00FH
+	OUT	(013H),A
+	LD	A,083H
+	OUT	(012H),A		;Enable interrupts
+	OUT	(013H),A
+	JP	CTCINT
 
-;-----------------------------------------------------------------------
-; System command identifier strings
-;-----------------------------------------------------------------------
+; CTC initialization
+CTCINT:
+	LD	A,008H
+	OUT	(00CH),A		;CTC control
+	POP	AF
+	LD	A,046H
+	OR	041H
+	OUT	(00CH),A		;Channel 0
+	LD	A,020H
+	OUT	(00CH),A
 
-CMD_TABLE:
-	JP	053C8H			; Jump vector (0xC3, 0xC8, 0x53)
-	DEFM	"SYSM SYSC "		; System command names
-	JP	07362H			; Jump vector (0xC3, 0x62, 0x73)
+	LD	A,046H
+	OR	041H
+	OUT	(00DH),A		;Channel 1
+	LD	A,020H
+	OUT	(00DH),A
 
-;-----------------------------------------------------------------------
-; Additional initialization code and data follows as DB directives
-; (These are the remaining bytes from the original ROM)
-;-----------------------------------------------------------------------
+	LD	A,0D7H
+	OUT	(00EH),A		;Channel 2 (Display)
+	LD	A,001H
+	OUT	(00EH),A
 
-	DEFB	031H, 0FFH, 0BFH, 03EH, 073H, 0EDH, 047H, 0EDH
-	DEFB	05EH, 00EH, 0FFH, 006H, 001H, 0CDH, 0B1H, 076H
-	DEFB	03EH, 099H, 0CDH, 0E9H, 070H, 021H, 027H, 000H
-	DEFB	0E9H, 0F5H, 03EH, 002H, 0D3H, 012H, 03EH, 004H
-	DEFB	0D3H, 013H, 03EH, 04FH, 0D3H, 012H, 03EH, 00FH
-	DEFB	0D3H, 013H, 03EH, 083H, 0D3H, 012H, 0D3H, 013H
-	DEFB	0C3H, 003H, 071H, 03EH, 008H, 0D3H, 00CH, 0F1H
-	DEFB	03EH, 046H, 0F6H, 041H, 0D3H, 00CH, 03EH, 020H
-	DEFB	0D3H, 00CH, 03EH, 046H, 0F6H, 041H, 0D3H, 00DH
-	DEFB	03EH, 020H, 0D3H, 00DH, 03EH, 0D7H, 0D3H, 00EH
-	DEFB	03EH, 001H, 0D3H, 00EH, 03EH, 0D7H, 0D3H, 00FH
-	DEFB	03EH, 001H, 0D3H, 00FH, 0C3H, 02FH, 071H, 03EH
-	DEFB	020H, 0D3H, 0F8H, 03EH, 0C0H, 0D3H, 0FBH, 03EH
-	DEFB	000H, 0D3H, 0FAH, 03EH, 04AH, 0D3H, 0FBH, 03EH
-	DEFB	04BH, 0D3H, 0FBH, 0C3H, 046H, 071H, 03EH, 000H
-	DEFB	0D3H, 001H, 03EH, 04FH, 0D3H, 000H, 03EH, 098H
-	DEFB	0D3H, 000H, 03EH, 09AH, 0D3H, 000H, 03EH, 05DH
-	DEFB	0D3H, 000H, 03EH, 080H, 0D3H, 001H, 0AFH, 0D3H
-	DEFB	000H, 0D3H, 000H, 03EH, 0E0H, 0D3H, 001H, 0C3H
-	DEFB	06EH, 071H, 003H, 003H, 04FH, 020H, 00EH, 0FFH
-	DEFB	006H, 001H, 0CDH, 0B1H, 076H, 0DBH, 004H, 0E6H
-	DEFB	01FH, 0C2H, 06EH, 071H, 021H, 06AH, 071H, 046H
-	DEFB	023H, 0DBH, 004H, 0E6H, 0C0H, 0FEH, 080H, 0C2H
-	DEFB	081H, 071H, 07EH, 0D3H, 005H, 005H, 0C2H, 080H
-	DEFB	071H, 0C3H, 094H, 071H, 021H, 000H, 000H, 0EBH
-	DEFB	021H, 000H, 078H, 019H, 03EH, 020H, 077H, 07BH
-	DEFB	0FEH, 0CFH, 0CAH, 0A9H, 071H, 013H, 0C3H, 098H
-	DEFB	071H, 07AH, 0FEH, 007H, 0CAH, 0B3H, 071H, 013H
-	DEFB	0C3H, 098H, 071H, 011H, 071H, 070H, 021H, 006H
-	DEFB	000H, 001H, 000H, 078H, 0CDH, 068H, 070H, 021H
-	DEFB	000H, 000H, 022H, 0D2H, 07FH, 022H, 0D9H, 07FH
-	DEFB	022H, 0E4H, 07FH, 022H, 0E2H, 07FH, 022H, 0E0H
-	DEFB	07FH, 022H, 0D7H, 07FH, 022H, 0DEH, 07FH, 022H
-	DEFB	0D5H, 07FH, 021H, 080H, 007H, 022H, 0DBH, 07FH
-	DEFB	03EH, 000H, 032H, 0D1H, 07FH, 032H, 0D4H, 07FH
-	DEFB	032H, 0DDH, 07FH, 032H, 0E6H, 07FH, 03EH, 023H
-	DEFB	0D3H, 001H, 0C9H, 0AFH, 032H, 032H, 080H, 03CH
-	DEFB	032H, 033H, 080H, 032H, 034H, 080H, 0CDH, 0CBH
-	DEFB	074H, 0DAH, 00BH, 072H, 021H, 020H, 073H, 03EH
-	DEFB	002H, 0B6H, 077H, 021H, 033H, 080H, 035H, 0CDH
-	DEFB	0CBH, 074H, 0D0H, 03EH, 0FBH, 0C3H, 0C4H, 072H
-	DEFB	006H, 001H, 00EH, 0FFH, 0CDH, 0B1H, 076H, 0CDH
-	DEFB	072H, 076H, 03AH, 010H, 080H, 0E6H, 023H, 04FH
-	DEFB	03AH, 01BH, 080H, 0C6H, 020H, 0B9H, 0C2H, 0C4H
-	DEFB	072H, 0CDH, 00BH, 077H, 0DAH, 0C4H, 072H, 0CAH
-	DEFB	03DH, 072H, 0C3H, 0C4H, 072H, 0CDH, 0F3H, 071H
-	DEFB	03EH, 001H, 0D3H, 018H, 02AH, 067H, 080H, 0CDH
-	DEFB	025H, 074H, 03AH, 032H, 080H, 0B7H, 0C2H, 057H
-	DEFB	072H, 0CDH, 0CBH, 074H, 0C3H, 044H, 072H, 03EH
-	DEFB	001H, 032H, 060H, 080H, 0CDH, 062H, 072H, 0C3H
-	DEFB	003H, 074H, 03EH, 00AH, 021H, 000H, 000H, 0CDH
-	DEFB	0AAH, 072H, 0CAH, 07CH, 072H, 03EH, 00BH, 0CDH
-	DEFB	0AAH, 072H, 0CAH, 078H, 072H, 0C3H, 00FH, 070H
-	DEFB	02AH, 000H, 000H, 0E9H, 021H, 000H, 000H, 011H
-	DEFB	060H, 00BH, 019H, 011H, 020H, 000H, 019H, 001H
-	DEFB	000H, 00DH, 078H, 0BCH, 0DAH, 000H, 070H, 07EH
-	DEFB	0B7H, 0CAH, 083H, 072H, 0CDH, 02DH, 070H, 0C2H
-	DEFB	000H, 070H, 011H, 020H, 000H, 019H, 07EH, 0B7H
-	DEFB	0CAH, 000H, 070H, 0CDH, 03EH, 070H, 0C2H, 000H
-	DEFB	070H, 0C9H, 011H, 002H, 000H, 019H, 0EBH, 001H
-	DEFB	071H, 070H, 021H, 006H, 000H, 0FEH, 00AH, 0CAH
-	DEFB	0C0H, 072H, 001H, 077H, 070H, 021H, 006H, 000H
-	DEFB	0CDH, 05CH, 070H, 0C9H, 03EH, 00BH, 021H, 000H
-	DEFB	020H, 0CDH, 0AAH, 072H, 0CAH, 0D2H, 072H, 0C3H
-	DEFB	01EH, 070H, 02AH, 000H, 020H, 0E9H, 01AH, 007H
-	DEFB	034H, 007H, 00FH, 00EH, 01AH, 00EH, 008H, 01BH
-	DEFB	00FH, 01BH, 000H, 000H, 008H, 035H, 010H, 007H
-	DEFB	020H, 007H, 009H, 00EH, 010H, 00EH, 005H, 01BH
-	DEFB	009H, 01BH, 000H, 000H, 005H, 035H, 000H, 000H
-	DEFB	000H, 000H, 000H, 000H, 000H, 000H, 000H, 000H
-	DEFB	0C6H, 073H, 0C6H, 073H, 0C6H, 073H, 0C6H, 073H
-	DEFB	0C6H, 073H, 0C6H, 073H, 0BBH, 073H, 0C2H, 073H
-	DEFB	0C6H, 073H, 0C6H, 073H, 0C6H, 073H, 0C6H, 073H
-	DEFB	0C6H, 073H, 0C6H, 073H, 0C6H, 073H, 0C6H, 073H
-	DEFB	000H, 000H, 022H, 065H, 080H, 021H, 000H, 000H
-	DEFB	039H, 022H, 01EH, 080H, 0C5H, 0EBH, 079H, 0E6H
-	DEFB	07FH, 032H, 034H, 080H, 078H, 0E6H, 07FH, 032H
-	DEFB	032H, 080H, 0CCH, 0CBH, 074H, 078H, 0E6H, 080H
-	DEFB	0CAH, 045H, 073H, 03EH, 001H, 032H, 033H, 080H
-	DEFB	0CDH, 025H, 074H, 0C1H, 0F5H, 078H, 0E6H, 07FH
-	DEFB	0C2H, 05BH, 073H, 03EH, 001H, 032H, 032H, 080H
-	DEFB	0CDH, 0CBH, 074H, 0F1H, 0AFH, 02AH, 01EH, 080H
-	DEFB	0F9H, 0C9H, 0F5H, 0DBH, 001H, 0E5H, 0D5H, 0C5H
-	DEFB	03EH, 006H, 0D3H, 0FAH, 03EH, 007H, 0D3H, 0FAH
-	DEFB	0D3H, 0FCH, 02AH, 0D5H, 07FH, 011H, 000H, 078H
-	DEFB	019H, 07DH, 0D3H, 0F4H, 07CH, 0D3H, 0F4H, 07DH
-	DEFB	02FH, 06FH, 07CH, 02FH, 067H, 023H, 011H, 0CFH
-	DEFB	007H, 019H, 011H, 000H, 078H, 019H, 07DH, 0D3H
-	DEFB	0F5H, 07CH, 0D3H, 0F5H, 021H, 000H, 078H, 07DH
-	DEFB	0D3H, 0F6H, 07CH, 0D3H, 0F6H, 021H, 0CFH, 007H
-	DEFB	07DH, 0D3H, 0F7H, 07CH, 0D3H, 0F7H, 03EH, 002H
-	DEFB	0D3H, 0FAH, 03EH, 003H, 0D3H, 0FAH, 0C1H, 0D1H
-	DEFB	0E1H, 03EH, 0D7H, 0D3H, 00EH, 03EH, 001H, 0D3H
-	DEFB	00EH, 0F1H, 0C9H, 0F3H, 0CDH, 062H, 073H, 0FBH
-	DEFB	0EDH, 04DH, 0F3H, 0C3H, 070H, 077H, 0FBH, 0EDH
-	DEFB	04DH, 032H, 003H, 080H, 0FBH, 03AH, 060H, 080H
-	DEFB	0E6H, 001H, 0C2H, 05DH, 073H, 0D3H, 01CH, 0CDH
-	DEFB	0DEH, 073H, 0B7H, 0C3H, 0DAH, 073H, 001H, 000H
-	DEFB	078H, 011H, 0F0H, 073H, 021H, 012H, 000H, 01AH
-	DEFB	002H, 003H, 013H, 02DH, 0C2H, 0E7H, 073H, 0C9H
-	DEFB	02AH, 02AH, 044H, 049H, 053H, 04BH, 045H, 054H
-	DEFB	054H, 045H, 020H, 045H, 052H, 052H, 04FH, 052H
-	DEFB	02AH, 02AH, 020H, 03AH, 020H, 073H, 0E6H, 080H
-	DEFB	021H, 060H, 080H, 0B6H, 077H, 035H, 0CDH, 0CBH
-	DEFB	074H, 021H, 000H, 000H, 022H, 065H, 080H, 021H
-	DEFB	000H, 073H, 0CDH, 025H, 074H, 03EH, 001H, 032H
-	DEFB	060H, 080H, 0C3H, 000H, 010H, 03EH, 000H, 022H
-	DEFB	069H, 080H, 0CDH, 021H, 077H, 0DAH, 0C4H, 072H
-	DEFB	0CAH, 038H, 074H, 03EH, 006H, 0C3H, 0C9H, 073H
-	DEFB	0CDH, 081H, 074H, 03EH, 006H, 00EH, 005H, 0CDH
-	DEFB	083H, 075H, 0D2H, 04AH, 074H, 03EH, 028H, 0C3H
-	DEFB	0C9H, 073H, 02AH, 067H, 080H, 0EBH, 02AH, 065H
-	DEFB	080H, 019H, 022H, 065H, 080H, 02EH, 000H, 065H
-	DEFB	022H, 067H, 080H, 0CDH, 066H, 074H, 03AH, 061H
-	DEFB	080H, 0B7H, 0C8H, 0C3H, 02AH, 074H, 03EH, 001H
-	DEFB	032H, 034H, 080H, 03AH, 020H, 073H, 0E6H, 002H
-	DEFB	00FH, 021H, 033H, 080H, 0BEH, 0CAH, 07AH, 074H
-	DEFB	034H, 0C9H, 0AFH, 077H, 021H, 032H, 080H, 034H
-	DEFB	0C9H, 02AH, 069H, 080H, 0E5H, 0CDH, 047H, 075H
-	DEFB	0CDH, 0AEH, 074H, 0D1H, 019H, 0D2H, 09EH, 074H
-	DEFB	07CH, 0B5H, 0CAH, 09EH, 074H, 03EH, 001H, 032H
-	DEFB	061H, 080H, 022H, 069H, 080H, 0C9H, 03EH, 000H
-	DEFB	032H, 061H, 080H, 032H, 069H, 080H, 032H, 06AH
-	DEFB	080H, 0EBH, 022H, 067H, 080H, 0C9H, 0F5H, 07DH
-	DEFB	02FH, 06FH, 07CH, 02FH, 067H, 023H, 0F1H, 0C9H
-	DEFB	03AH, 020H, 073H, 0E6H, 01CH, 01FH, 01FH, 0E6H
-	DEFB	007H, 032H, 035H, 080H, 0CDH, 00AH, 075H, 0CDH
-	DEFB	047H, 075H, 0C9H, 03AH, 020H, 073H, 0E6H, 0FEH
-	DEFB	032H, 020H, 073H, 0CDH, 021H, 077H, 0C2H, 008H
-	DEFB	075H, 02EH, 004H, 026H, 000H, 022H, 067H, 080H
-	DEFB	03EH, 00AH, 00EH, 001H, 0CDH, 083H, 075H, 021H
-	DEFB	020H, 073H, 0D2H, 0F7H, 074H, 07EH, 0E6H, 001H
-	DEFB	0C2H, 008H, 075H, 034H, 0C3H, 0D3H, 074H, 03AH
-	DEFB	016H, 080H, 007H, 007H, 047H, 07EH, 0E6H, 0E3H
-	DEFB	080H, 077H, 0CDH, 0B8H, 074H, 037H, 03FH, 0C9H
-	DEFB	037H, 0C9H, 03AH, 035H, 080H, 017H, 017H, 05FH
-	DEFB	016H, 000H, 021H, 0D6H, 072H, 03AH, 020H, 073H
-	DEFB	0E6H, 080H, 03EH, 04CH, 0CAH, 024H, 075H, 03EH
-	DEFB	023H, 021H, 0E6H, 072H, 032H, 00CH, 080H, 019H
-	DEFB	03AH, 020H, 073H, 0E6H, 001H, 0CAH, 035H, 075H
-	DEFB	01EH, 002H, 016H, 000H, 019H, 0EBH, 021H, 036H
-	DEFB	080H, 01AH, 077H, 032H, 00DH, 080H, 023H, 013H
-	DEFB	01AH, 077H, 023H, 03EH, 080H, 077H, 0C9H, 021H
-	DEFB	080H, 000H, 03AH, 035H, 080H, 0B7H, 0CAH, 056H
-	DEFB	075H, 029H, 03DH, 0C2H, 051H, 075H, 022H, 039H
-	DEFB	080H, 0EBH, 03AH, 034H, 080H, 06FH, 03AH, 036H
-	DEFB	080H, 095H, 03CH, 06FH, 03AH, 060H, 080H, 0E6H
-	DEFB	080H, 0CAH, 076H, 075H, 03AH, 033H, 080H, 0EEH
-	DEFB	001H, 0C2H, 076H, 075H, 02EH, 00AH, 07DH, 02EH
-	DEFB	000H, 065H, 019H, 03DH, 0C2H, 07AH, 075H, 022H
-	DEFB	067H, 080H, 0C9H, 0F5H, 079H, 032H, 062H, 080H
-	DEFB	0CDH, 09DH, 076H, 02AH, 067H, 080H, 044H, 04DH
-	DEFB	00BH, 02AH, 065H, 080H, 0F1H, 0F5H, 0E6H, 00FH
-	DEFB	0FEH, 00AH, 0C4H, 032H, 076H, 0F1H, 04FH, 0CDH
-	DEFB	0DDH, 075H, 03EH, 0FFH, 0CDH, 0C3H, 076H, 0D8H
-	DEFB	079H, 0CDH, 0B3H, 075H, 0D0H, 0C8H, 079H, 0F5H
-	DEFB	0C3H, 088H, 075H, 021H, 010H, 080H, 07EH, 0E6H
-	DEFB	0C3H, 047H, 03AH, 01BH, 080H, 0B8H, 0C2H, 0D4H
-	DEFB	075H, 023H, 07EH, 0FEH, 000H, 0C2H, 0D4H, 075H
-	DEFB	023H, 07EH, 0E6H, 0BFH, 0FEH, 000H, 0C2H, 0D4H
-	DEFB	075H, 037H, 03FH, 0C9H, 03AH, 062H, 080H, 03DH
-	DEFB	032H, 062H, 080H, 037H, 0C9H, 0C5H, 0F5H, 0F3H
-	DEFB	03EH, 0FFH, 021H, 030H, 080H, 032H, 00BH, 080H
-	DEFB	03AH, 020H, 073H, 0E6H, 001H, 0CAH, 0F2H, 075H
-	DEFB	03EH, 040H, 047H, 0F1H, 0F5H, 080H, 077H, 023H
-	DEFB	0CDH, 0A4H, 076H, 077H, 02BH, 0F1H, 0E6H, 00FH
-	DEFB	0FEH, 006H, 00EH, 009H, 0CAH, 009H, 076H, 00EH
-	DEFB	002H, 07EH, 023H, 0CDH, 03CH, 076H, 00DH, 0C2H
-	DEFB	009H, 076H, 0C1H, 0FBH, 0C9H, 03EH, 005H, 0F3H
-	DEFB	0D3H, 0FAH, 03EH, 049H, 0D3H, 0FBH, 0D3H, 0FCH
-	DEFB	07DH, 0D3H, 0F2H, 07CH, 0D3H, 0F2H, 079H, 0D3H
-	DEFB	0F3H, 078H, 0D3H, 0F3H, 03EH, 001H, 0D3H, 0FAH
-	DEFB	0FBH, 0C9H, 03EH, 005H, 0F3H, 0D3H, 0FAH, 03EH
-	DEFB	045H, 0C3H, 01CH, 076H, 0F5H, 0C5H, 006H, 000H
-	DEFB	00EH, 000H, 004H, 0CCH, 06AH, 076H, 0DBH, 004H
-	DEFB	0E6H, 0C0H, 0FEH, 080H, 0C2H, 042H, 076H, 0C1H
-	DEFB	0F1H, 0D3H, 005H, 0C9H, 0C5H, 006H, 000H, 00EH
-	DEFB	000H, 004H, 0CCH, 06AH, 076H, 0DBH, 004H, 0E6H
-	DEFB	0C0H, 0FEH, 0C0H, 0C2H, 059H, 076H, 0C1H, 0DBH
-	DEFB	005H, 0C9H, 006H, 000H, 00CH, 0C0H, 0FBH, 0C3H
-	DEFB	0C4H, 072H, 03EH, 004H, 0CDH, 03CH, 076H, 03AH
-	DEFB	01BH, 080H, 0CDH, 03CH, 076H, 0CDH, 054H, 076H
-	DEFB	032H, 010H, 080H, 0C9H, 03EH, 008H, 0CDH, 03CH
-	DEFB	076H, 0CDH, 054H, 076H, 032H, 010H, 080H, 0E6H
-	DEFB	0C0H, 0FEH, 080H, 0CAH, 09CH, 076H, 0CDH, 054H
-	DEFB	076H, 032H, 011H, 080H, 0C9H, 0F3H, 0AFH, 032H
-	DEFB	041H, 080H, 0FBH, 0C9H, 0D5H, 03AH, 033H, 080H
-	DEFB	017H, 017H, 057H, 03AH, 01BH, 080H, 082H, 0D1H
-	DEFB	0C9H, 0F5H, 0E5H, 061H, 02EH, 0FFH, 02BH, 07DH
-	DEFB	0B4H, 0C2H, 0B6H, 076H, 005H, 0C2H, 0B3H, 076H
-	DEFB	0E1H, 0F1H, 0C9H, 0C5H, 03DH, 037H, 0CAH, 0DFH
-	DEFB	076H, 006H, 001H, 00EH, 001H, 0CDH, 0B1H, 076H
-	DEFB	047H, 03AH, 041H, 080H, 0E6H, 002H, 078H, 0CAH
-	DEFB	0C4H, 076H, 037H, 03FH, 0CDH, 09DH, 076H, 0C1H
-	DEFB	0C9H, 03EH, 0FFH, 0CDH, 0C3H, 076H, 03AH, 010H
-	DEFB	080H, 047H, 03AH, 011H, 080H, 04FH, 0C9H, 03EH
-	DEFB	007H, 0CDH, 03CH, 076H, 03AH, 01BH, 080H, 0CDH
-	DEFB	03CH, 076H, 0C9H, 03EH, 00FH, 0CDH, 03CH, 076H
-	DEFB	07AH, 0E6H, 007H, 0CDH, 03CH, 076H, 07BH, 0CDH
-	DEFB	03CH, 076H, 0C9H, 0CDH, 0EFH, 076H, 0CDH, 0E1H
-	DEFB	076H, 0D8H, 03AH, 01BH, 080H, 0C6H, 020H, 0B8H
-	DEFB	0C2H, 01EH, 077H, 079H, 0FEH, 000H, 037H, 03FH
-	DEFB	0C9H, 03AH, 032H, 080H, 05FH, 0CDH, 0A4H, 076H
-	DEFB	057H, 0CDH, 0FBH, 076H, 0CDH, 0E1H, 076H, 0D8H
-	DEFB	03AH, 01BH, 080H, 0C6H, 020H, 0B8H, 0C2H, 03DH
-	DEFB	077H, 03AH, 032H, 080H, 0B9H, 037H, 03FH, 0C9H
-	DEFB	021H, 010H, 080H, 006H, 007H, 078H, 032H, 00BH
-	DEFB	080H, 0CDH, 054H, 076H, 077H, 023H, 03AH, 01DH
-	DEFB	080H, 03DH, 0C2H, 051H, 077H, 0DBH, 004H, 0E6H
-	DEFB	010H, 0CAH, 065H, 077H, 005H, 0C2H, 049H, 077H
-	DEFB	03EH, 0FEH, 0C3H, 0C9H, 073H, 0DBH, 0F8H, 077H
-	DEFB	005H, 0C8H, 0FBH, 03EH, 0FDH, 0C3H, 0C9H, 073H
-	DEFB	0F5H, 0C5H, 0E5H, 03EH, 002H, 032H, 041H, 080H
-	DEFB	03AH, 01CH, 080H, 03DH, 0C2H, 07BH, 077H, 0DBH
-	DEFB	004H, 0E6H, 010H, 0C2H, 08CH, 077H, 0CDH, 084H
-	DEFB	076H, 0C3H, 08FH, 077H, 0CDH, 040H, 077H, 0E1H
-	DEFB	0C1H, 0F1H, 0FBH, 0EDH, 04DH, 000H, 000H
+	LD	A,0D7H
+	OUT	(00FH),A		;Channel 3 (Floppy)
+	LD	A,001H
+	OUT	(00FH),A
+	JP	DMAINT
 
-	.DEPHASE			; End of relocated section
+; DMA initialization
+DMAINT:
+	LD	A,020H
+	OUT	(0F8H),A		;DMA command
 
+	LD	A,0C0H
+	OUT	(0FBH),A		;Mode register
+	LD	A,000H
+	OUT	(0FAH),A		;Mask register
+
+	LD	A,04AH
+	OUT	(0FBH),A
+	LD	A,04BH
+	OUT	(0FBH),A
+	JP	CRTINT
+
+; CRT Controller (8275) initialization
+CRTINT:
+	LD	A,000H
+	OUT	(001H),A		;Reset CRT
+
+	LD	A,04FH
+	OUT	(000H),A		;80 chars/row
+	LD	A,098H
+	OUT	(000H),A		;25 rows
+	LD	A,09AH
+	OUT	(000H),A		;Underline
+	LD	A,05DH
+	OUT	(000H),A		;Cursor format
+
+	LD	A,080H
+	OUT	(001H),A		;Load cursor
+	XOR	A
+	OUT	(000H),A		;Position 0
+	OUT	(000H),A
+
+	LD	A,0E0H
+	OUT	(001H),A		;Preset counters
+	JP	FDCINT
+
+;------------------------------------------------------------------------
+; Floppy disk controller (uPD765) initialization and status check
+;------------------------------------------------------------------------
+
+FDCDATA: ; -- FIXME EXPLAIN BYTES
+	DB	003H, 003H, 04FH, 020H
+FDCINT:
+	LD	C,0FFH
+	LD	B,001H
+	CALL	SUB_B1
+
+	IN	A,(004H)		;FDC status
+	AND	01FH
+	JP	NZ,FDCINT
+
+	LD	HL,FDCDATA
+	LD	B,(HL)
+FDCWAITNEXT:
+	INC	HL
+FDCWAIT:
+	IN	A,(004H)
+	AND	0C0H
+	CP	080H
+	JP	NZ,FDCWAIT
+
+	LD	A,(HL)
+	OUT	(005H),A		;FDC data
+	DEC	B
+	JP	NZ,FDCWAITNEXT
+	JP	CLRSCR
+
+; -- FDCDATA:
+;FIXME	DB	03H,71H		;FDC command data
+
+; FIXME FDCWAIT:
+;	; FDC wait loop continues here
+
+;------------------------------------------------------------------------
+; Display screen clear and message display
+;------------------------------------------------------------------------
+
+CLRSCR:
+	LD	HL,00000H
+	EX	DE,HL
+CLRLP1:
+	LD	HL,07800H		;Display buffer
+	ADD	HL,DE
+	LD	A,020H			;Space character
+	LD	(HL),A
+	LD	A,E
+	CP	0CFH
+	JP	Z,NEXTLN
+	INC	DE
+	JP	CLRLP1
+
+NEXTLN:
+	LD	A,D
+	CP	007H
+	JP	Z,DISPMG
+	INC	DE
+	JP	CLRLP1
+
+DISPMG:
+	LD	DE,RC700TXT		;Message pointer
+	LD	HL,0006H		;Length
+	LD	BC,07800H		;Display buffer
+	CALL	MOVCPY
+
+; Initialize CRT DMA parameters
+	LD	HL,00000H
+	LD	(07FD2H),HL
+	LD	(07FD9H),HL
+	LD	(07FE4H),HL
+	LD	(07FE2H),HL
+	LD	(07FE0H),HL
+	LD	(07FD7H),HL
+	LD	(07FDEH),HL
+	LD	(07FD5H),HL
+
+	LD	HL,00780H
+	LD	(07FDBH),HL
+
+	LD	A,000H
+	LD	(07FD1H),A
+	LD	(07FD4H),A
+	LD	(07FDDH),A
+	LD	(07FE6H),A
+
+	LD	A,023H
+	OUT	(001H),A		;Start display
+	RET
+
+;------------------------------------------------------------------------
+; MAIN BOOT SEQUENCE - Try hard disk, then floppy
+;------------------------------------------------------------------------
+
+BOOT:
+	XOR	A
+	LD	(08032H),A
+	INC	A
+	LD	(08033H),A
+	LD	(08034H),A
+
+; Try hard disk boot
+	CALL	074CBH ; --FIXME HDBOTT
+	JP	C,L720B
+
+	LD	HL,07320H		;Status flag
+	LD	A,002H
+	OR	(HL)
+	LD	(HL),A
+
+L720B:
+	LD	HL,08033H
+	DEC	(HL)
+	CALL	074CBH ; -- FIXME HDBOTT
+	RET	NC
+
+	LD	A,0FBH
+	JP	072C4H;  -- FIXME ERRDSP
+
+;------------------------------------------------------------------------
+; Floppy disk boot sequence
+;------------------------------------------------------------------------
+
+FLDSK1:
+	LD	B,001H
+	LD	C,0FFH
+	CALL	SUB_B1
+	CALL	07672H ; -- FIXME FLPRST
+	LD	A,(08010H)
+	AND	023H
+	LD	C,A
+	LD	A,(0801BH)
+	ADD	A,020H
+	CP	C
+	JP	NZ,072C4H ; -- FIXME ERRDSP
+	CALL	0770BH ; -- FIXME FLDSK2
+	JP	C,072C4H ; -- FIXME ERRDSP
+	JP	Z,0723DH; -- FIXME FLDSK3
+	JP	072C4H; -- FIXME ERRDSP
+
+FLDSK2:
+	; Floppy disk read routine
+	; FIXME RET
+
+FLDSK3:
+	CALL	BOOT ; -- FIXME CLRSCR
+	LD	A,001H
+	OUT	(018H),A		;Beeper
+BOOT4:
+	LD	HL,(08067H)
+	CALL	07425H ; -- BOOT2
+	LD	A,(08032H)
+	OR	A
+	JP	NZ,BOOT2
+	CALL	074CBH ; -- FIXME HDBOTT
+	JP	BOOT4
+
+BOOT2:
+	; Boot helper routine
+;	RET
+
+BOOT3:
+	LD	A,001H
+	LD	(08060H),A
+	CALL	BOOT7
+	JP	07403H ; -- FIXME BOOT6
+
+
+;------------------------------------------------------------------------
+; Additional boot helper routines
+;------------------------------------------------------------------------
+
+BOOT7:
+	LD	A,00AH
+	LD	HL,00000H
+	CALL	072aaH; -- FIXME CHKFIL
+	JP	Z,0727ch ; -- fixme BOOT8
+	LD	A,00BH
+	CALL	072aaH; -- FIXME CHKFIL
+	JP	Z,BOOT9
+	JP	ERRVEC2
+
+BOOT9:
+	LD	HL,(00000H)
+	JP	(HL)
+
+	LD	HL, 0
+	LD	DE, 0B60H
+	ADD	HL, DE
+L7283H: ; -- FIXME
+	LD	DE, 20H
+	ADD	HL, DE
+	LD	BC, 0D00H
+	LD	A,B
+	CP	H
+	JP	C, 07000H ; -- FIXME
+	LD	A,(HL)
+	OR	A
+	JP	Z, L7283H
+	CALL	SUB_2E
+	JP	NZ, ERRVEC1
+	LD	DE, 20h
+	ADD	HL, DE
+	LD	A, (HL)
+	OR	A
+	JP	Z, ERRVEC1
+	CALL	SUB_3E
+	JP	NZ, ERRVEC1
+	RET
+
+L72AB:
+	LD	DE, 2
+	ADD	HL, DE
+	EX	DE, HL
+	LD 	BC, RC700TXT
+	LD	HL, 6
+	CP	0AH
+	JP	Z,L72C0
+	LD	BC, RC702TXT
+	LD	HL, 6
+L72C0:
+	CALL	SUB_5C
+	RET
+
+
+
+
+;------------------------------------------------------------------------
+; Disk format/geometry tables
+;------------------------------------------------------------------------
+
+; Mini (5.25") disk format
+MINIFMT:
+	DB	01AH,07H,34H,07H,0FH,0EH,1AH,0EH,08H,1BH,0FH,1BH,00H,00H
+	DB	08H,35H,10H,07H,20H,07H,09H,0EH,10H,0EH,05H,1BH,09H,1BH,00H,00H
+	DB	05H,35H
+
+; Padding
+	DB	00H,00H,00H,00H,00H,00H,00H,00H,00H,00H
+
+;------------------------------------------------------------------------
+; Interrupt vector table (16 entries)
+;------------------------------------------------------------------------
+
+INTVEC:
+	DW	073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073BBH,073C2H
+	DW	073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073C6H
+	DW	0000H
+
+;------------------------------------------------------------------------
+; System call and interrupt handlers
+; 
+; *** MISMATCH WARNING ***
+; The following sections may not assemble byte-exact due to:
+; - Complex addressing modes
+; - Self-modifying code
+; - Embedded data tables
+; Compare with original ROM at 0x7300+ for exact bytes
+;------------------------------------------------------------------------
+SYSCALL:
+	LD	(08065H),HL
+	LD	HL,00000H
+	ADD	HL,SP
+	LD	(0801EH),HL
+	PUSH	BC
+	EX	DE,HL
+	LD	A,C
+	AND	07FH
+	LD	(08034H),A
+	LD	A,B
+	AND	07FH
+	LD	(08032H),A
+	CALL	HDBOTT
+	LD	A,B
+	AND	080H
+	JP	Z,SYSC1
+	LD	A,001H
+	LD	(08033H),A
+	CALL	BOOT2
+	POP	BC
+	PUSH	AF
+	LD	A,B
+	AND	07FH
+	JP	NZ,SYSC2
+	LD	A,001H
+	LD	(08032H),A
+	CALL	HDBOTT
+	POP	AF
+	XOR	A
+	LD	HL,(0801EH)
+	LD	SP,HL
+	RET
+
+SYSC1:
+	LD	A,001H
+	RET
+
+SYSC2:
+	POP	AF
+	RET
+
+;------------------------------------------------------------------------
+; Display interrupt handler
+;------------------------------------------------------------------------
+DISINT:
+	PUSH	AF
+	IN	A,(001H)
+	PUSH	HL
+	PUSH	DE
+	PUSH	BC
+	LD	A,006H
+	OUT	(0FAH),A
+	LD	A,007H
+	OUT	(0FAH),A
+	OUT	(0FCH),A
+	LD	HL,(07FD5H)
+	LD	DE,07800H
+	ADD	HL,DE
+	LD	A,L
+	OUT	(0F4H),A
+	LD	A,H
+	OUT	(0F4H),A
+	LD	A,L
+	CPL
+	LD	L,A
+	LD	A,H
+	CPL
+	LD	H,A
+	INC	HL
+	LD	DE,007CFH
+	ADD	HL,DE
+	LD	DE,07800H
+	ADD	HL,DE
+	LD	A,L
+	OUT	(0F5H),A
+	LD	A,H
+	OUT	(0F5H),A
+	LD	HL,07800H
+	LD	A,L
+	OUT	(0F6H),A
+	LD	A,H
+	OUT	(0F6H),A
+	LD	HL,007CFH
+	LD	A,L
+	OUT	(0F7H),A
+	LD	A,H
+	OUT	(0F7H),A
+	LD	A,002H
+	OUT	(0FAH),A
+	LD	A,003H
+	OUT	(0FAH),A
+	POP	BC
+	POP	DE
+	POP	HL
+	LD	A,0D7H
+	OUT	(00EH),A
+	LD	A,001H
+	OUT	(00EH),A
+	POP	AF
+	RET
+
+;------------------------------------------------------------------------
+; Hard disk and floppy interrupt handlers
+;------------------------------------------------------------------------
+
+HDINT:
+	DI
+	CALL	DISINT
+	EI
+	RETI
+
+FLPINT:
+	DI
+	JP	FLPHAND
+
+DUMINT:
+	EI
+	RETI
+
+;------------------------------------------------------------------------
+; Error display routine
+;------------------------------------------------------------------------
+	DS 073dah - $ ; FIXME
+ERRDSP:
+	; Display error and halt
+	HALT
+
+;------------------------------------------------------------------------
+; Floppy disk routines
+;------------------------------------------------------------------------
+
+FLPRST:
+	; FDC reset
+	RET
+
+FLPHAND:
+	; Floppy interrupt handler
+	RETI
+
+;------------------------------------------------------------------------
+; Hard disk boot attempt (stub - returns carry set)
+;------------------------------------------------------------------------
+
+HDBOTT:
+	SCF				;Set carry = no HD
+	RET
+
+;------------------------------------------------------------------------
+; Utility routine - wait/delay
+;------------------------------------------------------------------------
+	dephase ! phase 076b1h ; FIXME
+SUB_B1:
+	PUSH	AF
+	PUSH	HL
+	LD	H,C
+	LD	L,0FFH
+WAITLP:
+	DEC	HL
+	LD	A,L
+	OR	H
+	JP	NZ,WAITLP
+	DEC	B
+	JP	NZ,WAITLP
+	POP	HL
+	POP	AF
+	RET
+
+;------------------------------------------------------------------------
+; Additional system routines (stubs for assembly)
+;------------------------------------------------------------------------
+
+L7362:
+	RET
+
+L73C8:
+	RET
+
+L73DA:
+	; Error display continues
+	JP	ERRDSP
+
+	dephase
 	END

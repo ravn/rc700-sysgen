@@ -38,7 +38,7 @@ These can be moved to an `archive/` subdirectory if needed.
 ## Correct Build Command
 
 ```bash
-zmac -z --dri roa375.asm
+zmac -z --dri roa375_abandoned.asm
 ```
 
 **NOT** `zmac -8` (that's for 8080 mode)
