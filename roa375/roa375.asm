@@ -107,6 +107,7 @@ MOVADR:
 ; Interrupt vectors and error handlers at 0x7000
 ;------------------------------------------------------------------------
 
+L73DA	EQU	073DAH ; -- FIXME
 
 ; Error message display vectors
 ERRVEC1:
@@ -114,21 +115,21 @@ ERRVEC1:
 	LD	DE,ERMES1		;Error message 1
 	LD	HL,0014H		;Length
 	CALL	MOVCPY			;Copy to screen
-	JP	ERRDSP			;Display error
+	JP	L73DA			;Display error
 
 ERRVEC2:
 	LD	BC,07800H
 	LD	DE,ERMES3
 	LD	HL,000FH
 	CALL	MOVCPY
-	JP	ERRDSP
+	JP	L73DA
 
 ERRVEC3:
 	LD	BC,07800H
 	LD	DE,ERMES2
 	LD	HL,001DH
 	CALL	MOVCPY
-	JP	ERRDSP
+	JP	L73DA
 
 ;------------------------------------------------------------------------
 ; Utility routines
@@ -534,7 +535,7 @@ L7283H: ; -- FIXME
 	JP	NZ, ERRVEC1
 	RET
 
-L72AB:
+L72AA:
 	LD	DE, 2
 	ADD	HL, DE
 	EX	DE, HL
@@ -548,8 +549,16 @@ L72C0:
 	CALL	SUB_5C
 	RET
 
+L72C4:
+	LD	A, 0BH
+	LD	HL, 02000H
+	CALL	L72AA
+	JP	Z, L72D2
+	JP	ERRVEC3
 
-
+L72D2:
+	LD	HL,(02000H)
+	JP	(HL)
 
 ;------------------------------------------------------------------------
 ; Disk format/geometry tables
@@ -568,7 +577,10 @@ MINIFMT:
 ; Interrupt vector table (16 entries)
 ;------------------------------------------------------------------------
 
-INTVEC:
+INTVEC: ; -- FIXME REPLACE WITH LABELS
+;	DW	L73C6,L73C6,L73C6,L73C6,L73C6,L73C6,L73BB,L73C2
+;	DW	L73C6,L73C6,L73C6,L73C6,L73C6,L73C6H,L73C6,L73C6
+
 	DW	073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073BBH,073C2H
 	DW	073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073C6H
 	DW	0000H
@@ -596,26 +608,43 @@ SYSCALL:
 	LD	A,B
 	AND	07FH
 	LD	(08032H),A
-	CALL	HDBOTT
+	CALL	Z, 074CBH ; -- FIXME
 	LD	A,B
 	AND	080H
-	JP	Z,SYSC1
+	JP	Z,L7345
 	LD	A,001H
+L7345:
 	LD	(08033H),A
-	CALL	BOOT2
+	CALL	07425H ; -- FIXME
 	POP	BC
 	PUSH	AF
 	LD	A,B
 	AND	07FH
-	JP	NZ,SYSC2
+	JP	NZ,0735bH ; -- FIXME
 	LD	A,001H
 	LD	(08032H),A
-	CALL	HDBOTT
+	CALL	074CBH ; -- FIXME
 	POP	AF
 	XOR	A
 	LD	HL,(0801EH)
 	LD	SP,HL
 	RET
+
+	if 0
+L7362:
+	PUSH	AF
+	IN	A,(01)
+	PUSH	HL
+	PUSH	DE
+	PUSH	BC
+	LD	A,6
+	OUT	(0FAH), A
+	LD	A,7
+	OUT	(0FAH), A
+
+	DB	0
+
+
 
 SYSC1:
 	LD	A,001H
@@ -624,6 +653,8 @@ SYSC1:
 SYSC2:
 	POP	AF
 	RET
+
+	endif
 
 ;------------------------------------------------------------------------
 ; Display interrupt handler
@@ -697,39 +728,18 @@ HDINT:
 
 FLPINT:
 	DI
-	JP	FLPHAND
+	JP	07770H ; -- FIXME
 
 DUMINT:
 	EI
 	RETI
 
-;------------------------------------------------------------------------
-; Error display routine
-;------------------------------------------------------------------------
-	DS 073dah - $ ; FIXME
-ERRDSP:
-	; Display error and halt
-	HALT
+; ---- END OF DISASSEMBLY CONSTRUCTED BY CLAUDE.
 
-;------------------------------------------------------------------------
-; Floppy disk routines
-;------------------------------------------------------------------------
 
-FLPRST:
-	; FDC reset
-	RET
 
-FLPHAND:
-	; Floppy interrupt handler
-	RETI
 
-;------------------------------------------------------------------------
-; Hard disk boot attempt (stub - returns carry set)
-;------------------------------------------------------------------------
 
-HDBOTT:
-	SCF				;Set carry = no HD
-	RET
 
 ;------------------------------------------------------------------------
 ; Utility routine - wait/delay
@@ -755,15 +765,10 @@ WAITLP:
 ; Additional system routines (stubs for assembly)
 ;------------------------------------------------------------------------
 
-L7362:
-	RET
-
 L73C8:
 	RET
 
-L73DA:
-	; Error display continues
-	JP	ERRDSP
+
 
 	dephase
 	END
