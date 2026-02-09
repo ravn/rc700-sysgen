@@ -59,10 +59,10 @@ COPYLP:
 
 PREINIT:
 	LD	A,003H
-	LD	(L0801CH),A
+	LD	(FDCTMO),A
 	INC	A
-	LD	(L0801DH),A
-	LD	(L08042H),A
+	LD	(FDCWAI),A
+	LD	(FLPWAI),A
 
 	LD	A,000H
 	LD	B,A
@@ -72,14 +72,14 @@ PREINIT:
 	LD	(L07320H),A
 
 	XOR	A			;Clear A
-	LD	(L08033H),A
-	LD	(L0801BH),A
-	LD	(L08060H),A
-	LD	(L08061H),A
-	LD	(L08041H),A
+	LD	(CURHED),A
+	LD	(DRVSEL),A
+	LD	(DSKTYP),A
+	LD	(MOREFL),A
+	LD	(FLPFLG),A
 
 	LD	C,008H
-	LD	HL,L08063H
+	LD	HL,CLRBLK
 CLRLP:
 	LD	(HL),A
 	INC	HL
@@ -90,7 +90,7 @@ CLRLP:
 	LD	A,001H
 	OUT	(014H),A		;ROM disable port
 	LD	A,005H
-	LD	(L08062H),A
+	LD	(REPTIM),A
 	JP	07218H
 
 ; FIXME NMIRETURN must be precise
@@ -428,10 +428,10 @@ DISPMG:
 
 BOOT:
 	XOR	A
-	LD	(L08032H),A
+	LD	(CURCYL),A
 	INC	A
-	LD	(L08033H),A
-	LD	(L08034H),A
+	LD	(CURHED),A
+	LD	(CURREC),A
 
 ; Try hard disk boot
 	CALL	074CBH ; --FIXME HDBOTT
@@ -443,7 +443,7 @@ BOOT:
 	LD	(HL),A
 
 L720B:
-	LD	HL,L08033H
+	LD	HL,CURHED
 	DEC	(HL)
 	CALL	074CBH ; -- FIXME HDBOTT
 	RET	NC
@@ -460,10 +460,10 @@ FLDSK1:
 	LD	C,0FFH
 	CALL	076B1H ; -- FIXME SUB_B1			;Wait routine
 	CALL	07672H ; -- FIXME FLPRST
-	LD	A,(L08010H)
+	LD	A,(FDCRES)
 	AND	023H
 	LD	C,A
-	LD	A,(L0801BH)
+	LD	A,(DRVSEL)
 	ADD	A,020H
 	CP	C
 	JP	NZ,072C4H ; -- FIXME ERRDSP
@@ -481,9 +481,9 @@ FLDSK3:
 	LD	A,001H
 	OUT	(018H),A		;Beeper
 BOOT4:
-	LD	HL,(L08067H)
+	LD	HL,(TRBYT)
 	CALL	07425H ; -- BOOT2
-	LD	A,(L08032H)
+	LD	A,(CURCYL)
 	OR	A
 	JP	NZ,BOOT2
 	CALL	074CBH ; -- FIXME HDBOTT
@@ -495,7 +495,7 @@ BOOT2:
 
 BOOT3:
 	LD	A,001H
-	LD	(L08060H),A
+	LD	(DSKTYP),A
 	CALL	BOOT7
 	JP	07403H ; -- FIXME BOOT6
 
@@ -605,25 +605,25 @@ L07320H:
 ; Compare with original ROM at 0x7300+ for exact bytes
 ;------------------------------------------------------------------------
 SYSCALL:
-	LD	(L08065H),HL
+	LD	(MEMADR),HL
 	LD	HL,00000H
 	ADD	HL,SP
-	LD	(L0801EH),HL
+	LD	(SPSAV),HL
 	PUSH	BC
 	EX	DE,HL
 	LD	A,C
 	AND	07FH
-	LD	(L08034H),A
+	LD	(CURREC),A
 	LD	A,B
 	AND	07FH
-	LD	(L08032H),A
+	LD	(CURCYL),A
 	CALL	Z, 074CBH ; -- FIXME
 	LD	A,B
 	AND	080H
 	JP	Z,L7345
 	LD	A,001H
 L7345:
-	LD	(L08033H),A
+	LD	(CURHED),A
 	CALL	07425H ; -- FIXME
 	POP	BC
 	PUSH	AF
@@ -631,11 +631,11 @@ L7345:
 	AND	07FH
 	JP	NZ,0735bH ; -- FIXME
 	LD	A,001H
-	LD	(L08032H),A
+	LD	(CURCYL),A
 	CALL	074CBH ; -- FIXME
 	POP	AF
 	XOR	A
-	LD	HL,(L0801EH)
+	LD	HL,(SPSAV)
 	LD	SP,HL
 	RET
 
@@ -747,9 +747,9 @@ DUMINT:
 
 ; BLOCK 'errdsp' (start 0x73ca end 0x73f1)
 errdsp_start:
-	ld (L08003h),a		;73ca	32 03 80	2 . .
+	ld (ERRSAV),a		;73ca	32 03 80	2 . .
 	ei			;73cd	fb		.
-	ld a,(L08060h)		;73ce	3a 60 80	: ` .
+	ld a,(DSKTYP)		;73ce	3a 60 80	: ` .
 	and 001h		;73d1	e6 01		. .
 	jp nz,0735dh		;73d3	c2 5d 73	. ] s
 	out (01ch),a		;73d6	d3 1c		. .
@@ -776,20 +776,20 @@ DISKETTEERRORTXT:
 main_start:
 	ld a,(07320h)		;7404	3a 20 73	:   s
 	and 080h		;7407	e6 80		. .
-	ld hl,L08060h		;7409	21 60 80	! ` .
+	ld hl,DSKTYP		;7409	21 60 80	! ` .
 	or (hl)			;740c	b6		.
 	ld (hl),a		;740d	77		w
 	dec (hl)		;740e	35		5
 	call sub_74cbh		;740f	cd cb 74	. . t
 	ld hl,00000h		;7412	21 00 00	! . .
-	ld (L08065h),hl		;7415	22 65 80	" e .
+	ld (MEMADR),hl		;7415	22 65 80	" e .
 	ld hl,07300h		;7418	21 00 73	! . s
 	call 07425h		;741b	cd 25 74	. % t
 	ld a,001h		;741e	3e 01		> .
-	ld (L08060h),a		;7420	32 60 80	2 ` .
+	ld (DSKTYP),a		;7420	32 60 80	2 ` .
 	jp 01000h		;7423	c3 00 10	. . .
 	ld a,000h		;7426	3e 00		> .
-	ld (L08069h),hl		;7428	22 69 80	" i .
+	ld (TRKOVR),hl		;7428	22 69 80	" i .
 	call sub_7721h		;742b	cd 21 77	. ! w
 	jp c,072c4h		;742e	da c4 72	. . r
 	jp z,07438h		;7431	ca 38 74	. 8 t
@@ -802,25 +802,25 @@ main_start:
 	jp nc,0744ah		;7443	d2 4a 74	. J t
 	ld a,028h		;7446	3e 28		> (
 	jp 073c9h		;7448	c3 c9 73	. . s
-	ld hl,(L08067h)		;744b	2a 67 80	* g .
+	ld hl,(TRBYT)		;744b	2a 67 80	* g .
 	ex de,hl		;744e	eb		.
-	ld hl,(L08065h)		;744f	2a 65 80	* e .
+	ld hl,(MEMADR)		;744f	2a 65 80	* e .
 	add hl,de		;7452	19		.
-	ld (L08065h),hl		;7453	22 65 80	" e .
+	ld (MEMADR),hl		;7453	22 65 80	" e .
 	ld l,000h		;7456	2e 00		. .
 	ld h,l			;7458	65		e
-	ld (L08067h),hl		;7459	22 67 80	" g .
+	ld (TRBYT),hl		;7459	22 67 80	" g .
 	call 07466h		;745c	cd 66 74	. f t
-	ld a,(L08061h)		;745f	3a 61 80	: a .
+	ld a,(MOREFL)		;745f	3a 61 80	: a .
 	or a			;7462	b7		.
 	ret z			;7463	c8		.
 	jp 0742ah		;7464	c3 2a 74	. * t
 	ld a,001h		;7467	3e 01		> .
-	ld (L08034h),a		;7469	32 34 80	2 4 .
+	ld (CURREC),a		;7469	32 34 80	2 4 .
 	ld a,(07320h)		;746c	3a 20 73	:   s
 	and 002h		;746f	e6 02		. .
 	rrca			;7471	0f		.
-	ld hl,L08033h		;7472	21 33 80	! 3 .
+	ld hl,CURHED		;7472	21 33 80	! 3 .
 	cp (hl)			;7475	be		.
 	jp z,l747ah		;7476	ca 7a 74	. z t
 	inc (hl)		;7479	34		4
@@ -828,12 +828,12 @@ main_start:
 l747ah:
 	xor a			;747b	af		.
 	ld (hl),a		;747c	77		w
-	ld hl,L08032h		;747d	21 32 80	! 2 .
+	ld hl,CURCYL		;747d	21 32 80	! 2 .
 	inc (hl)		;7480	34		4
 	ret			;7481	c9		.
 
 sub_7481h:
-	ld hl,(L08069h)		;7482	2a 69 80	* i .
+	ld hl,(TRKOVR)		;7482	2a 69 80	* i .
 	push hl			;7485	e5		.
 	call sub_7547h		;7486	cd 47 75	. G u
 	call sub_74aeh		;7489	cd ae 74	. . t
@@ -844,17 +844,17 @@ sub_7481h:
 	or l			;7492	b5		.
 	jp z,l749eh		;7493	ca 9e 74	. . t
 	ld a,001h		;7496	3e 01		> .
-	ld (L08061h),a		;7498	32 61 80	2 a .
-	ld (L08069h),hl		;749b	22 69 80	" i .
+	ld (MOREFL),a		;7498	32 61 80	2 a .
+	ld (TRKOVR),hl		;749b	22 69 80	" i .
 	ret			;749e	c9		.
 
 l749eh:
 	ld a,000h		;749f	3e 00		> .
-	ld (L08061h),a		;74a1	32 61 80	2 a .
-	ld (L08069h),a		;74a4	32 69 80	2 i .
-	ld (L0806ah),a		;74a7	32 6a 80	2 j .
+	ld (MOREFL),a		;74a1	32 61 80	2 a .
+	ld (TRKOVR),a		;74a4	32 69 80	2 i .
+	ld (TRKOV2),a		;74a7	32 6a 80	2 j .
 	ex de,hl		;74aa	eb		.
-	ld (L08067h),hl		;74ab	22 67 80	" g .
+	ld (TRBYT),hl		;74ab	22 67 80	" g .
 	ret			;74ae	c9		.
 
 sub_74aeh:
@@ -875,7 +875,7 @@ sub_74b8h:
 	rra			;74be	1f		.
 	rra			;74bf	1f		.
 	and 007h		;74c0	e6 07		. .
-	ld (L08035h),a		;74c2	32 35 80	2 5 .
+	ld (RECLEN),a		;74c2	32 35 80	2 5 .
 	call sub_750ah		;74c5	cd 0a 75	. . u
 	call sub_7547h		;74c8	cd 47 75	. G u
 	ret			;74cb	c9		.
@@ -888,7 +888,7 @@ sub_74cbh:
 	jp nz,l7508h		;74d7	c2 08 75	. . u
 	ld l,004h		;74da	2e 04		. .
 	ld h,000h		;74dc	26 00		& .
-	ld (L08067h),hl		;74de	22 67 80	" g .
+	ld (TRBYT),hl		;74de	22 67 80	" g .
 	ld a,00ah		;74e1	3e 0a		> .
 	ld c,001h		;74e3	0e 01		. .
 	call sub_7583h		;74e5	cd 83 75	. . u
@@ -899,7 +899,7 @@ sub_74cbh:
 	jp nz,l7508h		;74f1	c2 08 75	. . u
 	inc (hl)		;74f4	34		4
 	jp 074d3h		;74f5	c3 d3 74	. . t
-	ld a,(L08016h)		;74f8	3a 16 80	: . .
+	ld a,(FDCRS6)		;74f8	3a 16 80	: . .
 	rlca			;74fb	07		.
 	rlca			;74fc	07		.
 	ld b,a			;74fd	47		G
@@ -916,7 +916,7 @@ l7508h:
 	ret			;750a	c9		.
 
 sub_750ah:
-	ld a,(L08035h)		;750b	3a 35 80	: 5 .
+	ld a,(RECLEN)		;750b	3a 35 80	: 5 .
 	rla			;750e	17		.
 	rla			;750f	17		.
 	ld e,a			;7510	5f		_
@@ -928,7 +928,7 @@ sub_750ah:
 	jp z,07524h		;751d	ca 24 75	. $ u
 	ld a,023h		;7520	3e 23		> #
 	ld hl,072e6h		;7522	21 e6 72	! . r
-	ld (L0800ch),a		;7525	32 0c 80	2 . .
+	ld (EPTS),a		;7525	32 0c 80	2 . .
 	add hl,de		;7528	19		.
 	ld a,(07320h)		;7529	3a 20 73	:   s
 	and 001h		;752c	e6 01		. .
@@ -939,10 +939,10 @@ sub_750ah:
 
 l7535h:
 	ex de,hl		;7536	eb		.
-	ld hl,L08036h		;7537	21 36 80	! 6 .
+	ld hl,CUREOT		;7537	21 36 80	! 6 .
 	ld a,(de)		;753a	1a		.
 	ld (hl),a		;753b	77		w
-	ld (L0800dh),a		;753c	32 0d 80	2 . .
+	ld (TRKSZ),a		;753c	32 0d 80	2 . .
 	inc hl			;753f	23		#
 	inc de			;7540	13		.
 	ld a,(de)		;7541	1a		.
@@ -954,24 +954,24 @@ l7535h:
 
 sub_7547h:
 	ld hl,00080h		;7548	21 80 00	! . .
-	ld a,(L08035h)		;754b	3a 35 80	: 5 .
+	ld a,(RECLEN)		;754b	3a 35 80	: 5 .
 	or a			;754e	b7		.
 	jp z,07556h		;754f	ca 56 75	. V u
 	add hl,hl		;7552	29		)
 	dec a			;7553	3d		=
 	jp nz,07551h		;7554	c2 51 75	. Q u
-	ld (L08039h),hl		;7557	22 39 80	" 9 .
+	ld (SECBYT),hl		;7557	22 39 80	" 9 .
 	ex de,hl		;755a	eb		.
-	ld a,(L08034h)		;755b	3a 34 80	: 4 .
+	ld a,(CURREC)		;755b	3a 34 80	: 4 .
 	ld l,a			;755e	6f		o
-	ld a,(L08036h)		;755f	3a 36 80	: 6 .
+	ld a,(CUREOT)		;755f	3a 36 80	: 6 .
 	sub l			;7562	95		.
 	inc a			;7563	3c		<
 	ld l,a			;7564	6f		o
-	ld a,(L08060h)		;7565	3a 60 80	: ` .
+	ld a,(DSKTYP)		;7565	3a 60 80	: ` .
 	and 080h		;7568	e6 80		. .
 	jp z,07576h		;756a	ca 76 75	. v u
-	ld a,(L08033h)		;756d	3a 33 80	: 3 .
+	ld a,(CURHED)		;756d	3a 33 80	: 3 .
 	xor 001h		;7570	ee 01		. .
 	jp nz,07576h		;7572	c2 76 75	. v u
 	ld l,00ah		;7575	2e 0a		. .
@@ -982,19 +982,19 @@ l757ah:
 	add hl,de		;757b	19		.
 	dec a			;757c	3d		=
 	jp nz,l757ah		;757d	c2 7a 75	. z u
-	ld (L08067h),hl		;7580	22 67 80	" g .
+	ld (TRBYT),hl		;7580	22 67 80	" g .
 	ret			;7583	c9		.
 
 sub_7583h:
 	push af			;7584	f5		.
 	ld a,c			;7585	79		y
-	ld (L08062h),a		;7586	32 62 80	2 b .
+	ld (REPTIM),a		;7586	32 62 80	2 b .
 	call sub_769dh		;7589	cd 9d 76	. . v
-	ld hl,(L08067h)		;758c	2a 67 80	* g .
+	ld hl,(TRBYT)		;758c	2a 67 80	* g .
 	ld b,h			;758f	44		D
 	ld c,l			;7590	4d		M
 	dec bc			;7591	0b		.
-	ld hl,(L08065h)		;7592	2a 65 80	* e .
+	ld hl,(MEMADR)		;7592	2a 65 80	* e .
 	pop af			;7595	f1		.
 	push af			;7596	f5		.
 	and 00fh		;7597	e6 0f		. .
@@ -1013,11 +1013,11 @@ sub_7583h:
 	ld a,c			;75af	79		y
 	push af			;75b0	f5		.
 	jp 07588h		;75b1	c3 88 75	. . u
-	ld hl,L08010h		;75b4	21 10 80	! . .
+	ld hl,FDCRES		;75b4	21 10 80	! . .
 	ld a,(hl)		;75b7	7e		~
 	and 0c3h		;75b8	e6 c3		. .
 	ld b,a			;75ba	47		G
-	ld a,(L0801bh)		;75bb	3a 1b 80	: . .
+	ld a,(DRVSEL)		;75bb	3a 1b 80	: . .
 	cp b			;75be	b8		.
 	jp nz,l75d4h		;75bf	c2 d4 75	. . u
 	inc hl			;75c2	23		#
@@ -1034,9 +1034,9 @@ sub_7583h:
 	ret			;75d4	c9		.
 
 l75d4h:
-	ld a,(L08062h)		;75d5	3a 62 80	: b .
+	ld a,(REPTIM)		;75d5	3a 62 80	: b .
 	dec a			;75d8	3d		=
-	ld (L08062h),a		;75d9	32 62 80	2 b .
+	ld (REPTIM),a		;75d9	32 62 80	2 b .
 	scf			;75dc	37		7
 	ret			;75dd	c9		.
 
@@ -1045,8 +1045,8 @@ sub_75ddh:
 	push af			;75df	f5		.
 	di			;75e0	f3		.
 	ld a,0ffh		;75e1	3e ff		> .
-	ld hl,L08030h		;75e3	21 30 80	! 0 .
-	ld (L0800bh),a		;75e6	32 0b 80	2 . .
+	ld hl,COMBUF		;75e3	21 30 80	! 0 .
+	ld (FDCFLG),a		;75e6	32 0b 80	2 . .
 	ld a,(07320h)		;75e9	3a 20 73	:   s
 	and 001h		;75ec	e6 01		. .
 	jp z,075f2h		;75ee	ca f2 75	. . u
@@ -1136,38 +1136,38 @@ sub_766ah:
 	jp 072c4h		;7670	c3 c4 72	. . r
 	ld a,004h		;7673	3e 04		> .
 	call 0763ch		;7675	cd 3c 76	. < v
-	ld a,(L0801bh)		;7678	3a 1b 80	: . .
+	ld a,(DRVSEL)		;7678	3a 1b 80	: . .
 	call 0763ch		;767b	cd 3c 76	. < v
 	call sub_7654h		;767e	cd 54 76	. T v
-	ld (L08010h),a		;7681	32 10 80	2 . .
+	ld (FDCRES),a		;7681	32 10 80	2 . .
 	ret			;7684	c9		.
 
 sub_7684h:
 	ld a,008h		;7685	3e 08		> .
 	call 0763ch		;7687	cd 3c 76	. < v
 	call sub_7654h		;768a	cd 54 76	. T v
-	ld (L08010h),a		;768d	32 10 80	2 . .
+	ld (FDCRES),a		;768d	32 10 80	2 . .
 	and 0c0h		;7690	e6 c0		. .
 	cp 080h			;7692	fe 80		. .
 	jp z,0769ch		;7694	ca 9c 76	. . v
 	call sub_7654h		;7697	cd 54 76	. T v
-	ld (L08011h),a		;769a	32 11 80	2 . .
+	ld (FDCRS1),a		;769a	32 11 80	2 . .
 	ret			;769d	c9		.
 
 sub_769dh:
 	di			;769e	f3		.
 	xor a			;769f	af		.
-	ld (L08041h),a		;76a0	32 41 80	2 A .
+	ld (FLPFLG),a		;76a0	32 41 80	2 A .
 	ei			;76a3	fb		.
 	ret			;76a4	c9		.
 
 sub_76a4h:
 	push de			;76a5	d5		.
-	ld a,(L08033h)		;76a6	3a 33 80	: 3 .
+	ld a,(CURHED)		;76a6	3a 33 80	: 3 .
 	rla			;76a9	17		.
 	rla			;76aa	17		.
 	ld d,a			;76ab	57		W
-	ld a,(L0801bh)		;76ac	3a 1b 80	: . .
+	ld a,(DRVSEL)		;76ac	3a 1b 80	: . .
 	add a,d			;76af	82		.
 	pop de			;76b0	d1		.
 	ret			;76b1	c9		.
@@ -1198,7 +1198,7 @@ l76c4h:
 	ld c,001h		;76cc	0e 01		. .
 	call sub_76b1h		;76ce	cd b1 76	. . v
 	ld b,a			;76d1	47		G
-	ld a,(L08041h)		;76d2	3a 41 80	: A .
+	ld a,(FLPFLG)		;76d2	3a 41 80	: A .
 	and 002h		;76d5	e6 02		. .
 	ld a,b			;76d7	78		x
 	jp z,l76c4h		;76d8	ca c4 76	. . v
@@ -1211,16 +1211,16 @@ l76c4h:
 sub_76e1h:
 	ld a,0ffh		;76e2	3e ff		> .
 	call sub_76c3h		;76e4	cd c3 76	. . v
-	ld a,(L08010h)		;76e7	3a 10 80	: . .
+	ld a,(FDCRES)		;76e7	3a 10 80	: . .
 	ld b,a			;76ea	47		G
-	ld a,(L08011h)		;76eb	3a 11 80	: . .
+	ld a,(FDCRS1)		;76eb	3a 11 80	: . .
 	ld c,a			;76ee	4f		O
 	ret			;76ef	c9		.
 
 sub_76efh:
 	ld a,007h		;76f0	3e 07		> .
 	call 0763ch		;76f2	cd 3c 76	. < v
-	ld a,(L0801bh)		;76f5	3a 1b 80	: . .
+	ld a,(DRVSEL)		;76f5	3a 1b 80	: . .
 	call 0763ch		;76f8	cd 3c 76	. < v
 	ret			;76fb	c9		.
 
@@ -1236,7 +1236,7 @@ sub_76fbh:
 	call sub_76efh		;770c	cd ef 76	. . v
 	call sub_76e1h		;770f	cd e1 76	. . v
 	ret c			;7712	d8		.
-	ld a,(L0801bh)		;7713	3a 1b 80	: . .
+	ld a,(DRVSEL)		;7713	3a 1b 80	: . .
 	add a,020h		;7716	c6 20		.
 	cp b			;7718	b8		.
 	jp nz,0771eh		;7719	c2 1e 77	. . w
@@ -1247,32 +1247,32 @@ sub_76fbh:
 	ret			;7721	c9		.
 
 sub_7721h:
-	ld a,(L08032h)		;7722	3a 32 80	: 2 .
+	ld a,(CURCYL)		;7722	3a 32 80	: 2 .
 	ld e,a			;7725	5f		_
 	call sub_76a4h		;7726	cd a4 76	. . v
 	ld d,a			;7729	57		W
 	call sub_76fbh		;772a	cd fb 76	. . v
 	call sub_76e1h		;772d	cd e1 76	. . v
 	ret c			;7730	d8		.
-	ld a,(L0801bh)		;7731	3a 1b 80	: . .
+	ld a,(DRVSEL)		;7731	3a 1b 80	: . .
 	add a,020h		;7734	c6 20		.
 	cp b			;7736	b8		.
 	jp nz,l773dh		;7737	c2 3d 77	. = w
-	ld a,(L08032h)		;773a	3a 32 80	: 2 .
+	ld a,(CURCYL)		;773a	3a 32 80	: 2 .
 	cp c			;773d	b9		.
 l773dh:
 	scf			;773e	37		7
 	ccf			;773f	3f		?
 	ret			;7740	c9		.
 sub_7740h:
-	ld hl,L08010h		;7741	21 10 80	! . .
+	ld hl,FDCRES		;7741	21 10 80	! . .
 	ld b,007h		;7744	06 07		. .
 	ld a,b			;7746	78		x
-	ld (L0800bh),a		;7747	32 0b 80	2 . .
+	ld (FDCFLG),a		;7747	32 0b 80	2 . .
 	call sub_7654h		;774a	cd 54 76	. T v
 	ld (hl),a		;774d	77		w
 	inc hl			;774e	23		#
-	ld a,(L0801dh)		;774f	3a 1d 80	: . .
+	ld a,(FDCWAI)		;774f	3a 1d 80	: . .
 	dec a			;7752	3d		=
 	jp nz,07751h		;7753	c2 51 77	. Q w
 	in a,(004h)		;7756	db 04		. .
@@ -1294,8 +1294,8 @@ L7771:
 	push bc			;7772	c5		.
 	push hl			;7773	e5		.
 	ld a,002h		;7774	3e 02		> .
-	ld (L08041h),a		;7776	32 41 80	2 A .
-	ld a,(L0801ch)		;7779	3a 1c 80	: . .
+	ld (FLPFLG),a		;7776	32 41 80	2 A .
+	ld a,(FDCTMO)		;7779	3a 1c 80	: . .
 	dec a			;777c	3d		=
 	jp nz,0777bh		;777d	c2 7b 77	. { w
 	in a,(004h)		;7780	db 04		. .
@@ -1314,78 +1314,48 @@ L7771:
 main_last:
 	dephase
 
-	; DATA AREA
+	; DATA AREA - RAM variables used by boot ROM
+	; (cf. rob358.mac EQU block at 0xB000 for RC700/RC703 equivalents)
 	ORG	08000H
-	DS	03H
-L08003H:
+TRK:	DS	03H		;Track count (cf. rob358 TRK at 0xB000)
+ERRSAV:	DS	1		;Error code save (written in errdsp)
+	DS	7		;(unused/padding)
+FDCFLG:	DS	1		;FDC busy flag (0xFF=busy)
+EPTS:	DS	1		;EOT / sectors per track
+TRKSZ:	DS	1		;Track sector size byte
+	DS	2		;(unused/padding)
+FDCRES:	DS	1		;FDC result area: ST0 (7 bytes total)
+FDCRS1:	DS	5		;FDC result: ST1/PCN through C,H,R
+FDCRS6:	DS	1		;FDC result: N (record length)
+	DS	4		;(unused/padding)
+DRVSEL:	DS	1		;Drive select / head byte
+FDCTMO:	DS	1		;FDC timeout counter (init=3)
+FDCWAI:	DS	1		;FDC wait counter (init=4)
+SPSAV:	DS	12H		;Stack pointer save + workspace
+COMBUF:	DS	1		;FDC command buffer (9 bytes)
+	DS	1		;  drive/head byte
+CURCYL:	DS	1		;  current cylinder number
+CURHED:	DS	1		;  current head address
+CURREC:	DS	1		;  current record/sector number
+RECLEN:	DS	1		;  record length (N)
+CUREOT:	DS	1		;  current EOT (end of track)
+	DS	2		;  GAP3 + DTL
+SECBYT:	DS	1		;Sector byte count (word)
+	DS	7		;(unused/padding)
+FLPFLG:	DS	1		;Floppy interrupt flag (0=idle, 2=done)
+FLPWAI:	DS	1		;Floppy wait counter (init=4)
+	DS	29		;(unused/padding)
+DSKTYP:	DS	1		;Disk type flag (bit7=mini, bit0=floppy boot)
+MOREFL:	DS	1		;More data to transfer flag
+REPTIM:	DS	1		;Repeat/retry counter (init=5)
+CLRBLK:	DS	1		;Start of 8-byte cleared block
 	DS	1
-	DS	7
-L0800BH:
+MEMADR:	DS	1		;Memory address pointer (word, DMA dest)
 	DS	1
-L0800CH:
+TRBYT:	DS	1		;Transfer byte count (word)
 	DS	1
-L0800DH:
-	DS	1
-	DS	2
-L08010H:
-	DS	1H
-L08011H:
-	DS	5
-L08016H:
-	DS	1
-	DS	4
-L0801BH:
-	DS	1
-L0801CH:
-	DS	1
-L0801DH:
-	DS	1
-L0801EH:
-	DS	12H
-L08030H:
-	DS	1
-	DS	1
-L08032H:
-	DS	1
-L08033H:
-	DS	1
-L08034H:
-	DS	1
-L08035H:
-	DS	1
-L08036H:
-	DS	1
-	DS	2
-L08039H:
-	DS	1
-
-	DS	7
-L08041H:
-	DS	1
-L08042H:
-	DS	1
-
-	DS	29
-L08060H:
-	DS	1
-L08061H:
-	DS	1
-L08062H:
-	DS	1
-L08063H:
-	DS	1
-
-	DS	1
-L08065H:
-	DS	1
-	DS	1
-L08067H:
-	DS	1
-	DS	1
-L08069H:
-	DS	1
-L0806AH:
-	DS	1
+TRKOVR:	DS	1		;Track overflow count (word)
+TRKOV2:	DS	1		;Track overflow high byte
 
 
 
