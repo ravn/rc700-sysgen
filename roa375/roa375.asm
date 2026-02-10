@@ -177,29 +177,27 @@ MOVADR:
 ; Interrupt vectors and error handlers at 0x7000
 ;------------------------------------------------------------------------
 
-L73DA	EQU	073DAH ; -- FIXME
-
 ; Error message display vectors
 ERRVEC1:
 	LD	BC,07800H		;Display buffer
 	LD	DE,ERMES1		;Error message 1
 	LD	HL,0014H		;Length
 	CALL	MOVCPY			;Copy to screen
-	JP	L73DA			;Display error
+	JP	ERRHLT			;Halt with error displayed
 
 ERRVEC2:
 	LD	BC,07800H
 	LD	DE,ERMES3
 	LD	HL,000FH
 	CALL	MOVCPY
-	JP	L73DA
+	JP	ERRHLT
 
 ERRVEC3:
 	LD	BC,07800H
 	LD	DE,ERMES2
 	LD	HL,001DH
 	CALL	MOVCPY
-	JP	L73DA
+	JP	ERRHLT
 
 ;------------------------------------------------------------------------
 ; Utility routines
@@ -302,7 +300,7 @@ INIT:
 ; Initialize PIO for keyboard
 	LD	C,0FFH
 	LD	B,001H
-	CALL	076B1H ; -- FIXME SUB_B1			;Wait routine
+	CALL	DELAY				;Wait routine
 
 	LD	A,099H
 	CALL	PIOINT			;PIO init
@@ -397,12 +395,12 @@ CRTINT:
 ; Floppy disk controller (uPD765) initialization and status check
 ;------------------------------------------------------------------------
 
-FDCDATA: ; -- FIXME EXPLAIN BYTES
+FDCDATA:				;FDC SPECIFY command buffer (cf. rob358 FDCINI)
 	DB	003H, 003H, 04FH, 020H
 FDCINT:
 	LD	C,0FFH
 	LD	B,001H
-	CALL	076B1H ; -- FIXME SUB_B1			;Wait routine
+	CALL	DELAY				;Wait routine
 
 	IN	A,(FDC)		;FDC status
 	AND	01FH
@@ -423,12 +421,6 @@ FDCWAIT:
 	DEC	B
 	JP	NZ,FDCWAITNEXT
 	JP	CLRSCR
-
-; -- FDCDATA:
-;FIXME	DB	03H,71H		;FDC command data
-
-; FIXME FDCWAIT:
-;	; FDC wait loop continues here
 
 ;------------------------------------------------------------------------
 ; Display screen clear and message display
@@ -497,7 +489,7 @@ BOOT:
 	LD	(CURREC),A
 
 ; Try hard disk boot
-	CALL	074CBH ; --FIXME HDBOTT
+	CALL	DSKAUTO
 	JP	C,L720B
 
 	LD	HL,07320H		;Status flag
@@ -508,11 +500,11 @@ BOOT:
 L720B:
 	LD	HL,CURHED
 	DEC	(HL)
-	CALL	074CBH ; -- FIXME HDBOTT
+	CALL	DSKAUTO
 	RET	NC
 
 	LD	A,0FBH
-	JP	072C4H;  -- FIXME ERRDSP
+	JP	L72C4
 
 ;------------------------------------------------------------------------
 ; Floppy disk boot sequence
@@ -521,35 +513,32 @@ L720B:
 FLDSK1:
 	LD	B,001H
 	LD	C,0FFH
-	CALL	076B1H ; -- FIXME SUB_B1			;Wait routine
-	CALL	07672H ; -- FIXME FLPRST
+	CALL	DELAY				;Wait routine
+	CALL	SNSDRV			;Sense drive status
 	LD	A,(FDCRES)
 	AND	023H
 	LD	C,A
 	LD	A,(DRVSEL)
 	ADD	A,020H
 	CP	C
-	JP	NZ,072C4H ; -- FIXME ERRDSP
-	CALL	0770BH ; -- FIXME FLDSK2
-	JP	C,072C4H ; -- FIXME ERRDSP
-	JP	Z,0723DH; -- FIXME FLDSK3
-	JP	072C4H; -- FIXME ERRDSP
+	JP	NZ,L72C4
+	CALL	RECALV			;Recalibrate and verify
+	JP	C,L72C4
+	JP	Z,FLDSK3
+	JP	L72C4
 
 FLDSK2:
-	; Floppy disk read routine
-	; FIXME RET
-
 FLDSK3:
-	CALL	BOOT ; -- FIXME CLRSCR
+	CALL	BOOT
 	LD	A,001H
 	OUT	(BEEPER),A		;Beeper
 BOOT4:
 	LD	HL,(TRBYT)
-	CALL	07425H ; -- BOOT2
+	CALL	RDTRK0
 	LD	A,(CURCYL)
 	OR	A
 	JP	NZ,BOOT2
-	CALL	074CBH ; -- FIXME HDBOTT
+	CALL	DSKAUTO
 	JP	BOOT4
 
 BOOT2:
@@ -560,7 +549,7 @@ BOOT3:
 	LD	A,001H
 	LD	(DSKTYP),A
 	CALL	BOOT7
-	JP	07403H ; -- FIXME BOOT6
+	JP	FLBOOT
 
 
 ;------------------------------------------------------------------------
@@ -570,10 +559,10 @@ BOOT3:
 BOOT7:
 	LD	A,00AH
 	LD	HL,00000H
-	CALL	072aaH; -- FIXME CHKFIL
-	JP	Z,0727ch ; -- fixme BOOT8
+	CALL	L72AA
+	JP	Z,BOOT8
 	LD	A,00BH
-	CALL	072aaH; -- FIXME CHKFIL
+	CALL	L72AA
 	JP	Z,BOOT9
 	JP	ERRVEC2
 
@@ -581,16 +570,17 @@ BOOT9:
 	LD	HL,(00000H)
 	JP	(HL)
 
+BOOT8:
 	LD	HL, 0
 	LD	DE, 0B60H
 	ADD	HL, DE
-L7283H: ; -- FIXME
+L7283H:
 	LD	DE, 20H
 	ADD	HL, DE
 	LD	BC, 0D00H
 	LD	A,B
 	CP	H
-	JP	C, 07000H ; -- FIXME
+	JP	C,ERRVEC1
 	LD	A,(HL)
 	OR	A
 	JP	Z, L7283H
@@ -691,24 +681,26 @@ SYSCALL:
 	LD	A,B
 	AND	07FH
 	LD	(CURCYL),A
-	CALL	Z, 074CBH ; -- FIXME
+	CALL	Z,DSKAUTO
 	LD	A,B
 	AND	080H
 	JP	Z,L7345
 	LD	A,001H
 L7345:
 	LD	(CURHED),A
-	CALL	07425H ; -- FIXME
+	CALL	RDTRK0
 	POP	BC
 	PUSH	AF
 	LD	A,B
 	AND	07FH
-	JP	NZ,0735bH ; -- FIXME
+	JP	NZ,SYSRET
 	LD	A,001H
 	LD	(CURCYL),A
-	CALL	074CBH ; -- FIXME
+	CALL	DSKAUTO
+SYSRET:
 	POP	AF
 	XOR	A
+RETSP:
 	LD	HL,(SPSAV)
 	LD	SP,HL
 	RET
@@ -811,7 +803,7 @@ HDINT:
 
 FLPINT:
 	DI
-	JP	07770H ; -- FIXME
+	JP	FLPBDY
 
 DUMINT:
 	EI
@@ -827,7 +819,7 @@ ERRDSP:
 	EI
 	LD	A,(DSKTYP)
 	AND	001H
-	JP	NZ,0735DH		; -- FIXME (return to caller)
+	JP	NZ,RETSP		;Return to caller via SP restore
 	OUT	(BIB),A			;Sound beeper
 	CALL	ERRCPY			;Copy error text to display
 ERRHLT:
@@ -1448,10 +1440,11 @@ FLO7:
 	RET
 
 ;------------------------------------------------------------------------
-; Recalibrate and verify result
+; RECALV - Recalibrate and verify result
 ; Returns: NC if successful
 ;------------------------------------------------------------------------
 
+RECALV:
 	CALL	FLO4			;Recalibrate drive
 	CALL	FLWRES			;Wait for result
 	RET	C			;Return if timeout
