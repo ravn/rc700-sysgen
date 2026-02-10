@@ -25,3 +25,6 @@ clean:
 # Build reference file (raw z80dasm output) - for testing only
 test-raw: roa375_raw.asm
 	$(ZMAC) $(ZMAC_FLAGS) roa375_raw.asm
+
+#duplicate-symbols:  zout/roa375.lst
+#	perl -ne '/Symbol Table:/..eof&&/(\S+)\s+([0-9A-Fa-f]+)/&&push@{$$h{uc$$2}},$$1;END{print"@h";print"$$_:@{$$h{$$_}}\n"for grep{@{$$h{$$_}}>0}sort keys%$$h}' zout/roa375.lst
