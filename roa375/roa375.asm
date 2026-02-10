@@ -16,6 +16,69 @@
 .Z80
 
 ;========================================================================
+; HARDWARE CONSTANT DEFINITIONS
+; (cf. rob358.mac for RC700/RC703 equivalents)
+;========================================================================
+
+; System ports
+SW1	EQU	014H		;Mini/maxi switch (read), ROM disable (write)
+BIB	EQU	01CH		;Beeper/sound port
+BEEPER	EQU	018H		;RC702 beeper port (additional)
+
+; Z80 PIO ports
+KEYDAT	EQU	010H		;PIO Port A data (keyboard)
+KEYCON	EQU	012H		;PIO Port A control
+PIOBDT	EQU	011H		;PIO Port B data
+PIOBCN	EQU	013H		;PIO Port B control
+
+; AM9517A DMA controller ports
+CH1ADR	EQU	0F2H		;DMA Channel 1 address (floppy)
+WCREG1	EQU	0F3H		;DMA Channel 1 word count
+CH2ADR	EQU	0F4H		;DMA Channel 2 address (display)
+WCREG2	EQU	0F5H		;DMA Channel 2 word count
+CH3ADR	EQU	0F6H		;DMA Channel 3 address (display)
+WCREG3	EQU	0F7H		;DMA Channel 3 word count
+DMACOM	EQU	0F8H		;DMA command register
+SMSK	EQU	0FAH		;DMA single mask register
+DMAMOD	EQU	0FBH		;DMA mode register
+CLBP	EQU	0FCH		;DMA clear byte pointer
+
+; DMA command/mode values
+COMV	EQU	020H		;DMA command value
+MODE1	EQU	045H		;DMA mode: disk to memory CH1 (single)
+CLR1	EQU	001H		;Clear CH1 mask (enable)
+SET1	EQU	005H		;Set CH1 mask (disable)
+
+; Z80 CTC ports
+CTCCH0	EQU	00CH		;CTC Channel 0
+CTCCH1	EQU	00DH		;CTC Channel 1
+CTCCH2	EQU	00EH		;CTC Channel 2 (display interrupt)
+CTCCH3	EQU	00FH		;CTC Channel 3 (floppy interrupt)
+CTCMOD	EQU	0D7H		;CTC mode: interrupt after one count
+CTCCNT	EQU	001H		;CTC count value
+
+; Intel 8275 CRT controller ports
+CRTDAT	EQU	000H		;CRT data register
+CRTCOM	EQU	001H		;CRT command/control register
+
+; CRT command values
+CRTRES	EQU	000H		;Reset CRT controller
+LCURS	EQU	080H		;Load cursor command
+PRECC	EQU	0E0H		;Preset counters
+STDISP	EQU	023H		;Start display
+
+; CRT parameters (RC702-specific)
+PARAM1	EQU	04FH		;80 chars/row
+PARAM2	EQU	098H		;25 rows/frame
+
+; NEC uPD765 FDC ports
+FDC	EQU	004H		;FDC main status register
+FDD	EQU	005H		;FDC data register
+
+; Display buffer
+DSPSTR	EQU	07800H		;Display memory buffer address
+
+;========================================================================
 ; BOOT CODE - Executes from ROM at 0x0000-0x0066
 ;========================================================================
 
@@ -66,7 +129,7 @@ PREINIT:
 
 	LD	A,000H
 	LD	B,A
-	IN	A,(014H)		;Read switch settings
+	IN	A,(SW1)		;Read switch settings
 	AND	080H			;Mask mini/maxi bit
 	ADD	A,B
 	LD	(L07320H),A
@@ -88,7 +151,7 @@ CLRLP:
 
 	EI				;Enable interrupts
 	LD	A,001H
-	OUT	(014H),A		;ROM disable port
+	OUT	(SW1),A		;ROM disable port
 	LD	A,005H
 	LD	(REPTIM),A
 	JP	07218H
@@ -148,7 +211,7 @@ SUB_2E:
 	EX	DE,HL
 	LD	BC,070C3H
 	LD	HL,0004H
-	CALL	SUB_5C
+	CALL	COMSTR
 	POP	HL
 	JP	Z,SUB_4F
 	RET
@@ -159,7 +222,7 @@ SUB_3E:
 	EX	DE,HL
 	LD	BC,070C8H
 	LD	HL,0004H
-	CALL	SUB_5C
+	CALL	COMSTR
 	POP	HL
 	JP	Z,SUB_4F
 	RET
@@ -176,7 +239,7 @@ SUB_4F:
 	RET
 
 ; Memory compare routine
-SUB_5C:
+COMSTR:
 	LD	A,(DE)
 	LD	H,A
 	LD	A,(BC)
@@ -185,7 +248,7 @@ SUB_5C:
 	INC	DE
 	INC	BC
 	DEC	L
-	JP	NZ,SUB_5C
+	JP	NZ,COMSTR
 	RET
 
 ; Memory copy routine
@@ -250,84 +313,84 @@ INIT:
 PIOINT:
 	PUSH	AF
 	LD	A,002H
-	OUT	(012H),A		;PIO control
+	OUT	(KEYCON),A		;PIO control
 	LD	A,004H
-	OUT	(013H),A
+	OUT	(PIOBCN),A
 	LD	A,04FH
-	OUT	(012H),A		;Set mode
+	OUT	(KEYCON),A		;Set mode
 	LD	A,00FH
-	OUT	(013H),A
+	OUT	(PIOBCN),A
 	LD	A,083H
-	OUT	(012H),A		;Enable interrupts
-	OUT	(013H),A
+	OUT	(KEYCON),A		;Enable interrupts
+	OUT	(PIOBCN),A
 	JP	CTCINT
 
 ; CTC initialization
 CTCINT:
 	LD	A,008H
-	OUT	(00CH),A		;CTC control
+	OUT	(CTCCH0),A		;CTC control
 	POP	AF
 	LD	A,046H
 	OR	041H
-	OUT	(00CH),A		;Channel 0
+	OUT	(CTCCH0),A		;Channel 0
 	LD	A,020H
-	OUT	(00CH),A
+	OUT	(CTCCH0),A
 
 	LD	A,046H
 	OR	041H
-	OUT	(00DH),A		;Channel 1
+	OUT	(CTCCH1),A		;Channel 1
 	LD	A,020H
-	OUT	(00DH),A
+	OUT	(CTCCH1),A
 
 	LD	A,0D7H
-	OUT	(00EH),A		;Channel 2 (Display)
+	OUT	(CTCCH2),A		;Channel 2 (Display)
 	LD	A,001H
-	OUT	(00EH),A
+	OUT	(CTCCH2),A
 
 	LD	A,0D7H
-	OUT	(00FH),A		;Channel 3 (Floppy)
+	OUT	(CTCCH3),A		;Channel 3 (Floppy)
 	LD	A,001H
-	OUT	(00FH),A
+	OUT	(CTCCH3),A
 	JP	DMAINT
 
 ; DMA initialization
 DMAINT:
 	LD	A,020H
-	OUT	(0F8H),A		;DMA command
+	OUT	(DMACOM),A		;DMA command
 
 	LD	A,0C0H
-	OUT	(0FBH),A		;Mode register
+	OUT	(DMAMOD),A		;Mode register
 	LD	A,000H
-	OUT	(0FAH),A		;Mask register
+	OUT	(SMSK),A		;Mask register
 
 	LD	A,04AH
-	OUT	(0FBH),A
+	OUT	(DMAMOD),A
 	LD	A,04BH
-	OUT	(0FBH),A
+	OUT	(DMAMOD),A
 	JP	CRTINT
 
 ; CRT Controller (8275) initialization
 CRTINT:
 	LD	A,000H
-	OUT	(001H),A		;Reset CRT
+	OUT	(CRTCOM),A		;Reset CRT
 
 	LD	A,04FH
-	OUT	(000H),A		;80 chars/row
+	OUT	(CRTDAT),A		;80 chars/row
 	LD	A,098H
-	OUT	(000H),A		;25 rows
+	OUT	(CRTDAT),A		;25 rows
 	LD	A,09AH
-	OUT	(000H),A		;Underline
+	OUT	(CRTDAT),A		;Underline
 	LD	A,05DH
-	OUT	(000H),A		;Cursor format
+	OUT	(CRTDAT),A		;Cursor format
 
 	LD	A,080H
-	OUT	(001H),A		;Load cursor
+	OUT	(CRTCOM),A		;Load cursor
 	XOR	A
-	OUT	(000H),A		;Position 0
-	OUT	(000H),A
+	OUT	(CRTDAT),A		;Position 0
+	OUT	(CRTDAT),A
 
 	LD	A,0E0H
-	OUT	(001H),A		;Preset counters
+	OUT	(CRTCOM),A		;Preset counters
 	JP	FDCINT
 
 ;------------------------------------------------------------------------
@@ -341,7 +404,7 @@ FDCINT:
 	LD	B,001H
 	CALL	076B1H ; -- FIXME SUB_B1			;Wait routine
 
-	IN	A,(004H)		;FDC status
+	IN	A,(FDC)		;FDC status
 	AND	01FH
 	JP	NZ,FDCINT
 
@@ -350,13 +413,13 @@ FDCINT:
 FDCWAITNEXT:
 	INC	HL
 FDCWAIT:
-	IN	A,(004H)
+	IN	A,(FDC)
 	AND	0C0H
 	CP	080H
 	JP	NZ,FDCWAIT
 
 	LD	A,(HL)
-	OUT	(005H),A		;FDC data
+	OUT	(FDD),A		;FDC data
 	DEC	B
 	JP	NZ,FDCWAITNEXT
 	JP	CLRSCR
@@ -419,7 +482,7 @@ DISPMG:
 	LD	(07FE6H),A
 
 	LD	A,023H
-	OUT	(001H),A		;Start display
+	OUT	(CRTCOM),A		;Start display
 	RET
 
 ;------------------------------------------------------------------------
@@ -479,7 +542,7 @@ FLDSK2:
 FLDSK3:
 	CALL	BOOT ; -- FIXME CLRSCR
 	LD	A,001H
-	OUT	(018H),A		;Beeper
+	OUT	(BEEPER),A		;Beeper
 BOOT4:
 	LD	HL,(TRBYT)
 	CALL	07425H ; -- BOOT2
@@ -553,7 +616,7 @@ L72AA:
 	LD	BC, RC702TXT
 	LD	HL, 6
 L72C0:
-	CALL	SUB_5C
+	CALL	COMSTR
 	RET
 
 L72C4:
@@ -584,12 +647,23 @@ MINIFMT:
 ; Interrupt vector table (16 entries)
 ;------------------------------------------------------------------------
 
-INTVEC: ; -- FIXME REPLACE WITH LABELS
-;	DW	L73C6,L73C6,L73C6,L73C6,L73C6,L73C6,L73BB,L73C2
-;	DW	L73C6,L73C6,L73C6,L73C6,L73C6,L73C6H,L73C6,L73C6
-
-	DW	073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073BBH,073C2H
-	DW	073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073C6H,073C6H
+INTVEC:
+	DW	DUMINT		; +0:  Dummy
+	DW	DUMINT		; +2:  PIO Port A (keyboard) - not used on RC702
+	DW	DUMINT		; +4:  PIO Port B - not used
+	DW	DUMINT		; +6:  Dummy
+	DW	DUMINT		; +8:  CTC CH0 - not used
+	DW	DUMINT		; +10: CTC CH1 - not used
+	DW	HDINT		; +12: CTC CH2 - Display interrupt
+	DW	FLPINT		; +14: CTC CH3 - Floppy interrupt
+	DW	DUMINT		; +16: Dummy
+	DW	DUMINT		; +18: Dummy
+	DW	DUMINT		; +20: Dummy
+	DW	DUMINT		; +22: Dummy
+	DW	DUMINT		; +24: Dummy
+	DW	DUMINT		; +26: Dummy
+	DW	DUMINT		; +28: Dummy
+	DW	DUMINT		; +30: Dummy
 L07320H:
 	DB	00H
 	DB	00H
@@ -647,9 +721,9 @@ L7362:
 	PUSH	DE
 	PUSH	BC
 	LD	A,6
-	OUT	(0FAH), A
+	OUT	(SMSK), A
 	LD	A,7
-	OUT	(0FAH), A
+	OUT	(SMSK), A
 
 	DB	0
 
@@ -670,22 +744,22 @@ SYSC2:
 ;------------------------------------------------------------------------
 DISINT:
 	PUSH	AF
-	IN	A,(001H)
+	IN	A,(CRTCOM)
 	PUSH	HL
 	PUSH	DE
 	PUSH	BC
 	LD	A,006H
-	OUT	(0FAH),A
+	OUT	(SMSK),A
 	LD	A,007H
-	OUT	(0FAH),A
-	OUT	(0FCH),A
+	OUT	(SMSK),A
+	OUT	(CLBP),A
 	LD	HL,(07FD5H)
 	LD	DE,07800H
 	ADD	HL,DE
 	LD	A,L
-	OUT	(0F4H),A
+	OUT	(CH2ADR),A
 	LD	A,H
-	OUT	(0F4H),A
+	OUT	(CH2ADR),A
 	LD	A,L
 	CPL
 	LD	L,A
@@ -698,30 +772,30 @@ DISINT:
 	LD	DE,07800H
 	ADD	HL,DE
 	LD	A,L
-	OUT	(0F5H),A
+	OUT	(WCREG2),A
 	LD	A,H
-	OUT	(0F5H),A
+	OUT	(WCREG2),A
 	LD	HL,07800H
 	LD	A,L
-	OUT	(0F6H),A
+	OUT	(CH3ADR),A
 	LD	A,H
-	OUT	(0F6H),A
+	OUT	(CH3ADR),A
 	LD	HL,007CFH
 	LD	A,L
-	OUT	(0F7H),A
+	OUT	(WCREG3),A
 	LD	A,H
-	OUT	(0F7H),A
+	OUT	(WCREG3),A
 	LD	A,002H
-	OUT	(0FAH),A
+	OUT	(SMSK),A
 	LD	A,003H
-	OUT	(0FAH),A
+	OUT	(SMSK),A
 	POP	BC
 	POP	DE
 	POP	HL
 	LD	A,0D7H
-	OUT	(00EH),A
+	OUT	(CTCCH2),A
 	LD	A,001H
-	OUT	(00EH),A
+	OUT	(CTCCH2),A
 	POP	AF
 	RET
 
@@ -780,7 +854,7 @@ main_start:
 	or (hl)			;740c	b6		.
 	ld (hl),a		;740d	77		w
 	dec (hl)		;740e	35		5
-	call sub_74cbh		;740f	cd cb 74	. . t
+	call DSKAUTO		;740f	cd cb 74	. . t
 	ld hl,00000h		;7412	21 00 00	! . .
 	ld (MEMADR),hl		;7415	22 65 80	" e .
 	ld hl,07300h		;7418	21 00 73	! . s
@@ -790,15 +864,15 @@ main_start:
 	jp 01000h		;7423	c3 00 10	. . .
 	ld a,000h		;7426	3e 00		> .
 	ld (TRKOVR),hl		;7428	22 69 80	" i .
-	call sub_7721h		;742b	cd 21 77	. ! w
+	call FLSEEK		;742b	cd 21 77	. ! w
 	jp c,072c4h		;742e	da c4 72	. . r
 	jp z,07438h		;7431	ca 38 74	. 8 t
 	ld a,006h		;7434	3e 06		> .
 	jp 073c9h		;7436	c3 c9 73	. . s
-	call sub_7481h		;7439	cd 81 74	. . t
+	call CALCTX		;7439	cd 81 74	. . t
 	ld a,006h		;743c	3e 06		> .
 	ld c,005h		;743e	0e 05		. .
-	call sub_7583h		;7440	cd 83 75	. . u
+	call READTK		;7440	cd 83 75	. . u
 	jp nc,0744ah		;7443	d2 4a 74	. J t
 	ld a,028h		;7446	3e 28		> (
 	jp 073c9h		;7448	c3 c9 73	. . s
@@ -832,11 +906,11 @@ l747ah:
 	inc (hl)		;7480	34		4
 	ret			;7481	c9		.
 
-sub_7481h:
+CALCTX:
 	ld hl,(TRKOVR)		;7482	2a 69 80	* i .
 	push hl			;7485	e5		.
-	call sub_7547h		;7486	cd 47 75	. G u
-	call sub_74aeh		;7489	cd ae 74	. . t
+	call CALCTB		;7486	cd 47 75	. G u
+	call NEGHL		;7489	cd ae 74	. . t
 	pop de			;748c	d1		.
 	add hl,de		;748d	19		.
 	jp nc,l749eh		;748e	d2 9e 74	. . t
@@ -857,7 +931,7 @@ l749eh:
 	ld (TRBYT),hl		;74ab	22 67 80	" g .
 	ret			;74ae	c9		.
 
-sub_74aeh:
+NEGHL:
 	push af			;74af	f5		.
 	ld a,l			;74b0	7d		}
 	cpl			;74b1	2f		/
@@ -869,29 +943,29 @@ sub_74aeh:
 	pop af			;74b7	f1		.
 	ret			;74b8	c9		.
 
-sub_74b8h:
+SETFMT:
 	ld a,(07320h)		;74b9	3a 20 73	:   s
 	and 01ch		;74bc	e6 1c		. .
 	rra			;74be	1f		.
 	rra			;74bf	1f		.
 	and 007h		;74c0	e6 07		. .
 	ld (RECLEN),a		;74c2	32 35 80	2 5 .
-	call sub_750ah		;74c5	cd 0a 75	. . u
-	call sub_7547h		;74c8	cd 47 75	. G u
+	call FMTLKP		;74c5	cd 0a 75	. . u
+	call CALCTB		;74c8	cd 47 75	. G u
 	ret			;74cb	c9		.
 
-sub_74cbh:
+DSKAUTO:
 	ld a,(07320h)		;74cc	3a 20 73	:   s
 	and 0feh		;74cf	e6 fe		. .
 	ld (07320h),a		;74d1	32 20 73	2   s
-	call sub_7721h		;74d4	cd 21 77	. ! w
+	call FLSEEK		;74d4	cd 21 77	. ! w
 	jp nz,l7508h		;74d7	c2 08 75	. . u
 	ld l,004h		;74da	2e 04		. .
 	ld h,000h		;74dc	26 00		& .
 	ld (TRBYT),hl		;74de	22 67 80	" g .
 	ld a,00ah		;74e1	3e 0a		> .
 	ld c,001h		;74e3	0e 01		. .
-	call sub_7583h		;74e5	cd 83 75	. . u
+	call READTK		;74e5	cd 83 75	. . u
 	ld hl,07320h		;74e8	21 20 73	!   s
 	jp nc,074f7h		;74eb	d2 f7 74	. . t
 	ld a,(hl)		;74ee	7e		~
@@ -907,7 +981,7 @@ sub_74cbh:
 	and 0e3h		;74ff	e6 e3		. .
 	add a,b			;7501	80		.
 	ld (hl),a		;7502	77		w
-	call sub_74b8h		;7503	cd b8 74	. . t
+	call SETFMT		;7503	cd b8 74	. . t
 	scf			;7506	37		7
 	ccf			;7507	3f		?
 	ret			;7508	c9		.
@@ -915,7 +989,7 @@ l7508h:
 	scf			;7509	37		7
 	ret			;750a	c9		.
 
-sub_750ah:
+FMTLKP:
 	ld a,(RECLEN)		;750b	3a 35 80	: 5 .
 	rla			;750e	17		.
 	rla			;750f	17		.
@@ -952,7 +1026,7 @@ l7535h:
 	ld (hl),a		;7546	77		w
 	ret			;7547	c9		.
 
-sub_7547h:
+CALCTB:
 	ld hl,00080h		;7548	21 80 00	! . .
 	ld a,(RECLEN)		;754b	3a 35 80	: 5 .
 	or a			;754e	b7		.
@@ -985,11 +1059,11 @@ l757ah:
 	ld (TRBYT),hl		;7580	22 67 80	" g .
 	ret			;7583	c9		.
 
-sub_7583h:
+READTK:
 	push af			;7584	f5		.
 	ld a,c			;7585	79		y
 	ld (REPTIM),a		;7586	32 62 80	2 b .
-	call sub_769dh		;7589	cd 9d 76	. . v
+	call CLRFLF		;7589	cd 9d 76	. . v
 	ld hl,(TRBYT)		;758c	2a 67 80	* g .
 	ld b,h			;758f	44		D
 	ld c,l			;7590	4d		M
@@ -999,12 +1073,12 @@ sub_7583h:
 	push af			;7596	f5		.
 	and 00fh		;7597	e6 0f		. .
 	cp 00ah			;7599	fe 0a		. .
-	call nz,sub_7632h	;759b	c4 32 76	. 2 v
+	call nz,STPDMA	;759b	c4 32 76	. 2 v
 	pop af			;759e	f1		.
 	ld c,a			;759f	4f		O
-	call sub_75ddh		;75a0	cd dd 75	. . u
+	call FLRTRK		;75a0	cd dd 75	. . u
 	ld a,0ffh		;75a3	3e ff		> .
-	call sub_76c3h		;75a5	cd c3 76	. . v
+	call WAITFL		;75a5	cd c3 76	. . v
 	ret c			;75a8	d8		.
 	ld a,c			;75a9	79		y
 	call 075b3h		;75aa	cd b3 75	. . u
@@ -1040,7 +1114,7 @@ l75d4h:
 	scf			;75dc	37		7
 	ret			;75dd	c9		.
 
-sub_75ddh:
+FLRTRK:
 	push bc			;75de	c5		.
 	push af			;75df	f5		.
 	di			;75e0	f3		.
@@ -1057,7 +1131,7 @@ sub_75ddh:
 	add a,b			;75f6	80		.
 	ld (hl),a		;75f7	77		w
 	inc hl			;75f8	23		#
-	call sub_76a4h		;75f9	cd a4 76	. . v
+	call MKDHB		;75f9	cd a4 76	. . v
 	ld (hl),a		;75fc	77		w
 	dec hl			;75fd	2b		+
 	pop af			;75fe	f1		.
@@ -1076,27 +1150,27 @@ sub_75ddh:
 	ret			;7615	c9		.
 	ld a,005h		;7616	3e 05		> .
 	di			;7618	f3		.
-	out (0fah),a		;7619	d3 fa		. .
+	out (SMSK),a		;7619	d3 fa		. .
 	ld a,049h		;761b	3e 49		> I
-	out (0fbh),a		;761d	d3 fb		. .
-	out (0fch),a		;761f	d3 fc		. .
+	out (DMAMOD),a		;761d	d3 fb		. .
+	out (CLBP),a		;761f	d3 fc		. .
 	ld a,l			;7621	7d		}
-	out (0f2h),a		;7622	d3 f2		. .
+	out (CH1ADR),a		;7622	d3 f2		. .
 	ld a,h			;7624	7c		|
-	out (0f2h),a		;7625	d3 f2		. .
+	out (CH1ADR),a		;7625	d3 f2		. .
 	ld a,c			;7627	79		y
-	out (0f3h),a		;7628	d3 f3		. .
+	out (WCREG1),a		;7628	d3 f3		. .
 	ld a,b			;762a	78		x
-	out (0f3h),a		;762b	d3 f3		. .
+	out (WCREG1),a		;762b	d3 f3		. .
 	ld a,001h		;762d	3e 01		> .
-	out (0fah),a		;762f	d3 fa		. .
+	out (SMSK),a		;762f	d3 fa		. .
 	ei			;7631	fb		.
 	ret			;7632	c9		.
 
-sub_7632h:
+STPDMA:
 	ld a,005h		;7633	3e 05		> .
 	di			;7635	f3		.
-	out (0fah),a		;7636	d3 fa		. .
+	out (SMSK),a		;7636	d3 fa		. .
 	ld a,045h		;7638	3e 45		> E
 	jp 0761ch		;763a	c3 1c 76	. . v
 	push af			;763d	f5		.
@@ -1104,31 +1178,31 @@ sub_7632h:
 	ld b,000h		;763f	06 00		. .
 	ld c,000h		;7641	0e 00		. .
 	inc b			;7643	04		.
-	call z,sub_766ah	;7644	cc 6a 76	. j v
-	in a,(004h)		;7647	db 04		. .
+	call z,FDCTOUT	;7644	cc 6a 76	. j v
+	in a,(FDC)		;7647	db 04		. .
 	and 0c0h		;7649	e6 c0		. .
 	cp 080h			;764b	fe 80		. .
 	jp nz,07642h		;764d	c2 42 76	. B v
 	pop bc			;7650	c1		.
 	pop af			;7651	f1		.
-	out (005h),a		;7652	d3 05		. .
+	out (FDD),a		;7652	d3 05		. .
 	ret			;7654	c9		.
 
-sub_7654h:
+FLO3:
 	push bc			;7655	c5		.
 	ld b,000h		;7656	06 00		. .
 	ld c,000h		;7658	0e 00		. .
 	inc b			;765a	04		.
-	call z,sub_766ah	;765b	cc 6a 76	. j v
-	in a,(004h)		;765e	db 04		. .
+	call z,FDCTOUT	;765b	cc 6a 76	. j v
+	in a,(FDC)		;765e	db 04		. .
 	and 0c0h		;7660	e6 c0		. .
 	cp 0c0h			;7662	fe c0		. .
 	jp nz,07659h		;7664	c2 59 76	. Y v
 	pop bc			;7667	c1		.
-	in a,(005h)		;7668	db 05		. .
+	in a,(FDD)		;7668	db 05		. .
 	ret			;766a	c9		.
 
-sub_766ah:
+FDCTOUT:
 	ld b,000h		;766b	06 00		. .
 	inc c			;766d	0c		.
 	ret nz			;766e	c0		.
@@ -1138,30 +1212,30 @@ sub_766ah:
 	call 0763ch		;7675	cd 3c 76	. < v
 	ld a,(DRVSEL)		;7678	3a 1b 80	: . .
 	call 0763ch		;767b	cd 3c 76	. < v
-	call sub_7654h		;767e	cd 54 76	. T v
+	call FLO3		;767e	cd 54 76	. T v
 	ld (FDCRES),a		;7681	32 10 80	2 . .
 	ret			;7684	c9		.
 
-sub_7684h:
+FLO6:
 	ld a,008h		;7685	3e 08		> .
 	call 0763ch		;7687	cd 3c 76	. < v
-	call sub_7654h		;768a	cd 54 76	. T v
+	call FLO3		;768a	cd 54 76	. T v
 	ld (FDCRES),a		;768d	32 10 80	2 . .
 	and 0c0h		;7690	e6 c0		. .
 	cp 080h			;7692	fe 80		. .
 	jp z,0769ch		;7694	ca 9c 76	. . v
-	call sub_7654h		;7697	cd 54 76	. T v
+	call FLO3		;7697	cd 54 76	. T v
 	ld (FDCRS1),a		;769a	32 11 80	2 . .
 	ret			;769d	c9		.
 
-sub_769dh:
+CLRFLF:
 	di			;769e	f3		.
 	xor a			;769f	af		.
 	ld (FLPFLG),a		;76a0	32 41 80	2 A .
 	ei			;76a3	fb		.
 	ret			;76a4	c9		.
 
-sub_76a4h:
+MKDHB:
 	push de			;76a5	d5		.
 	ld a,(CURHED)		;76a6	3a 33 80	: 3 .
 	rla			;76a9	17		.
@@ -1172,7 +1246,7 @@ sub_76a4h:
 	pop de			;76b0	d1		.
 	ret			;76b1	c9		.
 
-sub_76b1h:
+DELAY:
 	push af			;76b2	f5		.
 	push hl			;76b3	e5		.
 l76b3h:
@@ -1188,7 +1262,7 @@ l76b3h:
 	pop af			;76c2	f1		.
 	ret			;76c3	c9		.
 
-sub_76c3h:
+WAITFL:
 	push bc			;76c4	c5		.
 l76c4h:
 	dec a			;76c5	3d		=
@@ -1196,7 +1270,7 @@ l76c4h:
 	jp z,076dfh		;76c7	ca df 76	. . v
 	ld b,001h		;76ca	06 01		. .
 	ld c,001h		;76cc	0e 01		. .
-	call sub_76b1h		;76ce	cd b1 76	. . v
+	call DELAY		;76ce	cd b1 76	. . v
 	ld b,a			;76d1	47		G
 	ld a,(FLPFLG)		;76d2	3a 41 80	: A .
 	and 002h		;76d5	e6 02		. .
@@ -1204,27 +1278,27 @@ l76c4h:
 	jp z,l76c4h		;76d8	ca c4 76	. . v
 	scf			;76db	37		7
 	ccf			;76dc	3f		?
-	call sub_769dh		;76dd	cd 9d 76	. . v
+	call CLRFLF		;76dd	cd 9d 76	. . v
 	pop bc			;76e0	c1		.
 	ret			;76e1	c9		.
 
-sub_76e1h:
+FLWRES:
 	ld a,0ffh		;76e2	3e ff		> .
-	call sub_76c3h		;76e4	cd c3 76	. . v
+	call WAITFL		;76e4	cd c3 76	. . v
 	ld a,(FDCRES)		;76e7	3a 10 80	: . .
 	ld b,a			;76ea	47		G
 	ld a,(FDCRS1)		;76eb	3a 11 80	: . .
 	ld c,a			;76ee	4f		O
 	ret			;76ef	c9		.
 
-sub_76efh:
+FLO4:
 	ld a,007h		;76f0	3e 07		> .
 	call 0763ch		;76f2	cd 3c 76	. < v
 	ld a,(DRVSEL)		;76f5	3a 1b 80	: . .
 	call 0763ch		;76f8	cd 3c 76	. < v
 	ret			;76fb	c9		.
 
-sub_76fbh:
+FLO7:
 	ld a,00fh		;76fc	3e 0f		> .
 	call 0763ch		;76fe	cd 3c 76	. < v
 	ld a,d			;7701	7a		z
@@ -1233,8 +1307,8 @@ sub_76fbh:
 	ld a,e			;7707	7b		{
 	call 0763ch		;7708	cd 3c 76	. < v
 	ret			;770b	c9		.
-	call sub_76efh		;770c	cd ef 76	. . v
-	call sub_76e1h		;770f	cd e1 76	. . v
+	call FLO4		;770c	cd ef 76	. . v
+	call FLWRES		;770f	cd e1 76	. . v
 	ret c			;7712	d8		.
 	ld a,(DRVSEL)		;7713	3a 1b 80	: . .
 	add a,020h		;7716	c6 20		.
@@ -1246,13 +1320,13 @@ sub_76fbh:
 	ccf			;7720	3f		?
 	ret			;7721	c9		.
 
-sub_7721h:
+FLSEEK:
 	ld a,(CURCYL)		;7722	3a 32 80	: 2 .
 	ld e,a			;7725	5f		_
-	call sub_76a4h		;7726	cd a4 76	. . v
+	call MKDHB		;7726	cd a4 76	. . v
 	ld d,a			;7729	57		W
-	call sub_76fbh		;772a	cd fb 76	. . v
-	call sub_76e1h		;772d	cd e1 76	. . v
+	call FLO7		;772a	cd fb 76	. . v
+	call FLWRES		;772d	cd e1 76	. . v
 	ret c			;7730	d8		.
 	ld a,(DRVSEL)		;7731	3a 1b 80	: . .
 	add a,020h		;7734	c6 20		.
@@ -1264,32 +1338,32 @@ l773dh:
 	scf			;773e	37		7
 	ccf			;773f	3f		?
 	ret			;7740	c9		.
-sub_7740h:
+RSULT:
 	ld hl,FDCRES		;7741	21 10 80	! . .
 	ld b,007h		;7744	06 07		. .
 	ld a,b			;7746	78		x
 	ld (FDCFLG),a		;7747	32 0b 80	2 . .
-	call sub_7654h		;774a	cd 54 76	. T v
+	call FLO3		;774a	cd 54 76	. T v
 	ld (hl),a		;774d	77		w
 	inc hl			;774e	23		#
 	ld a,(FDCWAI)		;774f	3a 1d 80	: . .
 	dec a			;7752	3d		=
 	jp nz,07751h		;7753	c2 51 77	. Q w
-	in a,(004h)		;7756	db 04		. .
+	in a,(FDC)		;7756	db 04		. .
 	and 010h		;7758	e6 10		. .
 	jp z,07765h		;775a	ca 65 77	. e w
 	dec b			;775d	05		.
 	jp nz,07749h		;775e	c2 49 77	. I w
 	ld a,0feh		;7761	3e fe		> .
 	jp 073c9h		;7763	c3 c9 73	. . s
-	in a,(0f8h)		;7766	db f8		. .
+	in a,(DMACOM)		;7766	db f8		. .
 	ld (hl),a		;7768	77		w
 	dec b			;7769	05		.
 	ret z			;776a	c8		.
 	ei			;776b	fb		.
 	ld a,0fdh		;776c	3e fd		> .
 	jp 073c9h		;776e	c3 c9 73	. . s
-L7771:
+FLPBDY:
 	push af			;7771	f5		.
 	push bc			;7772	c5		.
 	push hl			;7773	e5		.
@@ -1298,12 +1372,12 @@ L7771:
 	ld a,(FDCTMO)		;7779	3a 1c 80	: . .
 	dec a			;777c	3d		=
 	jp nz,0777bh		;777d	c2 7b 77	. { w
-	in a,(004h)		;7780	db 04		. .
+	in a,(FDC)		;7780	db 04		. .
 	and 010h		;7782	e6 10		. .
 	jp nz,0778ch		;7784	c2 8c 77	. . w
-	call sub_7684h		;7787	cd 84 76	. . v
+	call FLO6		;7787	cd 84 76	. . v
 	jp 0778fh		;778a	c3 8f 77	. . w
-	call sub_7740h		;778d	cd 40 77	. @ w
+	call RSULT		;778d	cd 40 77	. @ w
 	pop hl			;7790	e1		.
 	pop bc			;7791	c1		.
 	pop af			;7792	f1		.
