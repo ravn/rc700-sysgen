@@ -14,6 +14,10 @@ all: clean zout/roa375.cim verify
 zout/roa375.cim: roa375.asm
 	$(ZMAC) $(ZMAC_FLAGS) roa375.asm
 
+# Build from disassembly source
+zout/rob358.cim: rob358.mac
+	$(ZMAC) $(ZMAC_FLAGS) rob358.mac
+
 # Verify binary match with original ROM
 verify: zout/roa375.cim
 	@echo "Comparing assembled output with original ROM..."

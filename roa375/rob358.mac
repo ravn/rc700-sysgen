@@ -50,7 +50,8 @@ BEGIN:	DI		;
 	JP AUTOL	;GO TO AUTOLOAD SECTION 
 MOVADR:
 PAGE
-.PHASE 0A000H
+; -- zmac doesn't like .PHASE 0A000H
+	PHASE 0A000H
 ;*****************************************************************************
 ;*                                                                           *
 ;*    AUTO LOAD SECTION:					             *    
@@ -1080,16 +1081,18 @@ RCCOL:	DB '  '		;IF NOT COLOR CRT THEN WRITE('  ')
 ENDIF
 	DB ' RC700'	;RC MICRO PROMT TEXT
 TCMOP:	DB ' '		;
-.DEPHASE
-POS$:			;LIST DEVICE OFF IN MACRO EXPANSION			
+; -- zmac doesn't like .DEPHASE
+	DEPHASE
+POS$:			;LIST DEVICE OFF IN MACRO EXPANSION
 .XLIST			;
 			;NOTE NUMBER OFF FREE BYTES IN PROM
 ;
-REPT FMOVE-(POS$-BEGIN)	;;
+; -- zmac doesn't like POS$ -REPT FMOVE-(POS$-BEGIN)	;;
+	REPT	FMOVE-($ - BEGIN)	;;
 	DB 0FFH		;;FILL REST OF PROM WITH FF'S
 ENDM			;;
 
 .LIST
 ;
 END 
-E
+
