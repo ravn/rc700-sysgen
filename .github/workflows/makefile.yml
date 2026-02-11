@@ -1,0 +1,24 @@
+name: Makefile CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: compile zmac
+      run: make -C zmac
+
+    - name: assemble PROM
+      run: make -C roa375 all
+
+    - name: assemble RC700 SYSGEN
+      run: make -C sysgen
