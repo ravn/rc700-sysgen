@@ -15,7 +15,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: compile zmac
-      run: make -DCMP_FLAGS=-l -C zmac
+      run: make CMP_FLAGS=-l -C zmac
 
     - name: assemble PROM
       run: make -C roa375 all
