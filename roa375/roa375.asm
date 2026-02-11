@@ -15,7 +15,7 @@
 .Z80
 
 ;========================================================================
-; HARDWARE CONSTANT DEFINITIONS
+; HARDWARE CONSTANT DEFINITIONS - see https://www.jbox.dk/rc702/manuals.shtm for PDF's
 ; (cf. rob358.mac for RC700/RC703 equivalents)
 ;========================================================================
 
@@ -24,7 +24,7 @@ SW1	EQU	014H		;Mini/maxi switch (read), ROM disable (write)
 BIB	EQU	01CH		;Beeper/sound port
 BEEPER	EQU	018H		;RC702 beeper port (additional)
 
-; Z80 PIO ports
+; Z80 PIO ports -
 KEYDAT	EQU	010H		;PIO Port A data (keyboard)
 KEYCON	EQU	012H		;PIO Port A control
 PIOBDT	EQU	011H		;PIO Port B data
@@ -48,7 +48,7 @@ MODE1	EQU	045H		;DMA mode: disk to memory CH1 (single)
 CLR1	EQU	001H		;Clear CH1 mask (enable)
 SET1	EQU	005H		;Set CH1 mask (disable)
 
-; Z80 CTC ports
+; Z80 CTC ports -
 CTCCH0	EQU	00CH		;CTC Channel 0
 CTCCH1	EQU	00DH		;CTC Channel 1
 CTCCH2	EQU	00EH		;CTC Channel 2 (display interrupt)
@@ -324,45 +324,67 @@ INIT:
 	JP	(HL)
 
 ; PIO initialization
+; https://www.jbox.dk/rc702/hardware/zilog-um0081.pdf page 188-189
 PIOINT:
 	PUSH	AF
-	LD	A,002H
-	OUT	(KEYCON),A		;PIO control
-	LD	A,004H
+	; -- set interrupt vectors, page 188
+	LD	A,002H			; Keyboard - parallel port A is interrupt 2.
+	OUT	(KEYCON),A
+	LD	A,004H			; ? - parallel port B is interrupt 4.
 	OUT	(PIOBCN),A
+	; -- set operating modes, page 189
 	LD	A,04FH
-	OUT	(KEYCON),A		;Set mode
+	OUT	(KEYCON),A		; Keyboard - set to input mode (01)
 	LD	A,00FH
-	OUT	(PIOBCN),A
+	OUT	(PIOBCN),A		; Port B - set to output mode (00)
+	; -- set interrupt control words to: ENABLE-INT, OR-mode, monitor for low state, no mask, page 190.
 	LD	A,083H
 	OUT	(KEYCON),A		;Enable interrupts
 	OUT	(PIOBCN),A
 	JP	CTCINT
 
-; CTC initialization
+; CTC initialization - Counter/Timer Channels
+;  CHANNEL0: NOT USED DURING BOOTSTRAP
+;  CHANNEL1: NOT USED DURING BOOTSTRAP
+;  CHANNEL2: INTERRUPT INPUT FOR DISPALY
+;  CHANNEL3: INTERRUPT INPUT FOR FLOPPY CONTROLLER
+;
+; https://www.jbox.dk/rc702/hardware/zilog-um0081.pdf page 18-23
 CTCINT:
-	LD	A,008H
+	; -- Channel 0 --
+	; -- set interrupt vector to 1
+	LD	A,00001000b
 	OUT	(CTCCH0),A		;CTC control
 	POP	AF
+	; -- 47H = 01000111b = counter mode, falling edge, time constant follows, reset
 	LD	A,046H
 	OR	041H
-	OUT	(CTCCH0),A		;Channel 0
-	LD	A,020H
+	OUT	(CTCCH0),A
+	LD	A,020H			;
 	OUT	(CTCCH0),A
 
+	; -- Channel 1 --
+	; -- 47H = 01000111b = counter mode, falling edge, time constant follows, reset
 	LD	A,046H
 	OR	041H
 	OUT	(CTCCH1),A		;Channel 1
+	; -- time constant = 20H
 	LD	A,020H
 	OUT	(CTCCH1),A
 
+	; -- Channel 2 --
+	; -- D7H = 11010111H = interrupt enable, counter mode, 16x scale, falling edge, time constant, reset
 	LD	A,0D7H
 	OUT	(CTCCH2),A		;Channel 2 (Display)
+	; -- time constant = 1
 	LD	A,001H
 	OUT	(CTCCH2),A
 
+	; -- Channel 3 --
+	; -- D7H = 11010111H = interrupt enable, counter mode, 16x scale, falling edge, time constant, reset
 	LD	A,0D7H
 	OUT	(CTCCH3),A		;Channel 3 (Floppy)
+	; -- time constant = 1
 	LD	A,001H
 	OUT	(CTCCH3),A
 	JP	DMAINT
@@ -384,27 +406,29 @@ DMAINT:
 	JP	CRTINT
 
 ; CRT Controller (8275) initialization
+; https://www.jbox.dk/rc702/hardware/intel-8275.pdf - page 8-238 -
 CRTINT:
 	LD	A,000H
-	OUT	(CRTCOM),A		;Reset CRT
+	OUT	(CRTCOM),A	;Reset CRT
 
-	LD	A,04FH
-	OUT	(CRTDAT),A		;80 chars/row
-	LD	A,098H
-	OUT	(CRTDAT),A		;25 rows
-	LD	A,09AH
-	OUT	(CRTDAT),A		;Underline
-	LD	A,05DH
-	OUT	(CRTDAT),A		;Cursor format
+	LD	A,04FH		;not spaced rows, 80 chars/row
+	OUT	(CRTDAT),A
+	LD	A,10011000b	;vertical retrace count: 2, 25 rows
+	OUT	(CRTDAT),A
+	LD	A,9AH		;underline on line 9, chars 10 lines tall.
+	OUT	(CRTDAT),A
+	LD	A,05DH		;non-offset count, field attributes non-transparent,
+	OUT	(CRTDAT),A	;blinking underline cursor, 28 chars per horizontal retrace
 
-	LD	A,080H
-	OUT	(CRTCOM),A		;Load cursor
+	LD	A,10000000b
+	OUT	(CRTCOM),A	; Set cursor at 0,0
 	XOR	A
-	OUT	(CRTDAT),A		;Position 0
+	OUT	(CRTDAT),A
 	OUT	(CRTDAT),A
 
-	LD	A,0E0H
-	OUT	(CRTCOM),A		;Preset counters
+	LD	A,11100000b
+	OUT	(CRTCOM),A	;Preset counters, display is now ready
+	; -- note display is ready but not actually started.  Happens at end of initialization.
 	JP	FDCINT
 
 ;------------------------------------------------------------------------
@@ -412,11 +436,14 @@ CRTINT:
 ;------------------------------------------------------------------------
 
 FDCDATA:				;FDC SPECIFY command buffer (cf. rob358 FDCINI)
-	DB	003H, 003H, 04FH, 020H
+	DB	003H
+	DB	003H
+	DB	04FH
+	DB	020H
 FDCINT:
 	LD	C,0FFH
 	LD	B,001H
-	CALL	DELAY				;Wait routine
+	CALL	DELAY		;Wait routine
 
 	IN	A,(FDC)		;FDC status
 	AND	01FH
@@ -489,8 +516,8 @@ DISPMG:
 	LD	(L07FDD),A
 	LD	(L07FE6),A
 
-	LD	A,023H
-	OUT	(CRTCOM),A		;Start display
+	LD	A,00100011b
+	OUT	(CRTCOM),A		;Start display (0 clocks between requests, 8 dma cycles per burst)
 	RET
 
 ;------------------------------------------------------------------------
@@ -670,7 +697,7 @@ MAXIFMT:	; FIXME - looks fishy
 
 INTVEC:
 	DW	DUMINT		; +0:  Dummy
-	DW	DUMINT		; +2:  PIO Port A (keyboard) - not used on RC702
+	DW	DUMINT		; +2:  PIO Port A (keyboard) - not used during boot
 	DW	DUMINT		; +4:  PIO Port B - not used
 	DW	DUMINT		; +6:  Dummy
 	DW	DUMINT		; +8:  CTC CH0 - not used
@@ -732,17 +759,20 @@ RETSP:
 	RET
 
 ;------------------------------------------------------------------------
-; Display interrupt handler
+; Display interrupt handler, called for every screen refresh
 ;------------------------------------------------------------------------
 DISINT:
 	PUSH	AF
-	IN	A,(CRTCOM)
+	IN	A,(CRTCOM)		; read status register to clear interrupt flag
+
 	PUSH	HL
 	PUSH	DE
 	PUSH	BC
-	LD	A,006H
+	; -- set up DMA for screen transfer to CRT controller
+	; https://www.jbox.dk/rc702/hardware/intel-8237.pdf page 6-96
+	LD	A,00000110b
 	OUT	(SMSK),A
-	LD	A,007H
+	LD	A,00000111b
 	OUT	(SMSK),A
 	OUT	(CLBP),A
 	LD	HL,(L07FD5)		; Tell chip memory location for cursor?
