@@ -3,6 +3,7 @@
 
 ZMAC = ../zmac/bin/zmac
 ZMAC_FLAGS = -z --dri -f
+CMP_FLAGS=-x
 
 .PHONY: all verify clean
 
@@ -16,7 +17,7 @@ zout/roa375.cim: roa375.asm
 # Verify binary match with original ROM
 verify: zout/roa375.cim
 	@echo "Comparing assembled output with original ROM..."
-	cmp -x zout/roa375.cim roa375.rom | perl -pe 's/^([0-9a-f]+)/sprintf("%04x", hex($$1)+0x6f97)/e' | head -n 8
+	cmp $(CMP_FLAGS) zout/roa375.cim roa375.rom | perl -pe 's/^([0-9a-f]+)/sprintf("%04x", hex($$1)+0x6f97)/e' | head -n 8
 
 # Clean build outputs
 clean:
