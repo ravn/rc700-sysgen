@@ -880,7 +880,11 @@ ERRTXTPTR:
 ;------------------------------------------------------------------------
 ; Error message text
 ;------------------------------------------------------------------------
-
+;
+; Note: This message is shown if for any reason the diskette cannot be
+; read when expected.  For MAME this may happen if using a mini floppy
+; image in a maxi floppy drive, as the number of sectors per track are
+; different are smaller.
 DISKETTEERRORMSG:
 	DEFB	'**DISKETTE ERROR** '
 DISKETTEERRORMSGLEN	EQU $ - DISKETTEERRORMSG - 1
