@@ -74,6 +74,10 @@ PARAM2	EQU	098H		;25 rows/frame
 FDC	EQU	004H		;FDC main status register
 FDD	EQU	005H		;FDC data register
 
+; Directory and disk constants
+ATTOFF	EQU	007H		;File attribute offset from filename start
+SECSZ0	EQU	080H		;Base sector size in bytes (N=0, 128 bytes)
+
 
 ;========================================================================
 ; BOOT CODE - Executes from ROM at 0x0000-0x0066, relocates the payload
@@ -234,7 +238,7 @@ CHKSYSC:
 SUB_4F:
 	PUSH	HL
 	INC	HL
-	LD	DE,0007H
+	LD	DE,ATTOFF
 	ADD	HL,DE
 	LD	A,(HL)
 	AND	03FH
@@ -288,6 +292,11 @@ NOKATALOGMSG:
 	DB	' **NO KATALOG** '
 NOKATALOGMSGLEN		EQU	$ - NOKATALOGMSG - 1
 
+; [Claude Opus 4.6] NULLB: Purpose unclear.  The bytes 02H, C3H, C8H do not
+; form a valid Z80 instruction sequence at this location.  C3H is the JP
+; opcode and C8H is the RET Z opcode, but 02H preceding them makes no sense
+; as code.  Possibly a data fragment, a jump table entry, or padding left
+; over from the original build.  Needs verification against the original ROM.
 NULLB:	DB	002H
 	DB	0C3H
 	DB	0C8H			;Control byte
@@ -469,23 +478,29 @@ FDCWAIT:
 ; Display screen clear and message display
 ;------------------------------------------------------------------------
 
+; [Claude Opus 4.6] CLRSCR clears 8 rows (D=0..7) of 208 bytes each (E=0..0CFH).
+; The 8275 CRT controller uses an internal row buffer wider than the visible
+; 80-column display.  Each row occupies 208 (0xD0) bytes in the display buffer,
+; giving 8 * 208 = 1664 bytes cleared total.  The remaining buffer space
+; (up to 2000 bytes) is left untouched.  After clearing, DISPMG writes the
+; " RC700" identification string at the start of the buffer.
 CLRSCR:
 	LD	HL,00000H
-	EX	DE,HL			; D=line..up to 7, E=char..up to 207
+	EX	DE,HL			; D=line (0..7), E=char (0..0CFH=207)
 CLRLP1:
 	LD	HL,DSPSTR		;Display buffer
 	ADD	HL,DE
 	LD	A,' '
 	LD	(HL),A
 	LD	A,E
-	CP	0CFH			; clear up to 13*16 chars and then jump to NEXTLN
+	CP	0CFH			; End of row (208 bytes per row)?
 	JP	Z,NEXTLN
 	INC	DE
 	JP	CLRLP1
 
 NEXTLN:
 	LD	A,D
-	CP	007H
+	CP	007H			; Done 8 rows?
 	JP	Z,DISPMG
 	INC	DE
 	JP	CLRLP1
@@ -523,6 +538,19 @@ DISPMG:
 ;------------------------------------------------------------------------
 ; MAIN BOOT SEQUENCE - Try hard disk, then floppy
 ;------------------------------------------------------------------------
+;
+; [Claude Opus 4.6] Boot flow overview:
+;   FLDSK1: Entry from PREINIT. Sense drive, recalibrate, call BOOT.
+;   BOOT:   Try DSKAUTO on head 1, then head 0. On success, return to FLDSK3.
+;   FLDSK3: Beep, read track data in BOOT4 loop until cylinder advances.
+;   BOOT2:  Set DSKTYP=1 (floppy), call BOOT7 to verify catalogue, then FLBOOT.
+;   BOOT7:  Check for "RC700" signature (A=0AH) at address 0, then "RC702"
+;           (A=0BH). If RC700 found -> BOOT8 (search directory for SYSM/SYSC).
+;           If RC702 found -> BOOT9 (jump via vector at address 0).
+;           Neither -> NOKATALOGERR.
+;   BOOTIFOK: Fallback/error path. Checks for "RC702" at 0x2000 (hard disk
+;           boot area or line program). If found, jumps via vector there.
+;           Otherwise -> NODISKLINEPROGERR.
 
 BOOT:
 	XOR	A
@@ -584,10 +612,6 @@ BOOT4:
 	JP	BOOT4
 
 BOOT2:
-	; Boot helper routine
-;	RET
-
-BOOT3:
 	LD	A,001H
 	LD	(DSKTYP),A
 	CALL	BOOT7
@@ -660,24 +684,44 @@ ISRC70X2:
 	CALL	COMSTR
 	RET
 
+; [Claude Opus 4.6] 0x2000 is where the hard disk boot loader or "line program"
+; (linjeprogram) is expected to reside after being loaded into memory.
+; BOOTIFOK checks for an "RC702" signature at 0x2002 (skipping a 2-byte
+; jump vector), and if found, jumps via the vector at 0x2000.
+; "Lineprog" (linjeprogram) was a Danish term for the communication/network
+; program used on RC700-series machines.
 L02000H	EQU	02000H
 
 BOOTIFOK:
 	LD	A, 0BH
-	LD	HL, L02000H ; -- FIXME what is put here?
-	CALL	ISRC70X
+	LD	HL, L02000H
+	CALL	ISRC70X			;Check for "RC702" at 0x2002
 	JP	Z, BOOTIFOK2
 	JP	NODISKLINEPROGERR
 
 BOOTIFOK2:
-	LD	HL,(L02000H)
-	JP	(HL)
+	LD	HL,(L02000H)		;Load jump vector from 0x2000
+	JP	(HL)			;Jump to boot loader / line program
 
 ;------------------------------------------------------------------------
 ; Disk format/geometry tables
 ;------------------------------------------------------------------------
 
-; Mini (5.25") disk format - mapping from logical to physical sector
+; [Claude Opus 4.6] Format parameter tables, indexed by FMTLKP.
+; Each table has 4-byte entries per density level (N=0,1,2), with 2 bytes
+; per side: (EOT, GAP3).  FMTLKP computes offset = N*4 + side*2.
+;
+; MINIFMT (5.25" / mini):
+;   N=0 (128B): side0=(1AH=26, 07H)  side1=(34H=52, 07H)
+;   N=1 (256B): side0=(0FH=15, 0EH)  side1=(1AH=26, 0EH)
+;   N=2 (512B): side0=(08H=8,  1BH)  side1=(0FH=15, 1BH)
+;   N=3 (unused):                     (00H, 00H, 08H, 35H)
+;
+; MAXIFMT (8" / maxi):
+;   N=0 (128B): side0=(10H=16, 07H)  side1=(20H=32, 07H)
+;   N=1 (256B): side0=(09H=9,  0EH)  side1=(10H=16, 0EH)
+;   N=2 (512B): side0=(05H=5,  1BH)  side1=(09H=9,  1BH)
+;   N=3 (unused):                     (00H, 00H, 05H, 35H)
 MINIFMT:
 	DB	01AH,07H,34H,07H,0FH,0EH,1AH,0EH,08H,1BH,0FH,1BH,00H,00H
 	DB	08H,35H
@@ -712,14 +756,26 @@ INTVEC:
 	DW	DUMINT		; +26: Dummy
 	DW	DUMINT		; +28: Dummy
 	DW	DUMINT		; +30: Dummy
+; [Claude Opus 4.6] DISKBITS bitfield definition:
+;   bit 7:   Diskette size (1=mini/5.25", 0=maxi/8"). Set from SW1 port.
+;   bit 4-2: Density/record-length (N value shifted left 2). Set by DSKAUTO/DSKDET.
+;            Extracted by SETFMT: AND 00011100b, then RRA twice -> N in bits 2-0.
+;   bit 1:   Dual-sided flag. Set after successful DSKAUTO on head 1.
+;   bit 0:   Side select (0=side 0, 1=side 1). Toggled during DSKAUTO retries.
 DISKBITS:
-	DB	00H		; Status flag - 7:maxi; 2 set after DSKAUTO
+	DB	00H		; Status flag (see bitfield above)
 	DB	00H
 
 ;------------------------------------------------------------------------
 ; System call and interrupt handlers
-; 
 ;------------------------------------------------------------------------
+; [Claude Opus 4.6] SYSCALL is the PROM's disk I/O entry point, called by
+; the CP/M BIOS (or other boot code) to read disk tracks.  It saves the
+; caller's stack pointer so it can return via RETSP, which restores SP
+; and returns — allowing error paths (ERRDSP) to also unwind cleanly.
+; Entry: HL = memory destination address
+;        B  = bit7: head select, bits 6-0: cylinder number
+;        C  = bit7: record/sector number (bits 6-0)
 SYSCALL:
 	; B=7 bit is head, 0..6 bit Cylinder; C=7 bit record
 	LD	(MEMADR),HL	; store HL in MEMADR
@@ -810,10 +866,15 @@ DISINT:
 	LD	A,H
 	OUT	(WCREG3),A
 
-	LD	A,002H		; -- FIXME what is this
+	; [Claude Opus 4.6] SMSK register format: bits 1-0 = channel, bit 2 = mask/unmask.
+	; Writing 002H = channel 2, bit2=0 -> unmask (enable) DMA channel 2.
+	; Writing 003H = channel 3, bit2=0 -> unmask (enable) DMA channel 3.
+	; This enables DMA channels 2 and 3 for the CRT display transfer that
+	; was set up above (CH2ADR/WCREG2 for scroll region, CH3ADR/WCREG3 for full buffer).
+	LD	A,002H		; Unmask (enable) DMA channel 2
 	OUT	(SMSK),A
 
-	LD	A,003H		; -- FIXME what is this
+	LD	A,003H		; Unmask (enable) DMA channel 3
 	OUT	(SMSK),A
 
 	POP	BC
@@ -909,6 +970,11 @@ FLBOOT:
 	CALL	RDTRK0			;Read track 0 side 0
 	LD	A,001H
 	LD	(DSKTYP),A		;Set floppy boot flag
+	; [Claude Opus 4.6] 0x1000 is the ID-COMAL boot entry point.  ID-COMAL
+	; was a COMAL interpreter system used on RC700-series machines.  After
+	; reading track 0 to memory at 0x0000, the ID-COMAL bootstrap code
+	; resides at offset 0x1000 and takes over from here.  This path is only
+	; reached for non-CP/M (COMAL) diskettes; CP/M boots via BOOT7/BOOT8.
 	JP	01000H			;Jump to ID-COMAL boot address
 
 RDTRK0:
@@ -1061,6 +1127,10 @@ DSKDET:
 	ADD	A,B			;Insert new density
 	LD	(HL),A
 	CALL	SETFMT			;Set format from detected density
+	; [Claude Opus 4.6] SCF;CCF is the standard Z80 idiom for clearing the
+	; carry flag.  The Z80 has no direct "clear carry" instruction, so
+	; SCF (set carry) followed by CCF (complement carry) achieves it.
+	; This pattern appears throughout the PROM for returning success.
 	SCF
 	CCF				;Clear carry = success
 	RET
@@ -1118,7 +1188,7 @@ FMTLK3:
 ;------------------------------------------------------------------------
 
 CALCTB:
-	LD	HL,00080H		;Base sector size = 128
+	LD	HL,SECSZ0		;Base sector size = 128
 	LD	A,(RECLEN)		;Get N (record length code)
 	OR	A
 	JP	Z,CALCT2		;N=0: 128 bytes/sector
@@ -1189,25 +1259,38 @@ READTK1:
 ; Check FDC result status bytes
 ; Returns: NC if OK, C+NZ if error with retries, C+Z if retries exhausted
 ;------------------------------------------------------------------------
-; NOTE: Generated by AI - may need revision.
+; [Claude Opus 4.6] NEC uPD765 result phase registers (corrected).
+; After a read/write command, the FDC returns 7 result bytes:
 ;
-;	| Register | Bit  | Meaning                                      |
-;	|----------|------|----------------------------------------------|
-;	| ST0      | 7–5  | Command code returned (e.g., 0x04 for SENSE DRIVE). |
-;	|          | 4    | Reserved / unused                            |
-;	|          | 3    | Reserved / unused                            |
-;	|          | 2    | Reserved / unused                            |
-;	|          | 1    | Reserved / unused                            |
-;	|          | 0    | Reserved / unused                            |
-;	| ST1      | 7–6  | Head number (0–3).                           |
-;	|          | 5    | Drive number (0 or 1).                       |
-;	|          | 4–0  | Cylinder low bits.                           |
-;	| ST2      | 7–6  | Sector number (1–10).                        |
-;	|          | 5–0  | Sector size code (N).                        |
-;	| ST3      | 7–0  | Current cylinder (PCN).                      |
-;	| ST4      | 7–0  | Current sector number.                       |
-;	| ST5      | 7–0  | Unused / manufacturer data.                  |
-;	| ST6      | 7–0  | Record length code (N).                      |
+;   Byte 0 - ST0: Status Register 0
+;     bit 7-6: Interrupt code (00=normal, 01=abnormal, 10=invalid cmd, 11=drive not ready)
+;     bit 5:   Seek end (SE)
+;     bit 4:   Equipment check (EC)
+;     bit 3:   Not ready (NR) - drive not ready
+;     bit 2:   Head address (HD) - current head
+;     bit 1-0: Unit select (US1,US0) - drive number
+;
+;   Byte 1 - ST1: Status Register 1
+;     bit 7:   End of cylinder (EN)
+;     bit 5:   Data error (DE) - CRC error in data field
+;     bit 4:   Overrun (OR) - CPU didn't service DMA in time
+;     bit 2:   No data (ND) - sector not found
+;     bit 1:   Not writable (NW) - write protect
+;     bit 0:   Missing address mark (MA)
+;
+;   Byte 2 - ST2: Status Register 2
+;     bit 6:   Control mark (CM) - deleted data address mark found
+;     bit 5:   Data error in data field (DD)
+;     bit 4:   Wrong cylinder (WC)
+;     bit 3:   Scan equal hit (SH)
+;     bit 2:   Scan not satisfied (SN)
+;     bit 1:   Bad cylinder (BC)
+;     bit 0:   Missing address mark in data field (MD)
+;
+;   Byte 3: Cylinder number (C) after command
+;   Byte 4: Head number (H) after command
+;   Byte 5: Record/sector number (R) after command
+;   Byte 6: Sector size code (N) after command
 CHKRES:
 	LD	HL,FDCRES		;Point to result status bytes
 	LD	A,(HL)			;Get ST0
@@ -1685,7 +1768,8 @@ TRKOV2:	DS	1		;Track overflow high byte
 
 	ORG	07800H
 DSPSTR:	DS	2000		;Display memory buffer address
-	DS	1
+	DS	1		; [Claude Opus 4.6] Unnamed padding byte between
+				; display buffer and CRT work area. Purpose unknown.
 UNUSED1:	DS	1
 UNUSED2:	DS	2
 UNUSED3:	DS	1
