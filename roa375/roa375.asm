@@ -132,11 +132,11 @@ PREINIT:
 	LD	A,000H
 	LD	B,A
 	IN	A,(SW1)		;Read switch settings
-	AND	080H			;Mask mini/maxi bit
+	AND	10000000b		;Mask mini/maxi bit
 	ADD	A,B
 	LD	(DISKBITS),A
 
-	XOR	A			;Clear A
+	XOR	A			;A := 0
 	LD	(CURHED),A
 	LD	(DRVSEL),A
 	LD	(DSKTYP),A
@@ -241,7 +241,7 @@ SUB_4F:
 	LD	DE,ATTOFF
 	ADD	HL,DE
 	LD	A,(HL)
-	AND	03FH
+	AND	00111111b
 	CP	013H
 	POP	HL
 	RET
@@ -367,7 +367,7 @@ CTCINT:
 	POP	AF
 	; -- 47H = 01000111b = counter mode, falling edge, time constant follows, reset
 	LD	A,046H
-	OR	041H
+	OR	01000001b
 	OUT	(CTCCH0),A
 	LD	A,020H			;
 	OUT	(CTCCH0),A
@@ -375,7 +375,7 @@ CTCINT:
 	; -- Channel 1 --
 	; -- 47H = 01000111b = counter mode, falling edge, time constant follows, reset
 	LD	A,046H
-	OR	041H
+	OR	01000001b
 	OUT	(CTCCH1),A		;Channel 1
 	; -- time constant = 20H
 	LD	A,020H
@@ -431,7 +431,7 @@ CRTINT:
 
 	LD	A,10000000b
 	OUT	(CRTCOM),A	; Set cursor at 0,0
-	XOR	A
+	XOR	A			;A := 0
 	OUT	(CRTDAT),A
 	OUT	(CRTDAT),A
 
@@ -455,7 +455,7 @@ FDCINT:
 	CALL	DELAY		;Wait routine
 
 	IN	A,(FDC)		;FDC status
-	AND	01FH
+	AND	00011111b
 	JP	NZ,FDCINT
 
 	LD	HL,FDCDATA
@@ -464,8 +464,8 @@ FDCWAITNEXT:
 	INC	HL
 FDCWAIT:
 	IN	A,(FDC)
-	AND	0C0H
-	CP	080H
+	AND	11000000b
+	CP	10000000b
 	JP	NZ,FDCWAIT
 
 	LD	A,(HL)
@@ -553,7 +553,7 @@ DISPMG:
 ;           Otherwise -> NODISKLINEPROGERR.
 
 BOOT:
-	XOR	A
+	XOR	A			;A := 0
 	LD	(CURCYL),A
 	INC	A
 	LD	(CURHED),A
@@ -711,23 +711,37 @@ BOOTIFOK2:
 ; Each table has 4-byte entries per density level (N=0,1,2), with 2 bytes
 ; per side: (EOT, GAP3).  FMTLKP computes offset = N*4 + side*2.
 ;
-; MINIFMT (5.25" / mini):
+; GAP3 is the inter-sector gap length — the number of gap bytes (4EH in
+; MFM, FFH in FM) between the end of one sector's data field and the next
+; sector's ID address mark.  The FDC needs this value during read/write to
+; know how much gap to skip.  The values here scale with sector size:
+;   07H (7)  for N=0 (128-byte sectors, FM single density)
+;   0EH (14) for N=1 (256-byte sectors, MFM double density)
+;   1BH (27) for N=2 (512-byte sectors, MFM double density)
+; Typical uPD765 systems use GAP3 values of 27-42 for 512-byte sectors;
+; the value 1BH=27 here is at the low end of that range.
+;
+; MAXIFMT (8" / maxi, selected when DISKBITS bit7=0, max cyl=76):
 ;   N=0 (128B): side0=(1AH=26, 07H)  side1=(34H=52, 07H)
 ;   N=1 (256B): side0=(0FH=15, 0EH)  side1=(1AH=26, 0EH)
 ;   N=2 (512B): side0=(08H=8,  1BH)  side1=(0FH=15, 1BH)
 ;   N=3 (unused):                     (00H, 00H, 08H, 35H)
 ;
-; MAXIFMT (8" / maxi):
+; MINIFMT (5.25" / mini, selected when DISKBITS bit7=1, max cyl=35):
 ;   N=0 (128B): side0=(10H=16, 07H)  side1=(20H=32, 07H)
 ;   N=1 (256B): side0=(09H=9,  0EH)  side1=(10H=16, 0EH)
 ;   N=2 (512B): side0=(05H=5,  1BH)  side1=(09H=9,  1BH)
 ;   N=3 (unused):                     (00H, 00H, 05H, 35H)
+MAXIFMT:
+	DB	01AH,07H,34H,07H	;N=0: side0 EOT=26,GAP3=7  side1 EOT=52,GAP3=7
+	DB	0FH,0EH,1AH,0EH	;N=1: side0 EOT=15,GAP3=14 side1 EOT=26,GAP3=14
+	DB	08H,1BH,0FH,1BH	;N=2: side0 EOT=8, GAP3=27 side1 EOT=15,GAP3=27
+	DB	00H,00H,08H,35H	;N=3: (unused)
 MINIFMT:
-	DB	01AH,07H,34H,07H,0FH,0EH,1AH,0EH,08H,1BH,0FH,1BH,00H,00H
-	DB	08H,35H
-MAXIFMT:	; FIXME - looks fishy
-	DB	10H,07H,20H,07H,09H,0EH,10H,0EH,05H,1BH,09H,1BH,00H,00H
-	DB	05H,35H
+	DB	10H,07H,20H,07H	;N=0: side0 EOT=16,GAP3=7  side1 EOT=32,GAP3=7
+	DB	09H,0EH,10H,0EH	;N=1: side0 EOT=9, GAP3=14 side1 EOT=16,GAP3=14
+	DB	05H,1BH,09H,1BH	;N=2: side0 EOT=5, GAP3=27 side1 EOT=9, GAP3=27
+	DB	00H,00H,05H,35H	;N=3: (unused)
 
 ; Now pad so the interrupt vector can be correctly placed on a page boundary
 	REPT	(1+($/100H))*100H - $
@@ -757,7 +771,7 @@ INTVEC:
 	DW	DUMINT		; +28: Dummy
 	DW	DUMINT		; +30: Dummy
 ; [Claude Opus 4.6] DISKBITS bitfield definition:
-;   bit 7:   Diskette size (1=mini/5.25", 0=maxi/8"). Set from SW1 port.
+;   bit 7:   Diskette size (0=mini/5.25", 1=maxi/8"). Set from SW1 dip switch.
 ;   bit 4-2: Density/record-length (N value shifted left 2). Set by DSKAUTO/DSKDET.
 ;            Extracted by SETFMT: AND 00011100b, then RRA twice -> N in bits 2-0.
 ;   bit 1:   Dual-sided flag. Set after successful DSKAUTO on head 1.
@@ -785,14 +799,14 @@ SYSCALL:
 	PUSH	BC
 	EX	DE,HL
 	LD	A,C
-	AND	07FH
+	AND	01111111b
 	LD	(CURREC),A
 	LD	A,B
-	AND	07FH
+	AND	01111111b
 	LD	(CURCYL),A
 	CALL	Z,DSKAUTO
 	LD	A,B
-	AND	080H
+	AND	10000000b
 	JP	Z,SYSCALL1
 	LD	A,001H
 SYSCALL1:
@@ -801,14 +815,14 @@ SYSCALL1:
 	POP	BC
 	PUSH	AF
 	LD	A,B
-	AND	07FH		; if cylinder not zero, return
+	AND	01111111b		; if cylinder not zero, return
 	JP	NZ,SYSRET
 	LD	A,001H		; otherwise done cylinder 0, try cylinder 1
 	LD	(CURCYL),A
 	CALL	DSKAUTO
 SYSRET:
 	POP	AF
-	XOR	A
+	XOR	A			;A := 0
 RETSP:
 	LD	HL,(SPSAV)	; restore stack pointer, and return
 	LD	SP,HL
@@ -916,7 +930,7 @@ ERRDSP:
 	LD	(ERRSAV),A		;Save error code
 	EI
 	LD	A,(DSKTYP)
-	AND	001H
+	AND	00000001b
 	JP	NZ,RETSP		;Return to caller via SP restore
 	OUT	(BIB),A			;Sound beeper
 	CALL	ERRCPY			;Copy error text to display
@@ -958,7 +972,7 @@ DISKETTEERRORMSGLEN	EQU $ - DISKETTEERRORMSG - 1
 
 FLBOOT:
 	LD	A,(DISKBITS)		;Get status flags
-	AND	080H			;Mask mini/maxi bit
+	AND	10000000b			;Mask mini/maxi bit
 	LD	HL,DSKTYP
 	OR	(HL)			;Combine with current type
 	LD	(HL),A
@@ -1013,7 +1027,7 @@ NXTHDS:
 	LD	A,001H			;Advance head/side
 	LD	(CURREC),A		;Record := 1
 	LD	A,(DISKBITS)
-	AND	002H			;Check dual-sided bit
+	AND	00000010b			;Check dual-sided bit
 	RRCA
 	LD	HL,CURHED
 	CP	(HL)			;Same head?
@@ -1022,7 +1036,7 @@ NXTHDS:
 	RET
 
 NXTCYL:
-	XOR	A
+	XOR	A			;A := 0
 	LD	(HL),A			;Head := 0
 	LD	HL,CURCYL
 	INC	(HL)			;Cylinder++
@@ -1113,7 +1127,7 @@ DSKAUTO1:
 	LD	HL,DISKBITS
 	JP	NC,DSKDET		;Read OK: detect format
 	LD	A,(HL)			;Read failed
-	AND	001H			;Already tried other side?
+	AND	00000001b			;Already tried other side?
 	JP	NZ,DSKFAIL		;Yes: give up
 	INC	(HL)			;Try other side
 	JP	DSKAUTO1		;Retry seek
@@ -1150,18 +1164,24 @@ FMTLKP:
 	RLA
 	LD	E,A
 	LD	D,000H			;and put in DE.
-	LD	HL,MINIFMT		;Default: mini format table
+	; [Claude Opus 4.6] POTENTIAL BUG: The table selection appears inverted.
+	; bit7=0 (mini) selects MAXIFMT (8" sector counts: 26,15,8) with cyl=76,
+	; bit7=1 (maxi) selects MINIFMT (5.25" sector counts: 16,9,5) with cyl=35.
+	; Both the table data and the max cylinder values are swapped relative to
+	; what the bit7 flag indicates.  This may be a bug in the original ROM,
+	; or the SW1 bit 7 polarity may differ from the hardware documentation.
+	LD	HL,MAXIFMT		;Default: 8" format table
 	LD	A,(DISKBITS)
-	AND	080H			;Check mini/maxi bit
-	LD	A,04CH			;Maxi: EOT = 76
-	JP	Z,FMTLK2
-	LD	A,023H			;Mini: EOT = 35
-	LD	HL,MAXIFMT		;Point to maxi format table
+	AND	10000000b			;Check mini/maxi bit (0=mini, 1=maxi)
+	LD	A,04CH			;Max cylinder = 76
+	JP	Z,FMTLK2		;bit7=0: use MAXIFMT, cyl=76
+	LD	A,023H			;Max cylinder = 35
+	LD	HL,MINIFMT		;bit7=1: use MINIFMT, cyl=35
 FMTLK2:
 	LD	(EPTS),A		;Store sectors per track
 	ADD	HL,DE			;Index into table
 	LD	A,(DISKBITS)
-	AND	001H			;Check side bit
+	AND	00000001b			;Check side bit
 	JP	Z,FMTLK3
 	LD	E,002H			;Side 1: offset by 2
 	LD	D,000H
@@ -1204,7 +1224,7 @@ CALCT2:	LD	(SECBYT),HL		;Save bytes per sector
 	INC	A
 	LD	L,A
 	LD	A,(DSKTYP)		;Check mini/maxi
-	AND	080H
+	AND	10000000b
 	JP	Z,CALCT3		;Maxi: use calculated count
 	LD	A,(CURHED)		;Mini: check head
 	XOR	001H
@@ -1333,7 +1353,7 @@ FLRTRK:
 	LD	HL,COMBUF		;Command buffer
 	LD	(FDCFLG),A		;Set FDC busy flag
 	LD	A,(DISKBITS)		;Get status flags
-	AND	001H			;Check side bit
+	AND	00000001b			;Check side bit
 	JP	Z,FLRTRK2		;Side 0: skip MFM flag
 	LD	A,040H			;Side 1: set MFM flag
 FLRTRK2:
@@ -1347,7 +1367,7 @@ FLRTRK2:
 	LD	(HL),A			;Store drive/head
 	DEC	HL
 	POP	AF
-	AND	00FH			;Mask command type
+	AND	00001111b			;Mask command type
 	CP	006H			;Format command?
 	LD	C,009H			;Format: 9 bytes to send
 	JP	Z,FLRTRK3		;Jump to send loop
@@ -1415,8 +1435,8 @@ FL02_1:
 	INC	B			;Increment counter
 	CALL	Z,FDCTOUT		;Timeout if B overflows to 0
 	IN	A,(FDC)			;Read FDC main status
-	AND	0C0H			;Mask RQM and DIO bits
-	CP	080H			;Ready for write? (RQM=1, DIO=0)
+	AND	11000000b			;Mask RQM and DIO bits
+	CP	10000000b		;Ready for write? (RQM=1, DIO=0)
 	JP	NZ,FL02_1		;No: keep waiting
 	POP	BC
 	POP	AF
@@ -1476,7 +1496,7 @@ FLO6:
 	CALL	FL02			;Wait FDC write ready (FLO2)
 	CALL	FLO3			;Read ST0
 	LD	(FDCRES),A		;Save ST0
-	AND	0C0H			;Check status bits
+	AND	11000000b			;Check status bits
 	CP	080H			;Invalid command?
 	JP	Z,FL06_2		;Yes: skip reading PCN
 	CALL	FLO3			;Read present cylinder number
@@ -1490,7 +1510,7 @@ FL06_2:
 
 CLRFLF:
 	DI
-	XOR	A
+	XOR	A			;A := 0
 	LD	(FLPFLG),A		;Clear flag
 	EI
 	RET
@@ -1591,7 +1611,7 @@ FLO7:
 	LD	A,00FH			;Seek command
 	CALL	FL02			;Wait FDC write ready (FLO2)
 	LD	A,D
-	AND	007H			;Mask drive/head bits
+	AND	00000111b			;Mask drive/head bits
 	CALL	FL02			;Wait FDC write ready (FLO2)
 	LD	A,E			;Cylinder number
 	CALL	FL02			;Wait FDC write ready (FLO2)
@@ -1661,7 +1681,7 @@ RSULT3:
 	JP	NZ,RSULT3		;Delay loop
 
 	IN	A,(FDC)			;Check FDC status
-	AND	010H			;Non-DMA execution mode?
+	AND	00010000b			;Non-DMA execution mode?
 	JP	Z,RSULT4		;No: check DMA status
 	DEC	B			;More bytes to read?
 	JP	NZ,RSULT2		;Yes: read next byte
@@ -1692,7 +1712,7 @@ FLPBDY2:
 	JP	NZ,FLPBDY2		;Delay loop
 
 	IN	A,(FDC)			;Read FDC status
-	AND	010H			;Non-DMA execution mode?
+	AND	00010000b			;Non-DMA execution mode?
 	JP	NZ,FLPBDY3		;Yes: read full result
 	CALL	FLO6			;Sense interrupt status
 	JP	FLPBDY4			;Exit

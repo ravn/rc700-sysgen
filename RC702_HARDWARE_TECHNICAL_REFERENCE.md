@@ -703,8 +703,8 @@ The CP/M BIOS maintains Disk Parameter Blocks (DPBs) that define the disk geomet
 
 The RC702 BIOS and SYSGEN must detect whether the system is running on:
 
-1. **Mini floppy (5.25"):** DIP switch bit 7 = 1
-2. **Maxi floppy (8"):** DIP switch bit 7 = 0
+1. **Mini floppy (5.25"):** DIP switch bit 7 = 0
+2. **Maxi floppy (8"):** DIP switch bit 7 = 1
 
 Based on this detection, different translation tables and sector layouts are selected.
 
