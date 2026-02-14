@@ -533,21 +533,21 @@ BOOT:
 
 ; Try hard disk boot
 	CALL	DSKAUTO
-	JP	C,L720B
+	JP	C,BOOT1
 
 	LD	HL,DISKBITS		;Status flag, bit 7 = maxi disk, bit 1 now set.
 	LD	A,002H
 	OR	(HL)
 	LD	(HL),A
 
-L720B:
+BOOT1:
 	LD	HL,CURHED
 	DEC	(HL)
 	CALL	DSKAUTO
 	RET	NC
 
 	LD	A,0FBH
-	JP	L72C4
+	JP	BOOTIFOK
 
 ;------------------------------------------------------------------------
 ; Floppy disk boot sequence
@@ -564,11 +564,11 @@ FLDSK1:
 	LD	A,(DRVSEL)
 	ADD	A,00100000b
 	CP	C
-	JP	NZ,L72C4
+	JP	NZ,BOOTIFOK
 	CALL	RECALV			;Recalibrate and verify
-	JP	C,L72C4
+	JP	C,BOOTIFOK
 	JP	Z,FLDSK3
-	JP	L72C4
+	JP	BOOTIFOK
 
 FLDSK3:
 	CALL	BOOT
@@ -653,23 +653,23 @@ ISRC70X:   			; INC HL BY 2 (skipping jump address)
 	LD 	BC, RC700TXT
 	LD	HL, 6
 	CP	0AH
-	JP	Z,L72C0
+	JP	Z,ISRC70X2
 	LD	BC, RC702TXT
 	LD	HL, 6
-L72C0:
+ISRC70X2:
 	CALL	COMSTR
 	RET
 
 L02000H	EQU	02000H
 
-L72C4:
+BOOTIFOK:
 	LD	A, 0BH
 	LD	HL, L02000H ; -- FIXME what is put here?
 	CALL	ISRC70X
-	JP	Z, L72D2
+	JP	Z, BOOTIFOK2
 	JP	NODISKLINEPROGERR
 
-L72D2:
+BOOTIFOK2:
 	LD	HL,(L02000H)
 	JP	(HL)
 
@@ -914,13 +914,13 @@ FLBOOT:
 RDTRK0:
 	LD	A,000H
 	LD	(TRKOVR),HL		;Clear track overflow
-L0742AH:
+RDTRK1:
 	CALL	FLSEEK			;Seek to track
-	JP	C,L72C4 		;Error: display error
-	JP	Z,RDTRK1		;Seek OK: read track
+	JP	C,BOOTIFOK 		;Error: display error
+	JP	Z,RDTRK2		;Seek OK: read track
 	LD	A,006H			;Error code
 	JP	ERRDSP
-RDTRK1:
+RDTRK2:
 	CALL	CALCTX			;Calculate transfer with overflow
 	LD	A,006H			;Read track command
 	LD	C,005H			;5 retries
@@ -941,7 +941,8 @@ RDTROK:
 	LD	A,(MOREFL)		;More data to transfer?
 	OR	A
 	RET	Z			;No: return
-	JP	L0742AH			;Yes: read more (skip LD A,000H)
+	JP	RDTRK1			;Yes: read more (skip LD A,000H)
+
 NXTHDS:
 	LD	A,001H			;Advance head/side
 	LD	(CURREC),A		;Record := 1
@@ -953,6 +954,7 @@ NXTHDS:
 	JP	Z,NXTCYL		;Yes: advance cylinder
 	INC	(HL)			;No: switch to other head
 	RET
+
 NXTCYL:
 	XOR	A
 	LD	(HL),A			;Head := 0
@@ -1184,13 +1186,13 @@ READTK1:
 	JP	READTK1			;Retry (back to CLRFLF)
 
 ;------------------------------------------------------------------------
-; Check FDC result status bytes (entry at 075B3H via overlapping code)
+; Check FDC result status bytes
 ; Returns: NC if OK, C+NZ if error with retries, C+Z if retries exhausted
 ;------------------------------------------------------------------------
 CHKRES:
 	LD	HL,FDCRES		;Point to result status bytes
 	LD	A,(HL)			;Get ST0
-	AND	0C3H			;Mask command/drive bits
+	AND	11000011b		;Mask command/drive bits
 	LD	B,A
 	LD	A,(DRVSEL)		;Expected drive select
 	CP	B			;Match?
@@ -1201,7 +1203,7 @@ CHKRES:
 	JP	NZ,CHKERR		;Non-zero: error
 	INC	HL
 	LD	A,(HL)			;Get ST2
-	AND	0BFH			;Mask bit 6 (control mark)
+	AND	10111111b		;Mask bit 6 (control mark)
 	CP	000H
 	JP	NZ,CHKERR		;Non-zero: error
 	SCF				;Set carry
@@ -1218,6 +1220,7 @@ CHKERR:
 ;------------------------------------------------------------------------
 ; FLRTRK - Send FDC read/write command (cf. rob358 FLRTRK)
 ; Builds and sends command buffer to FDC
+; If format command, sends 9 bytes; otherwise sends 2 bytes
 ;------------------------------------------------------------------------
 
 FLRTRK:
@@ -1267,7 +1270,7 @@ DMAWRT:
 	DI
 	OUT	(SMSK),A		;Set channel mask
 	LD	A,049H			;Mode: write, channel 1, auto-init
-L0761CH:
+DMAWRT1:
 	OUT	(DMAMOD),A		;Set DMA mode
 	OUT	(CLBP),A		;Clear byte pointer flip-flop
 	LD	A,L
@@ -1293,14 +1296,14 @@ STPDMA:
 	DI
 	OUT	(SMSK),A		;Set channel mask
 	LD	A,045H			;Mode: read, channel 1, auto-init
-	JP	L0761CH			;Share DMA setup code
+	JP	DMAWRT1			;Share DMA setup code
 
 ;------------------------------------------------------------------------
 ; Wait FDC ready to write + send byte (entry at 0763CH via overlapping)
 ; Waits for FDC RQM=1/DIO=0, then writes A to FDD
 ; (cf. rob358 FLO2)
 ;------------------------------------------------------------------------
-L0763CH:
+
 FL02:
 	PUSH	AF
 	PUSH	BC
@@ -1331,8 +1334,8 @@ FL03_1:
 	INC	B			;Increment counter
 	CALL	Z,FDCTOUT		;Timeout if B overflows to 0
 	IN	A,(FDC)			;Read FDC main status
-	AND	0C0H			;Mask RQM and DIO bits
-	CP	0C0H			;Ready for read? (RQM=1, DIO=1)
+	AND	11000000b		;Mask RQM and DIO bits
+	CP	11000000b		;Ready for read? (RQM=1, DIO=1)
 	JP	NZ,FL03_1		;No: keep waiting
 	POP	BC
 	IN	A,(FDD)			;Read data byte from FDC
@@ -1347,7 +1350,7 @@ FDCTOUT:
 	INC	C			;Increment group counter
 	RET	NZ			;Return if not fully timed out
 	EI				;Full timeout: enable interrupts
-	JP	L72C4			;Jump to error handler
+	JP	BOOTIFOK			;Jump to error handler
 
 ;------------------------------------------------------------------------
 ; Sense drive status (FDC command 04H)
@@ -1368,15 +1371,15 @@ SNSDRV:
 
 FLO6:
 	LD	A,008H			;Sense interrupt status command
-	CALL	0763CH			;Wait FDC write ready (FLO2)
+	CALL	FL02			;Wait FDC write ready (FLO2)
 	CALL	FLO3			;Read ST0
 	LD	(FDCRES),A		;Save ST0
 	AND	0C0H			;Check status bits
 	CP	080H			;Invalid command?
-	JP	Z,L0769CH		;Yes: skip reading PCN
+	JP	Z,FL06_2		;Yes: skip reading PCN
 	CALL	FLO3			;Read present cylinder number
 	LD	(FDCRS1),A		;Save PCN
-L0769CH:
+FL06_2:
 	RET
 
 ;------------------------------------------------------------------------
@@ -1411,7 +1414,7 @@ MKDHB:
 ; B = outer count, C = inner count
 ;------------------------------------------------------------------------
 
-DELAY:
+DELAY: ; ~0.25µs * (b*(c*256+255)*24-2) per call
 	PUSH	AF
 	PUSH	HL
 DELY1:	LD	H,C			;Inner loop count
@@ -1436,19 +1439,19 @@ WAITFL:
 	PUSH	BC
 WAIT1:	DEC	A			;Decrement timeout counter
 	SCF
-	JP	Z,L076DFH		;Timed out: clear flag and return C
+	JP	Z,WAIT2			;Timed out: clear flag and return C
 	LD	B,001H
 	LD	C,001H
 	CALL	DELAY			;Short delay
 	LD	B,A			;Save counter
 	LD	A,(FLPFLG)		;Check floppy interrupt flag
-	AND	002H			;Interrupt occurred?
+	AND	00000010b		;Interrupt occurred?
 	LD	A,B			;Restore counter
 	JP	Z,WAIT1			;No: keep waiting
 	SCF				;Set carry
 	CCF				;Clear carry = success
 	CALL	CLRFLF			;Clear flag for next time
-L076DFH:
+WAIT2:
 	POP	BC
 	RET
 
@@ -1546,7 +1549,7 @@ RSULT:
 	LD	B,007H			;Max 7 result bytes
 	LD	A,B
 	LD	(FDCFLG),A		;Mark FDC busy
-L07749H:
+RSULT2:
 	CALL	FLO3			;Read first result byte
 	LD	(HL),A			;Store in buffer
 	INC	HL
@@ -1557,12 +1560,12 @@ RSULT3:
 
 	IN	A,(FDC)			;Check FDC status
 	AND	010H			;Non-DMA execution mode?
-	JP	Z,L07765H		;No: check DMA status
+	JP	Z,RSULT4		;No: check DMA status
 	DEC	B			;More bytes to read?
-	JP	NZ,L07749H		;Yes: read next byte
+	JP	NZ,RSULT2		;Yes: read next byte
 	LD	A,0FEH			;Error: too many result bytes
 	JP	ERRDSP			;Error handler (ERRDSP)
-L07765H:
+RSULT4:
 	IN	A,(DMACOM)		;Read DMA status
 	LD	(HL),A			;Store in buffer
 	DEC	B
@@ -1588,12 +1591,12 @@ FLPBDY2:
 
 	IN	A,(FDC)			;Read FDC status
 	AND	010H			;Non-DMA execution mode?
-	JP	NZ,L0778CH		;Yes: read full result
+	JP	NZ,FLPBDY3		;Yes: read full result
 	CALL	FLO6			;Sense interrupt status
-	JP	L0778FH			;Exit
-L0778CH:
+	JP	FLPBDY4			;Exit
+FLPBDY3:
 	CALL	RSULT			;Read full result
-L0778FH:
+FLPBDY4:
 	POP	HL
 	POP	BC
 	POP	AF
