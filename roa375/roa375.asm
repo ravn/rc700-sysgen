@@ -20,63 +20,63 @@
 ;========================================================================
 
 ; System ports
-SW1	EQU	014H		;Mini/maxi switch (read), ROM disable (write)
-BIB	EQU	01CH		;Beeper/sound port
-BEEPER	EQU	018H		;RC702 beeper port (additional)
+SW1	EQU	014H		; Mini/maxi switch (read), ROM disable (write)
+BIB	EQU	01CH		; Beeper/sound port
+BEEPER	EQU	018H		; RC702 beeper port (additional)
 
 ; Z80 PIO ports -
-KEYDAT	EQU	010H		;PIO Port A data (keyboard)
-KEYCON	EQU	012H		;PIO Port A control
-PIOBDT	EQU	011H		;PIO Port B data
-PIOBCN	EQU	013H		;PIO Port B control
+KEYDAT	EQU	010H		; PIO Port A data (keyboard)
+KEYCON	EQU	012H		; PIO Port A control
+PIOBDT	EQU	011H		; PIO Port B data
+PIOBCN	EQU	013H		; PIO Port B control
 
 ; AM9517A DMA controller ports
-CH1ADR	EQU	0F2H		;DMA Channel 1 address (floppy)
-WCREG1	EQU	0F3H		;DMA Channel 1 word count
-CH2ADR	EQU	0F4H		;DMA Channel 2 address (display)
-WCREG2	EQU	0F5H		;DMA Channel 2 word count
-CH3ADR	EQU	0F6H		;DMA Channel 3 address (display)
-WCREG3	EQU	0F7H		;DMA Channel 3 word count
-DMACOM	EQU	0F8H		;DMA command register
-SMSK	EQU	0FAH		;DMA single mask register
-DMAMOD	EQU	0FBH		;DMA mode register
-CLBP	EQU	0FCH		;DMA clear byte pointer
+CH1ADR	EQU	0F2H		; DMA Channel 1 address (floppy)
+WCREG1	EQU	0F3H		; DMA Channel 1 word count
+CH2ADR	EQU	0F4H		; DMA Channel 2 address (display)
+WCREG2	EQU	0F5H		; DMA Channel 2 word count
+CH3ADR	EQU	0F6H		; DMA Channel 3 address (display)
+WCREG3	EQU	0F7H		; DMA Channel 3 word count
+DMACOM	EQU	0F8H		; DMA command register
+SMSK	EQU	0FAH		; DMA single mask register
+DMAMOD	EQU	0FBH		; DMA mode register
+CLBP	EQU	0FCH		; DMA clear byte pointer
 
 ; DMA command/mode values
-COMV	EQU	020H		;DMA command value
-MODE1	EQU	045H		;DMA mode: disk to memory CH1 (single)
-CLR1	EQU	001H		;Clear CH1 mask (enable)
-SET1	EQU	005H		;Set CH1 mask (disable)
+COMV	EQU	020H		; DMA command value
+MODE1	EQU	045H		; DMA mode: disk to memory CH1 (single)
+CLR1	EQU	001H		; Clear CH1 mask (enable)
+SET1	EQU	005H		; Set CH1 mask (disable)
 
 ; Z80 CTC ports -
-CTCCH0	EQU	00CH		;CTC Channel 0
-CTCCH1	EQU	00DH		;CTC Channel 1
-CTCCH2	EQU	00EH		;CTC Channel 2 (display interrupt)
-CTCCH3	EQU	00FH		;CTC Channel 3 (floppy interrupt)
-CTCMOD	EQU	0D7H		;CTC mode: interrupt after one count
-CTCCNT	EQU	001H		;CTC count value
+CTCCH0	EQU	00CH		; CTC Channel 0
+CTCCH1	EQU	00DH		; CTC Channel 1
+CTCCH2	EQU	00EH		; CTC Channel 2 (display interrupt)
+CTCCH3	EQU	00FH		; CTC Channel 3 (floppy interrupt)
+CTCMOD	EQU	0D7H		; CTC mode: interrupt after one count
+CTCCNT	EQU	001H		; CTC count value
 
 ; Intel 8275 CRT controller ports
-CRTDAT	EQU	000H		;CRT data register
-CRTCOM	EQU	001H		;CRT command/control register
+CRTDAT	EQU	000H		; CRT data register
+CRTCOM	EQU	001H		; CRT command/control register
 
 ; CRT command values
-CRTRES	EQU	000H		;Reset CRT controller
-LCURS	EQU	080H		;Load cursor command
-PRECC	EQU	0E0H		;Preset counters
-STDISP	EQU	023H		;Start display
+CRTRES	EQU	000H		; Reset CRT controller
+LCURS	EQU	080H		; Load cursor command
+PRECC	EQU	0E0H		; Preset counters
+STDISP	EQU	023H		; Start display
 
 ; CRT parameters (RC702-specific)
-PARAM1	EQU	04FH		;80 chars/row
-PARAM2	EQU	098H		;25 rows/frame
+PARAM1	EQU	04FH		; 80 chars/row
+PARAM2	EQU	098H		; 25 rows/frame
 
 ; NEC uPD765 FDC ports
-FDC	EQU	004H		;FDC main status register
-FDD	EQU	005H		;FDC data register
+FDC	EQU	004H		; FDC main status register
+FDD	EQU	005H		; FDC data register
 
 ; Directory and disk constants
-ATTOFF	EQU	007H		;File attribute offset from filename start
-SECSZ0	EQU	080H		;Base sector size in bytes (N=0, 128 bytes)
+ATTOFF	EQU	007H		; File attribute offset from filename start
+SECSZ0	EQU	080H		; Base sector size in bytes (N=0, 128 bytes)
 
 
 ;========================================================================
@@ -87,35 +87,35 @@ SECSZ0	EQU	080H		;Base sector size in bytes (N=0, 128 bytes)
 	ORG	0000H
 
 BEGIN:
-	DI				;Disable interrupts
-	LD	SP,0BFFFH		;Set stack pointer
-	LD	HL,MOVADR		;Point to relocatable code start
+	DI				; Disable interrupts
+	LD	SP,0BFFFH		; Set stack pointer
+	LD	HL,MOVADR		; Point to relocatable code start
 
 ; Scan for actual code start (skip zeros)
 SCANLP:
-	LD	A,(HL)			;Get byte
-	OR	A			;Zero?
+	LD	A,(HL)			; Get byte
+	OR	A			; Zero?
 	INC	HL
-	JP	Z,SCANLP		;Keep scanning
-	CP	0FFH			;Found 0xFF marker?
+	JP	Z,SCANLP		; Keep scanning
+	CP	0FFH			; Found 0xFF marker?
 	JP	Z,SKIP
-	DEC	HL			;Back up to non-zero
+	DEC	HL			; Back up to non-zero
 SKIP:
-	EX	DE,HL			;DE = source address
+	EX	DE,HL			; DE = source address
 
 ; Copy 0x798 bytes from ROM to RAM at 0x7000
-	LD	HL,PAYLOAD		;Destination
-	LD	BC,PAYLOADLEN		;Count = 1944 bytes
+	LD	HL,PAYLOAD		; Destination
+	LD	BC,PAYLOADLEN		; Count = 1944 bytes
 COPYLP:
-	LD	A,(DE)			;Get source
-	LD	(HL),A			;Store
+	LD	A,(DE)			; Get source
+	LD	(HL),A			; Store
 	INC	DE
 	INC	HL
 	DEC	BC
 	LD	A,C
 	OR	B
 	JP	NZ,COPYLP
-	JP	INIT			;Jump to relocated init
+	JP	INIT			; Jump to relocated init
 
 ;========================================================================
 ; PRE-INITIALIZATION - Executes from ROM at 0x0027-0x0066
@@ -131,12 +131,12 @@ PREINIT:
 
 	LD	A,000H
 	LD	B,A
-	IN	A,(SW1)		;Read switch settings
-	AND	10000000b		;Mask mini/maxi bit
+	IN	A,(SW1)		; Read switch settings
+	AND	10000000b		; Mask mini/maxi bit
 	ADD	A,B
 	LD	(DISKBITS),A
 
-	XOR	A			;A := 0
+	XOR	A			; A := 0
 	LD	(CURHED),A
 	LD	(DRVSEL),A
 	LD	(DSKTYP),A
@@ -151,9 +151,9 @@ CLRLP:
 	DEC	C
 	JP	NZ,CLRLP
 
-	EI				;Enable interrupts
+	EI				; Enable interrupts
 	LD	A,001H
-	OUT	(SW1),A			;Any write to SW1 disables PROM overlay, enabling full RAM at 0000H
+	OUT	(SW1),A			; Any write to SW1 disables PROM overlay, enabling full RAM at 0000H
 	LD	A,005H
 	LD	(REPTIM),A
 	JP	FLDSK1
@@ -162,10 +162,10 @@ CLRLP:
 	RETN				; NMI-RETURN
 
 MOVADR:
-	DB	0FFH			;0xFF marker byte indicating start of code to relocate
-					;This is most likely a hack to ensure that the label is given
-					;a non-relocated address (we are at a phase boundary)
-					;regardless of the assembler used
+	DB	0FFH			; 0xFF marker byte indicating start of code to relocate
+					; This is most likely a hack to ensure that the label is given
+					; a non-relocated address (we are at a phase boundary)
+					; regardless of the assembler used
 
 ;========================================================================
 ; RELOCATED CODE SECTION - Loaded to 0x7000, executed from there
@@ -184,11 +184,11 @@ PAYLOAD:
 ; Error message display and halt routines
 
 NOSYSTEMFILESERR:
-	LD	BC,DSPSTR		;Display buffer
+	LD	BC,DSPSTR		; Display buffer
 	LD	DE,NOSYSTEMFILESTXT	;
-	LD	HL,NOSYSTEMFILESTXTLEN	;Length
-	CALL	MOVCPY			;Copy to screen
-	JP	ERRHLT			;Halt with error displayed
+	LD	HL,NOSYSTEMFILESTXTLEN	; Length
+	CALL	MOVCPY			; Copy to screen
+	JP	ERRHLT			; Halt with error displayed
 
 NOKATALOGERR:
 	LD	BC,DSPSTR
@@ -278,7 +278,7 @@ RC700TXTLEN	EQU	$ - RC700TXT
 
 RC702TXT:
 	DB	' RC702'
-RC702TXTLEN	EQU	$ - RC702TXT + 1  		; plus one in prom not needed
+RC702TXTLEN	EQU	$ - RC702TXT + 1	; plus one in prom not needed
 
 NOSYSTEMFILESTXT:
 	DB	' **NO SYSTEM FILES** '
@@ -299,9 +299,9 @@ NOKATALOGMSGLEN		EQU	$ - NOKATALOGMSG - 1
 ; over from the original build.  Needs verification against the original ROM.
 NULLB:	DB	002H
 	DB	0C3H
-	DB	0C8H			;Control byte
+	DB	0C8H			; Control byte
 
-FNAME1:	DB	'SYSM '			;System file name
+FNAME1:	DB	'SYSM '			; System file name
 FNAME1LEN 	EQU 	$ - FNAME1 - 1
 
 FNAME2:	DB	'SYSC '
@@ -317,18 +317,18 @@ FNAME2LEN 	EQU 	$ - FNAME2 - 1
 TOPSTACK	EQU	0BFFFH
 
 INIT:
-	LD	SP,TOPSTACK		;Reset stack
-	LD	A,INTVEC/0100H		;Interrupt vector high byte
-	LD	I,A			;Set interrupt vector register
-	IM	2			;Interrupt mode 2
+	LD	SP,TOPSTACK		; Reset stack
+	LD	A,INTVEC/0100H		; Interrupt vector high byte
+	LD	I,A			; Set interrupt vector register
+	IM	2			; Interrupt mode 2
 
 ; Initialize PIO for keyboard
 	LD	C,0FFH
 	LD	B,001H
-	CALL	DELAY				;Wait routine
+	CALL	DELAY				; Wait routine
 
 	LD	A,099H
-	CALL	PIOINT			;PIO init
+	CALL	PIOINT			; PIO init
 	LD	HL,PREINIT
 	JP	(HL)
 
@@ -337,19 +337,19 @@ INIT:
 PIOINT:
 	PUSH	AF
 	; -- set interrupt vectors, page 188
-	LD	A,002H			;Interrupt vector 2 (address = base + 002H)
-	OUT	(KEYCON),A		;Port A interrupt vector (keyboard)
-	LD	A,004H			;Interrupt vector 4 (address = base + 004H)
-	OUT	(PIOBCN),A		;Port B interrupt vector
+	LD	A,002H			; Interrupt vector 2 (address = base + 002H)
+	OUT	(KEYCON),A		; Port A interrupt vector (keyboard)
+	LD	A,004H			; Interrupt vector 4 (address = base + 004H)
+	OUT	(PIOBCN),A		; Port B interrupt vector
 	; -- set operating modes, page 189
-	LD	A,01001111b		;01=input mode, 001111=I/O select follows
-	OUT	(KEYCON),A		;Port A: input mode (keyboard reads)
-	LD	A,00001111b		;00=output mode, 001111=I/O select follows
-	OUT	(PIOBCN),A		;Port B: output mode
+	LD	A,01001111b		; 01=input mode, 001111=I/O select follows
+	OUT	(KEYCON),A		; Port A: input mode (keyboard reads)
+	LD	A,00001111b		; 00=output mode, 001111=I/O select follows
+	OUT	(PIOBCN),A		; Port B: output mode
 	; -- set interrupt control words, page 190
-	LD	A,10000011b		;1=enable int, 0=OR mode, 0=low active, 0=no mask, 011=mask follows
-	OUT	(KEYCON),A		;Port A: enable interrupts, OR-mode, low active
-	OUT	(PIOBCN),A		;Port B: same interrupt control word
+	LD	A,10000011b		; 1=enable int, 0=OR mode, 0=low active, 0=no mask, 011=mask follows
+	OUT	(KEYCON),A		; Port A: enable interrupts, OR-mode, low active
+	OUT	(PIOBCN),A		; Port B: same interrupt control word
 	JP	CTCINT
 
 ; CTC initialization - Counter/Timer Channels
@@ -362,76 +362,76 @@ PIOINT:
 CTCINT:
 	; -- Channel 0 --
 	; -- set interrupt vector base (bit0=0 means interrupt vector word)
-	LD	A,00001000b		;Interrupt vector 8 (bit0=0: vector word)
-	OUT	(CTCCH0),A		;Ch0 sets base vector for all 4 channels (8,A,C,E)
+	LD	A,00001000b		; Interrupt vector 8 (bit0=0: vector word)
+	OUT	(CTCCH0),A		; Ch0 sets base vector for all 4 channels (8,A,C,E)
 	POP	AF
 	; -- 47H = counter mode, falling edge, time constant follows, reset
 	LD	A,01000110b
-	OR	01000001b		;Result: 01000111b - counter, prescale=16, falling, TC follows, reset
-	OUT	(CTCCH0),A		;Ch0: configure as counter with reset
-	LD	A,020H			;Time constant = 32
-	OUT	(CTCCH0),A		;Ch0: load time constant (counts 32 edges before interrupt)
+	OR	01000001b		; Result: 01000111b - counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH0),A		; Ch0: configure as counter with reset
+	LD	A,020H			; Time constant = 32
+	OUT	(CTCCH0),A		; Ch0: load time constant (counts 32 edges before interrupt)
 
 	; -- Channel 1 --
 	LD	A,01000110b
-	OR	01000001b		;Result: 01000111b - same config as Ch0
-	OUT	(CTCCH1),A		;Ch1: configure as counter with reset
-	LD	A,020H			;Time constant = 32
-	OUT	(CTCCH1),A		;Ch1: load time constant
+	OR	01000001b		; Result: 01000111b - same config as Ch0
+	OUT	(CTCCH1),A		; Ch1: configure as counter with reset
+	LD	A,020H			; Time constant = 32
+	OUT	(CTCCH1),A		; Ch1: load time constant
 
 	; -- Channel 2 (Display interrupt) --
-	LD	A,11010111b		;Int enable, counter, prescale=16, falling, TC follows, reset
-	OUT	(CTCCH2),A		;Ch2: configure for display interrupt
-	LD	A,001H			;Time constant = 1 (interrupt on every edge)
-	OUT	(CTCCH2),A		;Ch2: load time constant
+	LD	A,11010111b		; Int enable, counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH2),A		; Ch2: configure for display interrupt
+	LD	A,001H			; Time constant = 1 (interrupt on every edge)
+	OUT	(CTCCH2),A		; Ch2: load time constant
 
 	; -- Channel 3 (Floppy interrupt) --
-	LD	A,11010111b		;Int enable, counter, prescale=16, falling, TC follows, reset
-	OUT	(CTCCH3),A		;Ch3: configure for floppy interrupt
-	LD	A,001H			;Time constant = 1 (interrupt on every edge)
-	OUT	(CTCCH3),A		;Ch3: load time constant
+	LD	A,11010111b		; Int enable, counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH3),A		; Ch3: configure for floppy interrupt
+	LD	A,001H			; Time constant = 1 (interrupt on every edge)
+	OUT	(CTCCH3),A		; Ch3: load time constant
 	JP	DMAINT
 
 ; DMA initialization
 DMAINT:
-	LD	A,00100000b		;Fixed priority, normal timing, late write, DREQ high, DACK low
-	OUT	(DMACOM),A		;Set DMA command register
+	LD	A,00100000b		; Fixed priority, normal timing, late write, DREQ high, DACK low
+	OUT	(DMACOM),A		; Set DMA command register
 
-	LD	A,11000000b		;Cascade mode, channel 0
-	OUT	(DMAMOD),A		;Ch0: cascade mode (no DMA, passes through to slave)
-	LD	A,000H			;Channel 0, bit2=0 -> unmask (enable)
-	OUT	(SMSK),A		;Unmask (enable) DMA channel 0
+	LD	A,11000000b		; Cascade mode, channel 0
+	OUT	(DMAMOD),A		; Ch0: cascade mode (no DMA, passes through to slave)
+	LD	A,000H			; Channel 0, bit2=0 -> unmask (enable)
+	OUT	(SMSK),A		; Unmask (enable) DMA channel 0
 
-	LD	A,01001010b		;Demand mode, addr increment, no auto-init, write, channel 2
-	OUT	(DMAMOD),A		;Ch2: demand write mode (CRT display)
-	LD	A,01001011b		;Demand mode, addr increment, no auto-init, write, channel 3
-	OUT	(DMAMOD),A		;Ch3: demand write mode (CRT display)
+	LD	A,01001010b		; Demand mode, addr increment, no auto-init, write, channel 2
+	OUT	(DMAMOD),A		; Ch2: demand write mode (CRT display)
+	LD	A,01001011b		; Demand mode, addr increment, no auto-init, write, channel 3
+	OUT	(DMAMOD),A		; Ch3: demand write mode (CRT display)
 	JP	CRTINT
 
 ; CRT Controller (8275) initialization
 ; https://www.jbox.dk/rc702/hardware/intel-8275.pdf - page 8-238 -
 CRTINT:
-	LD	A,000H			;Reset command (bits 7-5 = 000)
-	OUT	(CRTCOM),A		;Reset CRT controller, expect 4 parameter bytes
+	LD	A,000H			; Reset command (bits 7-5 = 000)
+	OUT	(CRTCOM),A		; Reset CRT controller, expect 4 parameter bytes
 
 	; -- 8275 screen format parameters (4 bytes after reset command)
-	LD	A,04FH			;Param 1: S=0 (not spaced), H=79 -> 80 chars/row
-	OUT	(CRTDAT),A		;Screen format: 80 characters per row
-	LD	A,10011000b		;Param 2: V=2 (vretrace count), R=24 -> 25 rows/frame
-	OUT	(CRTDAT),A		;Vertical retrace: 2 scan lines, 25 rows
-	LD	A,9AH			;Param 3: L=9 (underline position), U=10 (lines/char row)
-	OUT	(CRTDAT),A		;Underline on scan line 9, 10 scan lines per character
-	LD	A,05DH			;Param 4: F=0 (non-offset), M=1 (transparent), C=01 (blink underline), Z=28
-	OUT	(CRTDAT),A		;Field attr non-transparent, blinking underline cursor, 28 hretrace chars
+	LD	A,04FH			; Param 1: S=0 (not spaced), H=79 -> 80 chars/row
+	OUT	(CRTDAT),A		; Screen format: 80 characters per row
+	LD	A,10011000b		; Param 2: V=2 (vretrace count), R=24 -> 25 rows/frame
+	OUT	(CRTDAT),A		; Vertical retrace: 2 scan lines, 25 rows
+	LD	A,9AH			; Param 3: L=9 (underline position), U=10 (lines/char row)
+	OUT	(CRTDAT),A		; Underline on scan line 9, 10 scan lines per character
+	LD	A,05DH			; Param 4: F=0 (non-offset), M=1 (transparent), C=01 (blink underline), Z=28
+	OUT	(CRTDAT),A		; Field attr non-transparent, blinking underline cursor, 28 hretrace chars
 
-	LD	A,10000000b		;Load cursor command (bits 7-5 = 100)
-	OUT	(CRTCOM),A		;Load cursor position, expect 2 data bytes
-	XOR	A			;A := 0
-	OUT	(CRTDAT),A		;Cursor column = 0
-	OUT	(CRTDAT),A		;Cursor row = 0
+	LD	A,10000000b		; Load cursor command (bits 7-5 = 100)
+	OUT	(CRTCOM),A		; Load cursor position, expect 2 data bytes
+	XOR	A			; A := 0
+	OUT	(CRTDAT),A		; Cursor column = 0
+	OUT	(CRTDAT),A		; Cursor row = 0
 
-	LD	A,11100000b		;Preset counters command (bits 7-5 = 111)
-	OUT	(CRTCOM),A		;Preset counters, CRT ready (but display not started)
+	LD	A,11100000b		; Preset counters command (bits 7-5 = 111)
+	OUT	(CRTCOM),A		; Preset counters, CRT ready (but display not started)
 	; -- note display is ready but not actually started.  Happens at end of initialization.
 	JP	FDCINT
 
@@ -439,7 +439,7 @@ CRTINT:
 ; Floppy disk controller (uPD765) initialization and status check
 ;------------------------------------------------------------------------
 
-FDCDATA:				;FDC SPECIFY command buffer (cf. rob358 FDCINI)
+FDCDATA:				; FDC SPECIFY command buffer (cf. rob358 FDCINI)
 	DB	003H
 	DB	003H
 	DB	04FH
@@ -447,9 +447,9 @@ FDCDATA:				;FDC SPECIFY command buffer (cf. rob358 FDCINI)
 FDCINT:
 	LD	C,0FFH
 	LD	B,001H
-	CALL	DELAY		;Wait routine
+	CALL	DELAY		; Wait routine
 
-	IN	A,(FDC)		;FDC status
+	IN	A,(FDC)		; FDC status
 	AND	00011111b
 	JP	NZ,FDCINT
 
@@ -464,7 +464,7 @@ FDCWAIT:
 	JP	NZ,FDCWAIT
 
 	LD	A,(HL)
-	OUT	(FDD),A		;Write SPECIFY command byte to FDC data register
+	OUT	(FDD),A		; Write SPECIFY command byte to FDC data register
 	DEC	B
 	JP	NZ,FDCWAITNEXT
 	JP	CLRSCR
@@ -483,7 +483,7 @@ CLRSCR:
 	LD	HL,00000H
 	EX	DE,HL			; D=line (0..7), E=char (0..0CFH=207)
 CLRLP1:
-	LD	HL,DSPSTR		;Display buffer
+	LD	HL,DSPSTR		; Display buffer
 	ADD	HL,DE
 	LD	A,' '
 	LD	(HL),A
@@ -501,9 +501,9 @@ NEXTLN:
 	JP	CLRLP1
 
 DISPMG:
-	LD	DE,RC700TXT		;Message pointer
-	LD	HL,RC700TXTLEN		;Length
-	LD	BC,DSPSTR		;Display buffer
+	LD	DE,RC700TXT		; Message pointer
+	LD	HL,RC700TXTLEN		; Length
+	LD	BC,DSPSTR		; Display buffer
 	CALL	MOVCPY
 
 ; Zero out work area, possibly CRT DMA parameters
@@ -526,8 +526,8 @@ DISPMG:
 	LD	(UNUSED7),A
 	LD	(UNUSED12),A
 
-	LD	A,00100011b		;Start display cmd (001), B=0 (0 clocks between DMA), E=3 (8 DMA cycles/burst)
-	OUT	(CRTCOM),A		;Start display: burst mode with 8 DMA cycles per burst
+	LD	A,00100011b		; Start display cmd (001), B=0 (0 clocks between DMA), E=3 (8 DMA cycles/burst)
+	OUT	(CRTCOM),A		; Start display: burst mode with 8 DMA cycles per burst
 	RET
 
 ;------------------------------------------------------------------------
@@ -548,7 +548,7 @@ DISPMG:
 ;           Otherwise -> NODISKLINEPROGERR.
 
 BOOT:
-	XOR	A			;A := 0
+	XOR	A			; A := 0
 	LD	(CURCYL),A
 	INC	A
 	LD	(CURHED),A
@@ -558,7 +558,7 @@ BOOT:
 	CALL	DSKAUTO
 	JP	C,BOOT1
 
-	LD	HL,DISKBITS		;Status flag, bit 7 = mini disk, bit 1 now set.
+	LD	HL,DISKBITS		; Status flag, bit 7 = mini disk, bit 1 now set.
 	LD	A,002H
 	OR	(HL)
 	LD	(HL),A
@@ -579,8 +579,8 @@ BOOT1:
 FLDSK1:
 	LD	B,001H
 	LD	C,0FFH
-	CALL	DELAY				;Wait routine
-	CALL	SNSDRV			;Sense drive status
+	CALL	DELAY				; Wait routine
+	CALL	SNSDRV			; Sense drive status
 	LD	A,(FDCRES)
 	AND	00100011b
 	LD	C,A
@@ -588,15 +588,15 @@ FLDSK1:
 	ADD	A,00100000b
 	CP	C
 	JP	NZ,BOOTIFOK
-	CALL	RECALV			;Recalibrate and verify
+	CALL	RECALV			; Recalibrate and verify
 	JP	C,BOOTIFOK
 	JP	Z,FLDSK3
 	JP	BOOTIFOK
 
 FLDSK3:
 	CALL	BOOT
-	LD	A,001H			;Any non-zero value triggers beep
-	OUT	(BEEPER),A		;Sound beeper to indicate boot retry
+	LD	A,001H			; Any non-zero value triggers beep
+	OUT	(BEEPER),A		; Sound beeper to indicate boot retry
 BOOT4:
 	LD	HL,(TRBYT)
 	CALL	RDTRK0
@@ -664,7 +664,7 @@ CHKSYSMC:
 	JP	NZ, NOSYSTEMFILESERR
 	RET
 
-ISRC70X:   			; INC HL BY 2 (skipping jump address)
+ISRC70X:			; INC HL BY 2 (skipping jump address)
 				; IF A=0AH check for RC700, otherwise RC702
 	LD	DE, 2
 	ADD	HL, DE
@@ -690,13 +690,13 @@ L02000H	EQU	02000H
 BOOTIFOK:
 	LD	A, 0BH
 	LD	HL, L02000H
-	CALL	ISRC70X			;Check for "RC702" at 0x2002
+	CALL	ISRC70X			; Check for "RC702" at 0x2002
 	JP	Z, BOOTIFOK2
 	JP	NODISKLINEPROGERR
 
 BOOTIFOK2:
-	LD	HL,(L02000H)		;Load jump vector from 0x2000
-	JP	(HL)			;Jump to boot loader / line program
+	LD	HL,(L02000H)		; Load jump vector from 0x2000
+	JP	(HL)			; Jump to boot loader / line program
 
 ;------------------------------------------------------------------------
 ; Disk format/geometry tables
@@ -728,15 +728,15 @@ BOOTIFOK2:
 ;   N=2 (512B): side0=(05H=5,  1BH)  side1=(09H=9,  1BH)
 ;   N=3 (unused):                     (00H, 00H, 05H, 35H)
 MAXIFMT:
-	DB	01AH,07H,34H,07H	;N=0: side0 EOT=26,GAP3=7  side1 EOT=52,GAP3=7
-	DB	0FH,0EH,1AH,0EH	;N=1: side0 EOT=15,GAP3=14 side1 EOT=26,GAP3=14
-	DB	08H,1BH,0FH,1BH	;N=2: side0 EOT=8, GAP3=27 side1 EOT=15,GAP3=27
-	DB	00H,00H,08H,35H	;N=3: (unused)
+	DB	01AH,07H,34H,07H	; N=0: side0 EOT=26,GAP3=7  side1 EOT=52,GAP3=7
+	DB	0FH,0EH,1AH,0EH	; N=1: side0 EOT=15,GAP3=14 side1 EOT=26,GAP3=14
+	DB	08H,1BH,0FH,1BH	; N=2: side0 EOT=8, GAP3=27 side1 EOT=15,GAP3=27
+	DB	00H,00H,08H,35H	; N=3: (unused)
 MINIFMT:
-	DB	10H,07H,20H,07H	;N=0: side0 EOT=16,GAP3=7  side1 EOT=32,GAP3=7
-	DB	09H,0EH,10H,0EH	;N=1: side0 EOT=9, GAP3=14 side1 EOT=16,GAP3=14
-	DB	05H,1BH,09H,1BH	;N=2: side0 EOT=5, GAP3=27 side1 EOT=9, GAP3=27
-	DB	00H,00H,05H,35H	;N=3: (unused)
+	DB	10H,07H,20H,07H	; N=0: side0 EOT=16,GAP3=7  side1 EOT=32,GAP3=7
+	DB	09H,0EH,10H,0EH	; N=1: side0 EOT=9, GAP3=14 side1 EOT=16,GAP3=14
+	DB	05H,1BH,09H,1BH	; N=2: side0 EOT=5, GAP3=27 side1 EOT=9, GAP3=27
+	DB	00H,00H,05H,35H	; N=3: (unused)
 
 ; Now pad so the interrupt vector can be correctly placed on a page boundary
 	REPT	(1+($/100H))*100H - $
@@ -787,10 +787,10 @@ DISKBITS:
 ;        C  = bit7: record/sector number (bits 6-0)
 SYSCALL:
 	; B=7 bit is head, 0..6 bit Cylinder; C=7 bit record
-	LD	(MEMADR),HL	; store HL in MEMADR
+	LD	(MEMADR),HL		; store HL in MEMADR
 	LD	HL,00000H
 	ADD	HL,SP
-	LD	(SPSAV),HL	; save SP in SPSAV and DE - unclear why it is needed
+	LD	(SPSAV),HL		; save SP in SPSAV and DE - unclear why it is needed
 	PUSH	BC
 	EX	DE,HL
 	LD	A,C
@@ -812,89 +812,117 @@ SYSCALL1:
 	LD	A,B
 	AND	01111111b		; if cylinder not zero, return
 	JP	NZ,SYSRET
-	LD	A,001H		; otherwise done cylinder 0, try cylinder 1
+	LD	A,001H			; otherwise done cylinder 0, try cylinder 1
 	LD	(CURCYL),A
 	CALL	DSKAUTO
 SYSRET:
 	POP	AF
-	XOR	A			;A := 0
+	XOR	A			; A := 0
 RETSP:
-	LD	HL,(SPSAV)	; restore stack pointer, and return
+	LD	HL,(SPSAV)		; restore stack pointer, and return
 	LD	SP,HL
 	RET
 
 ;------------------------------------------------------------------------
-; Display interrupt handler, called for every screen refresh
+; Display interrupt handler (DISINT)
+; Called via HDINT on every CTC Ch2 interrupt (triggered by 8275 vertical retrace).
+;
+; [Claude Opus 4.6] Implements circular-buffer hardware scrolling using two
+; DMA channels.  The 2000-byte display buffer at DSPSTR is treated as a
+; circular buffer.  SCROLLOFSET (S) indicates where the visible screen starts.
+;
+; Two DMA channels split the scrolled view:
+;   Ch2 (higher priority): transfers from DSPSTR+S to end of buffer
+;       start address = DSPSTR + S
+;       word count    = 1999 - S    (bytes from scroll position to buffer end)
+;   Ch3 (lower priority):  transfers from DSPSTR for wrap-around
+;       start address = DSPSTR
+;       word count    = 1999        (full buffer, but only S bytes are used)
+;
+; The 8275 CRT controller requests characters via DMA row by row.  Ch2
+; is serviced first (higher priority, demand mode).  When Ch2 reaches
+; terminal count after transferring (2000 - S) bytes, Ch3 takes over and
+; provides the remaining S bytes from the start of the buffer.  The 8275
+; stops requesting after 2000 total bytes, so Ch3's full-buffer count
+; is never exhausted.  The combined effect: the screen displays bytes
+; [S..1999] followed by [0..S-1], implementing smooth hardware scrolling.
+;
+; Ch2 word count derivation (let A = DSPSTR + S, the absolute address):
+;   -A + 1999 + DSPSTR  =  -(DSPSTR+S) + 1999 + DSPSTR  =  1999 - S
 ;------------------------------------------------------------------------
 DISINT:
 	PUSH	AF
-	IN	A,(CRTCOM)		; read status register to clear interrupt flag
+	IN	A,(CRTCOM)		; Read 8275 status to acknowledge interrupt
 
 	PUSH	HL
 	PUSH	DE
 	PUSH	BC
-	; -- FIXME - get claude to document exactly how this works, and what the calculations are doing.  It looks like it is calculating the address of the current scroll position in the display buffer, and outputting that to the CRT controller's DMA address registers (WCREG2 for channel 2, CH2ADR), and also setting up the full display buffer address and size for channel 3 (CH3ADR and WCREG3).  This allows the CRT controller to use DMA to fetch the display data from memory for the current screen refresh, while the CPU can continue to update the display buffer in memory without interfering with the CRT's access.  The calculations involving the scroll offset and display buffer address are a bit complex and would benefit from detailed documentation to understand how the scrolling and display memory layout works.
-	; -- set up DMA for screen transfer to CRT controller
+
+	; -- Mask (disable) DMA channels 2 and 3 during reprogramming
 	; https://www.jbox.dk/rc702/hardware/intel-8237.pdf page 6-96
-	LD	A,00000110b		;Channel 2, bit2=1 -> mask (disable)
-	OUT	(SMSK),A		;Mask (disable) DMA channel 2 during setup
-	LD	A,00000111b		;Channel 3, bit2=1 -> mask (disable)
-	OUT	(SMSK),A		;Mask (disable) DMA channel 3 during setup
-	OUT	(CLBP),A		;Clear byte pointer flip-flop (value in A is ignored)
-	LD	HL,(SCROLLOFSET)	; Get scroll offset into display buffer
+	LD	A,00000110b		; Channel 2, bit2=1 -> mask (disable)
+	OUT	(SMSK),A		; Mask DMA channel 2
+	LD	A,00000111b		; Channel 3, bit2=1 -> mask (disable)
+	OUT	(SMSK),A		; Mask DMA channel 3
+	OUT	(CLBP),A		; Clear byte pointer flip-flop (value in A is ignored)
+
+	; -- Ch2: set start address = DSPSTR + SCROLLOFSET
+	LD	HL,(SCROLLOFSET)	; HL = S (scroll offset, 0..1999)
 	LD	DE,DSPSTR
-	ADD	HL,DE
+	ADD	HL,DE			; HL = DSPSTR + S (absolute scroll start)
 	LD	A,L
-	OUT	(CH2ADR),A		;Ch2 start address low byte (scroll position in display buffer)
+	OUT	(CH2ADR),A		; Ch2 address low byte
 	LD	A,H
-	OUT	(CH2ADR),A		;Ch2 start address high byte
+	OUT	(CH2ADR),A		; Ch2 address high byte
+
+	; -- Ch2: set word count = 1999 - S
+	; Computed as: -(DSPSTR + S) + 1999 + DSPSTR = 1999 - S
 	LD	A,L
 	CPL
 	LD	L,A
 	LD	A,H
 	CPL
 	LD	H,A
-	INC	HL		; -> HL = -HL
+	INC	HL			; HL = -(DSPSTR + S)  (two's complement negate)
 	LD	DE,2000 - 1
-	ADD	HL,DE
+	ADD	HL,DE			; HL = -(DSPSTR + S) + 1999
 	LD	DE,DSPSTR
-	ADD	HL,DE		; Do some calculations relative to display memory
+	ADD	HL,DE			; HL = 1999 - S
 	LD	A,L
-	OUT	(WCREG2),A		;Ch2 word count low (remaining bytes from scroll pos to end)
+	OUT	(WCREG2),A		; Ch2 word count low
 	LD	A,H
-	OUT	(WCREG2),A		;Ch2 word count high
+	OUT	(WCREG2),A		; Ch2 word count high
 
+	; -- Ch3: set start address = DSPSTR (buffer base for wrap-around)
 	LD	HL,DSPSTR
 	LD	A,L
-	OUT	(CH3ADR),A		;Ch3 start address low (display buffer base)
+	OUT	(CH3ADR),A		; Ch3 address low byte
 	LD	A,H
-	OUT	(CH3ADR),A		;Ch3 start address high
+	OUT	(CH3ADR),A		; Ch3 address high byte
 
-	LD	HL,2000-1		;Full display buffer size - 1
+	; -- Ch3: set word count = 1999 (full buffer; only S bytes actually used)
+	LD	HL,2000-1
 	LD	A,L
-	OUT	(WCREG3),A		;Ch3 word count low (full buffer transfer)
+	OUT	(WCREG3),A		; Ch3 word count low
 	LD	A,H
-	OUT	(WCREG3),A		;Ch3 word count high
+	OUT	(WCREG3),A		; Ch3 word count high
 
-	; [Claude Opus 4.6] SMSK register format: bits 1-0 = channel, bit 2 = mask/unmask.
-	; Writing 002H = channel 2, bit2=0 -> unmask (enable) DMA channel 2.
-	; Writing 003H = channel 3, bit2=0 -> unmask (enable) DMA channel 3.
-	; This enables DMA channels 2 and 3 for the CRT display transfer that
-	; was set up above (CH2ADR/WCREG2 for scroll region, CH3ADR/WCREG3 for full buffer).
-	LD	A,002H		; Unmask (enable) DMA channel 2
+	; -- Unmask (enable) DMA channels 2 and 3 to begin transfers
+	; SMSK format: bits 1-0 = channel, bit 2 = 0 to unmask (enable)
+	LD	A,002H			; Unmask (enable) DMA channel 2
 	OUT	(SMSK),A
-
-	LD	A,003H		; Unmask (enable) DMA channel 3
+	LD	A,003H			; Unmask (enable) DMA channel 3
 	OUT	(SMSK),A
 
 	POP	BC
 	POP	DE
 	POP	HL
 
-	LD	A,11010111b		;Int enable, counter, prescale=16, falling, TC follows, reset
-	OUT	(CTCCH2),A		;Re-arm CTC channel 2 for next display interrupt
-	LD	A,001H			;Time constant = 1
-	OUT	(CTCCH2),A		;Ch2: interrupt on next edge
+	; -- Re-arm CTC channel 2 for next display interrupt
+	LD	A,11010111b		; Int enable, counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH2),A		; Reconfigure CTC Ch2
+	LD	A,001H			; Time constant = 1 (interrupt on next edge)
+	OUT	(CTCCH2),A		; Load time constant
 
 	POP	AF
 	RET
@@ -913,7 +941,7 @@ FLPINT:
 	DI
 	JP	FLPBDY
 
-DUMINT:		; Dummy interrupt
+DUMINT:				; Dummy interrupt
 	EI
 	RETI
 
@@ -923,23 +951,23 @@ DUMINT:		; Dummy interrupt
 ;------------------------------------------------------------------------
 
 ERRDSP:
-	LD	(ERRSAV),A		;Save error code
+	LD	(ERRSAV),A		; Save error code
 	EI
 	LD	A,(DSKTYP)
 	AND	00000001b
-	JP	NZ,RETSP		;Return to caller via SP restore
-	OUT	(BIB),A			;A=0 after AND; any write to BIB sounds beeper on error
-	CALL	ERRCPY			;Copy error text to display
+	JP	NZ,RETSP		; Return to caller via SP restore
+	OUT	(BIB),A			; A=0 after AND; any write to BIB sounds beeper on error
+	CALL	ERRCPY			; Copy error text to display
 ERRHLT:
 	OR	A
-	JP	ERRHLT			;Halt loop
+	JP	ERRHLT			; Halt loop
 
 ERRCPY:
-	LD	BC,DSPSTR		;Display buffer address
+	LD	BC,DSPSTR		; Display buffer address
 	LD	DE,DISKETTEERRORMSG
-	LD	HL,DISKETTEERRORMSGLEN	;18 characters
+	LD	HL,DISKETTEERRORMSGLEN	; 18 characters
 ERRCPLP:
-	LD	A,(DE)			;Copy error text to display
+	LD	A,(DE)			; Copy error text to display
 	LD	(BC),A
 	INC	BC
 	INC	DE
@@ -967,75 +995,75 @@ DISKETTEERRORMSGLEN	EQU $ - DISKETTEERRORMSG - 1
 ;------------------------------------------------------------------------
 
 FLBOOT:
-	LD	A,(DISKBITS)		;Get status flags
-	AND	10000000b			;Mask mini/maxi bit
+	LD	A,(DISKBITS)		; Get status flags
+	AND	10000000b			; Mask mini/maxi bit
 	LD	HL,DSKTYP
-	OR	(HL)			;Combine with current type
+	OR	(HL)			; Combine with current type
 	LD	(HL),A
 	DEC	(HL)
-	CALL	DSKAUTO			;Auto-detect disk density
+	CALL	DSKAUTO			; Auto-detect disk density
 	LD	HL,00000H
-	LD	(MEMADR),HL		;Memory pointer := 0
+	LD	(MEMADR),HL		; Memory pointer := 0
 	LD	HL,INTVEC
-	CALL	RDTRK0			;Read track 0 side 0
+	CALL	RDTRK0			; Read track 0 side 0
 	LD	A,001H
-	LD	(DSKTYP),A		;Set floppy boot flag
+	LD	(DSKTYP),A		; Set floppy boot flag
 	; [Claude Opus 4.6] 0x1000 is the ID-COMAL boot entry point.  ID-COMAL
 	; was a COMAL interpreter system used on RC700-series machines.  After
 	; reading track 0 to memory at 0x0000, the ID-COMAL bootstrap code
 	; resides at offset 0x1000 and takes over from here.  This path is only
 	; reached for non-CP/M (COMAL) diskettes; CP/M boots via BOOT7/BOOT8.
-	JP	01000H			;Jump to ID-COMAL boot address
+	JP	01000H			; Jump to ID-COMAL boot address
 
 RDTRK0:
 	LD	A,000H
-	LD	(TRKOVR),HL		;Clear track overflow
+	LD	(TRKOVR),HL		; Clear track overflow
 RDTRK1:
-	CALL	FLSEEK			;Seek to track
-	JP	C,BOOTIFOK 		;Error: display error
-	JP	Z,RDTRK2		;Seek OK: read track
-	LD	A,006H			;Error code
+	CALL	FLSEEK			; Seek to track
+	JP	C,BOOTIFOK 		; Error: display error
+	JP	Z,RDTRK2		; Seek OK: read track
+	LD	A,006H			; Error code
 	JP	ERRDSP
 RDTRK2:
-	CALL	CALCTX			;Calculate transfer with overflow
-	LD	A,006H			;Read track command
-	LD	C,005H			;5 retries
-	CALL	READTK			;Read track with retry
-	JP	NC,RDTROK		;Read OK
-	LD	A,028H			;Error code
+	CALL	CALCTX			; Calculate transfer with overflow
+	LD	A,006H			; Read track command
+	LD	C,005H			; 5 retries
+	CALL	READTK			; Read track with retry
+	JP	NC,RDTROK		; Read OK
+	LD	A,028H			; Error code
 	JP	ERRDSP
 RDTROK:
-	LD	HL,(TRBYT)		;Get transfer byte count
+	LD	HL,(TRBYT)		; Get transfer byte count
 	EX	DE,HL
-	LD	HL,(MEMADR)		;Update memory pointer
+	LD	HL,(MEMADR)		; Update memory pointer
 	ADD	HL,DE
 	LD	(MEMADR),HL
-	LD	L,000H			;Clear transfer count
+	LD	L,000H			; Clear transfer count
 	LD	H,L
 	LD	(TRBYT),HL
-	CALL	NXTHDS			;Advance to next head/side
-	LD	A,(MOREFL)		;More data to transfer?
+	CALL	NXTHDS			; Advance to next head/side
+	LD	A,(MOREFL)		; More data to transfer?
 	OR	A
-	RET	Z			;No: return
-	JP	RDTRK1			;Yes: read more (skip LD A,000H)
+	RET	Z			; No: return
+	JP	RDTRK1			; Yes: read more (skip LD A,000H)
 
 NXTHDS:
-	LD	A,001H			;Advance head/side
-	LD	(CURREC),A		;Record := 1
+	LD	A,001H			; Advance head/side
+	LD	(CURREC),A		; Record := 1
 	LD	A,(DISKBITS)
-	AND	00000010b			;Check dual-sided bit
+	AND	00000010b			; Check dual-sided bit
 	RRCA
 	LD	HL,CURHED
-	CP	(HL)			;Same head?
-	JP	Z,NXTCYL		;Yes: advance cylinder
-	INC	(HL)			;No: switch to other head
+	CP	(HL)			; Same head?
+	JP	Z,NXTCYL		; Yes: advance cylinder
+	INC	(HL)			; No: switch to other head
 	RET
 
 NXTCYL:
-	XOR	A			;A := 0
-	LD	(HL),A			;Head := 0
+	XOR	A			; A := 0
+	LD	(HL),A			; Head := 0
 	LD	HL,CURCYL
-	INC	(HL)			;Cylinder++
+	INC	(HL)			; Cylinder++
 	RET
 
 ;------------------------------------------------------------------------
@@ -1044,28 +1072,28 @@ NXTCYL:
 ;------------------------------------------------------------------------
 
 CALCTX:
-	LD	HL,(TRKOVR)		;Get remaining overflow
+	LD	HL,(TRKOVR)		; Get remaining overflow
 	PUSH	HL
-	CALL	CALCTB			;Calculate transfer byte count
-	CALL	NEGHL			;Negate HL
+	CALL	CALCTB			; Calculate transfer byte count
+	CALL	NEGHL			; Negate HL
 	POP	DE
-	ADD	HL,DE			;Overflow - track bytes
-	JP	NC,CALCTX2		;No overflow: clear flags
+	ADD	HL,DE			; Overflow - track bytes
+	JP	NC,CALCTX2		; No overflow: clear flags
 	LD	A,H
 	OR	L
-	JP	Z,CALCTX2		;Zero: clear flags
+	JP	Z,CALCTX2		; Zero: clear flags
 	LD	A,001H
-	LD	(MOREFL),A		;More data to transfer
-	LD	(TRKOVR),HL		;Save remaining overflow
+	LD	(MOREFL),A		; More data to transfer
+	LD	(TRKOVR),HL		; Save remaining overflow
 	RET
 
 CALCTX2:
 	LD	A,000H
-	LD	(MOREFL),A		;No more data
-	LD	(TRKOVR),A		;Clear overflow
+	LD	(MOREFL),A		; No more data
+	LD	(TRKOVR),A		; Clear overflow
 	LD	(TRKOV2),A
 	EX	DE,HL
-	LD	(TRBYT),HL		;Set transfer byte count
+	LD	(TRBYT),HL		; Set transfer byte count
 	RET
 
 ;------------------------------------------------------------------------
@@ -1091,14 +1119,14 @@ NEGHL:
 ;------------------------------------------------------------------------
 
 SETFMT:
-	LD	A,(DISKBITS)		;Get status flags
-	AND	00011100b		;Extract density bits
+	LD	A,(DISKBITS)		; Get status flags
+	AND	00011100b		; Extract density bits
 	RRA
 	RRA
-	AND	00000111b		;and shift them to the lowest 3 bits
-	LD	(RECLEN),A		;Set record length (N)
-	CALL	FMTLKP			;Look up format parameters
-	CALL	CALCTB			;Calculate transfer byte count
+	AND	00000111b		; and shift them to the lowest 3 bits
+	LD	(RECLEN),A		; Set record length (N)
+	CALL	FMTLKP			; Look up format parameters
+	CALL	CALCTB			; Calculate transfer byte count
 	RET
 
 ;------------------------------------------------------------------------
@@ -1108,44 +1136,44 @@ SETFMT:
 ;------------------------------------------------------------------------
 
 DSKAUTO:
-	LD	A,(DISKBITS)		;Get status flags
-	AND	-2			;Clear side bit
+	LD	A,(DISKBITS)		; Get status flags
+	AND	-2			; Clear side bit
 	LD	(DISKBITS),A
 DSKAUTO1:
-	CALL	FLSEEK			;Seek to current cylinder
-	JP	NZ,DSKFAIL		;Seek failed: error
+	CALL	FLSEEK			; Seek to current cylinder
+	JP	NZ,DSKFAIL		; Seek failed: error
 	LD	L,004H
 	LD	H,000H
-	LD	(TRBYT),HL		;Transfer 4 bytes (ID field)
-	LD	A,00AH			;Read ID command FIXME
-	LD	C,001H			;1 retry
-	CALL	READTK			;Read track
+	LD	(TRBYT),HL		; Transfer 4 bytes (ID field)
+	LD	A,00AH			; Read ID command FIXME
+	LD	C,001H			; 1 retry
+	CALL	READTK			; Read track
 	LD	HL,DISKBITS
-	JP	NC,DSKDET		;Read OK: detect format
-	LD	A,(HL)			;Read failed
-	AND	00000001b			;Already tried other side?
-	JP	NZ,DSKFAIL		;Yes: give up
-	INC	(HL)			;Try other side
-	JP	DSKAUTO1		;Retry seek
+	JP	NC,DSKDET		; Read OK: detect format
+	LD	A,(HL)			; Read failed
+	AND	00000001b			; Already tried other side?
+	JP	NZ,DSKFAIL		; Yes: give up
+	INC	(HL)			; Try other side
+	JP	DSKAUTO1		; Retry seek
 DSKDET:
-	LD	A,(FDCRS6)		;Get N from FDC result
-	RLCA				;Shift to density bits position
+	LD	A,(FDCRS6)		; Get N from FDC result
+	RLCA				; Shift to density bits position
 	RLCA
 	LD	B,A
-	LD	A,(HL)			;Get status flags
-	AND	11100011B		;Clear old density bits
-	ADD	A,B			;Insert new density
+	LD	A,(HL)			; Get status flags
+	AND	11100011B		; Clear old density bits
+	ADD	A,B			; Insert new density
 	LD	(HL),A
-	CALL	SETFMT			;Set format from detected density
-	; [Claude Opus 4.6] SCF;CCF is the standard Z80 idiom for clearing the
+	CALL	SETFMT			; Set format from detected density
+	; [Claude Opus 4.6] SCF; CCF is the standard Z80 idiom for clearing the
 	; carry flag.  The Z80 has no direct "clear carry" instruction, so
 	; SCF (set carry) followed by CCF (complement carry) achieves it.
 	; This pattern appears throughout the PROM for returning success.
 	SCF
-	CCF				;Clear carry = success
+	CCF				; Clear carry = success
 	RET
 DSKFAIL:
-	SCF				;Set carry = error
+	SCF				; Set carry = error
 	RET
 
 ;------------------------------------------------------------------------
@@ -1155,40 +1183,40 @@ DSKFAIL:
 ;------------------------------------------------------------------------
 
 FMTLKP:
-	LD	A,(RECLEN)		;Get record length (N)
-	RLA				;Multiply by 4 (table entry size)
+	LD	A,(RECLEN)		; Get record length (N)
+	RLA				; Multiply by 4 (table entry size)
 	RLA
 	LD	E,A
-	LD	D,000H			;and put in DE.
-	LD	HL,MAXIFMT		;Default: 8" format table
+	LD	D,000H			; and put in DE.
+	LD	HL,MAXIFMT		; Default: 8" format table
 	LD	A,(DISKBITS)
-	AND	10000000b		;Check mini/maxi bit (0=maxi, 1=mini)
-	LD	A,04CH			;Max cylinder = 76
-	JP	Z,FMTLK2		;bit7=0 (maxi): use MAXIFMT, cyl=76
-	LD	A,023H			;Max cylinder = 35
-	LD	HL,MINIFMT		;bit7=1 (mini): use MINIFMT, cyl=35
+	AND	10000000b		; Check mini/maxi bit (0=maxi, 1=mini)
+	LD	A,04CH			; Max cylinder = 76
+	JP	Z,FMTLK2		; bit7=0 (maxi): use MAXIFMT, cyl=76
+	LD	A,023H			; Max cylinder = 35
+	LD	HL,MINIFMT		; bit7=1 (mini): use MINIFMT, cyl=35
 FMTLK2:
-	LD	(EPTS),A		;Store sectors per track
-	ADD	HL,DE			;Index into table
+	LD	(EPTS),A		; Store sectors per track
+	ADD	HL,DE			; Index into table
 	LD	A,(DISKBITS)
-	AND	00000001b			;Check side bit
+	AND	00000001b			; Check side bit
 	JP	Z,FMTLK3
-	LD	E,002H			;Side 1: offset by 2
+	LD	E,002H			; Side 1: offset by 2
 	LD	D,000H
 	ADD	HL,DE
 FMTLK3:
 	EX	DE,HL
-	LD	HL,CUREOT		;Copy EOT and GAP3 from table
+	LD	HL,CUREOT		; Copy EOT and GAP3 from table
 	LD	A,(DE)
-	LD	(HL),A			;CUREOT = table[0]
-	LD	(TRKSZ),A		;Also save as track size
+	LD	(HL),A			; CUREOT = table[0]
+	LD	(TRKSZ),A		; Also save as track size
 	INC	HL
 	INC	DE
 	LD	A,(DE)
-	LD	(HL),A			;GAP3 = table[1]
+	LD	(HL),A			; GAP3 = table[1]
 	INC	HL
 	LD	A,10000000b
-	LD	(HL),A			;DTL = 80H
+	LD	(HL),A			; DTL = 80H
 	RET
 
 ;------------------------------------------------------------------------
@@ -1198,35 +1226,35 @@ FMTLK3:
 ;------------------------------------------------------------------------
 
 CALCTB:
-	LD	HL,SECSZ0		;Base sector size = 128
-	LD	A,(RECLEN)		;Get N (record length code)
+	LD	HL,SECSZ0		; Base sector size = 128
+	LD	A,(RECLEN)		; Get N (record length code)
 	OR	A
-	JP	Z,CALCT2		;N=0: 128 bytes/sector
-CALCT1:	ADD	HL,HL			;Double for each N level
+	JP	Z,CALCT2		; N=0: 128 bytes/sector
+CALCT1:	ADD	HL,HL			; Double for each N level
 	DEC	A
 	JP	NZ,CALCT1
-CALCT2:	LD	(SECBYT),HL		;Save bytes per sector
+CALCT2:	LD	(SECBYT),HL		; Save bytes per sector
 	EX	DE,HL
-	LD	A,(CURREC)		;Current record number
+	LD	A,(CURREC)		; Current record number
 	LD	L,A
-	LD	A,(CUREOT)		;End of track
-	SUB	L			;Sectors remaining = EOT - REC
+	LD	A,(CUREOT)		; End of track
+	SUB	L			; Sectors remaining = EOT - REC
 	INC	A
 	LD	L,A
-	LD	A,(DSKTYP)		;Check mini/maxi
+	LD	A,(DSKTYP)		; Check mini/maxi
 	AND	10000000b
-	JP	Z,CALCT3		;Maxi: use calculated count
-	LD	A,(CURHED)		;Mini: check head
+	JP	Z,CALCT3		; Maxi: use calculated count
+	LD	A,(CURHED)		; Mini: check head
 	XOR	00000001b
-	JP	NZ,CALCT3		;Head 0: use calculated count
-	LD	L,00AH			;Mini head 1: 10 sectors
-CALCT3:	LD	A,L			;Multiply sectors * bytes/sector
+	JP	NZ,CALCT3		; Head 0: use calculated count
+	LD	L,00AH			; Mini head 1: 10 sectors
+CALCT3:	LD	A,L			; Multiply sectors * bytes/sector
 	LD	L,000H
 	LD	H,L
-CALCT4:	ADD	HL,DE			;HL += sector_size
+CALCT4:	ADD	HL,DE			; HL += sector_size
 	DEC	A
 	JP	NZ,CALCT4
-	LD	(TRBYT),HL		;Store transfer byte count
+	LD	(TRBYT),HL		; Store transfer byte count
 	RET
 
 ;------------------------------------------------------------------------
@@ -1236,34 +1264,34 @@ CALCT4:	ADD	HL,DE			;HL += sector_size
 ;------------------------------------------------------------------------
 
 READTK:
-	PUSH	AF			;Save FDC command
+	PUSH	AF			; Save FDC command
 	LD	A,C
-	LD	(REPTIM),A		;Set retry count
+	LD	(REPTIM),A		; Set retry count
 READTK1:
-	CALL	CLRFLF			;Clear floppy interrupt flag
-	LD	HL,(TRBYT)		;Get transfer byte count
+	CALL	CLRFLF			; Clear floppy interrupt flag
+	LD	HL,(TRBYT)		; Get transfer byte count
 	LD	B,H
 	LD	C,L
-	DEC	BC			;BC = count - 1
-	LD	HL,(MEMADR)		;Get DMA target address
+	DEC	BC			; BC = count - 1
+	LD	HL,(MEMADR)		; Get DMA target address
 	POP	AF
 	PUSH	AF
-	AND	00001111b		;Mask command type
-	CP	00001010b		;Read ID command?
-	CALL	NZ,STPDMA		;Set up DMA (read mode) if not Read ID
+	AND	00001111b		; Mask command type
+	CP	00001010b		; Read ID command?
+	CALL	NZ,STPDMA		; Set up DMA (read mode) if not Read ID
 	POP	AF
-	LD	C,A			;Save command in C
-	CALL	FLRTRK			;Send FDC command
+	LD	C,A			; Save command in C
+	CALL	FLRTRK			; Send FDC command
 	LD	A,0FFH
-	CALL	WAITFL			;Wait for floppy interrupt
-	RET	C			;Return if timeout
+	CALL	WAITFL			; Wait for floppy interrupt
+	RET	C			; Return if timeout
 	LD	A,C
-	CALL	CHKRES			;Check FDC result (CHKRES)
-	RET	NC			;Return if no error
-	RET	Z			;Return if retries exhausted
+	CALL	CHKRES			; Check FDC result (CHKRES)
+	RET	NC			; Return if no error
+	RET	Z			; Return if retries exhausted
 	LD	A,C
 	PUSH	AF
-	JP	READTK1			;Retry (back to CLRFLF)
+	JP	READTK1			; Retry (back to CLRFLF)
 
 ;------------------------------------------------------------------------
 ; Check FDC result status bytes
@@ -1302,31 +1330,31 @@ READTK1:
 ;   Byte 5: Record/sector number (R) after command
 ;   Byte 6: Sector size code (N) after command
 CHKRES:
-	LD	HL,FDCRES		;Point to result status bytes
-	LD	A,(HL)			;Get ST0
-	AND	11000011b		;Mask command/drive bits
+	LD	HL,FDCRES		; Point to result status bytes
+	LD	A,(HL)			; Get ST0
+	AND	11000011b		; Mask command/drive bits
 	LD	B,A
-	LD	A,(DRVSEL)		;Expected drive select
-	CP	B			;Match?
-	JP	NZ,CHKERR		;No: error
+	LD	A,(DRVSEL)		; Expected drive select
+	CP	B			; Match?
+	JP	NZ,CHKERR		; No: error
 	INC	HL
-	LD	A,(HL)			;Get ST1
+	LD	A,(HL)			; Get ST1
 	CP	000H
-	JP	NZ,CHKERR		;Non-zero: error
+	JP	NZ,CHKERR		; Non-zero: error
 	INC	HL
-	LD	A,(HL)			;Get ST2
-	AND	10111111b		;Mask bit 6 (control mark)
+	LD	A,(HL)			; Get ST2
+	AND	10111111b		; Mask bit 6 (control mark)
 	CP	000H
-	JP	NZ,CHKERR		;Non-zero: error
-	SCF				;Set carry
-	CCF				;Clear carry = success
+	JP	NZ,CHKERR		; Non-zero: error
+	SCF				; Set carry
+	CCF				; Clear carry = success
 	RET
 
 CHKERR:
-	LD	A,(REPTIM)		;Decrement retry count
+	LD	A,(REPTIM)		; Decrement retry count
 	DEC	A
 	LD	(REPTIM),A
-	SCF				;Set carry = error
+	SCF				; Set carry = error
 	RET
 
 ;------------------------------------------------------------------------
@@ -1340,34 +1368,34 @@ FLRTRK:
 	PUSH	AF
 	DI
 	LD	A,0FFH
-	LD	HL,COMBUF		;Command buffer
-	LD	(FDCFLG),A		;Set FDC busy flag
-	LD	A,(DISKBITS)		;Get status flags
-	AND	00000001b			;Check side bit
-	JP	Z,FLRTRK2		;Side 0: skip MFM flag
-	LD	A,01000000b		;Side 1: set MFM flag
+	LD	HL,COMBUF		; Command buffer
+	LD	(FDCFLG),A		; Set FDC busy flag
+	LD	A,(DISKBITS)		; Get status flags
+	AND	00000001b			; Check side bit
+	JP	Z,FLRTRK2		; Side 0: skip MFM flag
+	LD	A,01000000b		; Side 1: set MFM flag
 FLRTRK2:
 	LD	B,A
 	POP	AF
 	PUSH	AF
-	ADD	A,B			;Add MFM flag to command
-	LD	(HL),A			;Store in command buffer
+	ADD	A,B			; Add MFM flag to command
+	LD	(HL),A			; Store in command buffer
 	INC	HL
-	CALL	MKDHB			;Make drive/head byte
-	LD	(HL),A			;Store drive/head
+	CALL	MKDHB			; Make drive/head byte
+	LD	(HL),A			; Store drive/head
 	DEC	HL
 	POP	AF
-	AND	00001111b			;Mask command type
-	CP	006H			;Format command?
-	LD	C,009H			;Format: 9 bytes to send
-	JP	Z,FLRTRK3		;Jump to send loop
-	LD	C,002H			;Non-format: 2 bytes
+	AND	00001111b			; Mask command type
+	CP	006H			; Format command?
+	LD	C,009H			; Format: 9 bytes to send
+	JP	Z,FLRTRK3		; Jump to send loop
+	LD	C,002H			; Non-format: 2 bytes
 FLRTRK3:
-	LD	A,(HL)			;Load command byte
+	LD	A,(HL)			; Load command byte
 	INC	HL
-	CALL	FL02			;Wait FDC write ready (FLO2)
+	CALL	FL02			; Wait FDC write ready (FLO2)
 	DEC	C
-	JP	NZ,FLRTRK3		;Loop: send remaining bytes
+	JP	NZ,FLRTRK3		; Loop: send remaining bytes
 	POP	BC
 	EI
 	RET
@@ -1378,23 +1406,23 @@ FLRTRK3:
 ;------------------------------------------------------------------------
 
 DMAWRT:
-	LD	A,005H			;Channel 1, bit2=1 -> mask (disable)
+	LD	A,005H			; Channel 1, bit2=1 -> mask (disable)
 	DI
-	OUT	(SMSK),A		;Mask (disable) DMA channel 1 during setup
-	LD	A,01001001b		;Demand mode, addr increment, auto-init, write, channel 1
+	OUT	(SMSK),A		; Mask (disable) DMA channel 1 during setup
+	LD	A,01001001b		; Demand mode, addr increment, auto-init, write, channel 1
 DMAWRT1:
-	OUT	(DMAMOD),A		;Set DMA mode for channel 1 (read or write)
-	OUT	(CLBP),A		;Clear byte pointer flip-flop (value in A is ignored)
+	OUT	(DMAMOD),A		; Set DMA mode for channel 1 (read or write)
+	OUT	(CLBP),A		; Clear byte pointer flip-flop (value in A is ignored)
 	LD	A,L
-	OUT	(CH1ADR),A		;Ch1 address low byte (memory buffer start)
+	OUT	(CH1ADR),A		; Ch1 address low byte (memory buffer start)
 	LD	A,H
-	OUT	(CH1ADR),A		;Ch1 address high byte
+	OUT	(CH1ADR),A		; Ch1 address high byte
 	LD	A,C
-	OUT	(WCREG1),A		;Ch1 word count low (transfer size - 1)
+	OUT	(WCREG1),A		; Ch1 word count low (transfer size - 1)
 	LD	A,B
-	OUT	(WCREG1),A		;Ch1 word count high
-	LD	A,001H			;Channel 1, bit2=0 -> unmask (enable)
-	OUT	(SMSK),A		;Unmask (enable) DMA channel 1, transfer begins
+	OUT	(WCREG1),A		; Ch1 word count high
+	LD	A,001H			; Channel 1, bit2=0 -> unmask (enable)
+	OUT	(SMSK),A		; Unmask (enable) DMA channel 1, transfer begins
 	EI
 	RET
 
@@ -1404,11 +1432,11 @@ DMAWRT1:
 ;------------------------------------------------------------------------
 
 STPDMA:
-	LD	A,005H			;Channel 1, bit2=1 -> mask (disable)
+	LD	A,005H			; Channel 1, bit2=1 -> mask (disable)
 	DI
-	OUT	(SMSK),A		;Mask (disable) DMA channel 1 during setup
-	LD	A,01000101b		;Demand mode, addr increment, auto-init, read, channel 1
-	JP	DMAWRT1			;Share DMA setup code
+	OUT	(SMSK),A		; Mask (disable) DMA channel 1 during setup
+	LD	A,01000101b		; Demand mode, addr increment, auto-init, read, channel 1
+	JP	DMAWRT1			; Share DMA setup code
 
 ;------------------------------------------------------------------------
 ; Wait FDC ready to write + send byte (entry at 0763CH via overlapping)
@@ -1419,18 +1447,18 @@ STPDMA:
 FL02:
 	PUSH	AF
 	PUSH	BC
-	LD	B,000H			;Timeout counter high
-	LD	C,000H			;Timeout counter low
+	LD	B,000H			; Timeout counter high
+	LD	C,000H			; Timeout counter low
 FL02_1:
-	INC	B			;Increment counter
-	CALL	Z,FDCTOUT		;Timeout if B overflows to 0
-	IN	A,(FDC)			;Read FDC main status
-	AND	11000000b			;Mask RQM and DIO bits
-	CP	10000000b		;Ready for write? (RQM=1, DIO=0)
-	JP	NZ,FL02_1		;No: keep waiting
+	INC	B			; Increment counter
+	CALL	Z,FDCTOUT		; Timeout if B overflows to 0
+	IN	A,(FDC)			; Read FDC main status
+	AND	11000000b			; Mask RQM and DIO bits
+	CP	10000000b		; Ready for write? (RQM=1, DIO=0)
+	JP	NZ,FL02_1		; No: keep waiting
 	POP	BC
 	POP	AF
-	OUT	(FDD),A			;Write command/parameter byte to FDC data register
+	OUT	(FDD),A			; Write command/parameter byte to FDC data register
 	RET
 
 ;------------------------------------------------------------------------
@@ -1440,17 +1468,17 @@ FL02_1:
 
 FLO3:
 	PUSH	BC
-	LD	B,000H			;Timeout counter high
-	LD	C,000H			;Timeout counter low
+	LD	B,000H			; Timeout counter high
+	LD	C,000H			; Timeout counter low
 FL03_1:
-	INC	B			;Increment counter
-	CALL	Z,FDCTOUT		;Timeout if B overflows to 0
-	IN	A,(FDC)			;Read FDC main status
-	AND	11000000b		;Mask RQM and DIO bits
-	CP	11000000b		;Ready for read? (RQM=1, DIO=1)
-	JP	NZ,FL03_1		;No: keep waiting
+	INC	B			; Increment counter
+	CALL	Z,FDCTOUT		; Timeout if B overflows to 0
+	IN	A,(FDC)			; Read FDC main status
+	AND	11000000b		; Mask RQM and DIO bits
+	CP	11000000b		; Ready for read? (RQM=1, DIO=1)
+	JP	NZ,FL03_1		; No: keep waiting
 	POP	BC
-	IN	A,(FDD)			;Read data byte from FDC
+	IN	A,(FDD)			; Read data byte from FDC
 	RET
 
 ;------------------------------------------------------------------------
@@ -1458,23 +1486,23 @@ FL03_1:
 ;------------------------------------------------------------------------
 
 FDCTOUT:
-	LD	B,000H			;Reset high counter
-	INC	C			;Increment group counter
-	RET	NZ			;Return if not fully timed out
-	EI				;Full timeout: enable interrupts
-	JP	BOOTIFOK			;Jump to error handler
+	LD	B,000H			; Reset high counter
+	INC	C			; Increment group counter
+	RET	NZ			; Return if not fully timed out
+	EI				; Full timeout: enable interrupts
+	JP	BOOTIFOK			; Jump to error handler
 
 ;------------------------------------------------------------------------
 ; Sense drive status (FDC command 04H)
 ;------------------------------------------------------------------------
 
 SNSDRV:
-	LD	A,004H			;Sense drive status command
-	CALL	FL02			;Wait FDC write ready (FLO2)
-	LD	A,(DRVSEL)		;Drive select byte
-	CALL	FL02			;Wait FDC write ready (FLO2)
-	CALL	FLO3			;Read ST3 result
-	LD	(FDCRES),A		;Save ST3
+	LD	A,004H			; Sense drive status command
+	CALL	FL02			; Wait FDC write ready (FLO2)
+	LD	A,(DRVSEL)		; Drive select byte
+	CALL	FL02			; Wait FDC write ready (FLO2)
+	CALL	FLO3			; Read ST3 result
+	LD	(FDCRES),A		; Save ST3
 	RET
 
 ;------------------------------------------------------------------------
@@ -1482,15 +1510,15 @@ SNSDRV:
 ;------------------------------------------------------------------------
 
 FLO6:
-	LD	A,008H			;Sense interrupt status command
-	CALL	FL02			;Wait FDC write ready (FLO2)
-	CALL	FLO3			;Read ST0
-	LD	(FDCRES),A		;Save ST0
-	AND	11000000b			;Check status bits
-	CP	10000000b		;Invalid command?
-	JP	Z,FL06_2		;Yes: skip reading PCN
-	CALL	FLO3			;Read present cylinder number
-	LD	(FDCRS1),A		;Save PCN
+	LD	A,008H			; Sense interrupt status command
+	CALL	FL02			; Wait FDC write ready (FLO2)
+	CALL	FLO3			; Read ST0
+	LD	(FDCRES),A		; Save ST0
+	AND	11000000b			; Check status bits
+	CP	10000000b		; Invalid command?
+	JP	Z,FL06_2		; Yes: skip reading PCN
+	CALL	FLO3			; Read present cylinder number
+	LD	(FDCRS1),A		; Save PCN
 FL06_2:
 	RET
 
@@ -1500,8 +1528,8 @@ FL06_2:
 
 CLRFLF:
 	DI
-	XOR	A			;A := 0
-	LD	(FLPFLG),A		;Clear flag
+	XOR	A			; A := 0
+	LD	(FLPFLG),A		; Clear flag
 	EI
 	RET
 
@@ -1512,12 +1540,12 @@ CLRFLF:
 
 MKDHB:
 	PUSH	DE
-	LD	A,(CURHED)		;Get current head
-	RLA				;Shift head to bit 2
+	LD	A,(CURHED)		; Get current head
+	RLA				; Shift head to bit 2
 	RLA
 	LD	D,A
-	LD	A,(DRVSEL)		;Get drive select
-	ADD	A,D			;Combine drive and head
+	LD	A,(DRVSEL)		; Get drive select
+	ADD	A,D			; Combine drive and head
 	POP	DE
 	RET
 
@@ -1529,14 +1557,14 @@ MKDHB:
 DELAY: ; ~0.25µs * (b*(c*256+255)*24-2) per call
 	PUSH	AF
 	PUSH	HL
-DELY1:	LD	H,C			;Inner loop count
+DELY1:	LD	H,C			; Inner loop count
 	LD	L,0FFH
-DELY2:	DEC	HL			;Decrement inner counter
+DELY2:	DEC	HL			; Decrement inner counter
 	LD	A,L
 	OR	H
-	JP	NZ,DELY2		;Inner loop
-	DEC	B			;Decrement outer counter
-	JP	NZ,DELY1		;Outer loop
+	JP	NZ,DELY2		; Inner loop
+	DEC	B			; Decrement outer counter
+	JP	NZ,DELY1		; Outer loop
 	POP	HL
 	POP	AF
 	RET
@@ -1549,20 +1577,20 @@ DELY2:	DEC	HL			;Decrement inner counter
 
 WAITFL:
 	PUSH	BC
-WAIT1:	DEC	A			;Decrement timeout counter
+WAIT1:	DEC	A			; Decrement timeout counter
 	SCF
-	JP	Z,WAIT2			;Timed out: clear flag and return C
+	JP	Z,WAIT2			; Timed out: clear flag and return C
 	LD	B,001H
 	LD	C,001H
-	CALL	DELAY			;Short delay
-	LD	B,A			;Save counter
-	LD	A,(FLPFLG)		;Check floppy interrupt flag
-	AND	00000010b		;Interrupt occurred?
-	LD	A,B			;Restore counter
-	JP	Z,WAIT1			;No: keep waiting
-	SCF				;Set carry
-	CCF				;Clear carry = success
-	CALL	CLRFLF			;Clear flag for next time
+	CALL	DELAY			; Short delay
+	LD	B,A			; Save counter
+	LD	A,(FLPFLG)		; Check floppy interrupt flag
+	AND	00000010b		; Interrupt occurred?
+	LD	A,B			; Restore counter
+	JP	Z,WAIT1			; No: keep waiting
+	SCF				; Set carry
+	CCF				; Clear carry = success
+	CALL	CLRFLF			; Clear flag for next time
 WAIT2:
 	POP	BC
 	RET
@@ -1574,10 +1602,10 @@ WAIT2:
 
 FLWRES:
 	LD	A,0FFH
-	CALL	WAITFL			;Wait for floppy interrupt
-	LD	A,(FDCRES)		;Get ST0
+	CALL	WAITFL			; Wait for floppy interrupt
+	LD	A,(FDCRES)		; Get ST0
 	LD	B,A
-	LD	A,(FDCRS1)		;Get PCN/ST1
+	LD	A,(FDCRS1)		; Get PCN/ST1
 	LD	C,A
 	RET
 
@@ -1586,10 +1614,10 @@ FLWRES:
 ;------------------------------------------------------------------------
 
 FLO4:
-	LD	A,007H			;Recalibrate command
-	CALL	FL02			;Wait FDC write ready (FLO2)
-	LD	A,(DRVSEL)		;Drive select
-	CALL	FL02			;Wait FDC write ready (FLO2)
+	LD	A,007H			; Recalibrate command
+	CALL	FL02			; Wait FDC write ready (FLO2)
+	LD	A,(DRVSEL)		; Drive select
+	CALL	FL02			; Wait FDC write ready (FLO2)
 	RET
 
 ;------------------------------------------------------------------------
@@ -1598,13 +1626,13 @@ FLO4:
 ;------------------------------------------------------------------------
 
 FLO7:
-	LD	A,00FH			;Seek command
-	CALL	FL02			;Wait FDC write ready (FLO2)
+	LD	A,00FH			; Seek command
+	CALL	FL02			; Wait FDC write ready (FLO2)
 	LD	A,D
-	AND	00000111b			;Mask drive/head bits
-	CALL	FL02			;Wait FDC write ready (FLO2)
-	LD	A,E			;Cylinder number
-	CALL	FL02			;Wait FDC write ready (FLO2)
+	AND	00000111b			; Mask drive/head bits
+	CALL	FL02			; Wait FDC write ready (FLO2)
+	LD	A,E			; Cylinder number
+	CALL	FL02			; Wait FDC write ready (FLO2)
 	RET
 
 ;------------------------------------------------------------------------
@@ -1613,18 +1641,18 @@ FLO7:
 ;------------------------------------------------------------------------
 
 RECALV:
-	CALL	FLO4			;Recalibrate drive
-	CALL	FLWRES			;Wait for result
-	RET	C			;Return if timeout
-	LD	A,(DRVSEL)		;Check result
-	ADD	A,00100000b		;Expected: seek end + drive
-	CP	B			;Match ST0?
-	JP	NZ,RECALV1		;No: error
+	CALL	FLO4			; Recalibrate drive
+	CALL	FLWRES			; Wait for result
+	RET	C			; Return if timeout
+	LD	A,(DRVSEL)		; Check result
+	ADD	A,00100000b		; Expected: seek end + drive
+	CP	B			; Match ST0?
+	JP	NZ,RECALV1		; No: error
 	LD	A,C
-	CP	000H			;Cylinder 0?
+	CP	000H			; Cylinder 0?
 RECALV1:
-	SCF				;Set carry
-	CCF				;Clear carry = success
+	SCF				; Set carry
+	CCF				; Clear carry = success
 	RET
 
 ;------------------------------------------------------------------------
@@ -1633,22 +1661,22 @@ RECALV1:
 ;------------------------------------------------------------------------
 
 FLSEEK:
-	LD	A,(CURCYL)		;Get target cylinder
+	LD	A,(CURCYL)		; Get target cylinder
 	LD	E,A
-	CALL	MKDHB			;Get drive/head byte
+	CALL	MKDHB			; Get drive/head byte
 	LD	D,A
-	CALL	FLO7			;Seek to cylinder
-	CALL	FLWRES			;Wait for result
-	RET	C			;Return if timeout
-	LD	A,(DRVSEL)		;Check result
-	ADD	A,00100000b		;Expected: seek end + drive
-	CP	B			;Match ST0?
-	JP	NZ,SEEKERR		;No: error
-	LD	A,(CURCYL)		;Verify cylinder
-	CP	C			;Match PCN?
+	CALL	FLO7			; Seek to cylinder
+	CALL	FLWRES			; Wait for result
+	RET	C			; Return if timeout
+	LD	A,(DRVSEL)		; Check result
+	ADD	A,00100000b		; Expected: seek end + drive
+	CP	B			; Match ST0?
+	JP	NZ,SEEKERR		; No: error
+	LD	A,(CURCYL)		; Verify cylinder
+	CP	C			; Match PCN?
 SEEKERR:
-	SCF				;Set carry
-	CCF				;Clear carry = success
+	SCF				; Set carry
+	CCF				; Clear carry = success
 	RET
 
 ;------------------------------------------------------------------------
@@ -1657,34 +1685,34 @@ SEEKERR:
 ;------------------------------------------------------------------------
 
 RSULT:
-	LD	HL,FDCRES		;Result buffer
-	LD	B,007H			;Max 7 result bytes
+	LD	HL,FDCRES		; Result buffer
+	LD	B,007H			; Max 7 result bytes
 	LD	A,B
-	LD	(FDCFLG),A		;Mark FDC busy
+	LD	(FDCFLG),A		; Mark FDC busy
 RSULT2:
-	CALL	FLO3			;Read first result byte
-	LD	(HL),A			;Store in buffer
+	CALL	FLO3			; Read first result byte
+	LD	(HL),A			; Store in buffer
 	INC	HL
-	LD	A,(FDCWAI)		;FDC timing delay
+	LD	A,(FDCWAI)		; FDC timing delay
 RSULT3:
 	DEC	A
-	JP	NZ,RSULT3		;Delay loop
+	JP	NZ,RSULT3		; Delay loop
 
-	IN	A,(FDC)			;Check FDC status
-	AND	00010000b			;Non-DMA execution mode?
-	JP	Z,RSULT4		;No: check DMA status
-	DEC	B			;More bytes to read?
-	JP	NZ,RSULT2		;Yes: read next byte
-	LD	A,0FEH			;Error: too many result bytes
-	JP	ERRDSP			;Error handler (ERRDSP)
+	IN	A,(FDC)			; Check FDC status
+	AND	00010000b			; Non-DMA execution mode?
+	JP	Z,RSULT4		; No: check DMA status
+	DEC	B			; More bytes to read?
+	JP	NZ,RSULT2		; Yes: read next byte
+	LD	A,0FEH			; Error: too many result bytes
+	JP	ERRDSP			; Error handler (ERRDSP)
 RSULT4:
-	IN	A,(DMACOM)		;Read DMA status
-	LD	(HL),A			;Store in buffer
+	IN	A,(DMACOM)		; Read DMA status
+	LD	(HL),A			; Store in buffer
 	DEC	B
-	RET	Z			;All bytes read
+	RET	Z			; All bytes read
 	EI
-	LD	A,0FDH			;Error: incomplete result
-	JP	ERRDSP			;Error handler (ERRDSP)
+	LD	A,0FDH			; Error: incomplete result
+	JP	ERRDSP			; Error handler (ERRDSP)
 
 ;------------------------------------------------------------------------
 ; FLPBDY - Floppy interrupt handler body (cf. rob358 FLPINT)
@@ -1695,19 +1723,19 @@ FLPBDY:
 	PUSH	BC
 	PUSH	HL
 	LD	A,002H
-	LD	(FLPFLG),A		;Set floppy interrupt flag
-	LD	A,(FDCTMO)		;FDC timeout counter
+	LD	(FLPFLG),A		; Set floppy interrupt flag
+	LD	A,(FDCTMO)		; FDC timeout counter
 FLPBDY2:
 	DEC	A
-	JP	NZ,FLPBDY2		;Delay loop
+	JP	NZ,FLPBDY2		; Delay loop
 
-	IN	A,(FDC)			;Read FDC status
-	AND	00010000b			;Non-DMA execution mode?
-	JP	NZ,FLPBDY3		;Yes: read full result
-	CALL	FLO6			;Sense interrupt status
-	JP	FLPBDY4			;Exit
+	IN	A,(FDC)			; Read FDC status
+	AND	00010000b			; Non-DMA execution mode?
+	JP	NZ,FLPBDY3		; Yes: read full result
+	CALL	FLO6			; Sense interrupt status
+	JP	FLPBDY4			; Exit
 FLPBDY3:
-	CALL	RSULT			;Read full result
+	CALL	RSULT			; Read full result
 FLPBDY4:
 	POP	HL
 	POP	BC
@@ -1726,13 +1754,13 @@ PAYLOADLEN	EQU	$ - PAYLOAD + 1
 	; DATA AREA - RAM variables used by boot ROM
 	; (cf. rob358.mac EQU block at 0xB000 for RC700/RC703 equivalents)
 	ORG	08000H
-TRK:	DS	03H		;Track count (cf. rob358 TRK at 0xB000)
-ERRSAV:	DS	1		;Error code save (written in errdsp)
-	DS	7		;(unused/padding)
-FDCFLG:	DS	1		;FDC busy flag (0xFF=busy)
-EPTS:	DS	1		;EOT / sectors per track
-TRKSZ:	DS	1		;Track sector size byte
-	DS	2		;(unused/padding)
+TRK:	DS	03H		; Track count (cf. rob358 TRK at 0xB000)
+ERRSAV:	DS	1		; Error code save (written in errdsp)
+	DS	7		; (unused/padding)
+FDCFLG:	DS	1		; FDC busy flag (0xFF=busy)
+EPTS:	DS	1		; EOT / sectors per track
+TRKSZ:	DS	1		; Track sector size byte
+	DS	2		; (unused/padding)
 
 
 ; FDCRES / FDCRS1 / FDCRS6:  NEC UPD765 status registers.
@@ -1740,15 +1768,15 @@ TRKSZ:	DS	1		;Track sector size byte
 ;   FDCRS1 (5 bytes) – ST1- ST5; firmware uses ST1, ST2, ST3 (PCN).
 ;   FDCRS6 (1 byte) – ST6 (record‑length N).
 ;   These are read by READTK, CHKRES, FLWRES, etc.
-FDCRES:	DS	1		;FDC result area: ST0 (7 bytes total)
-FDCRS1:	DS	5		;FDC result: ST1/PCN through C,H,R
-FDCRS6:	DS	1		;FDC result: N (record length)
-	DS	4		;(unused/padding)
-DRVSEL:	DS	1		;Drive select / head byte
-FDCTMO:	DS	1		;FDC timeout counter (init=3)
-FDCWAI:	DS	1		;FDC wait counter (init=4)
-SPSAV:	DS	12H		;Stack pointer save + workspace
-COMBUF:	DS	1		;FDC command buffer (9 bytes)
+FDCRES:	DS	1		; FDC result area: ST0 (7 bytes total)
+FDCRS1:	DS	5		; FDC result: ST1/PCN through C,H,R
+FDCRS6:	DS	1		; FDC result: N (record length)
+	DS	4		; (unused/padding)
+DRVSEL:	DS	1		; Drive select / head byte
+FDCTMO:	DS	1		; FDC timeout counter (init=3)
+FDCWAI:	DS	1		; FDC wait counter (init=4)
+SPSAV:	DS	12H		; Stack pointer save + workspace
+COMBUF:	DS	1		; FDC command buffer (9 bytes)
 	DS	1		;  drive/head byte
 CURCYL:	DS	1		;  current cylinder number
 CURHED:	DS	1		;  current head address
@@ -1756,28 +1784,28 @@ CURREC:	DS	1		;  current record/sector number
 RECLEN:	DS	1		;  record length (N), 0=128, 1=256, 2=512...
 CUREOT:	DS	1		;  current EOT (end of track)
 	DS	2		;  GAP3 + DTL
-SECBYT:	DS	1		;Sector byte count (word)
-	DS	7		;(unused/padding)
-FLPFLG:	DS	1		;Floppy interrupt flag (0=idle, 2=done)
-FLPWAI:	DS	1		;Floppy wait counter (init=4)
-	DS	29		;(unused/padding)
-DSKTYP:	DS	1		;Disk type flag (bit7=mini, bit0=floppy boot)
-MOREFL:	DS	1		;More data to transfer flag
-REPTIM:	DS	1		;Repeat/retry counter (init=5)
-CLRBLK:	DS	1		;Start of 8-byte cleared block
+SECBYT:	DS	1		; Sector byte count (word)
+	DS	7		; (unused/padding)
+FLPFLG:	DS	1		; Floppy interrupt flag (0=idle, 2=done)
+FLPWAI:	DS	1		; Floppy wait counter (init=4)
+	DS	29		; (unused/padding)
+DSKTYP:	DS	1		; Disk type flag (bit7=mini, bit0=floppy boot)
+MOREFL:	DS	1		; More data to transfer flag
+REPTIM:	DS	1		; Repeat/retry counter (init=5)
+CLRBLK:	DS	1		; Start of 8-byte cleared block
 	DS	1
-MEMADR:	DS	1		;Memory address pointer (word, DMA dest)
+MEMADR:	DS	1		; Memory address pointer (word, DMA dest)
 	DS	1
-TRBYT:	DS	1		;Transfer byte count (word)
+TRBYT:	DS	1		; Transfer byte count (word)
 	DS	1
-TRKOVR:	DS	1		;Track overflow count (word)
-TRKOV2:	DS	1		;Track overflow high byte
+TRKOVR:	DS	1		; Track overflow count (word)
+TRKOV2:	DS	1		; Track overflow high byte
 
 
 ; Display buffer plus work area
 
 	ORG	07800H
-DSPSTR:	DS	2000		;Display memory buffer address
+DSPSTR:	DS	2000		; Display memory buffer address
 	DS	1		; [Claude Opus 4.6] Unnamed padding byte between
 				; display buffer and CRT work area. Purpose unknown.
 UNUSED1:	DS	1
