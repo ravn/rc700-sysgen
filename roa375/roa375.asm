@@ -153,7 +153,7 @@ CLRLP:
 
 	EI				;Enable interrupts
 	LD	A,001H
-	OUT	(SW1),A			;ROM disable port
+	OUT	(SW1),A			;Any write to SW1 disables PROM overlay, enabling full RAM at 0000H
 	LD	A,005H
 	LD	(REPTIM),A
 	JP	FLDSK1
@@ -337,19 +337,19 @@ INIT:
 PIOINT:
 	PUSH	AF
 	; -- set interrupt vectors, page 188
-	LD	A,002H			; Keyboard - parallel port A is interrupt 2.
-	OUT	(KEYCON),A
-	LD	A,004H			; ? - parallel port B is interrupt 4.
-	OUT	(PIOBCN),A
+	LD	A,002H			;Interrupt vector 2 (address = base + 002H)
+	OUT	(KEYCON),A		;Port A interrupt vector (keyboard)
+	LD	A,004H			;Interrupt vector 4 (address = base + 004H)
+	OUT	(PIOBCN),A		;Port B interrupt vector
 	; -- set operating modes, page 189
-	LD	A,04FH
-	OUT	(KEYCON),A		; Keyboard - set to input mode (01)
-	LD	A,00FH
-	OUT	(PIOBCN),A		; Port B - set to output mode (00)
-	; -- set interrupt control words to: ENABLE-INT, OR-mode, monitor for low state, no mask, page 190.
-	LD	A,083H
-	OUT	(KEYCON),A		;Enable interrupts
-	OUT	(PIOBCN),A
+	LD	A,01001111b		;01=input mode, 001111=I/O select follows
+	OUT	(KEYCON),A		;Port A: input mode (keyboard reads)
+	LD	A,00001111b		;00=output mode, 001111=I/O select follows
+	OUT	(PIOBCN),A		;Port B: output mode
+	; -- set interrupt control words, page 190
+	LD	A,10000011b		;1=enable int, 0=OR mode, 0=low active, 0=no mask, 011=mask follows
+	OUT	(KEYCON),A		;Port A: enable interrupts, OR-mode, low active
+	OUT	(PIOBCN),A		;Port B: same interrupt control word
 	JP	CTCINT
 
 ; CTC initialization - Counter/Timer Channels
@@ -361,82 +361,77 @@ PIOINT:
 ; https://www.jbox.dk/rc702/hardware/zilog-um0081.pdf page 18-23
 CTCINT:
 	; -- Channel 0 --
-	; -- set interrupt vector to 1
-	LD	A,00001000b
-	OUT	(CTCCH0),A		;CTC control
+	; -- set interrupt vector base (bit0=0 means interrupt vector word)
+	LD	A,00001000b		;Interrupt vector 8 (bit0=0: vector word)
+	OUT	(CTCCH0),A		;Ch0 sets base vector for all 4 channels (8,A,C,E)
 	POP	AF
-	; -- 47H = 01000111b = counter mode, falling edge, time constant follows, reset
-	LD	A,046H
-	OR	01000001b
-	OUT	(CTCCH0),A
-	LD	A,020H			;
-	OUT	(CTCCH0),A
+	; -- 47H = counter mode, falling edge, time constant follows, reset
+	LD	A,01000110b
+	OR	01000001b		;Result: 01000111b - counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH0),A		;Ch0: configure as counter with reset
+	LD	A,020H			;Time constant = 32
+	OUT	(CTCCH0),A		;Ch0: load time constant (counts 32 edges before interrupt)
 
 	; -- Channel 1 --
-	; -- 47H = 01000111b = counter mode, falling edge, time constant follows, reset
-	LD	A,046H
-	OR	01000001b
-	OUT	(CTCCH1),A		;Channel 1
-	; -- time constant = 20H
-	LD	A,020H
-	OUT	(CTCCH1),A
+	LD	A,01000110b
+	OR	01000001b		;Result: 01000111b - same config as Ch0
+	OUT	(CTCCH1),A		;Ch1: configure as counter with reset
+	LD	A,020H			;Time constant = 32
+	OUT	(CTCCH1),A		;Ch1: load time constant
 
-	; -- Channel 2 --
-	; -- D7H = 11010111H = interrupt enable, counter mode, 16x scale, falling edge, time constant, reset
-	LD	A,0D7H
-	OUT	(CTCCH2),A		;Channel 2 (Display)
-	; -- time constant = 1
-	LD	A,001H
-	OUT	(CTCCH2),A
+	; -- Channel 2 (Display interrupt) --
+	LD	A,11010111b		;Int enable, counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH2),A		;Ch2: configure for display interrupt
+	LD	A,001H			;Time constant = 1 (interrupt on every edge)
+	OUT	(CTCCH2),A		;Ch2: load time constant
 
-	; -- Channel 3 --
-	; -- D7H = 11010111H = interrupt enable, counter mode, 16x scale, falling edge, time constant, reset
-	LD	A,0D7H
-	OUT	(CTCCH3),A		;Channel 3 (Floppy)
-	; -- time constant = 1
-	LD	A,001H
-	OUT	(CTCCH3),A
+	; -- Channel 3 (Floppy interrupt) --
+	LD	A,11010111b		;Int enable, counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH3),A		;Ch3: configure for floppy interrupt
+	LD	A,001H			;Time constant = 1 (interrupt on every edge)
+	OUT	(CTCCH3),A		;Ch3: load time constant
 	JP	DMAINT
 
 ; DMA initialization
 DMAINT:
-	LD	A,020H
-	OUT	(DMACOM),A		;DMA command
+	LD	A,00100000b		;Fixed priority, normal timing, late write, DREQ high, DACK low
+	OUT	(DMACOM),A		;Set DMA command register
 
-	LD	A,0C0H
-	OUT	(DMAMOD),A		;Mode register
-	LD	A,000H
-	OUT	(SMSK),A		;Mask register
+	LD	A,11000000b		;Cascade mode, channel 0
+	OUT	(DMAMOD),A		;Ch0: cascade mode (no DMA, passes through to slave)
+	LD	A,000H			;Channel 0, bit2=0 -> unmask (enable)
+	OUT	(SMSK),A		;Unmask (enable) DMA channel 0
 
-	LD	A,04AH
-	OUT	(DMAMOD),A
-	LD	A,04BH
-	OUT	(DMAMOD),A
+	LD	A,01001010b		;Demand mode, addr increment, no auto-init, write, channel 2
+	OUT	(DMAMOD),A		;Ch2: demand write mode (CRT display)
+	LD	A,01001011b		;Demand mode, addr increment, no auto-init, write, channel 3
+	OUT	(DMAMOD),A		;Ch3: demand write mode (CRT display)
 	JP	CRTINT
 
 ; CRT Controller (8275) initialization
 ; https://www.jbox.dk/rc702/hardware/intel-8275.pdf - page 8-238 -
 CRTINT:
-	LD	A,000H
-	OUT	(CRTCOM),A	;Reset CRT
+	LD	A,000H			;Reset command (bits 7-5 = 000)
+	OUT	(CRTCOM),A		;Reset CRT controller, expect 4 parameter bytes
 
-	LD	A,04FH		;not spaced rows, 80 chars/row
-	OUT	(CRTDAT),A
-	LD	A,10011000b	;vertical retrace count: 2, 25 rows
-	OUT	(CRTDAT),A
-	LD	A,9AH		;underline on line 9, chars 10 lines tall.
-	OUT	(CRTDAT),A
-	LD	A,05DH		;non-offset count, field attributes non-transparent,
-	OUT	(CRTDAT),A	;blinking underline cursor, 28 chars per horizontal retrace
+	; -- 8275 screen format parameters (4 bytes after reset command)
+	LD	A,04FH			;Param 1: S=0 (not spaced), H=79 -> 80 chars/row
+	OUT	(CRTDAT),A		;Screen format: 80 characters per row
+	LD	A,10011000b		;Param 2: V=2 (vretrace count), R=24 -> 25 rows/frame
+	OUT	(CRTDAT),A		;Vertical retrace: 2 scan lines, 25 rows
+	LD	A,9AH			;Param 3: L=9 (underline position), U=10 (lines/char row)
+	OUT	(CRTDAT),A		;Underline on scan line 9, 10 scan lines per character
+	LD	A,05DH			;Param 4: F=0 (non-offset), M=1 (transparent), C=01 (blink underline), Z=28
+	OUT	(CRTDAT),A		;Field attr non-transparent, blinking underline cursor, 28 hretrace chars
 
-	LD	A,10000000b
-	OUT	(CRTCOM),A	; Set cursor at 0,0
+	LD	A,10000000b		;Load cursor command (bits 7-5 = 100)
+	OUT	(CRTCOM),A		;Load cursor position, expect 2 data bytes
 	XOR	A			;A := 0
-	OUT	(CRTDAT),A
-	OUT	(CRTDAT),A
+	OUT	(CRTDAT),A		;Cursor column = 0
+	OUT	(CRTDAT),A		;Cursor row = 0
 
-	LD	A,11100000b
-	OUT	(CRTCOM),A	;Preset counters, display is now ready
+	LD	A,11100000b		;Preset counters command (bits 7-5 = 111)
+	OUT	(CRTCOM),A		;Preset counters, CRT ready (but display not started)
 	; -- note display is ready but not actually started.  Happens at end of initialization.
 	JP	FDCINT
 
@@ -469,7 +464,7 @@ FDCWAIT:
 	JP	NZ,FDCWAIT
 
 	LD	A,(HL)
-	OUT	(FDD),A		;FDC data
+	OUT	(FDD),A		;Write SPECIFY command byte to FDC data register
 	DEC	B
 	JP	NZ,FDCWAITNEXT
 	JP	CLRSCR
@@ -531,8 +526,8 @@ DISPMG:
 	LD	(UNUSED7),A
 	LD	(UNUSED12),A
 
-	LD	A,00100011b
-	OUT	(CRTCOM),A		;Start display (0 clocks between requests, 8 dma cycles per burst)
+	LD	A,00100011b		;Start display cmd (001), B=0 (0 clocks between DMA), E=3 (8 DMA cycles/burst)
+	OUT	(CRTCOM),A		;Start display: burst mode with 8 DMA cycles per burst
 	RET
 
 ;------------------------------------------------------------------------
@@ -600,8 +595,8 @@ FLDSK1:
 
 FLDSK3:
 	CALL	BOOT
-	LD	A,001H
-	OUT	(BEEPER),A		;Beeper
+	LD	A,001H			;Any non-zero value triggers beep
+	OUT	(BEEPER),A		;Sound beeper to indicate boot retry
 BOOT4:
 	LD	HL,(TRBYT)
 	CALL	RDTRK0
@@ -841,18 +836,18 @@ DISINT:
 	; -- FIXME - get claude to document exactly how this works, and what the calculations are doing.  It looks like it is calculating the address of the current scroll position in the display buffer, and outputting that to the CRT controller's DMA address registers (WCREG2 for channel 2, CH2ADR), and also setting up the full display buffer address and size for channel 3 (CH3ADR and WCREG3).  This allows the CRT controller to use DMA to fetch the display data from memory for the current screen refresh, while the CPU can continue to update the display buffer in memory without interfering with the CRT's access.  The calculations involving the scroll offset and display buffer address are a bit complex and would benefit from detailed documentation to understand how the scrolling and display memory layout works.
 	; -- set up DMA for screen transfer to CRT controller
 	; https://www.jbox.dk/rc702/hardware/intel-8237.pdf page 6-96
-	LD	A,00000110b
-	OUT	(SMSK),A
-	LD	A,00000111b
-	OUT	(SMSK),A
-	OUT	(CLBP),A
+	LD	A,00000110b		;Channel 2, bit2=1 -> mask (disable)
+	OUT	(SMSK),A		;Mask (disable) DMA channel 2 during setup
+	LD	A,00000111b		;Channel 3, bit2=1 -> mask (disable)
+	OUT	(SMSK),A		;Mask (disable) DMA channel 3 during setup
+	OUT	(CLBP),A		;Clear byte pointer flip-flop (value in A is ignored)
 	LD	HL,(SCROLLOFSET)	; Get scroll offset into display buffer
 	LD	DE,DSPSTR
 	ADD	HL,DE
 	LD	A,L
-	OUT	(CH2ADR),A
+	OUT	(CH2ADR),A		;Ch2 start address low byte (scroll position in display buffer)
 	LD	A,H
-	OUT	(CH2ADR),A
+	OUT	(CH2ADR),A		;Ch2 start address high byte
 	LD	A,L
 	CPL
 	LD	L,A
@@ -864,22 +859,22 @@ DISINT:
 	ADD	HL,DE
 	LD	DE,DSPSTR
 	ADD	HL,DE		; Do some calculations relative to display memory
-	LD	A,L		; and output the address to WCREG2 (check documentation)
-	OUT	(WCREG2),A
+	LD	A,L
+	OUT	(WCREG2),A		;Ch2 word count low (remaining bytes from scroll pos to end)
 	LD	A,H
-	OUT	(WCREG2),A
+	OUT	(WCREG2),A		;Ch2 word count high
 
 	LD	HL,DSPSTR
 	LD	A,L
-	OUT	(CH3ADR),A	; output DSPSTR to CH3ADR
+	OUT	(CH3ADR),A		;Ch3 start address low (display buffer base)
 	LD	A,H
-	OUT	(CH3ADR),A
+	OUT	(CH3ADR),A		;Ch3 start address high
 
-	LD	HL,2000-1	; output number of characters to WCREG3
+	LD	HL,2000-1		;Full display buffer size - 1
 	LD	A,L
-	OUT	(WCREG3),A
+	OUT	(WCREG3),A		;Ch3 word count low (full buffer transfer)
 	LD	A,H
-	OUT	(WCREG3),A
+	OUT	(WCREG3),A		;Ch3 word count high
 
 	; [Claude Opus 4.6] SMSK register format: bits 1-0 = channel, bit 2 = mask/unmask.
 	; Writing 002H = channel 2, bit2=0 -> unmask (enable) DMA channel 2.
@@ -896,10 +891,10 @@ DISINT:
 	POP	DE
 	POP	HL
 
-	LD	A,0D7H
-	OUT	(CTCCH2),A
-	LD	A,001H
-	OUT	(CTCCH2),A
+	LD	A,11010111b		;Int enable, counter, prescale=16, falling, TC follows, reset
+	OUT	(CTCCH2),A		;Re-arm CTC channel 2 for next display interrupt
+	LD	A,001H			;Time constant = 1
+	OUT	(CTCCH2),A		;Ch2: interrupt on next edge
 
 	POP	AF
 	RET
@@ -933,7 +928,7 @@ ERRDSP:
 	LD	A,(DSKTYP)
 	AND	00000001b
 	JP	NZ,RETSP		;Return to caller via SP restore
-	OUT	(BIB),A			;Sound beeper
+	OUT	(BIB),A			;A=0 after AND; any write to BIB sounds beeper on error
 	CALL	ERRCPY			;Copy error text to display
 ERRHLT:
 	OR	A
@@ -1192,7 +1187,7 @@ FMTLK3:
 	LD	A,(DE)
 	LD	(HL),A			;GAP3 = table[1]
 	INC	HL
-	LD	A,080H
+	LD	A,10000000b
 	LD	(HL),A			;DTL = 80H
 	RET
 
@@ -1222,7 +1217,7 @@ CALCT2:	LD	(SECBYT),HL		;Save bytes per sector
 	AND	10000000b
 	JP	Z,CALCT3		;Maxi: use calculated count
 	LD	A,(CURHED)		;Mini: check head
-	XOR	001H
+	XOR	00000001b
 	JP	NZ,CALCT3		;Head 0: use calculated count
 	LD	L,00AH			;Mini head 1: 10 sectors
 CALCT3:	LD	A,L			;Multiply sectors * bytes/sector
@@ -1350,7 +1345,7 @@ FLRTRK:
 	LD	A,(DISKBITS)		;Get status flags
 	AND	00000001b			;Check side bit
 	JP	Z,FLRTRK2		;Side 0: skip MFM flag
-	LD	A,040H			;Side 1: set MFM flag
+	LD	A,01000000b		;Side 1: set MFM flag
 FLRTRK2:
 	LD	B,A
 	POP	AF
@@ -1383,23 +1378,23 @@ FLRTRK3:
 ;------------------------------------------------------------------------
 
 DMAWRT:
-	LD	A,005H			;Mask channel 1
+	LD	A,005H			;Channel 1, bit2=1 -> mask (disable)
 	DI
-	OUT	(SMSK),A		;Set channel mask
-	LD	A,049H			;Mode: write, channel 1, auto-init
+	OUT	(SMSK),A		;Mask (disable) DMA channel 1 during setup
+	LD	A,01001001b		;Demand mode, addr increment, auto-init, write, channel 1
 DMAWRT1:
-	OUT	(DMAMOD),A		;Set DMA mode
-	OUT	(CLBP),A		;Clear byte pointer flip-flop
+	OUT	(DMAMOD),A		;Set DMA mode for channel 1 (read or write)
+	OUT	(CLBP),A		;Clear byte pointer flip-flop (value in A is ignored)
 	LD	A,L
-	OUT	(CH1ADR),A		;Set address low byte
+	OUT	(CH1ADR),A		;Ch1 address low byte (memory buffer start)
 	LD	A,H
-	OUT	(CH1ADR),A		;Set address high byte
+	OUT	(CH1ADR),A		;Ch1 address high byte
 	LD	A,C
-	OUT	(WCREG1),A		;Set word count low
+	OUT	(WCREG1),A		;Ch1 word count low (transfer size - 1)
 	LD	A,B
-	OUT	(WCREG1),A		;Set word count high
-	LD	A,001H
-	OUT	(SMSK),A		;Enable DMA channel 1
+	OUT	(WCREG1),A		;Ch1 word count high
+	LD	A,001H			;Channel 1, bit2=0 -> unmask (enable)
+	OUT	(SMSK),A		;Unmask (enable) DMA channel 1, transfer begins
 	EI
 	RET
 
@@ -1409,10 +1404,10 @@ DMAWRT1:
 ;------------------------------------------------------------------------
 
 STPDMA:
-	LD	A,005H			;Mask channel 1
+	LD	A,005H			;Channel 1, bit2=1 -> mask (disable)
 	DI
-	OUT	(SMSK),A		;Set channel mask
-	LD	A,045H			;Mode: read, channel 1, auto-init
+	OUT	(SMSK),A		;Mask (disable) DMA channel 1 during setup
+	LD	A,01000101b		;Demand mode, addr increment, auto-init, read, channel 1
 	JP	DMAWRT1			;Share DMA setup code
 
 ;------------------------------------------------------------------------
@@ -1435,7 +1430,7 @@ FL02_1:
 	JP	NZ,FL02_1		;No: keep waiting
 	POP	BC
 	POP	AF
-	OUT	(FDD),A			;Write data byte to FDC
+	OUT	(FDD),A			;Write command/parameter byte to FDC data register
 	RET
 
 ;------------------------------------------------------------------------
@@ -1492,7 +1487,7 @@ FLO6:
 	CALL	FLO3			;Read ST0
 	LD	(FDCRES),A		;Save ST0
 	AND	11000000b			;Check status bits
-	CP	080H			;Invalid command?
+	CP	10000000b		;Invalid command?
 	JP	Z,FL06_2		;Yes: skip reading PCN
 	CALL	FLO3			;Read present cylinder number
 	LD	(FDCRS1),A		;Save PCN
@@ -1622,7 +1617,7 @@ RECALV:
 	CALL	FLWRES			;Wait for result
 	RET	C			;Return if timeout
 	LD	A,(DRVSEL)		;Check result
-	ADD	A,020H			;Expected: seek end + drive
+	ADD	A,00100000b		;Expected: seek end + drive
 	CP	B			;Match ST0?
 	JP	NZ,RECALV1		;No: error
 	LD	A,C
@@ -1646,7 +1641,7 @@ FLSEEK:
 	CALL	FLWRES			;Wait for result
 	RET	C			;Return if timeout
 	LD	A,(DRVSEL)		;Check result
-	ADD	A,020H			;Expected: seek end + drive
+	ADD	A,00100000b		;Expected: seek end + drive
 	CP	B			;Match ST0?
 	JP	NZ,SEEKERR		;No: error
 	LD	A,(CURCYL)		;Verify cylinder
