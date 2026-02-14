@@ -563,7 +563,7 @@ BOOT:
 	CALL	DSKAUTO
 	JP	C,BOOT1
 
-	LD	HL,DISKBITS		;Status flag, bit 7 = maxi disk, bit 1 now set.
+	LD	HL,DISKBITS		;Status flag, bit 7 = mini disk, bit 1 now set.
 	LD	A,002H
 	OR	(HL)
 	LD	(HL),A
@@ -721,13 +721,13 @@ BOOTIFOK2:
 ; Typical uPD765 systems use GAP3 values of 27-42 for 512-byte sectors;
 ; the value 1BH=27 here is at the low end of that range.
 ;
-; MAXIFMT (8" / maxi, selected when DISKBITS bit7=0, max cyl=76):
+; MAXIFMT (8" / maxi, selected when DISKBITS bit7=0=maxi, max cyl=76):
 ;   N=0 (128B): side0=(1AH=26, 07H)  side1=(34H=52, 07H)
 ;   N=1 (256B): side0=(0FH=15, 0EH)  side1=(1AH=26, 0EH)
 ;   N=2 (512B): side0=(08H=8,  1BH)  side1=(0FH=15, 1BH)
 ;   N=3 (unused):                     (00H, 00H, 08H, 35H)
 ;
-; MINIFMT (5.25" / mini, selected when DISKBITS bit7=1, max cyl=35):
+; MINIFMT (5.25" / mini, selected when DISKBITS bit7=1=mini, max cyl=35):
 ;   N=0 (128B): side0=(10H=16, 07H)  side1=(20H=32, 07H)
 ;   N=1 (256B): side0=(09H=9,  0EH)  side1=(10H=16, 0EH)
 ;   N=2 (512B): side0=(05H=5,  1BH)  side1=(09H=9,  1BH)
@@ -771,7 +771,7 @@ INTVEC:
 	DW	DUMINT		; +28: Dummy
 	DW	DUMINT		; +30: Dummy
 ; [Claude Opus 4.6] DISKBITS bitfield definition:
-;   bit 7:   Diskette size (0=mini/5.25", 1=maxi/8"). Set from SW1 dip switch.
+;   bit 7:   Diskette size (1=mini/5.25", 0=maxi/8"). Set from SW1 dip switch.
 ;   bit 4-2: Density/record-length (N value shifted left 2). Set by DSKAUTO/DSKDET.
 ;            Extracted by SETFMT: AND 00011100b, then RRA twice -> N in bits 2-0.
 ;   bit 1:   Dual-sided flag. Set after successful DSKAUTO on head 1.
@@ -838,6 +838,7 @@ DISINT:
 	PUSH	HL
 	PUSH	DE
 	PUSH	BC
+	; -- FIXME - get claude to document exactly how this works, and what the calculations are doing.  It looks like it is calculating the address of the current scroll position in the display buffer, and outputting that to the CRT controller's DMA address registers (WCREG2 for channel 2, CH2ADR), and also setting up the full display buffer address and size for channel 3 (CH3ADR and WCREG3).  This allows the CRT controller to use DMA to fetch the display data from memory for the current screen refresh, while the CPU can continue to update the display buffer in memory without interfering with the CRT's access.  The calculations involving the scroll offset and display buffer address are a bit complex and would benefit from detailed documentation to understand how the scrolling and display memory layout works.
 	; -- set up DMA for screen transfer to CRT controller
 	; https://www.jbox.dk/rc702/hardware/intel-8237.pdf page 6-96
 	LD	A,00000110b
@@ -1164,19 +1165,13 @@ FMTLKP:
 	RLA
 	LD	E,A
 	LD	D,000H			;and put in DE.
-	; [Claude Opus 4.6] POTENTIAL BUG: The table selection appears inverted.
-	; bit7=0 (mini) selects MAXIFMT (8" sector counts: 26,15,8) with cyl=76,
-	; bit7=1 (maxi) selects MINIFMT (5.25" sector counts: 16,9,5) with cyl=35.
-	; Both the table data and the max cylinder values are swapped relative to
-	; what the bit7 flag indicates.  This may be a bug in the original ROM,
-	; or the SW1 bit 7 polarity may differ from the hardware documentation.
 	LD	HL,MAXIFMT		;Default: 8" format table
 	LD	A,(DISKBITS)
-	AND	10000000b			;Check mini/maxi bit (0=mini, 1=maxi)
+	AND	10000000b		;Check mini/maxi bit (0=maxi, 1=mini)
 	LD	A,04CH			;Max cylinder = 76
-	JP	Z,FMTLK2		;bit7=0: use MAXIFMT, cyl=76
+	JP	Z,FMTLK2		;bit7=0 (maxi): use MAXIFMT, cyl=76
 	LD	A,023H			;Max cylinder = 35
-	LD	HL,MINIFMT		;bit7=1: use MINIFMT, cyl=35
+	LD	HL,MINIFMT		;bit7=1 (mini): use MINIFMT, cyl=35
 FMTLK2:
 	LD	(EPTS),A		;Store sectors per track
 	ADD	HL,DE			;Index into table

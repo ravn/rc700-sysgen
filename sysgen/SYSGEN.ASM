@@ -379,7 +379,7 @@ rc1:
 ;	LXI	H,TRAN
 
 	in	14h
-	ani	80h		; maxi?
+	ani	80h		; maxi=0; mini=1?
 	lxi	h, minitrans
 	jnz	rc2
 	lxi	h, maxitrans
