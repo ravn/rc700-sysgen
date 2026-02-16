@@ -15,14 +15,14 @@
 .Z80
 
 ;========================================================================
-; HARDWARE CONSTANT DEFINITIONS - see https://www.jbox.dk/rc702/manuals.shtm for PDF's
+; HARDWARE CONSTANT DEFINITIONS - see https://www.jbox.dk/rc702/manuals.shtm for PDFs
 ; (cf. rob358.mac for RC700/RC703 equivalents)
 ;========================================================================
 
-; System ports
-SW1	EQU	014H		; Mini/maxi switch (read), ROM disable (write)
+; System ports (see hardware manual page 15)
+SW1	EQU	014H		; Mini/maxi switch (read), mini floppy motor (write)
+RAMEN	EQU	018H		; PROM disable: write disables PROM0+PROM1, enables RAM
 BIB	EQU	01CH		; Beeper/sound port
-BEEPER	EQU	018H		; RC702 beeper port (additional)
 
 ; Z80 PIO ports -
 KEYDAT	EQU	010H		; PIO Port A data (keyboard)
@@ -78,6 +78,14 @@ FDD	EQU	005H		; FDC data register
 ATTOFF	EQU	007H		; File attribute offset from filename start
 SECSZ0	EQU	080H		; Base sector size in bytes (N=0, 128 bytes)
 
+; Memory layout constants
+FLOPPYDATA EQU	00000H		; Boot sector load address in RAM
+COMALBOOT EQU	01000H		; ID-COMAL bootstrap entry point
+PROM1 EQU	02000H		; PROM1 address: optional line program ROM
+DIROFF	EQU	0B60H		; Directory area offset from boot base
+DIREND	EQU	0D00H		; Directory end boundary (high byte)
+DSPCHRS	EQU	00780H		; Visible display characters (80*24=1920)
+
 
 ;========================================================================
 ; BOOT CODE - Executes from ROM at 0x0000-0x0066, relocates the payload
@@ -88,7 +96,7 @@ SECSZ0	EQU	080H		; Base sector size in bytes (N=0, 128 bytes)
 
 BEGIN:
 	DI				; Disable interrupts
-	LD	SP,0BFFFH		; Set stack pointer
+	LD	SP,TOPSTACK		; Set stack pointer
 	LD	HL,MOVADR		; Point to relocatable code start
 
 ; Scan for actual code start (skip zeros)
@@ -153,7 +161,7 @@ CLRLP:
 
 	EI				; Enable interrupts
 	LD	A,001H
-	OUT	(SW1),A			; Any write to SW1 disables PROM overlay, enabling full RAM at 0000H
+	OUT	(SW1),A			; Start mini floppy motor (A=1, cf. rob358 FDSTAR)
 	LD	A,005H
 	LD	(REPTIM),A
 	JP	FLDSK1
@@ -517,7 +525,7 @@ DISPMG:
 	LD	(UNUSED8),HL
 	LD	(SCROLLOFSET),HL
 
-	LD	HL,00780H
+	LD	HL,DSPCHRS
 	LD	(UNUSED6),HL
 
 	LD	A,000H
@@ -534,18 +542,43 @@ DISPMG:
 ; MAIN BOOT SEQUENCE - Try hard disk, then floppy
 ;------------------------------------------------------------------------
 ;
-; [Claude Opus 4.6] Boot flow overview:
-;   FLDSK1: Entry from PREINIT. Sense drive, recalibrate, call BOOT.
-;   BOOT:   Try DSKAUTO on head 1, then head 0. On success, return to FLDSK3.
-;   FLDSK3: Beep, read track data in BOOT4 loop until cylinder advances.
-;   BOOT2:  Set DSKTYP=1 (floppy), call BOOT7 to verify catalogue, then FLBOOT.
-;   BOOT7:  Check for "RC700" signature (A=0AH) at address 0, then "RC702"
-;           (A=0BH). If RC700 found -> BOOT8 (search directory for SYSM/SYSC).
-;           If RC702 found -> BOOT9 (jump via vector at address 0).
-;           Neither -> NOKATALOGERR.
-;   BOOTIFOK: Fallback/error path. Checks for "RC702" at 0x2000 (hard disk
-;           boot area or line program). If found, jumps via vector there.
-;           Otherwise -> NODISKLINEPROGERR.
+; [Claude Opus 4.6] RC702 PROM0 (ROA375) boot sequence:
+;
+; Phase 1 — ROM execution (0x0000-0x0066):
+;   BEGIN:    Disable interrupts, set stack to TOPSTACK (0xBFFF).
+;             Copy payload from ROM to RAM at 0x7000, jump to INIT.
+;   INIT:     Set up Z80 interrupt mode 2 with vector table at INTVEC.
+;             Initialize PIO (keyboard), CTC (timers), DMA, CRT (display).
+;             Clear screen, display " RC700" identification.
+;   PREINIT:  Read SW1 port to detect mini/maxi floppy.  Zero work area.
+;             Start mini floppy motor via OUT (SW1).  Jump to FLDSK1.
+;
+; Phase 2 — Floppy boot (from RAM at 0x7000+):
+;   FLDSK1:   Sense drive status, recalibrate.  On failure -> CHECKPROM1.
+;   FLDSK3:   Call BOOT to auto-detect density on both heads.
+;             Disable PROMs via OUT (RAMEN) — full RAM now available.
+;   BOOT4:    Read track 0 data.  Loop until cylinder advances past 0.
+;   BOOT2:    Set DSKTYP=1 (floppy), call BOOT7 to verify catalogue.
+;             Then jump to FLBOOT for final boot.
+;
+; Phase 3 — Catalogue verification (BOOT7):
+;   Check for "RC700" signature (A=0AH) at address 0x0000.
+;     Found -> BOOT8: search 32-byte directory entries at DIROFF for
+;              SYSM and SYSC files.  Error if not found -> NOSYSTEMFILESERR.
+;   Check for "RC702" signature (A=0BH) at address 0x0000.
+;     Found -> BOOT9: jump via vector at address 0 (new-style catalogue).
+;   Neither found -> NOKATALOGERR.
+;
+; Phase 4 — FLBOOT (final floppy boot):
+;   Combine mini/maxi bit with DSKTYP.  Auto-detect density again.
+;   Read track 0 side 0 to address 0x0000.
+;   Jump to COMALBOOT (0x1000) for ID-COMAL bootstrap.
+;
+; Fallback — CHECKPROM1:
+;   Reached when all disk boot attempts fail.  Checks if optional PROM1
+;   is installed at 0x2000 with "RC702" signature.  If present, jumps
+;   via vector at 0x2000 (line program takes over).
+;   If absent -> NODISKLINEPROGERR (system halts with error message).
 
 BOOT:
 	XOR	A			; A := 0
@@ -570,7 +603,7 @@ BOOT1:
 	RET	NC
 
 	LD	A,0FBH
-	JP	BOOTIFOK
+	JP	CHECKPROM1
 
 ;------------------------------------------------------------------------
 ; Floppy disk boot sequence
@@ -587,16 +620,16 @@ FLDSK1:
 	LD	A,(DRVSEL)
 	ADD	A,00100000b
 	CP	C
-	JP	NZ,BOOTIFOK
+	JP	NZ,CHECKPROM1
 	CALL	RECALV			; Recalibrate and verify
-	JP	C,BOOTIFOK
+	JP	C,CHECKPROM1
 	JP	Z,FLDSK3
-	JP	BOOTIFOK
+	JP	CHECKPROM1
 
 FLDSK3:
 	CALL	BOOT
-	LD	A,001H			; Any non-zero value triggers beep
-	OUT	(BEEPER),A		; Sound beeper to indicate boot retry
+	LD	A,001H			; Any value disables PROMs
+	OUT	(RAMEN),A		; Disable PROM0+PROM1, enable full RAM
 BOOT4:
 	LD	HL,(TRBYT)
 	CALL	RDTRK0
@@ -619,7 +652,7 @@ BOOT2:
 
 BOOT7:
 	LD	A,00AH
-	LD	HL,00000H
+	LD	HL,FLOPPYDATA
 	CALL	ISRC70X
 	JP	Z,BOOT8
 	LD	A,00BH
@@ -629,12 +662,12 @@ BOOT7:
 
 ; Now look for system files
 BOOT9:
-	LD	HL,(00000H)
+	LD	HL,(FLOPPYDATA)
 	JP	(HL)
 
 BOOT8:
-	LD	HL, 0
-	LD	DE, 0B60H
+	LD	HL,FLOPPYDATA
+	LD	DE,DIROFF
 	ADD	HL, DE
 CHKSYSMC:
 ; Looks like this examines 32 byte directory entries
@@ -646,7 +679,7 @@ CHKSYSMC:
 
 	LD	DE, 20H
 	ADD	HL, DE
-	LD	BC, 0D00H
+	LD	BC,DIREND
 	LD	A,B
 	CP	H
 	JP	C,NOSYSTEMFILESERR
@@ -679,24 +712,26 @@ ISRC70X2:
 	CALL	COMSTR
 	RET
 
-; [Claude Opus 4.6] 0x2000 is where the hard disk boot loader or "line program"
-; (linjeprogram) is expected to reside after being loaded into memory.
-; BOOTIFOK checks for an "RC702" signature at 0x2002 (skipping a 2-byte
-; jump vector), and if found, jumps via the vector at 0x2000.
-; "Lineprog" (linjeprogram) was a Danish term for the communication/network
-; program used on RC700-series machines.
-L02000H	EQU	02000H
-
-BOOTIFOK:
+; [Claude Opus 4.6] PROM0 at 0x0000 is this ROA375 autoload PROM.  PROM1
+; at 0x2000 is an optional second ROM (see hardware manual page 17).
+; When installed, PROM1 contains a "lineprog" (linjeprogram) — a Danish
+; term for the communication/network program used on RC700-series machines.
+;
+; CHECKPROM1 is the last-resort fallback when all disk boot attempts fail.
+; It checks for an "RC702" signature at 0x2002 (skipping a 2-byte jump
+; vector).  If found, PROM1 is present and the system jumps via the vector
+; at 0x2000, handing control to the line program.  If not found, no boot
+; medium exists and the system halts with "NO DISKETTE NOR LINEPROG".
+CHECKPROM1:
 	LD	A, 0BH
-	LD	HL, L02000H
+	LD	HL,PROM1
 	CALL	ISRC70X			; Check for "RC702" at 0x2002
-	JP	Z, BOOTIFOK2
+	JP	Z, PROM1PRESENT
 	JP	NODISKLINEPROGERR
 
-BOOTIFOK2:
-	LD	HL,(L02000H)		; Load jump vector from 0x2000
-	JP	(HL)			; Jump to boot loader / line program
+PROM1PRESENT:
+	LD	HL,(PROM1)		; Load jump vector from PROM1
+	JP	(HL)			; Jump to line program
 
 ;------------------------------------------------------------------------
 ; Disk format/geometry tables
@@ -1002,7 +1037,7 @@ FLBOOT:
 	LD	(HL),A
 	DEC	(HL)
 	CALL	DSKAUTO			; Auto-detect disk density
-	LD	HL,00000H
+	LD	HL,FLOPPYDATA
 	LD	(MEMADR),HL		; Memory pointer := 0
 	LD	HL,INTVEC
 	CALL	RDTRK0			; Read track 0 side 0
@@ -1013,14 +1048,14 @@ FLBOOT:
 	; reading track 0 to memory at 0x0000, the ID-COMAL bootstrap code
 	; resides at offset 0x1000 and takes over from here.  This path is only
 	; reached for non-CP/M (COMAL) diskettes; CP/M boots via BOOT7/BOOT8.
-	JP	01000H			; Jump to ID-COMAL boot address
+	JP	COMALBOOT		; Jump to ID-COMAL boot address
 
 RDTRK0:
 	LD	A,000H
 	LD	(TRKOVR),HL		; Clear track overflow
 RDTRK1:
 	CALL	FLSEEK			; Seek to track
-	JP	C,BOOTIFOK 		; Error: display error
+	JP	C,CHECKPROM1 		; Error: display error
 	JP	Z,RDTRK2		; Seek OK: read track
 	LD	A,006H			; Error code
 	JP	ERRDSP
@@ -1490,7 +1525,7 @@ FDCTOUT:
 	INC	C			; Increment group counter
 	RET	NZ			; Return if not fully timed out
 	EI				; Full timeout: enable interrupts
-	JP	BOOTIFOK			; Jump to error handler
+	JP	CHECKPROM1			; Jump to error handler
 
 ;------------------------------------------------------------------------
 ; Sense drive status (FDC command 04H)

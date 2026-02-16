@@ -53,13 +53,14 @@ This document provides comprehensive technical information about the RC702 hardw
 
 ### ROM Mapping
 
-The ROA375 boot ROM is a 2KB PROM that is initially mapped into the Z80's address space starting at 0x0000. After the boot sequence initializes, the ROM can be disabled by writing to port 0x14, allowing the full 64KB RAM to be linearly accessible.
+The RC702 supports two PROMs (see hardware manual page 17): PROM0 at 0x0000 (ROA375 autoload PROM) and an optional PROM1 at 0x2000 (line program ROM). Both are mapped into the Z80's address space at power-on. Writing any value to port 0x18 (RAMEN) disables both PROM mappings, allowing the full 64KB RAM to be linearly accessible. It is not known whether the hardware enforces the PROM size to be exactly 2KB.
 
 ### Memory Layout During Boot
 
 ```
-0x0000-0x07FF   2KB Boot ROM (ROA375) - disabled after boot
-0x0000-0xFFFF   64KB RAM (accessible after ROM disabled)
+0x0000-0x07FF   PROM0: 2KB Boot ROM (ROA375) - disabled by OUT to RAMEN
+0x2000-0x27FF   PROM1: Optional line program ROM - disabled by OUT to RAMEN
+0x0000-0xFFFF   64KB RAM (fully accessible after PROMs disabled)
 0x7800-0x7FFF   CRT display buffer (2K, 80x24 characters)
 0xA000-0xBFFF   Bootstrap code copied from ROM
 0xB000-0xB0FF   Working area for boot process
@@ -179,10 +180,10 @@ The ROA375 boot ROM is a 2KB PROM that is initially mapped into the Z80's addres
 ### System Control Ports
 
 ```
-0x14  SW1/RAMEN  - ROM disable / Mini/Maxi switch
-0x18  BEEPER     - Beeper/speaker output (any output triggers beep)
-0x19  RAMEN      - RAM enable port
-0x1C  BIB        - Speaker/beep control
+0x14  SW1        - Read: Mini/Maxi switch (bit 7). Write: mini floppy motor (1=start, 0=stop)
+0x18  RAMEN      - PROM disable: any write disables PROM0+PROM1 mappings, enables full RAM
+0x19  RAMEN      - RAM enable port (RC703 only, not used on RC702)
+0x1C  BIB        - Beeper/speaker output (any write triggers beep)
 ```
 
 ---
@@ -369,9 +370,9 @@ The system attempts to boot from devices in the following priority order:
    - For 8" drives:
      - Read appropriate track 0 data based on format
 
-3. **Disable ROM Mapping**
-   - Write to port 0x14 to disable ROM
-   - This frees lower memory (0x0000-0x07FF) for operating system use
+3. **Disable PROM Mapping**
+   - Write to port 0x18 (RAMEN) to disable PROM0 and PROM1
+   - This frees 0x0000-0x07FF (and 0x2000-0x27FF if PROM1 installed) for RAM use
 
 4. **Transfer Control to Operating System**
    - Jump to bootstrap entry point at address 0x0000
@@ -824,9 +825,9 @@ When developing or modifying the ROA375 autoload ROM:
 | 0x0F | CTC | Channel 3 (Floppy) |
 | 0x10 | PIO | Keyboard Data |
 | 0x12 | PIO | Keyboard Control |
-| 0x14 | System | ROM Disable / Switches |
-| 0x19 | System | RAM Enable |
-| 0x1C | System | Speaker Control |
+| 0x14 | System | SW1: Mini/Maxi switch (read), Mini floppy motor (write) |
+| 0x18 | System | RAMEN: PROM disable (write disables PROM0+PROM1) |
+| 0x1C | System | BIB: Speaker/beep control |
 | 0x44 | CTC2 | Channel 0 (Hard Disk) |
 | 0x45 | CTC2 | Channel 1 |
 | 0x46 | CTC2 | Channel 2 |
