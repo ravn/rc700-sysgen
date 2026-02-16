@@ -179,11 +179,13 @@ The RC702 supports two PROMs (see hardware manual page 17): PROM0 at 0x0000 (ROA
 
 ### System Control Ports
 
+RC702 uses incomplete address decoding — ports are mirrored in groups of 4.
+The RC703 (later model) likely refines this; rob358.mac uses 0x19 for RAMEN.
+
 ```
-0x14  SW1        - Read: Mini/Maxi switch (bit 7). Write: mini floppy motor (1=start, 0=stop)
-0x18  RAMEN      - PROM disable: any write disables PROM0+PROM1 mappings, enables full RAM
-0x19  RAMEN      - RAM enable port (RC703 only, not used on RC702)
-0x1C  BIB        - Beeper/speaker output (any write triggers beep)
+0x14-0x17  SW1    - Read: Mini/Maxi switch (bit 7). Write: mini floppy motor (1=start, 0=stop)
+0x18-0x1B  RAMEN  - PROM disable: any write disables PROM0+PROM1 mappings, enables full RAM
+0x1C-0x1F  BIB    - Beeper/speaker output (any write triggers beep)
 ```
 
 ---

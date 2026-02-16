@@ -20,6 +20,9 @@
 ;========================================================================
 
 ; System ports (see hardware manual page 15)
+; Note: RC702 uses incomplete address decoding — ports are mirrored in groups of 4:
+;   0x14-0x17 = SW1, 0x18-0x1B = RAMEN, 0x1C-0x1F = BIB
+; The RC703 likely refines this; rob358.mac uses 0x19 for RAMEN instead of 0x18.
 SW1	EQU	014H		; Mini/maxi switch (read), mini floppy motor (write)
 RAMEN	EQU	018H		; PROM disable: write disables PROM0+PROM1, enables RAM
 BIB	EQU	01CH		; Beeper/sound port
