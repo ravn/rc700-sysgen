@@ -1,4 +1,4 @@
-download/
 bin
 lib
 include
+/download/z88dk/
