@@ -2,3 +2,9 @@ test_boot
 test_fdc
 *.o
 *.bin
+*.map
+*.sym
+*.lis
+*.def
+*.rom
+zcc_opt.def

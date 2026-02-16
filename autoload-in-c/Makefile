@@ -5,7 +5,7 @@
 # Clean:       make clean
 
 CC = cc
-CFLAGS = -Wall -Wextra -std=c99
+CFLAGS = -Wall -Wextra -std=c99 -DHOST_TEST
 
 # Host test builds (uses mock HAL)
 HOST_COMMON = boot.c fdc.c fmt.c init.c isr.c hal_host.c
@@ -20,12 +20,23 @@ test_boot: test_boot.c $(HOST_COMMON) hal.h
 test_fdc: test_fdc.c $(HOST_COMMON) hal.h
 	$(CC) $(CFLAGS) -o $@ test_fdc.c $(HOST_COMMON)
 
-# Z80 ROM build (requires z88dk installed)
-# TODO: configure z88dk crt0 and linker settings
-rom:
-	@echo "Z80 ROM build not yet implemented — needs z88dk setup"
+# Z80 ROM build (requires z88dk in ../z88dk)
+Z88DK = ../z88dk
+ZCC = $(Z88DK)/bin/zcc
+ZCCCFG = $(Z88DK)/lib/config
+
+Z80_SRC = hal_z80.c init.c fdc.c fmt.c boot.c isr.c
+ZFLAGS = +z80 -clib=sdcc_iy -crt0=crt0.asm \
+         -pragma-define:CRT_ORG_CODE=0x0000 \
+         -pragma-define:CRT_ORG_BSS=0x8000 \
+         -m -create-app
+
+rom: $(Z80_SRC) crt0.asm hal.h
+	ZCCCFG=$(ZCCCFG) $(ZCC) $(ZFLAGS) -o roa375 $(Z80_SRC)
+	@ls -l roa375.bin 2>/dev/null && echo "ROM size:" && wc -c < roa375.bin || true
 
 clean:
-	rm -f test_boot test_fdc *.o *.bin
+	rm -f test_boot test_fdc *.o *.bin *.map *.sym *.lis *.def *.rom
+	rm -rf zcc_opt.def
 
 .PHONY: test rom clean
