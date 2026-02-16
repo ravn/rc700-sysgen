@@ -1,0 +1,4 @@
+test_boot
+test_fdc
+*.o
+*.bin
