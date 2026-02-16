@@ -139,21 +139,32 @@ Since the refactored ROM is not byte-identical to the original:
 
 The RAMEN port semantics changed between RC702 and RC703:
 
-| Port  | RC702                              | RC703 (page 15)                        |
-|-------|------------------------------------|----------------------------------------|
-| 0x18  | Disable both PROMs, enable RAM     | Enable both PROMs                      |
-| 0x19  | (mirror of 0x18)                   | Disable both PROMs                     |
-| 0x1A  | (mirror of 0x18)                   | Enable PROM1 (disable PROM0)           |
-| 0x1B  | (mirror of 0x18)                   | Disable both PROMs                     |
+The technical manual (fig. 9, page 15) defines the full port map for all
+boards.  Ports 0x18–0x1B have different semantics per address, but MIC702
+and MIC703 ignore the differences due to incomplete address decoding:
 
-The RC702 uses incomplete address decoding (ports mirrored in groups of 4),
-so 0x18–0x1B all behave identically.  The RC703 decodes individual addresses,
-giving finer control — notably 0x1A enables PROM1 while disabling PROM0,
-allowing the line program to take over from the boot ROM.
+| Port  | Full decode (fig. 9)        | MIC702/703 actual        |
+|-------|-----------------------------|--------------------------|
+| 0x18  | Enable PROM 0 and 1        | Disable both (all four   |
+| 0x19  | Disable PROM 0 and 1       | ports behave the same)   |
+| 0x1A  | Enable PROM 1 only         |                          |
+| 0x1B  | Disable PROM 0 and 1       |                          |
 
-This is why `rob358.mac` (RC703) uses port 0x19 for `RAMEN` while `roa375`
-(RC702) uses port 0x18 — both disable both PROMs, but on the RC703 the
-address matters.
+The page 16 table shows the typical instruction used per board:
+
+| Board  | Instruction       | PROM 0   | PROM 1   |
+|--------|-------------------|----------|----------|
+| MIC702 | `OUT (18H), A`    | DISABLE  | DISABLE  |
+| MIC703 | `OUT (19H), A`    | DISABLE  | DISABLE  |
+| MIC704 | `OUT (18H), A`    | ENABLE   | ENABLE   |
+| MIC705 | `OUT (1AH), A` *) | DISABLE  | ENABLE   |
+
+*) MIC705 has a special flip-flop ("PROM CONTROL 1") that allows enabling
+PROM 1 while leaving PROM 0 disabled — used by the line program.
+
+This is why `rob358.mac` (RC703/MIC703) uses port 0x19 for `RAMEN` while
+`roa375` (RC702/MIC702) uses port 0x18 — both disable both PROMs on their
+respective boards.
 
 ## Open questions
 
