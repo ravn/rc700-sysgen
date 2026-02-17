@@ -26,17 +26,18 @@ ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
 Z80_SRC = hal_z80.c init.c fdc.c fmt.c boot.c isr.c
-ZFLAGS = +z80 -clib=sdcc_iy -crt0=crt0.asm \
+ZFLAGS = +z80 -clib=sdcc_iy --no-crt \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
          -m -create-app
 
 rom: $(Z80_SRC) crt0.asm hal.h
-	export PATH="$(Z88DK)/bin:$$PATH" && export ZCCCFG="$(ZCCCFG)" && $(ZCC) $(ZFLAGS) -o roa375 $(Z80_SRC)
+	export PATH="$(Z88DK)/bin:$$PATH" && export ZCCCFG="$(ZCCCFG)" && $(ZCC) $(ZFLAGS) -o roa375 crt0.asm $(Z80_SRC)
 	@ls -l roa375.bin 2>/dev/null && echo "ROM size:" && wc -c < roa375.bin || true
 
 clean:
-	rm -f test_boot test_fdc *.o *.bin *.map *.sym *.lis *.def *.rom
-	rm -rf zcc_opt.def
+	rm -f test_boot test_fdc roa375 roa375_*.bin
+	rm -f *.o *.bin *.map *.sym *.lis *.def *.rom
+	rm -f zcc_opt.def
 
 .PHONY: test rom clean
