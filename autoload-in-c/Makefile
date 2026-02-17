@@ -26,14 +26,16 @@ ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
 Z80_SRC = hal_z80.c init.c fdc.c fmt.c boot.c isr.c
-ZFLAGS = +z80 -clib=sdcc_iy --no-crt \
+ZFLAGS = +z80 -clib=sdcc_iy --no-crt -SO3 \
+         --opt-code-size --max-allocs-per-node200000 \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
-         -m -create-app
+         -m --list -create-app
 
-rom: $(Z80_SRC) crt0.asm hal.h
-	export PATH="$(Z88DK)/bin:$$PATH" && export ZCCCFG="$(ZCCCFG)" && $(ZCC) $(ZFLAGS) -o roa375 crt0.asm $(Z80_SRC)
-	@ls -l roa375.bin 2>/dev/null && echo "ROM size:" && wc -c < roa375.bin || true
+rom: crt0.asm
+	export PATH="$(Z88DK)/bin:$$PATH" && export ZCCCFG="$(ZCCCFG)" && $(ZCC) $(ZFLAGS) -o roa375 crt0.asm
+	@ls -la roa375_CODE.bin 2>/dev/null; ls -la roa375_BOOT.bin 2>/dev/null
+	@echo "BOOT: $$(wc -c < roa375_BOOT.bin) bytes, CODE: $$(wc -c < roa375_CODE.bin) bytes, Total: $$(( $$(wc -c < roa375_BOOT.bin) + $$(wc -c < roa375_CODE.bin) )) bytes"
 
 clean:
 	rm -f test_boot test_fdc roa375 roa375_*.bin

@@ -3,6 +3,10 @@
  *
  * Isolates all port I/O behind a C interface so the same boot logic
  * compiles for both the real Z80 target (z88dk) and a host test harness.
+ *
+ * On Z80: simple port writes are inline via __sfr; only FL02/FLO3 remain
+ * as real functions (they contain loops).
+ * On host: all functions are real, with mock recording for test assertions.
  */
 
 #ifndef HAL_H
@@ -10,59 +14,136 @@
 
 #include <stdint.h>
 
-/* Diskette size detection */
-uint8_t hal_diskette_size(void);    /* 0 = maxi/8", 1 = mini/5.25" */
+#ifdef HOST_TEST
 
-/* Switch register raw read */
+/* ================================================================
+ * HOST TEST BUILD — all functions are real (defined in hal_host.c)
+ * ================================================================ */
+
+uint8_t hal_diskette_size(void);
 uint8_t hal_read_sw1(void);
-
-/* PROM control */
-void hal_prom_disable(void);        /* Disable PROM0+PROM1, enable RAM */
-
-/* Mini floppy motor */
-void hal_motor(uint8_t on);         /* 1 = start, 0 = stop */
-
-/* Beeper */
+void hal_prom_disable(void);
+void hal_motor(uint8_t on);
 void hal_beep(void);
 
-/* FDC (uPD765 / Intel 8272) */
 void hal_fdc_command(uint8_t cmd);
 uint8_t hal_fdc_status(void);
 uint8_t hal_fdc_data_read(void);
 void hal_fdc_data_write(uint8_t data);
-uint8_t hal_fdc_wait_write(uint8_t data); /* FL02: poll RQM+DIO=0, write */
-uint8_t hal_fdc_wait_read(void);          /* FLO3: poll RQM+DIO=1, read */
+uint8_t hal_fdc_wait_write(uint8_t data);
+uint8_t hal_fdc_wait_read(void);
 
-/* DMA (AM9517A / Intel 8237) */
-void hal_dma_setup(uint8_t channel, uint16_t addr, uint16_t count, uint8_t mode);
 void hal_dma_command(uint8_t cmd);
-void hal_dma_mask(uint8_t channel);       /* Set mask (disable channel) */
-void hal_dma_unmask(uint8_t channel);     /* Clear mask (enable channel) */
-void hal_dma_clear_bp(void);              /* Clear byte pointer flip-flop */
-void hal_dma_mode(uint8_t mode);          /* Set channel mode */
-void hal_dma_ch_addr(uint8_t ch, uint16_t addr); /* Set channel address */
-void hal_dma_ch_wc(uint8_t ch, uint16_t wc);     /* Set channel word count */
-uint8_t hal_dma_status(void);             /* Read DMA status register */
+void hal_dma_mask(uint8_t channel);
+void hal_dma_unmask(uint8_t channel);
+void hal_dma_clear_bp(void);
+void hal_dma_mode(uint8_t mode);
+void hal_dma_ch1_addr(uint16_t addr);
+void hal_dma_ch1_wc(uint16_t wc);
+uint8_t hal_dma_status(void);
 
-/* PIO (Z80A-PIO) */
 void hal_pio_write_a_data(uint8_t data);
 void hal_pio_write_a_ctrl(uint8_t data);
 void hal_pio_write_b_data(uint8_t data);
 void hal_pio_write_b_ctrl(uint8_t data);
 
-/* CTC (Z80A-CTC) */
 void hal_ctc_write(uint8_t channel, uint8_t data);
 
-/* CRT (Intel 8275) */
 void hal_crt_param(uint8_t data);
 void hal_crt_command(uint8_t data);
 uint8_t hal_crt_status(void);
 
-/* Delay loop (cf. rob358 FDSTAR W1/W2) */
 void hal_delay(uint8_t outer, uint8_t inner);
-
-/* Interrupt control */
 void hal_ei(void);
 void hal_di(void);
+
+#else /* Z80 TARGET BUILD */
+
+/* ================================================================
+ * Z80 BUILD — inline port I/O via __sfr, minimal function calls
+ * ================================================================ */
+
+/* Port declarations */
+__sfr __at 0x14 _port_sw1;
+__sfr __at 0x18 _port_ramen;
+__sfr __at 0x1C _port_bib;
+__sfr __at 0x10 _port_pio_a_data;
+__sfr __at 0x11 _port_pio_b_data;
+__sfr __at 0x12 _port_pio_a_ctrl;
+__sfr __at 0x13 _port_pio_b_ctrl;
+__sfr __at 0x0C _port_ctc0;
+__sfr __at 0x0D _port_ctc1;
+__sfr __at 0x0E _port_ctc2;
+__sfr __at 0x0F _port_ctc3;
+__sfr __at 0x00 _port_crt_param;
+__sfr __at 0x01 _port_crt_cmd;
+__sfr __at 0x04 _port_fdc_status;
+__sfr __at 0x05 _port_fdc_data;
+__sfr __at 0xF2 _port_dma_ch1_addr;
+__sfr __at 0xF3 _port_dma_ch1_wc;
+__sfr __at 0xF4 _port_dma_ch2_addr;
+__sfr __at 0xF5 _port_dma_ch2_wc;
+__sfr __at 0xF6 _port_dma_ch3_addr;
+__sfr __at 0xF7 _port_dma_ch3_wc;
+__sfr __at 0xF8 _port_dma_cmd;
+__sfr __at 0xFA _port_dma_smsk;
+__sfr __at 0xFB _port_dma_mode;
+__sfr __at 0xFC _port_dma_clbp;
+
+/* Simple port read/write — compile to single IN/OUT instructions */
+#define hal_read_sw1()              (_port_sw1)
+#define hal_diskette_size()         ((_port_sw1 >> 7) & 1)
+#define hal_prom_disable()          (_port_ramen = 1)
+#define hal_motor(on)               (_port_sw1 = (on) ? 1 : 0)
+#define hal_beep()                  (_port_bib = 0)
+
+#define hal_fdc_command(cmd)        (_port_fdc_data = (cmd))
+#define hal_fdc_status()            (_port_fdc_status)
+#define hal_fdc_data_read()         (_port_fdc_data)
+#define hal_fdc_data_write(d)       (_port_fdc_data = (d))
+
+#define hal_dma_command(cmd)        (_port_dma_cmd = (cmd))
+#define hal_dma_mask(ch)            (_port_dma_smsk = (ch) | 0x04)
+#define hal_dma_unmask(ch)          (_port_dma_smsk = (ch))
+#define hal_dma_clear_bp()          (_port_dma_clbp = 0)
+#define hal_dma_mode(m)             (_port_dma_mode = (m))
+#define hal_dma_status()            (_port_dma_cmd)
+
+#define hal_pio_write_a_data(d)     (_port_pio_a_data = (d))
+#define hal_pio_write_a_ctrl(d)     (_port_pio_a_ctrl = (d))
+#define hal_pio_write_b_data(d)     (_port_pio_b_data = (d))
+#define hal_pio_write_b_ctrl(d)     (_port_pio_b_ctrl = (d))
+
+#define hal_crt_param(d)            (_port_crt_param = (d))
+#define hal_crt_command(d)          (_port_crt_cmd = (d))
+#define hal_crt_status()            (_port_crt_cmd)
+
+#define hal_ei()    do { __asm__("ei"); } while(0)
+#define hal_di()    do { __asm__("di"); } while(0)
+
+/* CTC channel writes — direct port I/O, no switch overhead */
+#define hal_ctc_write(ch, d) do { \
+    if      ((ch) == 0) _port_ctc0 = (d); \
+    else if ((ch) == 1) _port_ctc1 = (d); \
+    else if ((ch) == 2) _port_ctc2 = (d); \
+    else                _port_ctc3 = (d); \
+} while(0)
+
+/* DMA channel 1 address/word count — two consecutive port writes */
+#define hal_dma_ch1_addr(addr) do { \
+    _port_dma_ch1_addr = (uint8_t)(addr); \
+    _port_dma_ch1_addr = (uint8_t)((addr) >> 8); \
+} while(0)
+#define hal_dma_ch1_wc(wc) do { \
+    _port_dma_ch1_wc = (uint8_t)(wc); \
+    _port_dma_ch1_wc = (uint8_t)((wc) >> 8); \
+} while(0)
+
+/* Functions implemented in assembly (crt0.asm) */
+uint8_t hal_fdc_wait_write(uint8_t data) __z88dk_fastcall;
+uint8_t hal_fdc_wait_read(void);
+void hal_delay(uint8_t outer, uint8_t inner) __z88dk_callee;
+
+#endif /* HOST_TEST */
 
 #endif /* HAL_H */

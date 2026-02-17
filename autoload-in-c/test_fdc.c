@@ -29,146 +29,139 @@ static int tests_passed = 0;
     printf("OK\n"); \
 } while(0)
 
+#define ST (&g_state)
+
 /* Test: mkdhb combines head and drive */
 static void test_mkdhb(void) {
-    boot_state_t st;
     TEST("mkdhb: head=1 drive=0 -> 0x04");
 
-    memset(&st, 0, sizeof(st));
-    st.curhed = 1;
-    st.drvsel = 0;
-    assert(mkdhb(&st) == 0x04);
+    memset(ST, 0, sizeof(*ST));
+    ST->curhed = 1;
+    ST->drvsel = 0;
+    assert(mkdhb() == 0x04);
 
     PASS();
 }
 
 static void test_mkdhb_drive1(void) {
-    boot_state_t st;
     TEST("mkdhb: head=0 drive=1 -> 0x01");
 
-    memset(&st, 0, sizeof(st));
-    st.curhed = 0;
-    st.drvsel = 1;
-    assert(mkdhb(&st) == 0x01);
+    memset(ST, 0, sizeof(*ST));
+    ST->curhed = 0;
+    ST->drvsel = 1;
+    assert(mkdhb() == 0x01);
 
     PASS();
 }
 
 /* Test: snsdrv sends correct FDC commands */
 static void test_snsdrv(void) {
-    boot_state_t st;
     TEST("snsdrv sends 0x04 + drive, reads ST3");
 
-    memset(&st, 0, sizeof(st));
+    memset(ST, 0, sizeof(*ST));
     mock_reset();
     mock_fdc_push_read(0x28);   /* ST3 = track 0 + ready */
 
-    snsdrv(&st);
+    snsdrv();
 
-    assert(st.fdcres[0] == 0x28);
+    assert(ST->fdcres[0] == 0x28);
 
     PASS();
 }
 
 /* Test: chkres success path */
 static void test_chkres_ok(void) {
-    boot_state_t st;
     TEST("chkres: ST0=0x00, ST1=0, ST2=0 -> success");
 
-    memset(&st, 0, sizeof(st));
-    st.drvsel = 0;
-    st.reptim = 3;
-    st.fdcres[0] = 0x00;       /* ST0: normal, drive 0 */
-    st.fdcres[1] = 0x00;       /* ST1: no errors */
-    st.fdcres[2] = 0x00;       /* ST2: no errors */
+    memset(ST, 0, sizeof(*ST));
+    ST->drvsel = 0;
+    ST->reptim = 3;
+    ST->fdcres[0] = 0x00;       /* ST0: normal, drive 0 */
+    ST->fdcres[1] = 0x00;       /* ST1: no errors */
+    ST->fdcres[2] = 0x00;       /* ST2: no errors */
 
-    assert(chkres(&st) == 0);
+    assert(chkres() == 0);
 
     PASS();
 }
 
 /* Test: chkres error path with retries */
 static void test_chkres_error(void) {
-    boot_state_t st;
     TEST("chkres: ST0 mismatch -> error, retries decremented");
 
-    memset(&st, 0, sizeof(st));
-    st.drvsel = 0;
-    st.reptim = 3;
-    st.fdcres[0] = 0x40;       /* ST0: abnormal termination */
-    st.fdcres[1] = 0x00;
-    st.fdcres[2] = 0x00;
+    memset(ST, 0, sizeof(*ST));
+    ST->drvsel = 0;
+    ST->reptim = 3;
+    ST->fdcres[0] = 0x40;       /* ST0: abnormal termination */
+    ST->fdcres[1] = 0x00;
+    ST->fdcres[2] = 0x00;
 
-    assert(chkres(&st) == 1);  /* Error, retries remaining */
-    assert(st.reptim == 2);
+    assert(chkres() == 1);  /* Error, retries remaining */
+    assert(ST->reptim == 2);
 
     PASS();
 }
 
 /* Test: chkres retries exhausted */
 static void test_chkres_exhausted(void) {
-    boot_state_t st;
     TEST("chkres: retries=1, error -> exhausted (2)");
 
-    memset(&st, 0, sizeof(st));
-    st.drvsel = 0;
-    st.reptim = 1;
-    st.fdcres[0] = 0x40;
-    st.fdcres[1] = 0x00;
-    st.fdcres[2] = 0x00;
+    memset(ST, 0, sizeof(*ST));
+    ST->drvsel = 0;
+    ST->reptim = 1;
+    ST->fdcres[0] = 0x40;
+    ST->fdcres[1] = 0x00;
+    ST->fdcres[2] = 0x00;
 
-    assert(chkres(&st) == 2);
-    assert(st.reptim == 0);
+    assert(chkres() == 2);
+    assert(ST->reptim == 0);
 
     PASS();
 }
 
 /* Test: clrflf clears floppy flag */
 static void test_clrflf(void) {
-    boot_state_t st;
     TEST("clrflf clears flpflg to 0");
 
-    memset(&st, 0, sizeof(st));
+    memset(ST, 0, sizeof(*ST));
     mock_reset();
-    st.flpflg = 2;
-    clrflf(&st);
-    assert(st.flpflg == 0);
+    ST->flpflg = 2;
+    clrflf();
+    assert(ST->flpflg == 0);
 
     PASS();
 }
 
 /* Test: flo6 reads sense interrupt status */
 static void test_flo6(void) {
-    boot_state_t st;
     TEST("flo6: reads ST0 and PCN");
 
-    memset(&st, 0, sizeof(st));
+    memset(ST, 0, sizeof(*ST));
     mock_reset();
     mock_fdc_push_read(0x20);   /* ST0: seek end */
     mock_fdc_push_read(0x05);   /* PCN: cylinder 5 */
 
-    flo6(&st);
+    flo6();
 
-    assert(st.fdcres[0] == 0x20);
-    assert(st.fdcres[1] == 0x05);
+    assert(ST->fdcres[0] == 0x20);
+    assert(ST->fdcres[1] == 0x05);
 
     PASS();
 }
 
 /* Test: flo6 with invalid command status (no PCN read) */
 static void test_flo6_invalid(void) {
-    boot_state_t st;
     TEST("flo6: ST0=0x80 (invalid) -> no PCN read");
 
-    memset(&st, 0, sizeof(st));
+    memset(ST, 0, sizeof(*ST));
     mock_reset();
     mock_fdc_push_read(0x80);   /* ST0: invalid command */
 
-    flo6(&st);
+    flo6();
 
-    assert(st.fdcres[0] == 0x80);
+    assert(ST->fdcres[0] == 0x80);
     /* fdcres[1] should remain 0 (not read) */
-    assert(st.fdcres[1] == 0x00);
+    assert(ST->fdcres[1] == 0x00);
 
     PASS();
 }

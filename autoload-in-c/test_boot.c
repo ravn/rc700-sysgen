@@ -28,13 +28,15 @@ static int tests_passed = 0;
     printf("OK\n"); \
 } while(0)
 
+#define ST (&g_state)
+
 /* Test: clear_screen fills display buffer with spaces */
 static void test_clear_screen(void) {
     int i;
     TEST("clear_screen fills with spaces");
 
     /* Poison buffer */
-    memset(dspstr, 0xFF, sizeof(dspstr));
+    memset(dspstr, 0xFF, 2000);
 
     clear_screen();
 
@@ -50,7 +52,8 @@ static void test_clear_screen(void) {
 static void test_display_banner(void) {
     TEST("display_banner writes RC700 to display");
 
-    memset(dspstr, 0, sizeof(dspstr));
+    memset(dspstr, 0, 2000);
+    mock_reset();
     display_banner();
 
     assert(dspstr[0] == ' ');
@@ -68,7 +71,7 @@ static void test_display_banner(void) {
 static void test_errcpy(void) {
     TEST("errcpy writes DISKETTE ERROR to display");
 
-    memset(dspstr, 0, sizeof(dspstr));
+    memset(dspstr, 0, 2000);
     errcpy();
 
     assert(dspstr[0] == '*');
@@ -80,92 +83,87 @@ static void test_errcpy(void) {
 
 /* Test: format table lookup — maxi N=0 side 0 */
 static void test_fmtlkp_maxi_n0_s0(void) {
-    boot_state_t st;
     TEST("fmtlkp maxi N=0 side0: EOT=26, GAP3=7");
 
-    memset(&st, 0, sizeof(st));
-    st.diskbits = 0x00;         /* maxi, side 0 */
-    st.reclen = 0;              /* N=0 */
-    fmtlkp(&st);
+    memset(ST, 0, sizeof(*ST));
+    ST->diskbits = 0x00;         /* maxi, side 0 */
+    ST->reclen = 0;              /* N=0 */
+    fmtlkp();
 
-    assert(st.cureot == 0x1A);  /* 26 */
-    assert(st.gap3 == 0x07);
-    assert(st.epts == 0x4C);    /* 76 */
-    assert(st.dtl == 0x80);
+    assert(ST->cureot == 0x1A);  /* 26 */
+    assert(ST->gap3 == 0x07);
+    assert(ST->epts == 0x4C);    /* 76 */
+    assert(ST->dtl == 0x80);
 
     PASS();
 }
 
 /* Test: format table lookup — mini N=2 side 1 */
 static void test_fmtlkp_mini_n2_s1(void) {
-    boot_state_t st;
     TEST("fmtlkp mini N=2 side1: EOT=9, GAP3=27");
 
-    memset(&st, 0, sizeof(st));
-    st.diskbits = 0x81;         /* mini (bit7), side 1 (bit0) */
-    st.reclen = 2;              /* N=2 */
-    fmtlkp(&st);
+    memset(ST, 0, sizeof(*ST));
+    ST->diskbits = 0x81;         /* mini (bit7), side 1 (bit0) */
+    ST->reclen = 2;              /* N=2 */
+    fmtlkp();
 
-    assert(st.cureot == 0x09);
-    assert(st.gap3 == 0x1B);    /* 27 */
-    assert(st.epts == 0x23);    /* 35 */
+    assert(ST->cureot == 0x09);
+    assert(ST->gap3 == 0x1B);    /* 27 */
+    assert(ST->epts == 0x23);    /* 35 */
 
     PASS();
 }
 
-/* Test: calctb — maxi N=0, EOT=26, REC=1 → 26 * 128 = 3328 */
+/* Test: calctb — maxi N=0, EOT=26, REC=1 -> 26 * 128 = 3328 */
 static void test_calctb_maxi_n0(void) {
-    boot_state_t st;
     TEST("calctb maxi N=0: 26 * 128 = 3328");
 
-    memset(&st, 0, sizeof(st));
-    st.reclen = 0;
-    st.cureot = 0x1A;           /* 26 */
-    st.currec = 1;
-    st.dsktyp = 0;              /* maxi */
-    st.curhed = 0;
-    calctb(&st);
+    memset(ST, 0, sizeof(*ST));
+    ST->reclen = 0;
+    ST->cureot = 0x1A;           /* 26 */
+    ST->currec = 1;
+    ST->dsktyp = 0;              /* maxi */
+    ST->curhed = 0;
+    calctb();
 
-    assert(st.secbyt == 128);
-    assert(st.trbyt == 3328);
+    assert(ST->secbyt == 128);
+    assert(ST->trbyt == 3328);
 
     PASS();
 }
 
-/* Test: calctb — maxi N=2, EOT=15, REC=1 → 15 * 512 = 7680 */
+/* Test: calctb — maxi N=2, EOT=15, REC=1 -> 15 * 512 = 7680 */
 static void test_calctb_maxi_n2(void) {
-    boot_state_t st;
     TEST("calctb maxi N=2: 15 * 512 = 7680");
 
-    memset(&st, 0, sizeof(st));
-    st.reclen = 2;
-    st.cureot = 0x0F;           /* 15 */
-    st.currec = 1;
-    st.dsktyp = 0;
-    st.curhed = 0;
-    calctb(&st);
+    memset(ST, 0, sizeof(*ST));
+    ST->reclen = 2;
+    ST->cureot = 0x0F;           /* 15 */
+    ST->currec = 1;
+    ST->dsktyp = 0;
+    ST->curhed = 0;
+    calctb();
 
-    assert(st.secbyt == 512);
-    assert(st.trbyt == 7680);
+    assert(ST->secbyt == 512);
+    assert(ST->trbyt == 7680);
 
     PASS();
 }
 
 /* Test: setfmt extracts density and calls fmtlkp + calctb */
 static void test_setfmt(void) {
-    boot_state_t st;
     TEST("setfmt extracts N from diskbits, calls fmtlkp+calctb");
 
-    memset(&st, 0, sizeof(st));
-    st.diskbits = 0x08;         /* N=2 in bits 4-2 (0000_1000), maxi, side 0 */
-    st.currec = 1;
-    st.dsktyp = 0;
-    st.curhed = 0;
-    setfmt(&st);
+    memset(ST, 0, sizeof(*ST));
+    ST->diskbits = 0x08;         /* N=2 in bits 4-2 (0000_1000), maxi, side 0 */
+    ST->currec = 1;
+    ST->dsktyp = 0;
+    ST->curhed = 0;
+    setfmt();
 
-    assert(st.reclen == 2);
-    assert(st.cureot == 0x08);  /* maxi N=2 side0: EOT=8 */
-    assert(st.trbyt == 4096);   /* 8 * 512 */
+    assert(ST->reclen == 2);
+    assert(ST->cureot == 0x08);  /* maxi N=2 side0: EOT=8 */
+    assert(ST->trbyt == 4096);   /* 8 * 512 */
 
     PASS();
 }

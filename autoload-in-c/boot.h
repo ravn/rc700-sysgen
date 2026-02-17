@@ -1,9 +1,5 @@
 /*
  * boot.h — Shared state and function declarations for RC702 autoload
- *
- * The boot_state_t struct holds all variables that in the original ROM
- * were at fixed RAM addresses (0x8000+).  For the Z80 target, key fields
- * are placed at fixed addresses for ISR/SYSCALL compatibility.
  */
 
 #ifndef BOOT_H
@@ -11,115 +7,116 @@
 
 #include <stdint.h>
 
+/* Calling convention macros — only active on Z80 target */
+#ifdef __SDCC
+#define FASTCALL __z88dk_fastcall
+#define CALLEE   __z88dk_callee
+#else
+#define FASTCALL
+#define CALLEE
+#endif
+
 /* Memory layout constants */
-#define FLOPPYDATA  0x0000      /* Boot sector load address */
-#define COMALBOOT   0x1000      /* ID-COMAL bootstrap entry */
-#define PROM1_ADDR  0x2000      /* PROM1 address */
-#define DIROFF      0x0B60      /* Directory area offset */
-#define DIREND_HI   0x0D        /* Directory end boundary (high byte) */
-#define DSPSTR_ADDR 0x7800      /* Display buffer address */
-#define DSP_CHARS   0x0780      /* Visible display chars (80*24=1920) */
-#define ATTOFF      7           /* File attribute offset */
-#define SECSZ0      0x80        /* Base sector size (N=0, 128 bytes) */
+#define FLOPPYDATA  0x0000
+#define COMALBOOT   0x1000
+#define PROM1_ADDR  0x2000
+#define DIROFF      0x0B60
+#define DIREND_HI   0x0D
+#define DSPSTR_ADDR 0x7800
+#define DSP_CHARS   0x0780
+#define ATTOFF      7
+#define SECSZ0      0x80
 
 /*
  * Boot state — all variables used by the boot ROM.
- * Mirrors the RAM layout at 0x8000+ in the original.
  */
 typedef struct {
-    /* FDC result area (7 bytes) */
-    uint8_t fdcres[7];          /* ST0..N result bytes */
-
-    /* Drive/controller state */
-    uint8_t fdcflg;             /* FDC busy flag (0xFF=busy) */
-    uint8_t epts;               /* Max cylinder (sectors per track label in asm) */
-    uint8_t trksz;              /* Track sector size byte */
-    uint8_t drvsel;             /* Drive select byte */
-    uint8_t fdctmo;             /* FDC timeout counter (init=3) */
-    uint8_t fdcwai;             /* FDC wait counter (init=4) */
-    uint16_t spsav;             /* Stack pointer save */
-
-    /* FDC command buffer (9 bytes: cmd, dh, C, H, R, N, EOT, GAP3, DTL) */
-    uint8_t combuf[2];          /* Command byte + drive/head */
-    uint8_t curcyl;             /* Current cylinder number */
-    uint8_t curhed;             /* Current head address */
-    uint8_t currec;             /* Current record/sector number */
-    uint8_t reclen;             /* Record length N (0=128, 1=256, 2=512) */
-    uint8_t cureot;             /* Current EOT (end of track) */
-    uint8_t gap3;               /* GAP3 value */
-    uint8_t dtl;                /* DTL value (always 0x80) */
-
-    /* Transfer state */
-    uint16_t secbyt;            /* Bytes per sector */
-    uint8_t flpflg;             /* Floppy interrupt flag (0=idle, 2=done) */
-    uint8_t flpwai;             /* Floppy wait counter (init=4) */
-
-    /* Disk/boot state */
-    uint8_t diskbits;           /* Status flags (bit7=mini, bit4-2=N<<2, bit1=dual-sided, bit0=side) */
-    uint8_t dsktyp;             /* Disk type (bit7=mini, bit0=floppy boot) */
-    uint8_t morefl;             /* More data to transfer flag */
-    uint8_t reptim;             /* Retry counter */
-
-    /* Memory transfer state */
-    uint16_t memadr;            /* Memory address pointer (DMA dest) */
-    uint16_t trbyt;             /* Transfer byte count */
-    uint16_t trkovr;            /* Track overflow count */
-
-    /* Error state */
-    uint8_t errsav;             /* Saved error code */
+    uint8_t fdcres[7];
+    uint8_t fdcflg;
+    uint8_t epts;
+    uint8_t trksz;
+    uint8_t drvsel;
+    uint8_t fdctmo;
+    uint8_t fdcwai;
+    uint16_t spsav;
+    uint8_t combuf[2];
+    uint8_t curcyl;
+    uint8_t curhed;
+    uint8_t currec;
+    uint8_t reclen;
+    uint8_t cureot;
+    uint8_t gap3;
+    uint8_t dtl;
+    uint16_t secbyt;
+    uint8_t flpflg;
+    uint8_t flpwai;
+    uint8_t diskbits;
+    uint8_t dsktyp;
+    uint8_t morefl;
+    uint8_t reptim;
+    uint16_t memadr;
+    uint16_t trbyt;
+    uint16_t trkovr;
+    uint8_t errsav;
 } boot_state_t;
 
-/* Global boot state instance */
+/* Global boot state — accessed directly by all functions */
+#ifdef __SDCC
+extern __at(0xBF00) boot_state_t g_state;
+#else
 extern boot_state_t g_state;
+#endif
 
-/* Display buffer — 2000 bytes at 0x7800 (Z80) or regular RAM (host). */
+/* Display buffer */
 #ifdef HOST_TEST
 extern uint8_t dspstr[2000];
 extern uint16_t scroll_offset;
 #else
-/* On Z80, these are at fixed RAM addresses (not in ROM payload). */
 #define dspstr         ((uint8_t *)0x7800)
 #define scroll_offset  (*(uint16_t *)0x7FF5)
 #endif
 
-/* init.c */
+/* init.c / crt0.asm */
 void init_pio(void);
-void init_ctc(uint8_t mode);
+void init_ctc(uint8_t mode) FASTCALL;
 void init_dma(void);
 void init_crt(void);
 void init_fdc(void);
 
-/* fmt.c */
-void fmtlkp(boot_state_t *st);
-void calctb(boot_state_t *st);
-void setfmt(boot_state_t *st);
+/* Utility functions — asm in crt0.asm, C for HOST_TEST */
+void memcopy(uint8_t *dst, const uint8_t *src, uint8_t len) CALLEE;
+uint8_t memcmp_n(const uint8_t *a, const uint8_t *b, uint8_t len) CALLEE;
 
-/* fdc.c */
-void snsdrv(boot_state_t *st);
-void flo4(boot_state_t *st);
-void flo6(boot_state_t *st);
-void flo7(boot_state_t *st, uint8_t dh, uint8_t cyl);
-void rsult(boot_state_t *st);
-uint8_t recalv(boot_state_t *st);
-uint8_t flseek(boot_state_t *st);
-void flrtrk(boot_state_t *st, uint8_t cmd);
-void clrflf(boot_state_t *st);
-uint8_t waitfl(boot_state_t *st, uint8_t timeout);
-uint8_t chkres(boot_state_t *st);
-uint8_t readtk(boot_state_t *st, uint8_t cmd, uint8_t retries);
-uint8_t dskauto(boot_state_t *st);
-void stpdma(boot_state_t *st, uint16_t addr, uint16_t count);
-void dmawrt(boot_state_t *st, uint16_t addr, uint16_t count);
-uint8_t mkdhb(boot_state_t *st);
+/* fmt.c / crt0.asm */
+void fmtlkp(void);
+void calctb(void);
+void setfmt(void);
+
+/* fdc.c / crt0.asm */
+void snsdrv(void);
+void flo4(void);
+void flo6(void);
+void flo7(uint8_t dh, uint8_t cyl) CALLEE;
+void rsult(void);
+uint8_t recalv(void);
+uint8_t flseek(void);
+void flrtrk(uint8_t cmd) FASTCALL;
+void clrflf(void);
+uint8_t waitfl(uint8_t timeout) FASTCALL;
+uint8_t chkres(void);
+uint8_t readtk(uint8_t cmd, uint8_t retries) CALLEE;
+uint8_t dskauto(void);
+void stpdma(uint16_t addr, uint16_t count, uint8_t mode);
+uint8_t mkdhb(void);
 
 /* boot.c */
 void clear_screen(void);
 void display_banner(void);
-void errdsp(boot_state_t *st, uint8_t code);
+void errdsp(uint8_t code) FASTCALL;
 void errcpy(void);
-uint8_t boot_detect(boot_state_t *st);
-void boot7(boot_state_t *st);
-void flboot(boot_state_t *st);
+uint8_t boot_detect(void);
+void boot7(void);
+void flboot(void);
 void check_prom1(void);
 
 /* isr.c */

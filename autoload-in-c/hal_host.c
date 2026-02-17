@@ -163,25 +163,16 @@ void hal_dma_mode(uint8_t mode) {
     log_call(LOG_DMA_MODE, mode);
 }
 
-void hal_dma_ch_addr(uint8_t ch, uint16_t addr) {
-    log_call16(LOG_DMA_ADDR, ch, addr);
+void hal_dma_ch1_addr(uint16_t addr) {
+    log_call16(LOG_DMA_ADDR, 1, addr);
 }
 
-void hal_dma_ch_wc(uint8_t ch, uint16_t wc) {
-    log_call16(LOG_DMA_WC, ch, wc);
+void hal_dma_ch1_wc(uint16_t wc) {
+    log_call16(LOG_DMA_WC, 1, wc);
 }
 
 uint8_t hal_dma_status(void) {
     return mock_dma_status;
-}
-
-void hal_dma_setup(uint8_t channel, uint16_t addr, uint16_t count, uint8_t mode) {
-    log_call(LOG_DMA_MASK, channel);
-    log_call(LOG_DMA_MODE, mode);
-    log_call(LOG_DMA_CLEAR_BP, 0);
-    log_call16(LOG_DMA_ADDR, channel, addr);
-    log_call16(LOG_DMA_WC, channel, count);
-    log_call(LOG_DMA_UNMASK, channel);
 }
 
 /* PIO */
