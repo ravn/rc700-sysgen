@@ -72,15 +72,15 @@ typedef struct {
 /* Global boot state instance */
 extern boot_state_t g_state;
 
-/* Display buffer — 2000 bytes at 0x7800 (Z80) or regular RAM (host) */
-#ifdef __SDCC
-extern __at(DSPSTR_ADDR) uint8_t dspstr[2000];
-#else
+/* Display buffer — 2000 bytes at 0x7800 (Z80) or regular RAM (host). */
+#ifdef HOST_TEST
 extern uint8_t dspstr[2000];
-#endif
-
-/* Scroll offset for circular buffer display */
 extern uint16_t scroll_offset;
+#else
+/* On Z80, these are at fixed RAM addresses (not in ROM payload). */
+#define dspstr         ((uint8_t *)0x7800)
+#define scroll_offset  (*(uint16_t *)0x7FF5)
+#endif
 
 /* init.c */
 void init_pio(void);

@@ -1,5 +1,7 @@
 test_boot
 test_fdc
+roa375
+roa375_*.bin
 *.o
 *.bin
 *.map

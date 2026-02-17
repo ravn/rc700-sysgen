@@ -11,8 +11,9 @@
 /* Global boot state */
 boot_state_t g_state;
 
-/* Display buffer and scroll offset */
-#ifndef __SDCC
+/* Display buffer and scroll offset — defined in boot.h as macros (Z80)
+ * or here as arrays (host test). */
+#ifdef HOST_TEST
 uint8_t dspstr[2000];
 uint16_t scroll_offset;
 #endif

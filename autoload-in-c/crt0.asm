@@ -87,8 +87,10 @@ INIT_RELOCATED:
 ;------------------------------------------------------------------------
 
 	PUBLIC	_disint_handler
-	PUBLIC	_DSPSTR
-	PUBLIC	_SCROLLOFFSET
+
+; Display buffer and scroll offset — fixed RAM addresses
+_DSPSTR		EQU	0x7800
+_SCROLLOFFSET	EQU	0x7FF5
 
 ; Port definitions for DMA and CRT
 SMSK	EQU	0xFA			; DMA single mask register
@@ -236,22 +238,9 @@ INTVEC:
 	DW	DUMINT			; +30: Dummy
 
 ;------------------------------------------------------------------------
-; Display buffer and scroll offset (at fixed RAM addresses)
+; Display buffer and scroll offset (absolute addresses in RAM)
+; These are not part of the ROM payload — they're fixed RAM locations.
 ;------------------------------------------------------------------------
 
-	SECTION BSS
-	ORG	0x7800
-
-_DSPSTR:
-	DEFS	2000			; Display buffer (80x25 = 2000 bytes)
-
-	DEFS	1			; Padding byte
-	DEFS	1			; UNUSED1
-	DEFS	2			; UNUSED2
-	DEFS	1			; UNUSED3
-
-_SCROLLOFFSET:
-	DEFS	2			; Scroll offset for circular buffer display
-
-; Payload length calculation — filled in by linker
+; Payload length
 PAYLOADLEN	EQU	0x0798		; 1944 bytes (matches original ROM)

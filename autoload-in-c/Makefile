@@ -32,7 +32,7 @@ ZFLAGS = +z80 -clib=sdcc_iy -crt0=crt0.asm \
          -m -create-app
 
 rom: $(Z80_SRC) crt0.asm hal.h
-	ZCCCFG=$(ZCCCFG) $(ZCC) $(ZFLAGS) -o roa375 $(Z80_SRC)
+	export PATH="$(Z88DK)/bin:$$PATH" && export ZCCCFG="$(ZCCCFG)" && $(ZCC) $(ZFLAGS) -o roa375 $(Z80_SRC)
 	@ls -l roa375.bin 2>/dev/null && echo "ROM size:" && wc -c < roa375.bin || true
 
 clean:
