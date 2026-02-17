@@ -8,6 +8,8 @@
  * Only used for Z80 ROM build; host tests compile individually.
  */
 
+/* hal_z80.c excluded — all HAL functions are in crt0.asm */
+#include "init.c"
 #include "fmt.c"
 #include "fdc.c"
 #include "boot.c"

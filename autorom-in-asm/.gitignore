@@ -10,6 +10,3 @@ roa375_*.bin
 *.def
 *.rom
 zcc_opt.def
-rom_all.asm
-rom_all.c.asm
-roa375_sccz80

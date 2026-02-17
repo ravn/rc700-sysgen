@@ -203,10 +203,3 @@ void hal_delay(uint8_t outer, uint8_t inner) {
 /* Interrupt control — no-op in host tests */
 void hal_ei(void) { log_call(LOG_EI, 0); }
 void hal_di(void) { log_call(LOG_DI, 0); }
-
-/* halt_forever — on host tests, just returns (functions that call this
- * would infinite-loop on real hardware but in tests we check state) */
-void halt_forever(void) { }
-
-/* jump_to — no-op in host tests */
-void jump_to(uint16_t addr) { (void)addr; }

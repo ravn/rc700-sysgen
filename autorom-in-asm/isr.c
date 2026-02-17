@@ -1,11 +1,14 @@
 /*
  * isr.c — Interrupt service routines for RC702 autoload
  *
- * Compiled by sccz80 for Z80, by cc for host tests.
+ * Z80 ROM build: flpint_body implemented in assembly (crt0.asm).
+ * Host test build: C implementation below.
  */
 
 #include "hal.h"
 #include "boot.h"
+
+#ifdef HOST_TEST
 
 #define ST (&g_state)
 
@@ -18,3 +21,5 @@ void flpint_body(void) {
         flo6();
     }
 }
+
+#endif /* HOST_TEST */

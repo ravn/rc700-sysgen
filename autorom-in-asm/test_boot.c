@@ -67,6 +67,20 @@ static void test_display_banner(void) {
     PASS();
 }
 
+/* Test: errcpy writes diskette error message */
+static void test_errcpy(void) {
+    TEST("errcpy writes DISKETTE ERROR to display");
+
+    memset(dspstr, 0, 2000);
+    errcpy();
+
+    assert(dspstr[0] == '*');
+    assert(dspstr[1] == '*');
+    assert(dspstr[2] == 'D');
+
+    PASS();
+}
+
 /* Test: format table lookup — maxi N=0 side 0 */
 static void test_fmtlkp_maxi_n0_s0(void) {
     TEST("fmtlkp maxi N=0 side0: EOT=26, GAP3=7");
@@ -136,20 +150,16 @@ static void test_calctb_maxi_n2(void) {
     PASS();
 }
 
-/* Test: setfmt via inline — extract density bits and call fmtlkp + calctb */
-static void test_setfmt_inline(void) {
-    TEST("setfmt logic: extract N from diskbits, call fmtlkp+calctb");
+/* Test: setfmt extracts density and calls fmtlkp + calctb */
+static void test_setfmt(void) {
+    TEST("setfmt extracts N from diskbits, calls fmtlkp+calctb");
 
     memset(ST, 0, sizeof(*ST));
     ST->diskbits = 0x08;         /* N=2 in bits 4-2 (0000_1000), maxi, side 0 */
     ST->currec = 1;
     ST->dsktyp = 0;
     ST->curhed = 0;
-
-    /* Inline setfmt logic (same as dskauto does after Read ID) */
-    ST->reclen = (ST->diskbits >> 2) & 0x07;
-    fmtlkp();
-    calctb();
+    setfmt();
 
     assert(ST->reclen == 2);
     assert(ST->cureot == 0x08);  /* maxi N=2 side0: EOT=8 */
@@ -200,11 +210,12 @@ int main(void) {
 
     test_clear_screen();
     test_display_banner();
+    test_errcpy();
     test_fmtlkp_maxi_n0_s0();
     test_fmtlkp_mini_n2_s1();
     test_calctb_maxi_n0();
     test_calctb_maxi_n2();
-    test_setfmt_inline();
+    test_setfmt();
     test_init_pio();
     test_init_dma();
     test_init_crt();

@@ -31,20 +31,25 @@ static int tests_passed = 0;
 
 #define ST (&g_state)
 
-/* Test: mkdhb combines head and drive (now inlined, test via flo7 behavior) */
-static void test_flo7_seek(void) {
-    TEST("flo7: head=1 drive=0 sends seek to cyl 5");
+/* Test: mkdhb combines head and drive */
+static void test_mkdhb(void) {
+    TEST("mkdhb: head=1 drive=0 -> 0x04");
 
     memset(ST, 0, sizeof(*ST));
-    mock_reset();
     ST->curhed = 1;
     ST->drvsel = 0;
-    ST->curcyl = 5;
+    assert(mkdhb() == 0x04);
 
-    flo7();
+    PASS();
+}
 
-    /* Should have sent 0x0F, 0x04 (dh=4), 0x05 (cyl) */
-    assert(mock_get_log_count() == 3);
+static void test_mkdhb_drive1(void) {
+    TEST("mkdhb: head=0 drive=1 -> 0x01");
+
+    memset(ST, 0, sizeof(*ST));
+    ST->curhed = 0;
+    ST->drvsel = 1;
+    assert(mkdhb() == 0x01);
 
     PASS();
 }
@@ -75,8 +80,7 @@ static void test_chkres_ok(void) {
     ST->fdcres[1] = 0x00;       /* ST1: no errors */
     ST->fdcres[2] = 0x00;       /* ST2: no errors */
 
-    chkres();
-    assert(ST->result == 0);
+    assert(chkres() == 0);
 
     PASS();
 }
@@ -92,8 +96,7 @@ static void test_chkres_error(void) {
     ST->fdcres[1] = 0x00;
     ST->fdcres[2] = 0x00;
 
-    chkres();
-    assert(ST->result == 1);  /* Error, retries remaining */
+    assert(chkres() == 1);  /* Error, retries remaining */
     assert(ST->reptim == 2);
 
     PASS();
@@ -110,23 +113,20 @@ static void test_chkres_exhausted(void) {
     ST->fdcres[1] = 0x00;
     ST->fdcres[2] = 0x00;
 
-    chkres();
-    assert(ST->result == 2);
+    assert(chkres() == 2);
     assert(ST->reptim == 0);
 
     PASS();
 }
 
-/* Test: waitfl with flpflg already set -> immediate success */
-static void test_waitfl_immediate(void) {
-    TEST("waitfl: flpflg=2 -> immediate success");
+/* Test: clrflf clears floppy flag */
+static void test_clrflf(void) {
+    TEST("clrflf clears flpflg to 0");
 
     memset(ST, 0, sizeof(*ST));
     mock_reset();
     ST->flpflg = 2;
-
-    waitfl();
-    assert(ST->result == 0);
+    clrflf();
     assert(ST->flpflg == 0);
 
     PASS();
@@ -169,12 +169,13 @@ static void test_flo6_invalid(void) {
 int main(void) {
     printf("test_fdc: running tests...\n");
 
-    test_flo7_seek();
+    test_mkdhb();
+    test_mkdhb_drive1();
     test_snsdrv();
     test_chkres_ok();
     test_chkres_error();
     test_chkres_exhausted();
-    test_waitfl_immediate();
+    test_clrflf();
     test_flo6();
     test_flo6_invalid();
 

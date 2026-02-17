@@ -1,10 +1,13 @@
 /*
  * fmt.c — Format tables for RC702 autoload
  *
- * Compiled by sccz80 for Z80, by cc for host tests.
+ * Z80 ROM build: all functions implemented in assembly (crt0.asm).
+ * Host test build: C implementations below.
  */
 
 #include "boot.h"
+
+#ifdef HOST_TEST
 
 #define ST (&g_state)
 
@@ -66,3 +69,11 @@ void calctb(void) {
         ST->trbyt = trbyt;
     }
 }
+
+void setfmt(void) {
+    ST->reclen = (ST->diskbits >> 2) & 0x07;
+    fmtlkp();
+    calctb();
+}
+
+#endif /* HOST_TEST */

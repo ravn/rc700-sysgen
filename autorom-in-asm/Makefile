@@ -14,10 +14,10 @@ test: test_boot test_fdc
 	./test_boot
 	./test_fdc
 
-test_boot: test_boot.c $(HOST_COMMON) hal.h boot.h
+test_boot: test_boot.c $(HOST_COMMON) hal.h
 	$(CC) $(CFLAGS) -o $@ test_boot.c $(HOST_COMMON)
 
-test_fdc: test_fdc.c $(HOST_COMMON) hal.h boot.h
+test_fdc: test_fdc.c $(HOST_COMMON) hal.h
 	$(CC) $(CFLAGS) -o $@ test_fdc.c $(HOST_COMMON)
 
 # Z80 ROM build (requires z88dk in ../z88dk)
@@ -25,28 +25,17 @@ Z88DK = ../z88dk
 ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
-# sccz80 compiler (classic lib, no standard CRT)
-# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sccz80)
-# Assembly: crt0.asm (hand-written startup + utilities)
-ZFLAGS = +z80 -clib=classic --no-crt -SO3 \
+Z80_SRC = hal_z80.c init.c fdc.c fmt.c boot.c isr.c
+ZFLAGS = +z80 -clib=sdcc_iy --no-crt -SO3 \
+         --opt-code-size --max-allocs-per-node200000 \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
          -m --list -create-app
 
-rom: crt0.asm rom_all.c boot.c fdc.c fmt.c isr.c
-	export PATH="$(Z88DK)/bin:$$PATH" && \
-	export ZCCCFG="$(ZCCCFG)" && \
-	$(ZCC) $(ZFLAGS) -o roa375 crt0.asm rom_all.c
+rom: crt0.asm
+	export PATH="$(Z88DK)/bin:$$PATH" && export ZCCCFG="$(ZCCCFG)" && $(ZCC) $(ZFLAGS) -o roa375 crt0.asm
 	@ls -la roa375_CODE.bin 2>/dev/null; ls -la roa375_BOOT.bin 2>/dev/null
-	@CODE=$$(wc -c < roa375_CODE.bin); \
-	 BOOT=$$(wc -c < roa375_BOOT.bin); \
-	 TOTAL=$$((CODE + BOOT)); \
-	 echo "BOOT: $$BOOT bytes, CODE: $$CODE bytes, Total: $$TOTAL bytes"; \
-	 if [ $$TOTAL -gt 2048 ]; then \
-	   echo "WARNING: Total $$TOTAL exceeds 2048-byte PROM limit by $$((TOTAL - 2048)) bytes"; \
-	 else \
-	   echo "OK: $$((2048 - TOTAL)) bytes under 2048-byte limit"; \
-	 fi
+	@echo "BOOT: $$(wc -c < roa375_BOOT.bin) bytes, CODE: $$(wc -c < roa375_CODE.bin) bytes, Total: $$(( $$(wc -c < roa375_BOOT.bin) + $$(wc -c < roa375_CODE.bin) )) bytes"
 
 clean:
 	rm -f test_boot test_fdc roa375 roa375_*.bin
