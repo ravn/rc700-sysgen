@@ -30,7 +30,7 @@ void hal_fdc_command(uint8_t cmd);
 uint8_t hal_fdc_status(void);
 uint8_t hal_fdc_data_read(void);
 void hal_fdc_data_write(uint8_t data);
-uint8_t hal_fdc_wait_write(uint8_t data);
+void hal_fdc_wait_write(uint8_t data);
 uint8_t hal_fdc_wait_read(void);
 
 void hal_dma_command(uint8_t cmd);
@@ -140,10 +140,10 @@ void hal_di(void);
     _port_dma_ch1_wc = (uint8_t)((wc) >> 8); \
 } while(0)
 
-/* Functions implemented in assembly (crt0.asm) */
-uint8_t hal_fdc_wait_write(uint8_t data) __z88dk_fastcall;
-uint8_t hal_fdc_wait_read(void);
-void hal_delay(uint8_t outer, uint8_t inner) __z88dk_callee;
+/* Functions implemented in assembly (crt0.asm) — sdcccall(1) ABI */
+void hal_fdc_wait_write(uint8_t data);    /* data in A */
+uint8_t hal_fdc_wait_read(void);          /* returns in L */
+void hal_delay(uint8_t outer, uint8_t inner); /* outer in A, inner in E */
 
 #endif /* HOST_TEST */
 

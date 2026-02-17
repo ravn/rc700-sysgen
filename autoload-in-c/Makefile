@@ -25,10 +25,14 @@ Z88DK = ../z88dk
 ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
-# sccz80 compiler (classic lib, no standard CRT)
-# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sccz80)
+# sdcc compiler with sdcccall(1) register calling convention
+# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc)
 # Assembly: crt0.asm (hand-written startup + utilities)
-ZFLAGS = +z80 -clib=classic --no-crt -SO3 \
+ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
+         -Cs"--max-allocs-per-node 1000000" \
+         -Cs"--fomit-frame-pointer" \
+         -Cs"--allow-unsafe-read" \
+         -Cs"--sdcccall 1" \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
          -m --list -create-app

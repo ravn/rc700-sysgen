@@ -31,17 +31,14 @@ static int tests_passed = 0;
 
 #define ST (&g_state)
 
-/* Test: mkdhb combines head and drive (now inlined, test via flo7 behavior) */
+/* Test: flo7 sends seek command with dh and cyl params */
 static void test_flo7_seek(void) {
-    TEST("flo7: head=1 drive=0 sends seek to cyl 5");
+    TEST("flo7: dh=4 cyl=5 sends seek to cyl 5");
 
     memset(ST, 0, sizeof(*ST));
     mock_reset();
-    ST->curhed = 1;
-    ST->drvsel = 0;
-    ST->curcyl = 5;
 
-    flo7();
+    flo7(4, 5);  /* dh=4 (head=1, drive=0), cyl=5 */
 
     /* Should have sent 0x0F, 0x04 (dh=4), 0x05 (cyl) */
     assert(mock_get_log_count() == 3);
@@ -66,6 +63,7 @@ static void test_snsdrv(void) {
 
 /* Test: chkres success path */
 static void test_chkres_ok(void) {
+    uint8_t r;
     TEST("chkres: ST0=0x00, ST1=0, ST2=0 -> success");
 
     memset(ST, 0, sizeof(*ST));
@@ -75,14 +73,15 @@ static void test_chkres_ok(void) {
     ST->fdcres[1] = 0x00;       /* ST1: no errors */
     ST->fdcres[2] = 0x00;       /* ST2: no errors */
 
-    chkres();
-    assert(ST->result == 0);
+    r = chkres();
+    assert(r == 0);
 
     PASS();
 }
 
 /* Test: chkres error path with retries */
 static void test_chkres_error(void) {
+    uint8_t r;
     TEST("chkres: ST0 mismatch -> error, retries decremented");
 
     memset(ST, 0, sizeof(*ST));
@@ -92,8 +91,8 @@ static void test_chkres_error(void) {
     ST->fdcres[1] = 0x00;
     ST->fdcres[2] = 0x00;
 
-    chkres();
-    assert(ST->result == 1);  /* Error, retries remaining */
+    r = chkres();
+    assert(r == 1);  /* Error, retries remaining */
     assert(ST->reptim == 2);
 
     PASS();
@@ -101,6 +100,7 @@ static void test_chkres_error(void) {
 
 /* Test: chkres retries exhausted */
 static void test_chkres_exhausted(void) {
+    uint8_t r;
     TEST("chkres: retries=1, error -> exhausted (2)");
 
     memset(ST, 0, sizeof(*ST));
@@ -110,8 +110,8 @@ static void test_chkres_exhausted(void) {
     ST->fdcres[1] = 0x00;
     ST->fdcres[2] = 0x00;
 
-    chkres();
-    assert(ST->result == 2);
+    r = chkres();
+    assert(r == 2);
     assert(ST->reptim == 0);
 
     PASS();
@@ -119,14 +119,15 @@ static void test_chkres_exhausted(void) {
 
 /* Test: waitfl with flpflg already set -> immediate success */
 static void test_waitfl_immediate(void) {
+    uint8_t r;
     TEST("waitfl: flpflg=2 -> immediate success");
 
     memset(ST, 0, sizeof(*ST));
     mock_reset();
     ST->flpflg = 2;
 
-    waitfl();
-    assert(ST->result == 0);
+    r = waitfl(0xFF);
+    assert(r == 0);
     assert(ST->flpflg == 0);
 
     PASS();

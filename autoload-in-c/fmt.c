@@ -55,7 +55,7 @@ void calctb(void) {
 
     sectors = ST->cureot - ST->currec + 1;
 
-    if ((ST->dsktyp & 0x80) && (ST->curhed ^ 0x01) == 0) {
+    if ((ST->dsktyp & 0x80) && ST->curhed == 1) {
         sectors = 0x0A;
     }
 

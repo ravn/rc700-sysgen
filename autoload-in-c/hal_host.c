@@ -132,9 +132,8 @@ void hal_fdc_data_write(uint8_t data) {
     log_call(LOG_FDC_WRITE, data);
 }
 
-uint8_t hal_fdc_wait_write(uint8_t data) {
+void hal_fdc_wait_write(uint8_t data) {
     log_call(LOG_FDC_WRITE, data);
-    return 0; /* always succeeds in mock */
 }
 
 uint8_t hal_fdc_wait_read(void) {

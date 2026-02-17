@@ -1,9 +1,9 @@
 /*
  * boot.h — Shared state and function declarations for RC702 autoload
  *
- * Globals-only architecture: no function takes parameters or returns values.
- * All inputs/outputs go through g_state fields. This eliminates IX frame
- * entry/exit overhead and stack parameter pushing in sccz80.
+ * Register-based calling convention: functions take up to 2 parameters
+ * and return values via sdcccall(1) ABI (first param in A/HL, second
+ * in E/DE, return in L/HL).
  */
 
 #ifndef BOOT_H
@@ -57,9 +57,6 @@ typedef struct {
     uint16_t trbyt;         /* +34: transfer bytes */
     uint16_t trkovr;        /* +36: track overflow */
     uint8_t errsav;         /* +38: saved error code */
-    /* New fields for globals-only architecture */
-    uint8_t result;         /* +39: function return value */
-    uint8_t fdccmd;         /* +40: FDC command for flrtrk/readtk */
 } boot_state_t;
 
 /*
@@ -93,22 +90,22 @@ void calctb(void);
 void snsdrv(void);
 void flo4(void);
 void flo6(void);
-void flo7(void);       /* reads curcyl, curhed, drvsel from g_state */
+void flo7(uint8_t dh, uint8_t cyl);
 void rsult(void);
-void recalv(void);     /* writes g_state.result: 0/1/2 */
-void flseek(void);     /* writes g_state.result: 0/1/2 */
-void flrtrk(void);     /* reads g_state.fdccmd */
-void waitfl(void);     /* writes g_state.result: 0/1; hardcoded 0xFF timeout */
-void chkres(void);     /* writes g_state.result: 0/1/2 */
-void readtk(void);     /* reads g_state.fdccmd, g_state.reptim; writes g_state.result */
-void dskauto(void);    /* writes g_state.result: 0/1 */
-void stpdma(void);     /* reads g_state.memadr, g_state.trbyt; hardcoded mode 0x45 */
+uint8_t recalv(void);         /* returns 0/1/2 */
+uint8_t flseek(void);         /* returns 0/1/2 */
+void flrtrk(uint8_t cmd);
+uint8_t waitfl(uint8_t timeout); /* returns 0=ok, 1=timeout */
+uint8_t chkres(void);         /* returns 0/1/2 */
+uint8_t readtk(uint8_t cmd, uint8_t retries); /* returns 0=ok, 1=error */
+uint8_t dskauto(void);        /* returns 0/1 */
+void stpdma(void);
 
 /* boot.c */
 void clear_screen(void);
 void display_banner(void);
-void errdsp(void);     /* reads g_state.errsav */
-void boot_detect(void); /* writes g_state.result: 0/1 */
+void errdsp(uint8_t code);
+uint8_t boot_detect(void);    /* returns 0/1 */
 void boot7(void);
 void flboot(void);
 void check_prom1(void);
@@ -116,11 +113,16 @@ void check_prom1(void);
 /* isr.c */
 void flpint_body(void);
 
-/* Implemented in crt0.asm */
-void halt_forever(void);    /* infinite loop (avoids sccz80 codegen bug) */
-void jump_to(uint16_t addr); /* jump to arbitrary address */
+/* Implemented in crt0.asm (C fallbacks in boot.c for HOST_TEST) */
+void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len);
+uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len);
+void halt_msg(const uint8_t *msg, uint8_t len);
 
-/* syscall — the one function that keeps stack parameters */
-void syscall(uint16_t addr, uint8_t b, uint8_t c);
+/* Implemented in crt0.asm */
+void halt_forever(void);
+void jump_to(uint16_t addr);
+
+/* syscall — addr in HL, bc packed as 16-bit in DE */
+void syscall(uint16_t addr, uint16_t bc);
 
 #endif /* BOOT_H */

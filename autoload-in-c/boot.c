@@ -1,8 +1,8 @@
 /*
  * boot.c — Boot logic for RC702 autoload
  *
- * Globals-only: no function parameters, no return values.
- * All functions access g_state directly via ST->.
+ * Register-based calling convention: functions take up to 2 params
+ * via sdcccall(1) ABI and return status values directly.
  */
 
 #include "hal.h"
@@ -21,13 +21,13 @@ uint8_t dspstr[2000];
 uint16_t scroll_offset;
 #endif
 
-/* Error/status message strings */
-static const char msg_rc700[]   = " RC700";
-static const char msg_rc702[]   = " RC702";
-static const char msg_nosys[]   = " **NO SYSTEM FILES** ";
-static const char msg_nocat[]   = " **NO KATALOG** ";
-static const char msg_nodisk[]  = " **NO DISKETTE NOR LINEPROG** ";
-static const char msg_diskerr[] = "**DISKETTE ERROR** ";
+/* Error/status message strings — non-static for assembly access */
+const char msg_rc700[]   = " RC700";
+const char msg_rc702[]   = " RC702";
+const char msg_nosys[]   = " **NO SYSTEM FILES** ";
+const char msg_nocat[]   = " **NO KATALOG** ";
+const char msg_nodisk[]  = " **NO DISKETTE NOR LINEPROG** ";
+const char msg_diskerr[] = "**DISKETTE ERROR** ";
 
 #ifdef HOST_TEST
 /* C version — Z80 uses assembly in crt0.asm */
@@ -39,18 +39,24 @@ void clear_screen(void) {
 }
 #endif /* HOST_TEST */
 
-/* Helper: copy N bytes from src to dst (inline, avoids function call overhead) */
-static void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len) {
+#ifdef HOST_TEST
+void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len) {
     while (len--) *dst++ = *src++;
 }
 
-/* Helper: compare N bytes, return 0=match, 1=mismatch */
-static uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len) {
+uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len) {
     while (len--) {
         if (*a++ != *b++) return 1;
     }
     return 0;
 }
+
+/* HOST_TEST halt_msg — C fallback */
+void halt_msg(const uint8_t *msg, uint8_t len) {
+    mcopy(dspstr, msg, len);
+    halt_forever();
+}
+#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 void display_banner(void) {
     mcopy(dspstr, (const uint8_t *)msg_rc700, 6);
@@ -58,13 +64,17 @@ void display_banner(void) {
     hal_crt_command(0x23);
 }
 
-void errdsp(void) {
+void errdsp(uint8_t code) {
+    ST->errsav = code;
     hal_ei();
     if (ST->dsktyp & 0x01) return;
     hal_beep();
-    mcopy(dspstr, (const uint8_t *)msg_diskerr, 18);
-    halt_forever();
+    halt_msg((const uint8_t *)msg_diskerr, 18);
 }
+
+#ifdef HOST_TEST
+/* isrc70x and chk_sysfile only needed for HOST_TEST (boot7 stubs).
+ * Z80 build: boot7 is assembly in crt0.asm. */
 
 static uint8_t isrc70x(const uint8_t *base, uint8_t which) {
     const uint8_t *sig = (which == 0x0A) ?
@@ -80,60 +90,26 @@ static uint8_t chk_sysfile(const uint8_t *dir_entry, const char *fname) {
     if ((dir_entry[1 + ATTOFF] & 0x3F) != 0x13) return 1;
     return 0;
 }
+#endif /* HOST_TEST */
 
-static void halt_nosys(void) {
-    mcopy(dspstr, (const uint8_t *)msg_nosys, 20);
-    halt_forever();
-}
-
+#ifdef HOST_TEST
 void boot7(void) {
-    uint8_t *base;
-    uint8_t *dir;
-
-#ifndef HOST_TEST
-    base = (uint8_t *)FLOPPYDATA;
-#else
+    /* HOST_TEST: boot7 returns immediately (can't dereference FLOPPYDATA) */
     return;
-#endif
-
-    if (isrc70x(base, 0x0A) == 0) {
-        dir = base + DIROFF;
-        while (1) {
-            dir += 0x20;
-            if ((uint16_t)(dir - base) >= ((uint16_t)DIREND_HI << 8)) {
-                halt_nosys();
-                return;
-            }
-            if (*dir == 0) continue;
-            if (chk_sysfile(dir, "SYSM") != 0) { halt_nosys(); return; }
-            dir += 0x20;
-            if (*dir == 0) { halt_nosys(); return; }
-            if (chk_sysfile(dir, "SYSC") != 0) { halt_nosys(); return; }
-            return;
-        }
-    }
-
-    if (isrc70x(base, 0x0B) == 0) {
-#ifndef HOST_TEST
-        jump_to(*(uint16_t *)base);
-#endif
-        return;
-    }
-
-    mcopy(dspstr, (const uint8_t *)msg_nocat, 15);
-    halt_forever();
+    (void)isrc70x;  /* suppress unused warning */
+    (void)chk_sysfile;
 }
+#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 void check_prom1(void) {
 #ifndef HOST_TEST
-    uint8_t *prom1 = (uint8_t *)PROM1_ADDR;
-    if (isrc70x(prom1, 0x0B) == 0) {
-        jump_to(*(uint16_t *)prom1);
+    /* Inline the isrc70x check — compare at PROM1+2 against " RC702" */
+    if (mcmp((const uint8_t *)0x2002, (const uint8_t *)msg_rc702, 6) == 0) {
+        jump_to(*(uint16_t *)0x2000);
         return;
     }
 #endif
-    mcopy(dspstr, (const uint8_t *)msg_nodisk, 29);
-    halt_forever();
+    halt_msg((const uint8_t *)msg_nodisk, 29);
 }
 
 static void nxthds(void) {
@@ -166,18 +142,14 @@ static void rdtrk0(uint16_t trkovr_init) {
     ST->trkovr = trkovr_init;
 
     while (1) {
-        flseek();
-        if (ST->result == 1) { check_prom1(); return; }
-        if (ST->result != 0) { ST->errsav = 0x06; errdsp(); return; }
+        uint8_t r = flseek();
+        if (r == 1) { check_prom1(); return; }
+        if (r != 0) { errdsp(0x06); return; }
 
         calctx();
 
-        ST->fdccmd = 0x06;
-        ST->reptim = 5;
-        readtk();
-        if (ST->result != 0) {
-            ST->errsav = 0x28;
-            errdsp();
+        if (readtk(0x06, 5) != 0) {
+            errdsp(0x28);
             return;
         }
 
@@ -188,18 +160,17 @@ static void rdtrk0(uint16_t trkovr_init) {
     }
 }
 
-void boot_detect(void) {
+uint8_t boot_detect(void) {
     ST->curcyl = 0;
     ST->curhed = 1;
     ST->currec = 1;
 
-    dskauto();
-    if (ST->result == 0) {
+    if (dskauto() == 0) {
         ST->diskbits |= 0x02;
     }
 
     ST->curhed = 0;
-    dskauto();
+    return dskauto();
 }
 
 void flboot(void) {
@@ -226,14 +197,12 @@ static void fldsk1(void) {
         return;
     }
 
-    recalv();
-    if (ST->result != 0) {
+    if (recalv() != 0) {
         check_prom1();
         return;
     }
 
-    boot_detect();
-    if (ST->result != 0) {
+    if (boot_detect() != 0) {
         check_prom1();
         return;
     }
@@ -252,23 +221,16 @@ static void fldsk1(void) {
 }
 
 static void preinit(void) {
-    uint8_t sw1;
+    uint8_t *p = (uint8_t *)ST;
+    uint8_t i = sizeof(boot_state_t);
+
+    /* Bulk zero entire struct */
+    while (i--) *p++ = 0;
 
     ST->fdctmo = 3;
     ST->fdcwai = 4;
     ST->flpwai = 4;
-
-    sw1 = hal_read_sw1();
-    ST->diskbits = sw1 & 0x80;
-
-    ST->curhed = 0;
-    ST->drvsel = 0;
-    ST->dsktyp = 0;
-    ST->morefl = 0;
-    ST->flpflg = 0;
-    ST->memadr = 0;
-    ST->trbyt = 0;
-    ST->trkovr = 0;
+    ST->diskbits = hal_read_sw1() & 0x80;
 
     hal_ei();
     hal_motor(1);
@@ -276,7 +238,10 @@ static void preinit(void) {
     fldsk1();
 }
 
-void syscall(uint16_t addr, uint8_t b, uint8_t c) {
+void syscall(uint16_t addr, uint16_t bc) {
+    uint8_t b = (uint8_t)(bc >> 8);
+    uint8_t c = (uint8_t)(bc & 0xFF);
+
     ST->memadr = addr;
     ST->currec = c & 0x7F;
     ST->curcyl = b & 0x7F;
