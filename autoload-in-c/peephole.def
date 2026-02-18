@@ -1,0 +1,18 @@
+	ld	a,0x00
+=
+	xor	a, a
+
+	ld	a,%1
+	out	(%2), a
+	ld	a,%1
+=
+	ld	a,%1
+	out	(%2), a
+
+	xor	a, a
+	out	(%1), a
+	xor	a, a
+=
+	xor	a, a
+	out	(%1), a
+

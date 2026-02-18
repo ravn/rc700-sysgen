@@ -34,11 +34,12 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--fomit-frame-pointer" \
          -Cs"--allow-unsafe-read" \
          -Cs"--sdcccall 1" \
+         -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
          -m --list -create-app
 
-rom: crt0.asm rom_all.c boot_entry.c boot.c fdc.c fmt.c isr.c
+rom: crt0.asm rom_all.c boot_entry.c boot.c fdc.c fmt.c isr.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \

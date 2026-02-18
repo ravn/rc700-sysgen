@@ -126,6 +126,13 @@ void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len);
 uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len);
 #endif
 
+/* Progress tracker — byte at fixed address, visible in MAME debugger */
+#ifdef HOST_TEST
+extern uint8_t progress;
+#else
+#define progress (*(volatile uint8_t *)0xBFFF)
+#endif
+
 /* Implemented in crt0.asm */
 void halt_forever(void);
 void jump_to(uint16_t addr);

@@ -76,7 +76,7 @@ BEGIN:
 _clear_screen:
 	ld	hl, 0x7800		; _DSPSTR
 	ld	de, 0x7801
-	ld	bc, 8 * 208 - 1		; BUG: should be 80*25-1 (original ROM oversight)
+	ld	bc, 80 * 25 - 1		; full 80x25 display (original ROM had 8*208-1)
 	ld	(hl), 0x20
 	ldir
 	ret
@@ -168,7 +168,8 @@ INIT_RELOCATED:
 	LD	I, A
 	IM	2			; Z80 interrupt mode 2
 	CALL	_init_peripherals	; PIO, CTC, DMA, CRT setup (C in init.c)
-	JP	_main			; Enter C code
+	CALL	_main			; Enter C code (CALL for stack trace)
+	jr	$			; Should never return
 
 ;------------------------------------------------------------------------
 ; DISINT — Display interrupt handler (timing-critical DMA reprogramming)
@@ -315,9 +316,10 @@ _halt_msg:
 	ld	de, _DSPSTR		; DE = dst (0x7800)
 hm_lp:
 	ld	a, (hl)			; load char
-	ldi				; copy byte, inc HL/DE, dec BC (BC ignored)
-	or	a			; was it NUL?
-	jr	nz, hm_lp		; continue if not
+	or	a			; NUL?
+	jr	z, _halt_forever	; done — don't copy NUL to display
+	ldi				; copy byte, inc HL/DE
+	jr	hm_lp			; next char
 	PUBLIC	_halt_forever
 _halt_forever:
 	jr	_halt_forever

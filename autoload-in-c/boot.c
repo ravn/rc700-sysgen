@@ -19,6 +19,7 @@
 boot_state_t g_state;
 uint8_t dspstr[2000];
 uint16_t scroll_offset;
+uint8_t progress;
 #endif
 
 /* Error/status message strings — non-static for assembly access */
@@ -242,8 +243,10 @@ void flboot(void) {
 static void fldsk1(void) {
     uint8_t status;
 
+    progress = 0x20;
     hal_delay(1, 0xFF);
 
+    progress = 0x21;
     snsdrv();
     status = ST->fdcres[0] & 0x23;
     if (status != (ST->drvsel + 0x20)) {
@@ -251,24 +254,29 @@ static void fldsk1(void) {
         return;
     }
 
+    progress = 0x22;
     if (recalv() != 0) {
         check_prom1();
         return;
     }
 
+    progress = 0x23;
     if (boot_detect() != 0) {
         check_prom1();
         return;
     }
 
+    progress = 0x24;
     hal_prom_disable();
 
+    progress = 0x25;
     while (1) {
         rdtrk0(ST->trbyt);
         if (ST->curcyl != 0) break;
         dskauto();
     }
 
+    progress = 0x26;
     ST->dsktyp = 1;
     boot7();
     flboot();
@@ -286,9 +294,11 @@ static void preinit(void) {
     ST->flpwai = 4;
     ST->diskbits = hal_read_sw1() & 0x80;
 
+    progress = 0x10;
     hal_ei();
     hal_motor(1);
     ST->reptim = 5;
+    progress = 0x11;
     fldsk1();
 }
 
@@ -313,10 +323,13 @@ void syscall(uint16_t addr, uint16_t bc) {
 
 #ifndef HOST_TEST
 int main(void) {
+    progress = 0x01;
     /* PIO, CTC, DMA, CRT are initialized in crt0.asm before _main */
     init_fdc();
+    progress = 0x02;
     clear_screen();
     display_banner();
+    progress = 0x03;
     preinit();
     return 0;
 }

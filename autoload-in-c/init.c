@@ -23,9 +23,9 @@ void init_pio(void) {
 
 void init_ctc(void) {
     hal_ctc_write(0, 0x08);
-    hal_ctc_write(0, 0xE0);  /* 0x47 | 0x99 */
+    hal_ctc_write(0, 0x47);    /* counter mode, falling edge, TC follows, reset */
     hal_ctc_write(0, 0x20);
-    hal_ctc_write(1, 0xE0);
+    hal_ctc_write(1, 0x47);
     hal_ctc_write(1, 0x20);
     hal_ctc_write(2, 0xD7);
     hal_ctc_write(2, 0x01);
@@ -83,10 +83,10 @@ void init_peripherals(void) {
     hal_pio_write_b_ctrl(0x83);
 
     /* CTC setup */
-    hal_ctc_write(0, 0x08);
-    hal_ctc_write(0, 0xE0);
-    hal_ctc_write(0, 0x20);
-    hal_ctc_write(1, 0xE0);
+    hal_ctc_write(0, 0x08);    /* interrupt vector base (D0=0: vector word) */
+    hal_ctc_write(0, 0x47);    /* counter mode, falling edge, TC follows, reset */
+    hal_ctc_write(0, 0x20);    /* time constant = 32 */
+    hal_ctc_write(1, 0x47);    /* same config as Ch0 */
     hal_ctc_write(1, 0x20);
     hal_ctc_write(2, 0xD7);
     hal_ctc_write(2, 0x01);
