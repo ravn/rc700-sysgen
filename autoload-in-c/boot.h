@@ -113,10 +113,13 @@ void check_prom1(void);
 /* isr.c */
 void flpint_body(void);
 
-/* Implemented in crt0.asm (C fallbacks in boot.c for HOST_TEST) */
+/* Implemented in crt0.asm (C fallback in boot.c for HOST_TEST) */
+void halt_msg(const uint8_t *msg, uint8_t len);
+
+#ifdef HOST_TEST
 void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len);
 uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len);
-void halt_msg(const uint8_t *msg, uint8_t len);
+#endif
 
 /* Implemented in crt0.asm */
 void halt_forever(void);

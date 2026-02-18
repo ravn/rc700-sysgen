@@ -59,7 +59,9 @@ void halt_msg(const uint8_t *msg, uint8_t len) {
 #endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 void display_banner(void) {
-    mcopy(dspstr, (const uint8_t *)msg_rc700, 6);
+    const uint8_t *src = (const uint8_t *)msg_rc700;
+    uint8_t i;
+    for (i = 0; i < 6; i++) dspstr[i] = src[i];
     scroll_offset = 0;
     hal_crt_command(0x23);
 }
@@ -103,10 +105,17 @@ void boot7(void) {
 
 void check_prom1(void) {
 #ifndef HOST_TEST
-    /* Inline the isrc70x check — compare at PROM1+2 against " RC702" */
-    if (mcmp((const uint8_t *)0x2002, (const uint8_t *)msg_rc702, 6) == 0) {
-        jump_to(*(uint16_t *)0x2000);
-        return;
+    {
+        const uint8_t *a = (const uint8_t *)0x2002;
+        const uint8_t *b = (const uint8_t *)msg_rc702;
+        uint8_t i, match = 1;
+        for (i = 0; i < 6; i++) {
+            if (a[i] != b[i]) { match = 0; break; }
+        }
+        if (match) {
+            jump_to(*(uint16_t *)0x2000);
+            return;
+        }
     }
 #endif
     halt_msg((const uint8_t *)msg_nodisk, 29);

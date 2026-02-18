@@ -427,47 +427,6 @@ dl_inner:
 	ret
 
 ;------------------------------------------------------------------------
-; mcopy(dst, src, len) — sdcccall(1): HL=dst, DE=src, [SP+2]=len
-; Copy len bytes from src to dst using LDIR.
-;------------------------------------------------------------------------
-	PUBLIC	_mcopy
-_mcopy:
-	ex	de, hl			; HL=src, DE=dst (LDIR convention)
-	push	hl			; save src
-	ld	hl, 4			; offset: 2(push) + 2(retaddr)
-	add	hl, sp
-	ld	c, (hl)			; C = len
-	pop	hl			; HL = src
-	ld	b, 0			; BC = len
-	ldir
-	ret
-
-;------------------------------------------------------------------------
-; mcmp(a, b, len) — sdcccall(1): HL=a, DE=b, [SP+2]=len
-; Compare len bytes, return L: 0=match, 1=mismatch.
-;------------------------------------------------------------------------
-	PUBLIC	_mcmp
-_mcmp:
-	push	hl			; save a
-	ld	hl, 4			; offset: 2(push) + 2(retaddr)
-	add	hl, sp
-	ld	c, (hl)			; C = len
-	pop	hl			; HL = a
-mc_loop:
-	ld	a, (de)
-	cp	(hl)
-	jr	nz, mc_diff
-	inc	hl
-	inc	de
-	dec	c
-	jr	nz, mc_loop
-	ld	l, 0			; match
-	ret
-mc_diff:
-	ld	l, 1			; mismatch
-	ret
-
-;------------------------------------------------------------------------
 ; halt_msg(msg, len) — sdcccall(1): HL=msg, E=len
 ; Copy len bytes from msg to dspstr, then halt forever.
 ;------------------------------------------------------------------------
@@ -538,12 +497,8 @@ _boot7:
 	; Compare 6 bytes at 0x0002 against " RC700"
 	ld	hl, 0x0002
 	ld	de, _msg_rc700
-	ld	bc, 6
-	push	bc			; len on stack for mcmp
-	call	_mcmp			; returns L: 0=match
-	pop	bc
-	ld	a, l
-	or	a
+	ld	b, 6
+	call	b7_cmp6
 	jr	nz, b7_try702
 
 	; RC700 boot: scan directory starting at DIROFF + 0x20
@@ -592,12 +547,8 @@ b7_try702:
 	; Compare 6 bytes at 0x0002 against " RC702"
 	ld	hl, 0x0002
 	ld	de, _msg_rc702
-	ld	bc, 6
-	push	bc
-	call	_mcmp
-	pop	bc
-	ld	a, l
-	or	a
+	ld	b, 6
+	call	b7_cmp6
 	jr	nz, b7_nocat
 	; Match — jump to boot vector at address 0x0000
 	ld	hl, (0x0000)
@@ -607,6 +558,17 @@ b7_nocat:
 	ld	hl, _msg_nocat
 	ld	e, 15
 	jp	_halt_msg
+
+; Local subroutine: compare B bytes at (HL) against (DE)
+; Returns Z=match, NZ=mismatch. Clobbers A, B, DE, HL.
+b7_cmp6:
+	ld	a, (de)
+	cp	(hl)
+	ret	nz
+	inc	hl
+	inc	de
+	djnz	b7_cmp6
+	ret				; Z set = match
 
 ; Local subroutine: check directory entry against 4-byte pattern
 ; HL = dir entry, DE = 4-byte pattern
