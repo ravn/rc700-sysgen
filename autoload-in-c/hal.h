@@ -140,10 +140,12 @@ void hal_di(void);
     _port_dma_ch1_wc = (uint8_t)((wc) >> 8); \
 } while(0)
 
-/* Functions implemented in assembly (crt0.asm) — sdcccall(1) ABI */
-void hal_fdc_wait_write(uint8_t data);    /* data in A */
-uint8_t hal_fdc_wait_read(void);          /* returns in L */
-void hal_delay(uint8_t outer, uint8_t inner); /* outer in A, inner in E */
+/* C implementations in hal_z80.c — sdcc generates near-optimal IN/OUT loops */
+void hal_fdc_wait_write(uint8_t data);
+uint8_t hal_fdc_wait_read(void);
+
+/* Assembly in crt0.asm — sdcc generates 8 bytes more than hand-written */
+void hal_delay(uint8_t outer, uint8_t inner);
 
 #endif /* HOST_TEST */
 

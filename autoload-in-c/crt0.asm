@@ -22,8 +22,8 @@
 ;            0x70EB      halt_msg + halt_forever (in alignment padding)
 ;            0x70F6      b7_sysm, b7_sysc strings (in alignment padding)
 ;            0x7100      Interrupt vector table (256-byte aligned)
-;            0x7120      HAL: hal_fdc_wait_write, hal_fdc_wait_read, hal_delay
-;            0x715C      Boot helpers: b7_cmp6, b7_chksys (CP (HL)/DJNZ)
+;            0x7120      HAL: hal_delay (assembly; C version is 8 bytes larger)
+;            0x712E      Boot helpers: b7_cmp6, b7_chksys (CP (HL)/DJNZ)
 ;            0x7184+     C code (sdcc): fdc.c, fmt.c, boot.c, isr.c
 ;            ...+        Read-only data: format tables, message strings
 ;
@@ -36,7 +36,7 @@
 ; - DISINT display interrupt handler (timing-critical DMA reprogramming)
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
 ; - Hardware init sequences (PIO, CTC, DMA, CRT)
-; - HAL functions: hal_fdc_wait_write, hal_fdc_wait_read, hal_delay
+; - HAL function: hal_delay (fdc_wait_write/read moved to C in hal_z80.c)
 ; - Utility: clear_screen, init_fdc, halt_msg
 ; - Boot helpers: b7_cmp6, b7_chksys (comparison loops need CP (HL)/DJNZ)
 ;
@@ -49,6 +49,7 @@
 	EXTERN	_errdsp
 	EXTERN	_relocate
 	EXTERN	_msg_rc700
+	EXTERN	_hal_fdc_wait_write
 
 
 	SECTION	BOOT
@@ -408,51 +409,6 @@ GS_DISKBITS	EQU	28		; +28: diskbits
 GS_ERRSAV	EQU	38		; +38: errsav
 GS_MEMADR	EQU	32		; +32: memadr
 GS_TRBYT	EQU	34		; +34: trbyt
-
-;------------------------------------------------------------------------
-; hal_fdc_wait_write(data) — sdcccall(1), data in A; void return
-;------------------------------------------------------------------------
-	PUBLIC	_hal_fdc_wait_write
-_hal_fdc_wait_write:
-	ld	d, a
-	ld	bc, 0
-ww_loop:
-	inc	c
-	jr	nz, ww_chk
-	inc	b
-	jr	z, ww_tout
-ww_chk:
-	in	a, (P_FDC_STATUS)
-	and	0xC0
-	cp	0x80
-	jr	nz, ww_loop
-	ld	a, d
-	out	(P_FDC_DATA), a
-ww_tout:
-	ret
-
-;------------------------------------------------------------------------
-; hal_fdc_wait_read() — returns byte in L
-;------------------------------------------------------------------------
-	PUBLIC	_hal_fdc_wait_read
-_hal_fdc_wait_read:
-	ld	bc, 0
-wr_loop:
-	inc	c
-	jr	nz, wr_chk
-	inc	b
-	jr	z, wr_tout
-wr_chk:
-	in	a, (P_FDC_STATUS)
-	and	0xC0
-	cp	0xC0
-	jr	nz, wr_loop
-	in	a, (P_FDC_DATA)
-	ld	l, a
-	ret
-wr_tout:
-	ld	l, 0xFF
-	ret
 
 ;------------------------------------------------------------------------
 ; hal_delay(outer, inner) — sdcccall(1), outer in A, inner in E

@@ -8,6 +8,7 @@
  * Only used for Z80 ROM build; host tests compile individually.
  */
 
+#include "hal_z80.c"
 #include "fmt.c"
 #include "fdc.c"
 #include "boot.c"
