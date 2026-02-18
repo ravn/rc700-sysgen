@@ -22,7 +22,7 @@
 ;            0x70EB      halt_msg + halt_forever (in alignment padding)
 ;            0x70F6      b7_sysm, b7_sysc strings (in alignment padding)
 ;            0x7100      Interrupt vector table (256-byte aligned)
-;            0x7120      HAL: hal_delay (assembly; C version is 8 bytes larger)
+;            0x7120      Boot helpers start (after INTVEC)
 ;            0x712E      Boot helpers: b7_cmp6, b7_chksys (CP (HL)/DJNZ)
 ;            0x7184+     C code (sdcc): fdc.c, fmt.c, boot.c, isr.c
 ;            ...+        Read-only data: format tables, message strings
@@ -36,7 +36,7 @@
 ; - DISINT display interrupt handler (timing-critical DMA reprogramming)
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
 ; - Hardware init sequences (PIO, CTC, DMA, CRT)
-; - HAL function: hal_delay (fdc_wait_write/read moved to C in hal_z80.c)
+; - HAL functions moved to C in hal_z80.c (fdc_wait_write/read, delay)
 ; - Utility: clear_screen, init_fdc, halt_msg
 ; - Boot helpers: b7_cmp6, b7_chksys (comparison loops need CP (HL)/DJNZ)
 ;
@@ -50,6 +50,7 @@
 	EXTERN	_relocate
 	EXTERN	_msg_rc700
 	EXTERN	_hal_fdc_wait_write
+	EXTERN	_hal_delay
 
 
 	SECTION	BOOT
@@ -85,8 +86,12 @@ _clear_screen:
 ; init_fdc — wait for FDC ready, send SPECIFY command
 	PUBLIC	_init_fdc
 _init_fdc:
-	ld	a, 1			; outer = 1
-	ld	e, 0xFF			; inner = 0xFF
+	; hal_delay is now C (sdcccall(1): outer in A, inner in L).
+	; sdcc's DJNZ inner loop is faster than the original dec a/jr nz,
+	; so (2, 157) matches the original (1, 0xFF) timing within 0.3%.
+	; If hal_delay reverts to assembly, restore to (1, 0xFF) in (A, E).
+	ld	a, 2			; outer = 2
+	ld	l, 157			; inner = 157
 	call	_hal_delay
 if_wait:
 	in	a, (P_FDC_STATUS)
@@ -409,26 +414,6 @@ GS_DISKBITS	EQU	28		; +28: diskbits
 GS_ERRSAV	EQU	38		; +38: errsav
 GS_MEMADR	EQU	32		; +32: memadr
 GS_TRBYT	EQU	34		; +34: trbyt
-
-;------------------------------------------------------------------------
-; hal_delay(outer, inner) — sdcccall(1), outer in A, inner in E
-;------------------------------------------------------------------------
-	PUBLIC	_hal_delay
-_hal_delay:
-	or	a
-	ret	z
-	ld	d, a			; D = outer count
-dl_outer:
-	ld	b, e			; B = inner count
-dl_mid:
-	xor	a
-dl_inner:
-	dec	a
-	jr	nz, dl_inner
-	djnz	dl_mid
-	dec	d
-	jr	nz, dl_outer
-	ret
 
 ;------------------------------------------------------------------------
 ; b7_cmp6(a, b) — Compare 6 bytes at a vs b
