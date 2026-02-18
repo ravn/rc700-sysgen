@@ -4,7 +4,7 @@
  * init_peripherals() does PIO, CTC, DMA, CRT setup in one function,
  * called from the INIT_RELOCATED asm stub in crt0.asm.
  * Individual init_pio/ctc/dma/crt kept for host testing.
- * FDC init is in crt0.asm BOOT section (runs from ROM before relocation).
+ * FDC init is also here, shared between Z80 and host builds.
  */
 
 #include "hal.h"
@@ -54,13 +54,8 @@ void init_crt(void) {
 }
 
 void init_fdc(void) {
-    uint8_t status;
-
-    hal_delay(1, 0xFF);
-    do {
-        status = hal_fdc_status();
-    } while ((status & 0x1F) != 0);
-
+    hal_delay(2, 157);
+    while (hal_fdc_status() & 0x1F) ;
     hal_fdc_wait_write(0x03);
     hal_fdc_wait_write(0x4F);
     hal_fdc_wait_write(0x20);

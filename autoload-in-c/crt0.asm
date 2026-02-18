@@ -6,10 +6,7 @@
 ;   Section  Address   Contents
 ;   -------  --------  ----------------------------------------
 ;   BOOT     0x0000    Entry point: DI, SP setup, CALL relocate, JP INIT
-;            0x000A    clear_screen (LDIR fill, runs from ROM)
-;            0x0018    init_fdc (FDC ready wait + SPECIFY, runs from ROM)
-;            0x0034    display_banner (asm, frees 30 bytes in CODE for C)
-;            ...       C code from boot_entry.c (--codeseg BOOT):
+;            0x000A    C code from boot_entry.c (--codeseg BOOT):
 ;                        relocate() — self-relocation loop
 ;            gap       Available for more BOOT C code (must fit before 0x0066)
 ;   NMI      0x0066    RETN (Z80 hardware NMI vector, fixed address)
@@ -33,8 +30,7 @@
 ; - Interrupt vector table (at CODE section start, naturally page-aligned)
 ; - DISINT display interrupt handler (timing-critical DMA reprogramming)
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
-; - Utility: clear_screen, init_fdc, halt_msg, halt_forever
-; - Small functions: jump_to, hal_ei, hal_di
+; - Utility: halt_msg, halt_forever, jump_to, hal_ei, hal_di
 ; - String data: b7_sysm, b7_sysc
 ;
 ; All other boot logic, FDC driver, and format tables are in C (sdcc).
@@ -43,12 +39,11 @@
 	; External symbols provided by C code
 	EXTERN	_main
 	EXTERN	_flpint_body
-	EXTERN	_errdsp
-	EXTERN	_relocate
-	EXTERN	_msg_rc700
-	EXTERN	_hal_fdc_wait_write
-	EXTERN	_hal_delay
 	EXTERN	_init_peripherals
+
+	; Linker-generated section boundary symbols (for LDIR relocation)
+	EXTERN	__NMI_tail
+	EXTERN	__tail
 
 
 	SECTION	BOOT
@@ -62,60 +57,12 @@ BEGIN:
 	DI
 	LD	SP, 0xBFFF		; Stack below display buffer
 
-; Copy payload from ROM to RAM at 0x7000
-	CALL	_relocate		; C function in BOOT section
+; Copy CODE payload from ROM to RAM at 0x7000 (inline LDIR)
+	LD	HL, __NMI_tail		; source: ROM right after NMI section
+	LD	DE, 0x7000		; destination: RAM
+	LD	BC, __tail - 0x7000	; byte count (total CODE payload size)
+	LDIR
 	JP	INIT_RELOCATED		; Jump to relocated init code
-
-;========================================================================
-; Functions in BOOT padding — only used before hal_prom_disable()
-; PROM is still mapped here, so these are callable from relocated code.
-;========================================================================
-
-; clear_screen — fill display buffer with spaces
-	PUBLIC	_clear_screen
-_clear_screen:
-	ld	hl, 0x7800		; _DSPSTR
-	ld	de, 0x7801
-	ld	bc, 80 * 25 - 1		; full 80x25 display (original ROM had 8*208-1)
-	ld	(hl), 0x20
-	ldir
-	ret
-
-; init_fdc — wait for FDC ready, send SPECIFY command
-	PUBLIC	_init_fdc
-_init_fdc:
-	; hal_delay is now C (sdcccall(1): outer in A, inner in L).
-	; sdcc's DJNZ inner loop is faster than the original dec a/jr nz,
-	; so (2, 157) matches the original (1, 0xFF) timing within 0.3%.
-	; If hal_delay reverts to assembly, restore to (1, 0xFF) in (A, E).
-	ld	a, 2			; outer = 2
-	ld	l, 157			; inner = 157
-	call	_hal_delay
-if_wait:
-	in	a, (P_FDC_STATUS)
-	and	0x1F
-	jr	nz, if_wait
-	ld	a, 0x03
-	call	_hal_fdc_wait_write
-	ld	a, 0x4F
-	call	_hal_fdc_wait_write
-	ld	a, 0x20
-	jp	_hal_fdc_wait_write
-
-; display_banner — write " RC700" to screen, reset scroll, enable CRT
-; Written in assembly to free 30 bytes in CODE for C functions.
-; Only called from main() before hal_prom_disable(), so safe in BOOT.
-	PUBLIC	_display_banner
-_display_banner:
-	ld	hl, _msg_rc700
-	ld	de, _DSPSTR		; 0x7800
-	ld	bc, 6
-	ldir
-	ld	hl, 0
-	ld	(_SCROLLOFFSET), hl
-	ld	a, 0x23
-	out	(CRTCOM), a
-	ret
 
 ; Gap from here to 0x0066 is available for C code (--codeseg BOOT)
 
