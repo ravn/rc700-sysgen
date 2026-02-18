@@ -93,7 +93,6 @@ void stpdma(void) {
     hal_ei();
 }
 
-#ifdef HOST_TEST
 void flrtrk(uint8_t cmd) {
     uint8_t mfm_flag = (ST->diskbits & 0x01) ? 0x40 : 0;
     uint8_t dh = (ST->curhed << 2) | ST->drvsel;
@@ -113,7 +112,6 @@ void flrtrk(uint8_t cmd) {
     }
     hal_ei();
 }
-#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 uint8_t chkres(void) {
     if ((ST->fdcres[0] & 0xC3) == ST->drvsel &&

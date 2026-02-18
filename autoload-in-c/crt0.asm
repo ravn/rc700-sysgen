@@ -62,7 +62,7 @@ COPYLP:
 _clear_screen:
 	ld	hl, 0x7800		; _DSPSTR
 	ld	de, 0x7801
-	ld	bc, 8 * 208 - 1
+	ld	bc, 8 * 208 - 1		; BUG: should be 80*25-1 (original ROM oversight)
 	ld	(hl), 0x20
 	ldir
 	ret
@@ -199,7 +199,6 @@ DISINT:
 
 	PUSH	HL
 	PUSH	DE
-	PUSH	BC
 
 	LD	A, 0x06
 	OUT	(SMSK), A
@@ -222,7 +221,7 @@ DISINT:
 	CPL
 	LD	H, A
 	INC	HL
-	LD	DE, 1999
+	LD	DE, 80*25-1		; screen length - 1
 	ADD	HL, DE
 	LD	DE, _DSPSTR
 	ADD	HL, DE
@@ -231,16 +230,14 @@ DISINT:
 	LD	A, H
 	OUT	(WCREG2), A
 
-	LD	HL, _DSPSTR
-	LD	A, L
+	XOR	A			; _DSPSTR low = 0x00
 	OUT	(CH3ADR), A
-	LD	A, H
+	LD	A, _DSPSTR / 256	; _DSPSTR high = 0x78
 	OUT	(CH3ADR), A
 
-	LD	HL, 1999
-	LD	A, L
+	LD	A, (80*25-1) & 0xFF	; screen length - 1, low
 	OUT	(WCREG3), A
-	LD	A, H
+	LD	A, (80*25-1) / 256	; screen length - 1, high
 	OUT	(WCREG3), A
 
 	LD	A, 0x02
@@ -248,7 +245,6 @@ DISINT:
 	LD	A, 0x03
 	OUT	(SMSK), A
 
-	POP	BC
 	POP	DE
 	POP	HL
 
@@ -317,6 +313,23 @@ _hal_ei:
 _hal_di:
 	di
 	ret
+
+;------------------------------------------------------------------------
+; Fill alignment gap with halt_msg + boot7 string data (19 bytes)
+;------------------------------------------------------------------------
+
+	PUBLIC	_halt_msg
+_halt_msg:
+	ld	c, e			; C = len
+	ld	b, 0			; BC = len
+	ld	de, _DSPSTR		; DE = dst (0x7800)
+	ldir				; copy msg to display
+	jp	_halt_forever
+
+b7_sysm:
+	DB	"SYSM"
+b7_sysc:
+	DB	"SYSC"
 
 ;------------------------------------------------------------------------
 ; Interrupt vector table — must be page-aligned
@@ -427,68 +440,6 @@ dl_inner:
 	ret
 
 ;------------------------------------------------------------------------
-; halt_msg(msg, len) — sdcccall(1): HL=msg, E=len
-; Copy len bytes from msg to dspstr, then halt forever.
-;------------------------------------------------------------------------
-	PUBLIC	_halt_msg
-_halt_msg:
-	ld	c, e			; C = len
-	ld	b, 0			; BC = len
-	ld	de, _DSPSTR		; DE = dst (0x7800)
-	ldir				; copy msg to display
-	jp	_halt_forever
-
-;------------------------------------------------------------------------
-; flrtrk(cmd) — sdcccall(1): cmd in A
-; Send FDC command with optional MFM flag and 7-byte parameter block.
-;------------------------------------------------------------------------
-	PUBLIC	_flrtrk
-_flrtrk:
-	ld	c, a			; C = original cmd
-	ld	a, (_g_state + GS_DISKBITS)
-	rrca				; bit 0 → carry
-	ld	a, c			; A = cmd
-	jr	nc, ft_nomfm
-	or	0x40			; set MFM flag
-ft_nomfm:
-	ld	d, a			; D = cmd | mfm
-	; Compute dh = (curhed << 2) | drvsel
-	ld	a, (_g_state + GS_CURHED)
-	rlca
-	rlca
-	ld	hl, _g_state + GS_DRVSEL
-	or	(hl)			; A = dh
-	ld	e, a			; E = dh
-	; Send command
-	di
-	ld	a, 0xFF
-	ld	(_g_state + GS_FDCFLG), a ; fdcflg = 0xFF
-	ld	a, d
-	call	_hal_fdc_wait_write	; send cmd|mfm
-	ld	a, e
-	call	_hal_fdc_wait_write	; send dh
-	; Check if read/write data command (0x06)
-	ld	a, c
-	and	0x0F
-	cp	0x06
-	jr	nz, ft_done
-	; Send 7 parameter bytes: curcyl through dtl
-	ld	hl, _g_state + GS_CURCYL
-	ld	b, 7
-ft_parm:
-	push	hl
-	push	bc
-	ld	a, (hl)
-	call	_hal_fdc_wait_write
-	pop	bc
-	pop	hl
-	inc	hl
-	djnz	ft_parm
-ft_done:
-	ei
-	ret
-
-;------------------------------------------------------------------------
 ; boot7 — Check boot signature, validate system files, or show error
 ; Z80 only (HOST_TEST version is a stub in boot.c)
 ;------------------------------------------------------------------------
@@ -591,11 +542,6 @@ b7_cmp:
 	and	0x3F
 	cp	0x13
 	ret				; Z=match, NZ=mismatch
-
-b7_sysm:
-	DB	"SYSM"
-b7_sysc:
-	DB	"SYSC"
 
 ;------------------------------------------------------------------------
 ; g_state — boot state structure at fixed RAM address
