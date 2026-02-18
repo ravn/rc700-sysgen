@@ -36,21 +36,9 @@
 BEGIN:
 	DI
 	LD	SP, 0xBFFF		; Stack below display buffer
-	LD	HL, MOVADR		; Start of payload marker
-
-; Scan for actual code start (skip zeros, find 0xFF marker)
-SCANLP:
-	LD	A, (HL)
-	OR	A
-	INC	HL
-	JP	Z, SCANLP
-	CP	0xFF			; Found marker?
-	JP	Z, SKIP
-	DEC	HL			; Back up to non-zero byte
-SKIP:
-	EX	DE, HL			; DE = source address
 
 ; Copy payload from ROM to RAM at 0x7000
+	LD	DE, PAYLOAD		; Source: right after BOOT section
 	LD	HL, 0x7000		; Destination
 	LD	BC, PAYLOADLEN		; Byte count
 COPYLP:
@@ -65,16 +53,43 @@ COPYLP:
 	JP	INIT_RELOCATED		; Jump to relocated init code
 
 ;========================================================================
-; Space between COPYLP and NMI vector at 0x0066
+; Functions in BOOT padding — only used before hal_prom_disable()
+; PROM is still mapped here, so these are callable from relocated code.
 ;========================================================================
+
+; clear_screen — fill display buffer with spaces
+	PUBLIC	_clear_screen
+_clear_screen:
+	ld	hl, 0x7800		; _DSPSTR
+	ld	de, 0x7801
+	ld	bc, 8 * 208 - 1
+	ld	(hl), 0x20
+	ldir
+	ret
+
+; init_fdc — wait for FDC ready, send SPECIFY command
+	PUBLIC	_init_fdc
+_init_fdc:
+	ld	a, 1			; outer = 1
+	ld	e, 0xFF			; inner = 0xFF
+	call	_hal_delay
+if_wait:
+	in	a, (P_FDC_STATUS)
+	and	0x1F
+	jr	nz, if_wait
+	ld	a, 0x03
+	call	_hal_fdc_wait_write
+	ld	a, 0x4F
+	call	_hal_fdc_wait_write
+	ld	a, 0x20
+	jp	_hal_fdc_wait_write
 
 	DEFS	0x0066 - $		; Pad to NMI vector address
 
 ; NMI handler at ROM offset 0x0066
 	RETN
 
-MOVADR:
-	DB	0xFF			; Marker byte for relocation scanner
+PAYLOAD:				; Payload starts here in ROM
 
 ;========================================================================
 ; RELOCATED CODE SECTION — loaded to 0x7000, executed from there
@@ -410,37 +425,6 @@ dl_inner:
 	dec	d
 	jr	nz, dl_outer
 	ret
-
-;------------------------------------------------------------------------
-; clear_screen — fill display buffer with spaces
-;------------------------------------------------------------------------
-	PUBLIC	_clear_screen
-_clear_screen:
-	ld	hl, _DSPSTR
-	ld	de, _DSPSTR + 1
-	ld	bc, 8 * 208 - 1
-	ld	(hl), 0x20
-	ldir
-	ret
-
-;------------------------------------------------------------------------
-; init_fdc — wait for FDC ready, send SPECIFY command
-;------------------------------------------------------------------------
-	PUBLIC	_init_fdc
-_init_fdc:
-	ld	a, 1			; outer = 1
-	ld	e, 0xFF			; inner = 0xFF
-	call	_hal_delay
-if_wait:
-	in	a, (P_FDC_STATUS)
-	and	0x1F
-	jr	nz, if_wait
-	ld	a, 0x03
-	call	_hal_fdc_wait_write
-	ld	a, 0x4F
-	call	_hal_fdc_wait_write
-	ld	a, 0x20
-	jp	_hal_fdc_wait_write
 
 ;------------------------------------------------------------------------
 ; mcopy(dst, src, len) — sdcccall(1): HL=dst, DE=src, [SP+2]=len
