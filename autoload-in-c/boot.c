@@ -56,24 +56,30 @@ void halt_msg(const uint8_t *msg) {
     halt_forever();
 }
 
-/* HOST_TEST b7_cmp6/b7_chksys — C fallbacks for assembly in crt0.asm */
+#endif /* HOST_TEST */
+
+/* b7_cmp6 — compare 6 bytes.  Pointer-increment style generates compact
+ * sdcc output (17 bytes, no IX frame) vs indexed a[i] (35 bytes with IX). */
 uint8_t b7_cmp6(const uint8_t *a, const uint8_t *b) {
-    uint8_t i;
-    for (i = 0; i < 6; i++) {
-        if (a[i] != b[i]) return 1;
-    }
+    uint8_t i = 6;
+    do {
+        if (*a++ != *b++) return 1;
+    } while (--i);
     return 0;
 }
 
+/* b7_chksys — check dir entry name + attribute.  Pointer-increment for
+ * the 4-byte name comparison, then direct offset for the attribute byte. */
 uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern) {
-    uint8_t i;
-    for (i = 0; i < 4; i++) {
-        if (dir[1 + i] != pattern[i]) return 1;
-    }
-    if ((dir[1 + ATTOFF] & 0x3F) != 0x13) return 1;
+    uint8_t i = 4;
+    dir++;  /* skip dir[0] */
+    do {
+        if (*dir++ != *pattern++) return 1;
+    } while (--i);
+    /* dir now at dir[5], need dir[8] */
+    if ((dir[3] & 0x3F) != 0x13) return 1;
     return 0;
 }
-#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 /*
  * display_banner — Z80: assembly in crt0.asm BOOT section.
@@ -101,8 +107,8 @@ void errdsp(uint8_t code) {
 /*
  * boot7 — Verify Track 0 directory contains system files.
  *
- * b7_cmp6/b7_chksys are assembly in crt0.asm (they use CP (HL)/DJNZ
- * which sdcc cannot generate from C). The "SYSM"/"SYSC" strings live
+ * b7_cmp6/b7_chksys are C (pointer-increment avoids IX frame).
+ * The "SYSM"/"SYSC" strings live
  * in the crt0.asm alignment gap (zero-cost).
  *
  * Uses one file-scope global (b7_dir) to avoid IX frame pointer.

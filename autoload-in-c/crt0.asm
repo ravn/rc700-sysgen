@@ -23,9 +23,8 @@
 ;            0x70F6      b7_sysm, b7_sysc strings (in alignment padding)
 ;            0x7100      Interrupt vector table (256-byte aligned)
 ;            0x7120      Boot helpers start (after INTVEC)
-;            0x712E      Boot helpers: b7_cmp6, b7_chksys (CP (HL)/DJNZ)
-;            0x7184+     C code (sdcc): fdc.c, fmt.c, boot.c, isr.c
-;            ...+        Read-only data: format tables, message strings
+;            0x712E+     C code (sdcc): hal_z80.c, fdc.c, fmt.c, boot.c, isr.c
+;            ...         Read-only data: format tables, message strings
 ;
 ; The BOOT and NMI sections remain in ROM until hal_prom_disable().
 ; The CODE payload is copied to RAM at 0x7000 by relocate() in boot_entry.c.
@@ -38,7 +37,7 @@
 ; - Hardware init sequences (PIO, CTC, DMA, CRT)
 ; - HAL functions moved to C in hal_z80.c (fdc_wait_write/read, delay)
 ; - Utility: clear_screen, init_fdc, halt_msg
-; - Boot helpers: b7_cmp6, b7_chksys (comparison loops need CP (HL)/DJNZ)
+; - Boot helpers b7_cmp6/b7_chksys moved to C in boot.c
 ;
 ; All other boot logic, FDC driver, and format tables are in C (sdcc).
 ;
@@ -396,73 +395,11 @@ INTVEC:
 	DW	DUMINT			; +30: Dummy
 
 ;========================================================================
-; Assembly utility functions
+; Constants and data
 ;========================================================================
 
-; Port addresses
+; Port address (used by init_fdc in BOOT section)
 P_FDC_STATUS	EQU	0x04
-P_FDC_DATA	EQU	0x05
-
-; g_state field offsets
-GS_FDCRES	EQU	0		; +0: fdcres[7]
-GS_FDCFLG	EQU	7		; +7: fdcflg
-GS_DRVSEL	EQU	10		; +10: drvsel
-GS_FDCWAI	EQU	12		; +12: fdcwai
-GS_CURCYL	EQU	17		; +17: curcyl
-GS_CURHED	EQU	18		; +18: curhed
-GS_DISKBITS	EQU	28		; +28: diskbits
-GS_ERRSAV	EQU	38		; +38: errsav
-GS_MEMADR	EQU	32		; +32: memadr
-GS_TRBYT	EQU	34		; +34: trbyt
-
-;------------------------------------------------------------------------
-; b7_cmp6(a, b) — Compare 6 bytes at a vs b
-; sdcccall(1): a in HL, b in DE. Returns 0 (match) or 1 (mismatch) in A.
-; These byte-comparison loops use CP (HL)/DJNZ which C cannot express.
-;------------------------------------------------------------------------
-	PUBLIC	_b7_cmp6
-_b7_cmp6:
-	ld	b, 6
-b7c6_lp:
-	ld	a, (de)
-	cp	(hl)
-	jr	nz, b7_ne
-	inc	hl
-	inc	de
-	djnz	b7c6_lp
-	xor	a			; return 0 = match
-	ret
-b7_ne:
-	ld	a, 1			; return 1 = mismatch
-	ret
-
-;------------------------------------------------------------------------
-; b7_chksys(dir, pattern) — Check directory entry name + attribute
-; sdcccall(1): dir in HL, pattern in DE.
-; Compares dir[1..4] against pattern[0..3], then checks dir[8] attribute.
-; Returns 0 (match) or 1 (mismatch) in A.
-;------------------------------------------------------------------------
-	PUBLIC	_b7_chksys
-_b7_chksys:
-	inc	hl			; HL = dir + 1
-	ld	b, 4
-b7cs_lp:
-	ld	a, (de)
-	cp	(hl)
-	jr	nz, b7_ne		; reuse mismatch return above
-	inc	hl
-	inc	de
-	djnz	b7cs_lp
-	; Check attribute: dir[1+ATTOFF] = dir[8], HL is now at dir+5
-	inc	hl			; dir+6
-	inc	hl			; dir+7
-	inc	hl			; dir+8
-	ld	a, (hl)
-	and	0x3F
-	cp	0x13
-	jr	nz, b7_ne		; reuse mismatch return
-	xor	a			; return 0 = match
-	ret
 
 ;------------------------------------------------------------------------
 ; g_state — boot state structure at fixed RAM address
