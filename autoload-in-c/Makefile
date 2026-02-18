@@ -1,7 +1,10 @@
 # Makefile for RC702 autoload PROM rewrite
 #
 # Host tests:  make test
-# Z80 build:   make rom    (requires z88dk)
+# Z80 build:   make rom      (requires z88dk)
+# PROM image:  make prom     (assembles 2048-byte roa375.ic66)
+# MAME launch: make mame     (builds, installs PROM, launches with debugger)
+# MAME syms:   make mamesym  (generates roa375_mame.sym for debugger)
 # Clean:       make clean
 
 CC = cc
@@ -60,9 +63,44 @@ rom: crt0.asm rom_all.c boot_entry.c boot.c fdc.c fmt.c isr.c peephole.def
 	   echo "OK: $$((2048 - PROM)) bytes under 2048-byte limit"; \
 	 fi
 
+# Assemble PROM image: BOOT + 0xFF gap + NMI + CODE + 0xFF pad to 2048
+MAME = /Users/ravn/git/mame
+MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
+FLOPPY = $(HOME)/Downloads/CPM_med_COMAL80.imd
+
+prom: rom
+	@BOOT=$$(wc -c < roa375_BOOT.bin | tr -d ' '); \
+	 CODE=$$(wc -c < roa375_CODE.bin | tr -d ' '); \
+	 { cat roa375_BOOT.bin; \
+	   perl -e "print \"\\xff\" x (0x66 - $$BOOT)"; \
+	   cat roa375_NMI.bin; \
+	   cat roa375_CODE.bin; \
+	   perl -e "print \"\\xff\" x (2048 - 0x68 - $$CODE)"; \
+	 } > roa375.ic66; \
+	 echo "roa375.ic66: $$(wc -c < roa375.ic66 | tr -d ' ') bytes"
+
+mame: prom mamesym
+	cp roa375.ic66 $(MAME_ROM)
+	$(MAME)/regnecentralen rc702 -rompath $(MAME)/roms -debug \
+		-flop1 "$(FLOPPY)"
+
+# Convert z88dk map file to MAME debugger symbol definitions.
+# Usage in MAME debugger console: copy-paste lines, or source via Lua.
+# Filters to addr entries only, strips C underscore prefix, skips
+# compiler-generated labels (l_*), sorts by address.
+mamesym: roa375.map
+	@awk '/= \$$[0-9A-Fa-f]+ ; addr,/ { \
+		name = $$1; addr = $$3; \
+		if (name ~ /^l_/) next; \
+		sub(/^\$$/, "0x", addr); \
+		sub(/^_/, "", name); \
+		printf "%s %s\n", addr, name; \
+	}' roa375.map | sort > roa375_mame.sym
+	@echo "wrote roa375_mame.sym ($$(wc -l < roa375_mame.sym) symbols)"
+
 clean:
-	rm -f test_boot test_fdc roa375 roa375_*.bin
+	rm -f test_boot test_fdc roa375 roa375_*.bin roa375_mame.sym roa375.ic66
 	rm -f *.o *.bin *.map *.sym *.lis *.def *.rom
 	rm -f zcc_opt.def
 
-.PHONY: test rom clean
+.PHONY: test rom prom mame mamesym clean
