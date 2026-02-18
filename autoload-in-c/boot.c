@@ -195,7 +195,7 @@ static void rdtrk0(uint16_t trkovr_init) {
 
         calctx();
 
-        if (readtk(0x06, 5) != 0) {
+        if (readtk(FDC_READ_DATA, 5) != 0) {
             errdsp(0x28);
             return;
         }
@@ -238,8 +238,8 @@ static void fldsk1(void) {
     hal_delay(1, 0xFF);
 
     snsdrv();
-    status = ST->fdcres[0] & 0x23;
-    if (status != (ST->drvsel + 0x20)) {
+    status = ST->fdcres[0] & 0x23;        /* ST3: RDY + HD + US (bits 5,1,0) */
+    if (status != (ST->drvsel + 0x20)) {  /* expect RDY set + matching drive */
         check_prom1();
         return;
     }

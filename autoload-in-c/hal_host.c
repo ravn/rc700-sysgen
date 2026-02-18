@@ -170,6 +170,22 @@ void hal_dma_ch1_wc(uint16_t wc) {
     log_call16(LOG_DMA_WC, 1, wc);
 }
 
+void hal_dma_ch2_addr(uint16_t addr) {
+    log_call16(LOG_DMA_ADDR, 2, addr);
+}
+
+void hal_dma_ch2_wc(uint16_t wc) {
+    log_call16(LOG_DMA_WC, 2, wc);
+}
+
+void hal_dma_ch3_addr(uint16_t addr) {
+    log_call16(LOG_DMA_ADDR, 3, addr);
+}
+
+void hal_dma_ch3_wc(uint16_t wc) {
+    log_call16(LOG_DMA_WC, 3, wc);
+}
+
 uint8_t hal_dma_status(void) {
     return mock_dma_status;
 }

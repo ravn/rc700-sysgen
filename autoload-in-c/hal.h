@@ -40,6 +40,10 @@ void hal_dma_clear_bp(void);
 void hal_dma_mode(uint8_t mode);
 void hal_dma_ch1_addr(uint16_t addr);
 void hal_dma_ch1_wc(uint16_t wc);
+void hal_dma_ch2_addr(uint16_t addr);
+void hal_dma_ch2_wc(uint16_t wc);
+void hal_dma_ch3_addr(uint16_t addr);
+void hal_dma_ch3_wc(uint16_t wc);
 uint8_t hal_dma_status(void);
 
 void hal_pio_write_a_data(uint8_t data);
@@ -138,6 +142,22 @@ void hal_di(void);
 #define hal_dma_ch1_wc(wc) do { \
     _port_dma_ch1_wc = (uint8_t)(wc); \
     _port_dma_ch1_wc = (uint8_t)((wc) >> 8); \
+} while(0)
+#define hal_dma_ch2_addr(addr) do { \
+    _port_dma_ch2_addr = (uint8_t)(addr); \
+    _port_dma_ch2_addr = (uint8_t)((addr) >> 8); \
+} while(0)
+#define hal_dma_ch2_wc(wc) do { \
+    _port_dma_ch2_wc = (uint8_t)(wc); \
+    _port_dma_ch2_wc = (uint8_t)((wc) >> 8); \
+} while(0)
+#define hal_dma_ch3_addr(addr) do { \
+    _port_dma_ch3_addr = (uint8_t)(addr); \
+    _port_dma_ch3_addr = (uint8_t)((addr) >> 8); \
+} while(0)
+#define hal_dma_ch3_wc(wc) do { \
+    _port_dma_ch3_wc = (uint8_t)(wc); \
+    _port_dma_ch3_wc = (uint8_t)((wc) >> 8); \
 } while(0)
 
 /* C implementations in hal_z80.c — sdcc generates near-optimal code */

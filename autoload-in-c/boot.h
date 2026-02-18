@@ -11,6 +11,15 @@
 
 #include <stdint.h>
 
+/* NEC uPD765 (Intel 8272) FDC command bytes */
+#define FDC_SENSE_DRIVE   0x04
+#define FDC_RECALIBRATE   0x07
+#define FDC_SENSE_INT     0x08
+#define FDC_SEEK          0x0F
+#define FDC_READ_DATA     0x06
+#define FDC_READ_ID       0x0A
+#define FDC_MFM           0x40  /* set bit 6 for MFM (double density) */
+
 /* Memory layout constants */
 #define FLOPPYDATA  0x0000
 #define COMALBOOT   0x1000
@@ -112,6 +121,7 @@ void flboot(void);
 void check_prom1(void);
 
 /* isr.c */
+void disint_handler(void);
 void flpint_body(void);
 
 /* Implemented in crt0.asm (C fallback in boot.c for HOST_TEST) */

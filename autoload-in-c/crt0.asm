@@ -13,11 +13,10 @@
 ;   CODE     0x0068+   Payload in ROM, copied to 0x7000 at boot:
 ;            0x7000      Interrupt vector table (naturally page-aligned)
 ;            0x7020      INIT_RELOCATED: SP/I/IM2, CALL init_peripherals, JP _main
-;            0x702F      DISINT: display interrupt handler (DMA reprogramming)
-;            0x7083      HDINT, FLPINT, DUMINT: interrupt entry points
-;            0x709C      Small functions: jump_to, hal_ei, hal_di
-;            0x70A1      halt_msg + halt_forever
-;            0x70AC      b7_sysm, b7_sysc strings
+;            0x702F      HDINT, FLPINT, DUMINT: interrupt entry points
+;            0x7040      Small functions: jump_to, hal_ei, hal_di
+;            0x7046      halt_msg + halt_forever
+;            0x7051      b7_sysm, b7_sysc strings
 ;            ...         C code (sdcc): init_peripherals, hal_z80.c, fdc.c,
 ;                        fmt.c, boot.c, isr.c
 ;            ...         Read-only data: format tables, message strings
@@ -28,7 +27,6 @@
 ;
 ; Assembly in this file (BOOT + CODE sections):
 ; - Interrupt vector table (at CODE section start, naturally page-aligned)
-; - DISINT display interrupt handler (timing-critical DMA reprogramming)
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
 ; - Utility: halt_msg, halt_forever, jump_to, hal_ei, hal_di
 ; - String data: b7_sysm, b7_sysc
@@ -38,6 +36,7 @@
 
 	; External symbols provided by C code
 	EXTERN	_main
+	EXTERN	_disint_handler
 	EXTERN	_flpint_body
 	EXTERN	_init_peripherals
 
@@ -118,95 +117,21 @@ INIT_RELOCATED:
 	CALL	_main			; Enter C code (CALL for stack trace)
 	jr	$			; Should never return
 
-;------------------------------------------------------------------------
-; DISINT — Display interrupt handler (timing-critical DMA reprogramming)
-;------------------------------------------------------------------------
-
-	PUBLIC	_disint_handler
-
 _DSPSTR		EQU	0x7800
-_SCROLLOFFSET	EQU	0x7FF5
-
-SMSK	EQU	0xFA
-CLBP	EQU	0xFC
-CH2ADR	EQU	0xF4
-WCREG2	EQU	0xF5
-CH3ADR	EQU	0xF6
-WCREG3	EQU	0xF7
-CRTCOM	EQU	0x01
-CTCCH2	EQU	0x0E
-
-_disint_handler:
-DISINT:
-	PUSH	AF
-	IN	A, (CRTCOM)
-
-	PUSH	HL
-	PUSH	DE
-
-	LD	A, 0x06
-	OUT	(SMSK), A
-	LD	A, 0x07
-	OUT	(SMSK), A
-	OUT	(CLBP), A
-
-	LD	HL, (_SCROLLOFFSET)
-	LD	DE, _DSPSTR
-	ADD	HL, DE
-	LD	A, L
-	OUT	(CH2ADR), A
-	LD	A, H
-	OUT	(CH2ADR), A
-
-	LD	A, L
-	CPL
-	LD	L, A
-	LD	A, H
-	CPL
-	LD	H, A
-	INC	HL
-	LD	DE, 80*25-1		; screen length - 1
-	ADD	HL, DE
-	LD	DE, _DSPSTR
-	ADD	HL, DE
-	LD	A, L
-	OUT	(WCREG2), A
-	LD	A, H
-	OUT	(WCREG2), A
-
-	XOR	A			; _DSPSTR low = 0x00
-	OUT	(CH3ADR), A
-	LD	A, _DSPSTR / 256	; _DSPSTR high = 0x78
-	OUT	(CH3ADR), A
-
-	LD	A, (80*25-1) & 0xFF	; screen length - 1, low
-	OUT	(WCREG3), A
-	LD	A, (80*25-1) / 256	; screen length - 1, high
-	OUT	(WCREG3), A
-
-	LD	A, 0x02
-	OUT	(SMSK), A
-	LD	A, 0x03
-	OUT	(SMSK), A
-
-	POP	DE
-	POP	HL
-
-	LD	A, 0xD7
-	OUT	(CTCCH2), A
-	LD	A, 0x01
-	OUT	(CTCCH2), A
-
-	POP	AF
-	RET
 
 ;------------------------------------------------------------------------
-; HDINT — Display interrupt entry (CTC Ch2)
+; HDINT — Display interrupt entry (CTC Ch2), calls C disint_handler
 ;------------------------------------------------------------------------
 
 HDINT:
 	DI
-	CALL	DISINT
+	PUSH	AF
+	PUSH	HL
+	PUSH	DE
+	CALL	_disint_handler
+	POP	DE
+	POP	HL
+	POP	AF
 	EI
 	RETI
 
