@@ -1,10 +1,37 @@
 ;
 ; crt0.asm — Startup code for RC702 autoload PROM (sdcc sdcccall(1) ABI)
 ;
-; This file contains the parts that must stay in assembly:
-; - Self-relocation loop (runs from ROM at 0x0000, copies to RAM at 0x7000)
+; PROM image layout (2048 bytes max):
+;
+;   Section  Address   Contents
+;   -------  --------  ----------------------------------------
+;   BOOT     0x0000    Entry point: DI, SP setup, CALL relocate, JP INIT
+;            0x000A    clear_screen (LDIR fill, runs from ROM)
+;            0x0018    init_fdc (FDC ready wait + SPECIFY, runs from ROM)
+;            ...       C code from boot_entry.c (--codeseg BOOT):
+;                        relocate() — self-relocation loop
+;            gap       Available for more BOOT C code (must fit before 0x0066)
+;   NMI      0x0066    RETN (Z80 hardware NMI vector, fixed address)
+;   CODE     0x0068+   Payload in ROM, copied to 0x7000 at boot:
+;            0x7000      INIT_RELOCATED: hardware init (PIO, CTC, DMA, CRT)
+;                        JP _main
+;            0x7079      DISINT: display interrupt handler (DMA reprogramming)
+;            0x70CD      HDINT, FLPINT, DUMINT: interrupt entry points
+;            0x70E6      Small functions: jump_to, hal_ei, hal_di
+;            0x70EB      halt_msg + halt_forever (in alignment padding)
+;            0x70F6      b7_sysm, b7_sysc strings (in alignment padding)
+;            0x7100      Interrupt vector table (256-byte aligned)
+;            0x7120      HAL: hal_fdc_wait_write, hal_fdc_wait_read, hal_delay
+;            0x715C      Boot helpers: b7_cmp6, b7_chksys (CP (HL)/DJNZ)
+;            0x7184+     C code (sdcc): fdc.c, fmt.c, boot.c, isr.c
+;            ...+        Read-only data: format tables, message strings
+;
+; The BOOT and NMI sections remain in ROM until hal_prom_disable().
+; The CODE payload is copied to RAM at 0x7000 by relocate() in boot_entry.c.
+; Linker symbols __NMI_tail, __CODE_head, __tail drive the relocation.
+;
+; Assembly in this file (BOOT + CODE sections):
 ; - Interrupt vector table (page-aligned at 0x7300)
-; - NMI stub (RETN at fixed ROM offset 0x0066)
 ; - DISINT display interrupt handler (timing-critical DMA reprogramming)
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
 ; - Hardware init sequences (PIO, CTC, DMA, CRT)
@@ -19,6 +46,7 @@
 	EXTERN	_main
 	EXTERN	_flpint_body
 	EXTERN	_errdsp
+	EXTERN	_relocate
 
 
 	SECTION	BOOT
@@ -33,18 +61,7 @@ BEGIN:
 	LD	SP, 0xBFFF		; Stack below display buffer
 
 ; Copy payload from ROM to RAM at 0x7000
-	LD	DE, PAYLOAD		; Source: right after BOOT section
-	LD	HL, 0x7000		; Destination
-	LD	BC, PAYLOADLEN		; Byte count
-COPYLP:
-	LD	A, (DE)
-	LD	(HL), A
-	INC	DE
-	INC	HL
-	DEC	BC
-	LD	A, C
-	OR	B
-	JP	NZ, COPYLP
+	CALL	_relocate		; C function in BOOT section
 	JP	INIT_RELOCATED		; Jump to relocated init code
 
 ;========================================================================
@@ -79,12 +96,15 @@ if_wait:
 	ld	a, 0x20
 	jp	_hal_fdc_wait_write
 
-	DEFS	0x0066 - $		; Pad to NMI vector address
+; Gap from here to 0x0066 is available for C code (--codeseg BOOT)
 
-; NMI handler at ROM offset 0x0066
+;========================================================================
+; NMI handler — must be at ROM offset 0x0066 (Z80 hardware requirement)
+;========================================================================
+
+	SECTION	NMI
+	ORG	0x0066
 	RETN
-
-PAYLOAD:				; Payload starts here in ROM
 
 ;========================================================================
 ; RELOCATED CODE SECTION — loaded to 0x7000, executed from there
@@ -307,7 +327,7 @@ _hal_di:
 
 ;------------------------------------------------------------------------
 ; Fill alignment gap: halt_msg (null-terminated copy, embeds halt_forever)
-; + boot7 comparison string data. Total: 19 bytes.
+; + boot7 comparison string data.
 ;------------------------------------------------------------------------
 
 	PUBLIC	_halt_msg
@@ -492,5 +512,3 @@ b7cs_lp:
 	PUBLIC	_g_state
 	DEFC	_g_state = 0xBF00
 
-; Payload length
-PAYLOADLEN	EQU	$ - INIT_RELOCATED

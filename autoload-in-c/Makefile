@@ -26,7 +26,8 @@ ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
 # sdcc compiler with sdcccall(1) register calling convention
-# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc)
+# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc into CODE section)
+# boot_entry.c: compiled into BOOT section (runs from ROM before relocation)
 # Assembly: crt0.asm (hand-written startup + utilities)
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
@@ -37,19 +38,25 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
          -m --list -create-app
 
-rom: crt0.asm rom_all.c boot.c fdc.c fmt.c isr.c
+rom: crt0.asm rom_all.c boot_entry.c boot.c fdc.c fmt.c isr.c
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
-	$(ZCC) $(ZFLAGS) -o roa375 crt0.asm rom_all.c
-	@ls -la roa375_CODE.bin 2>/dev/null; ls -la roa375_BOOT.bin 2>/dev/null
-	@CODE=$$(wc -c < roa375_CODE.bin); \
-	 BOOT=$$(wc -c < roa375_BOOT.bin); \
-	 TOTAL=$$((CODE + BOOT)); \
-	 echo "BOOT: $$BOOT bytes, CODE: $$CODE bytes, Total: $$TOTAL bytes"; \
-	 if [ $$TOTAL -gt 2048 ]; then \
-	   echo "WARNING: Total $$TOTAL exceeds 2048-byte PROM limit by $$((TOTAL - 2048)) bytes"; \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
+	$(ZCC) $(ZFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o
+	@ls -la roa375_BOOT.bin roa375_NMI.bin roa375_CODE.bin 2>/dev/null
+	@BOOT=$$(wc -c < roa375_BOOT.bin); \
+	 NMI=$$(wc -c < roa375_NMI.bin); \
+	 CODE=$$(wc -c < roa375_CODE.bin); \
+	 GAP=$$((0x0066 - BOOT)); \
+	 PROM=$$((0x0068 + CODE)); \
+	 echo "BOOT: $$BOOT bytes, gap: $$GAP bytes, NMI: $$NMI bytes at 0x0066, CODE: $$CODE bytes"; \
+	 echo "PROM image: $$PROM bytes (NMI_tail + CODE)"; \
+	 if [ $$BOOT -gt 102 ]; then \
+	   echo "ERROR: BOOT section ($$BOOT bytes) overflows into NMI handler at 0x0066"; \
+	 elif [ $$PROM -gt 2048 ]; then \
+	   echo "WARNING: PROM $$PROM exceeds 2048-byte limit by $$((PROM - 2048)) bytes"; \
 	 else \
-	   echo "OK: $$((2048 - TOTAL)) bytes under 2048-byte limit"; \
+	   echo "OK: $$((2048 - PROM)) bytes under 2048-byte limit"; \
 	 fi
 
 clean:

@@ -28,6 +28,40 @@ Contains the RC702 autoload PROM:
 - `roa375.rom` - Binary ROM image
 - `rob358.mac` - RC703 version source (reference/inspiration)
 
+### autoload-in-c/
+C rewrite of the ROA375 autoload PROM using z88dk with sdcc backend:
+- `crt0.asm` - Assembly startup, interrupt handlers, HAL functions
+- `boot_entry.c` - Self-relocation loop (compiled into BOOT section)
+- `boot.c` - Boot logic, directory validation, error handling
+- `fdc.c` - FDC driver (seek, read, sense, result handling)
+- `fmt.c` - Disk format tables and track geometry
+- `isr.c` - Floppy interrupt body
+- `init.c` - Hardware initialization (PIO, CTC, DMA, CRT)
+- `rom_all.c` - Unity build (includes all C files for cross-function optimization)
+- `hal.h` / `boot.h` - Headers
+- `hal_host.c` - Mock HAL for host testing
+- `test_boot.c` / `test_fdc.c` - Host test suites
+
+#### PROM Image Layout (2048 bytes max)
+```
+Address   Section  Contents
+--------  -------  ----------------------------------------
+0x0000    BOOT     Entry point (asm): DI, SP, CALL relocate, JP 0x7000
+0x000A             clear_screen (asm, runs from ROM)
+0x0018             init_fdc (asm, runs from ROM)
+0x0034             relocate (C, boot_entry.c --codeseg BOOT)
+...                [gap — available for more BOOT C code]
+0x0066    NMI      RETN (Z80 hardware NMI vector, fixed address)
+0x0068    CODE     Payload start in ROM, copied to RAM at 0x7000:
+                     Interrupt handlers, HAL functions (asm)
+                     Interrupt vector table at 0x7100 (256-byte aligned)
+                     Boot logic, FDC driver, format tables (C)
+                     Read-only data: message strings, format tables
+```
+BOOT and NMI sections are in ROM, accessible until `hal_prom_disable()`.
+CODE payload is copied to RAM at 0x7000 by `relocate()` using linker
+symbols `__NMI_tail` (source), `__CODE_head`/`__tail` (length).
+
 ### zmac/
 Z80 macro assembler toolchain:
 - `bin/zmac` - Compiled assembler binary for macOS
