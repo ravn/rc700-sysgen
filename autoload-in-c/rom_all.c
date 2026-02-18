@@ -9,6 +9,7 @@
  */
 
 #include "hal_z80.c"
+#include "init.c"
 #include "fmt.c"
 #include "fdc.c"
 #include "boot.c"

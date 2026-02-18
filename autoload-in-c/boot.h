@@ -75,7 +75,8 @@ extern uint16_t scroll_offset;
 #define scroll_offset  (*(uint16_t *)0x7FF5)
 #endif
 
-/* init.c / crt0.asm — all init done in crt0.asm on Z80, C for host */
+/* init.c — peripheral init called from crt0.asm after SP/I/IM2 setup */
+void init_peripherals(void);
 void init_pio(void);
 void init_ctc(void);
 void init_dma(void);

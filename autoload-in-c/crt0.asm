@@ -14,16 +14,15 @@
 ;            gap       Available for more BOOT C code (must fit before 0x0066)
 ;   NMI      0x0066    RETN (Z80 hardware NMI vector, fixed address)
 ;   CODE     0x0068+   Payload in ROM, copied to 0x7000 at boot:
-;            0x7000      INIT_RELOCATED: hardware init (PIO, CTC, DMA, CRT)
-;                        JP _main
-;            0x7079      DISINT: display interrupt handler (DMA reprogramming)
-;            0x70CD      HDINT, FLPINT, DUMINT: interrupt entry points
-;            0x70E6      Small functions: jump_to, hal_ei, hal_di
-;            0x70EB      halt_msg + halt_forever (in alignment padding)
-;            0x70F6      b7_sysm, b7_sysc strings (in alignment padding)
-;            0x7100      Interrupt vector table (256-byte aligned)
-;            0x7120      Boot helpers start (after INTVEC)
-;            0x712E+     C code (sdcc): hal_z80.c, fdc.c, fmt.c, boot.c, isr.c
+;            0x7000      Interrupt vector table (naturally page-aligned)
+;            0x7020      INIT_RELOCATED: SP/I/IM2, CALL init_peripherals, JP _main
+;            0x702F      DISINT: display interrupt handler (DMA reprogramming)
+;            0x7083      HDINT, FLPINT, DUMINT: interrupt entry points
+;            0x709C      Small functions: jump_to, hal_ei, hal_di
+;            0x70A1      halt_msg + halt_forever
+;            0x70AC      b7_sysm, b7_sysc strings
+;            ...         C code (sdcc): init_peripherals, hal_z80.c, fdc.c,
+;                        fmt.c, boot.c, isr.c
 ;            ...         Read-only data: format tables, message strings
 ;
 ; The BOOT and NMI sections remain in ROM until hal_prom_disable().
@@ -31,13 +30,12 @@
 ; Linker symbols __NMI_tail, __CODE_head, __tail drive the relocation.
 ;
 ; Assembly in this file (BOOT + CODE sections):
-; - Interrupt vector table (page-aligned at 0x7300)
+; - Interrupt vector table (at CODE section start, naturally page-aligned)
 ; - DISINT display interrupt handler (timing-critical DMA reprogramming)
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
-; - Hardware init sequences (PIO, CTC, DMA, CRT)
-; - HAL functions moved to C in hal_z80.c (fdc_wait_write/read, delay)
-; - Utility: clear_screen, init_fdc, halt_msg
-; - Boot helpers b7_cmp6/b7_chksys moved to C in boot.c
+; - Utility: clear_screen, init_fdc, halt_msg, halt_forever
+; - Small functions: jump_to, hal_ei, hal_di
+; - String data: b7_sysm, b7_sysc
 ;
 ; All other boot logic, FDC driver, and format tables are in C (sdcc).
 ;
@@ -50,6 +48,7 @@
 	EXTERN	_msg_rc700
 	EXTERN	_hal_fdc_wait_write
 	EXTERN	_hal_delay
+	EXTERN	_init_peripherals
 
 
 	SECTION	BOOT
@@ -135,80 +134,40 @@ _display_banner:
 	SECTION CODE
 	ORG	0x7000
 
+;------------------------------------------------------------------------
+; Interrupt vector table — at 0x7000 (naturally 256-byte page-aligned)
+; Z80 IM2: vector address = I * 256 + data_bus_byte
+; I register is loaded with INTVEC / 0x100 = 0x70
+;------------------------------------------------------------------------
+
+INTVEC:
+	DW	DUMINT			; +0:  Dummy
+	DW	DUMINT			; +2:  PIO Port A
+	DW	DUMINT			; +4:  PIO Port B
+	DW	DUMINT			; +6:  Dummy
+	DW	DUMINT			; +8:  CTC CH0
+	DW	DUMINT			; +10: CTC CH1
+	DW	HDINT			; +12: CTC CH2 - Display
+	DW	FLPINT			; +14: CTC CH3 - Floppy
+	DW	DUMINT			; +16: Dummy
+	DW	DUMINT			; +18: Dummy
+	DW	DUMINT			; +20: Dummy
+	DW	DUMINT			; +22: Dummy
+	DW	DUMINT			; +24: Dummy
+	DW	DUMINT			; +26: Dummy
+	DW	DUMINT			; +28: Dummy
+	DW	DUMINT			; +30: Dummy
+
+;------------------------------------------------------------------------
+; INIT_RELOCATED — Z80-specific setup, then C peripheral init and main
+;------------------------------------------------------------------------
+
 INIT_RELOCATED:
 	LD	SP, 0xBFFF		; Reset stack
-	LD	A, INTVEC / 0x100	; Interrupt vector page (0x73)
+	LD	A, INTVEC / 0x100	; Interrupt vector page (0x70)
 	LD	I, A
 	IM	2			; Z80 interrupt mode 2
-
-;------------------------------------------------------------------------
-; Inline hardware initialization — saves C function call overhead
-;------------------------------------------------------------------------
-
-; init_pio — PIO setup
-	LD	A, 0x02
-	OUT	(0x12), A		; PIO Port A ctrl: int vector = 2
-	LD	A, 0x04
-	OUT	(0x13), A		; PIO Port B ctrl: int vector = 4
-	LD	A, 0x4F
-	OUT	(0x12), A		; Port A: input mode
-	LD	A, 0x0F
-	OUT	(0x13), A		; Port B: output mode
-	LD	A, 0x83
-	OUT	(0x12), A		; Port A: int ctrl
-	OUT	(0x13), A		; Port B: same
-
-; init_ctc — CTC setup
-	LD	A, 0x08
-	OUT	(0x0C), A		; Ch0: vector base = 8
-	LD	A, 0xE0		; 0x47 | 0x99
-	OUT	(0x0C), A		; Ch0: config
-	LD	A, 0x20
-	OUT	(0x0C), A		; Ch0: TC = 32
-	LD	A, 0xE0
-	OUT	(0x0D), A		; Ch1: config
-	LD	A, 0x20
-	OUT	(0x0D), A		; Ch1: TC = 32
-	LD	A, 0xD7
-	OUT	(0x0E), A		; Ch2: display int
-	LD	A, 0x01
-	OUT	(0x0E), A		; Ch2: TC = 1
-	LD	A, 0xD7
-	OUT	(0x0F), A		; Ch3: floppy int
-	LD	A, 0x01
-	OUT	(0x0F), A		; Ch3: TC = 1
-
-; init_dma — DMA setup
-	LD	A, 0x20
-	OUT	(0xF8), A		; DMA command
-	LD	A, 0xC0
-	OUT	(0xFB), A		; Ch0: cascade mode
-	XOR	A
-	OUT	(0xFA), A		; Unmask ch0
-	LD	A, 0x4A
-	OUT	(0xFB), A		; Ch2: demand write
-	LD	A, 0x4B
-	OUT	(0xFB), A		; Ch3: demand write
-
-; init_crt — CRT setup
-	XOR	A
-	OUT	(0x01), A		; CRT reset
-	LD	A, 0x4F
-	OUT	(0x00), A		; 80 chars/row
-	LD	A, 0x98
-	OUT	(0x00), A		; 25 rows
-	LD	A, 0x9A
-	OUT	(0x00), A		; Underline scan 9
-	LD	A, 0x5D
-	OUT	(0x00), A		; Cursor config
-	LD	A, 0x80
-	OUT	(0x01), A		; Load cursor
-	XOR	A
-	OUT	(0x00), A		; Col 0
-	OUT	(0x00), A		; Row 0
-	LD	A, 0xE0
-	OUT	(0x01), A		; Preset counters
-
+	CALL	_init_peripherals	; PIO, CTC, DMA, CRT setup (C in init.c)
 	JP	_main			; Enter C code
 
 ;------------------------------------------------------------------------
@@ -330,7 +289,7 @@ DUMINT:
 	RETI
 
 ;------------------------------------------------------------------------
-; Small functions placed in alignment padding gap (saves ~7 bytes)
+; Small utility functions
 ;------------------------------------------------------------------------
 
 	PUBLIC	_jump_to
@@ -348,8 +307,7 @@ _hal_di:
 	ret
 
 ;------------------------------------------------------------------------
-; Fill alignment gap: halt_msg (null-terminated copy, embeds halt_forever)
-; + boot7 comparison string data.
+; halt_msg (null-terminated copy + halt_forever) and string data
 ;------------------------------------------------------------------------
 
 	PUBLIC	_halt_msg
@@ -370,29 +328,6 @@ _b7_sysm:
 	PUBLIC	_b7_sysc
 _b7_sysc:
 	DB	"SYSC"
-
-;------------------------------------------------------------------------
-; Interrupt vector table — must be page-aligned
-;------------------------------------------------------------------------
-
-	ALIGN	256
-INTVEC:
-	DW	DUMINT			; +0:  Dummy
-	DW	DUMINT			; +2:  PIO Port A
-	DW	DUMINT			; +4:  PIO Port B
-	DW	DUMINT			; +6:  Dummy
-	DW	DUMINT			; +8:  CTC CH0
-	DW	DUMINT			; +10: CTC CH1
-	DW	HDINT			; +12: CTC CH2 - Display
-	DW	FLPINT			; +14: CTC CH3 - Floppy
-	DW	DUMINT			; +16: Dummy
-	DW	DUMINT			; +18: Dummy
-	DW	DUMINT			; +20: Dummy
-	DW	DUMINT			; +22: Dummy
-	DW	DUMINT			; +24: Dummy
-	DW	DUMINT			; +26: Dummy
-	DW	DUMINT			; +28: Dummy
-	DW	DUMINT			; +30: Dummy
 
 ;========================================================================
 ; Constants and data
