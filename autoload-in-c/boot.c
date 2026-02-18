@@ -75,6 +75,12 @@ uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern) {
 }
 #endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
+/*
+ * display_banner — Z80: assembly in crt0.asm BOOT section.
+ * Written in assembly to fit in the gap before the NMI handler (0x0066),
+ * freeing 30 bytes in CODE for C functions.
+ */
+#ifdef HOST_TEST
 void display_banner(void) {
     const uint8_t *src = (const uint8_t *)msg_rc700;
     uint8_t i;
@@ -82,6 +88,7 @@ void display_banner(void) {
     scroll_offset = 0;
     hal_crt_command(0x23);
 }
+#endif
 
 void errdsp(uint8_t code) {
     ST->errsav = code;

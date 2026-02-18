@@ -8,6 +8,7 @@
 ;   BOOT     0x0000    Entry point: DI, SP setup, CALL relocate, JP INIT
 ;            0x000A    clear_screen (LDIR fill, runs from ROM)
 ;            0x0018    init_fdc (FDC ready wait + SPECIFY, runs from ROM)
+;            0x0034    display_banner (asm, frees 30 bytes in CODE for C)
 ;            ...       C code from boot_entry.c (--codeseg BOOT):
 ;                        relocate() — self-relocation loop
 ;            gap       Available for more BOOT C code (must fit before 0x0066)
@@ -47,6 +48,7 @@
 	EXTERN	_flpint_body
 	EXTERN	_errdsp
 	EXTERN	_relocate
+	EXTERN	_msg_rc700
 
 
 	SECTION	BOOT
@@ -95,6 +97,21 @@ if_wait:
 	call	_hal_fdc_wait_write
 	ld	a, 0x20
 	jp	_hal_fdc_wait_write
+
+; display_banner — write " RC700" to screen, reset scroll, enable CRT
+; Written in assembly to free 30 bytes in CODE for C functions.
+; Only called from main() before hal_prom_disable(), so safe in BOOT.
+	PUBLIC	_display_banner
+_display_banner:
+	ld	hl, _msg_rc700
+	ld	de, _DSPSTR		; 0x7800
+	ld	bc, 6
+	ldir
+	ld	hl, 0
+	ld	(_SCROLLOFFSET), hl
+	ld	a, 0x23
+	out	(CRTCOM), a
+	ret
 
 ; Gap from here to 0x0066 is available for C code (--codeseg BOOT)
 

@@ -49,7 +49,8 @@ Address   Section  Contents
 0x0000    BOOT     Entry point (asm): DI, SP, CALL relocate, JP 0x7000
 0x000A             clear_screen (asm, runs from ROM)
 0x0018             init_fdc (asm, runs from ROM)
-0x0034             relocate (C, boot_entry.c --codeseg BOOT)
+0x0034             display_banner (asm, frees 30 bytes in CODE for C)
+...                relocate (C, boot_entry.c --codeseg BOOT)
 ...                [gap — available for more BOOT C code]
 0x0066    NMI      RETN (Z80 hardware NMI vector, fixed address)
 0x0068    CODE     Payload start in ROM, copied to RAM at 0x7000:
