@@ -480,63 +480,6 @@ _halt_msg:
 	jp	_halt_forever
 
 ;------------------------------------------------------------------------
-; stpdma — setup DMA for floppy read
-;------------------------------------------------------------------------
-	PUBLIC	_stpdma
-_stpdma:
-	di
-	ld	a, 0x05
-	out	(SMSK), a		; mask ch1
-	ld	a, 0x45
-	out	(0xFB), a		; mode: single write ch1
-	out	(CLBP), a		; clear byte pointer
-	ld	hl, (_g_state + GS_MEMADR)
-	ld	a, l
-	out	(0xF2), a		; ch1 addr low
-	ld	a, h
-	out	(0xF2), a		; ch1 addr high
-	ld	hl, (_g_state + GS_TRBYT)
-	dec	hl			; trbyt - 1
-	ld	a, l
-	out	(0xF3), a		; ch1 word count low
-	ld	a, h
-	out	(0xF3), a		; ch1 word count high
-	ld	a, 0x01
-	out	(SMSK), a		; unmask ch1
-	ei
-	ret
-
-;------------------------------------------------------------------------
-; rsult — read FDC result phase (up to 7 bytes)
-;------------------------------------------------------------------------
-	PUBLIC	_rsult
-_rsult:
-	ld	a, 7
-	ld	(_g_state + GS_FDCFLG), a ; fdcflg = 7
-	ld	de, _g_state + GS_FDCRES  ; DE = &fdcres[0]
-	ld	b, 7			; loop counter
-rs_loop:
-	push	de
-	push	bc
-	call	_hal_fdc_wait_read	; returns byte in L
-	ld	a, l			; save result
-	pop	bc
-	pop	de
-	ld	(de), a			; fdcres[i] = result
-	inc	de
-	in	a, (P_FDC_STATUS)	; check if FDC still busy
-	and	0x10
-	jr	z, rs_early		; bit 4 clear → early exit
-	djnz	rs_loop
-	; All 7 read — error
-	ld	a, 0xFE
-	jp	_errdsp			; tail call errdsp(0xFE)
-rs_early:
-	in	a, (0xF8)		; hal_dma_status()
-	ld	(de), a			; fdcres[i+1] = dma_status
-	ret
-
-;------------------------------------------------------------------------
 ; flrtrk(cmd) — sdcccall(1): cmd in A
 ; Send FDC command with optional MFM flag and 7-byte parameter block.
 ;------------------------------------------------------------------------

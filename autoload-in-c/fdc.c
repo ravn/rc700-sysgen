@@ -35,7 +35,6 @@ void flo7(uint8_t dh, uint8_t cyl) {
     hal_fdc_wait_write(cyl);
 }
 
-#ifdef HOST_TEST
 void rsult(void) {
     uint8_t i;
 
@@ -51,7 +50,6 @@ void rsult(void) {
     ST->errsav = 0xFE;
     errdsp(0xFE);
 }
-#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 uint8_t waitfl(uint8_t timeout) {
     while (--timeout) {
@@ -84,7 +82,6 @@ uint8_t flseek(void) {
     return chk_seekres(ST->curcyl);
 }
 
-#ifdef HOST_TEST
 void stpdma(void) {
     hal_di();
     hal_dma_mask(1);
@@ -95,7 +92,6 @@ void stpdma(void) {
     hal_dma_unmask(1);
     hal_ei();
 }
-#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 #ifdef HOST_TEST
 void flrtrk(uint8_t cmd) {
