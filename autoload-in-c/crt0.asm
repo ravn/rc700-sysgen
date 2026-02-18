@@ -9,8 +9,8 @@
 ; - HDINT, FLPINT, DUMINT interrupt wrappers
 ; - Hardware init sequences (PIO, CTC, DMA, CRT)
 ; - HAL functions: hal_fdc_wait_write, hal_fdc_wait_read, hal_delay
-; - Utility: clear_screen, init_fdc, mcopy, mcmp, halt_msg
-; - FDC functions: stpdma, rsult, flrtrk, boot7
+; - Utility: clear_screen, init_fdc, halt_msg
+; - Boot helpers: b7_cmp6, b7_chksys (comparison loops need CP (HL)/DJNZ)
 ;
 ; All other boot logic, FDC driver, and format tables are in C (sdcc).
 ;
@@ -20,11 +20,6 @@
 	EXTERN	_flpint_body
 	EXTERN	_errdsp
 
-	; Message strings defined in boot.c (non-static)
-	EXTERN	_msg_rc700
-	EXTERN	_msg_rc702
-	EXTERN	_msg_nosys
-	EXTERN	_msg_nocat
 
 	SECTION	BOOT
 	ORG	0x0000
@@ -296,10 +291,6 @@ DUMINT:
 ; Small functions placed in alignment padding gap (saves ~7 bytes)
 ;------------------------------------------------------------------------
 
-	PUBLIC	_halt_forever
-_halt_forever:
-	jr	_halt_forever
-
 	PUBLIC	_jump_to
 _jump_to:
 	jp	(hl)
@@ -315,20 +306,27 @@ _hal_di:
 	ret
 
 ;------------------------------------------------------------------------
-; Fill alignment gap with halt_msg + boot7 string data (19 bytes)
+; Fill alignment gap: halt_msg (null-terminated copy, embeds halt_forever)
+; + boot7 comparison string data. Total: 19 bytes.
 ;------------------------------------------------------------------------
 
 	PUBLIC	_halt_msg
 _halt_msg:
-	ld	c, e			; C = len
-	ld	b, 0			; BC = len
 	ld	de, _DSPSTR		; DE = dst (0x7800)
-	ldir				; copy msg to display
-	jp	_halt_forever
+hm_lp:
+	ld	a, (hl)			; load char
+	ldi				; copy byte, inc HL/DE, dec BC (BC ignored)
+	or	a			; was it NUL?
+	jr	nz, hm_lp		; continue if not
+	PUBLIC	_halt_forever
+_halt_forever:
+	jr	_halt_forever
 
-b7_sysm:
+	PUBLIC	_b7_sysm
+_b7_sysm:
 	DB	"SYSM"
-b7_sysc:
+	PUBLIC	_b7_sysc
+_b7_sysc:
 	DB	"SYSC"
 
 ;------------------------------------------------------------------------
@@ -440,100 +438,43 @@ dl_inner:
 	ret
 
 ;------------------------------------------------------------------------
-; boot7 — Check boot signature, validate system files, or show error
-; Z80 only (HOST_TEST version is a stub in boot.c)
+; b7_cmp6(a, b) — Compare 6 bytes at a vs b
+; sdcccall(1): a in HL, b in DE. Returns 0 (match) or 1 (mismatch) in A.
+; These byte-comparison loops use CP (HL)/DJNZ which C cannot express.
 ;------------------------------------------------------------------------
-	PUBLIC	_boot7
-_boot7:
-	; Compare 6 bytes at 0x0002 against " RC700"
-	ld	hl, 0x0002
-	ld	de, _msg_rc700
+	PUBLIC	_b7_cmp6
+_b7_cmp6:
 	ld	b, 6
-	call	b7_cmp6
-	jr	nz, b7_try702
-
-	; RC700 boot: scan directory starting at DIROFF + 0x20
-	ld	hl, 0x0B80		; 0x0B60 + 0x20
-b7_dirloop:
-	ld	a, h
-	cp	0x0D			; >= 0x0D00?
-	jr	nc, b7_nosys
-	ld	a, (hl)
-	or	a			; empty entry?
-	jr	z, b7_skip
-
-	; chk_sysfile(dir, "SYSM")
-	push	hl
-	ld	de, b7_sysm
-	call	b7_chksys
-	pop	hl
-	jr	nz, b7_nosys
-
-	; dir += 0x20
-	ld	de, 0x20
-	add	hl, de
-	ld	a, (hl)
-	or	a
-	jr	z, b7_nosys
-
-	; chk_sysfile(dir, "SYSC")
-	push	hl
-	ld	de, b7_sysc
-	call	b7_chksys
-	pop	hl
-	jr	nz, b7_nosys
-	ret				; success — both system files found
-
-b7_skip:
-	ld	de, 0x20
-	add	hl, de
-	jr	b7_dirloop
-
-b7_nosys:
-	ld	hl, _msg_nosys
-	ld	e, 20
-	jp	_halt_msg
-
-b7_try702:
-	; Compare 6 bytes at 0x0002 against " RC702"
-	ld	hl, 0x0002
-	ld	de, _msg_rc702
-	ld	b, 6
-	call	b7_cmp6
-	jr	nz, b7_nocat
-	; Match — jump to boot vector at address 0x0000
-	ld	hl, (0x0000)
-	jp	(hl)
-
-b7_nocat:
-	ld	hl, _msg_nocat
-	ld	e, 15
-	jp	_halt_msg
-
-; Local subroutine: compare B bytes at (HL) against (DE)
-; Returns Z=match, NZ=mismatch. Clobbers A, B, DE, HL.
-b7_cmp6:
+b7c6_lp:
 	ld	a, (de)
 	cp	(hl)
-	ret	nz
+	jr	nz, b7_ne
 	inc	hl
 	inc	de
-	djnz	b7_cmp6
-	ret				; Z set = match
+	djnz	b7c6_lp
+	xor	a			; return 0 = match
+	ret
+b7_ne:
+	ld	a, 1			; return 1 = mismatch
+	ret
 
-; Local subroutine: check directory entry against 4-byte pattern
-; HL = dir entry, DE = 4-byte pattern
-; Returns Z=match, NZ=mismatch. Clobbers A, B, DE, HL.
-b7_chksys:
+;------------------------------------------------------------------------
+; b7_chksys(dir, pattern) — Check directory entry name + attribute
+; sdcccall(1): dir in HL, pattern in DE.
+; Compares dir[1..4] against pattern[0..3], then checks dir[8] attribute.
+; Returns 0 (match) or 1 (mismatch) in A.
+;------------------------------------------------------------------------
+	PUBLIC	_b7_chksys
+_b7_chksys:
 	inc	hl			; HL = dir + 1
 	ld	b, 4
-b7_cmp:
+b7cs_lp:
 	ld	a, (de)
 	cp	(hl)
-	ret	nz			; mismatch
+	jr	nz, b7_ne		; reuse mismatch return above
 	inc	hl
 	inc	de
-	djnz	b7_cmp
+	djnz	b7cs_lp
 	; Check attribute: dir[1+ATTOFF] = dir[8], HL is now at dir+5
 	inc	hl			; dir+6
 	inc	hl			; dir+7
@@ -541,7 +482,9 @@ b7_cmp:
 	ld	a, (hl)
 	and	0x3F
 	cp	0x13
-	ret				; Z=match, NZ=mismatch
+	jr	nz, b7_ne		; reuse mismatch return
+	xor	a			; return 0 = match
+	ret
 
 ;------------------------------------------------------------------------
 ; g_state — boot state structure at fixed RAM address

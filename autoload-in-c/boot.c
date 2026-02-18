@@ -37,9 +37,7 @@ void clear_screen(void) {
         dspstr[i] = ' ';
     }
 }
-#endif /* HOST_TEST */
 
-#ifdef HOST_TEST
 void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len) {
     while (len--) *dst++ = *src++;
 }
@@ -51,10 +49,29 @@ uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len) {
     return 0;
 }
 
-/* HOST_TEST halt_msg — C fallback */
-void halt_msg(const uint8_t *msg, uint8_t len) {
-    mcopy(dspstr, msg, len);
+/* HOST_TEST halt_msg — C fallback (null-terminated copy) */
+void halt_msg(const uint8_t *msg) {
+    uint8_t *dst = dspstr;
+    while (*msg) *dst++ = *msg++;
     halt_forever();
+}
+
+/* HOST_TEST b7_cmp6/b7_chksys — C fallbacks for assembly in crt0.asm */
+uint8_t b7_cmp6(const uint8_t *a, const uint8_t *b) {
+    uint8_t i;
+    for (i = 0; i < 6; i++) {
+        if (a[i] != b[i]) return 1;
+    }
+    return 0;
+}
+
+uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern) {
+    uint8_t i;
+    for (i = 0; i < 4; i++) {
+        if (dir[1 + i] != pattern[i]) return 1;
+    }
+    if ((dir[1 + ATTOFF] & 0x3F) != 0x13) return 1;
+    return 0;
 }
 #endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
@@ -71,54 +88,69 @@ void errdsp(uint8_t code) {
     hal_ei();
     if (ST->dsktyp & 0x01) return;
     hal_beep();
-    halt_msg((const uint8_t *)msg_diskerr, 18);
+    halt_msg((const uint8_t *)msg_diskerr);
 }
 
+/*
+ * boot7 — Verify Track 0 directory contains system files.
+ *
+ * b7_cmp6/b7_chksys are assembly in crt0.asm (they use CP (HL)/DJNZ
+ * which sdcc cannot generate from C). The "SYSM"/"SYSC" strings live
+ * in the crt0.asm alignment gap (zero-cost).
+ *
+ * Uses one file-scope global (b7_dir) to avoid IX frame pointer.
+ * Uses goto for shared error paths to avoid duplicate halt_msg calls.
+ */
 #ifdef HOST_TEST
-/* isrc70x and chk_sysfile only needed for HOST_TEST (boot7 stubs).
- * Z80 build: boot7 is assembly in crt0.asm. */
+static const char b7_sysm[] = "SYSM";
+static const char b7_sysc[] = "SYSC";
+#else
+extern const char b7_sysm[];  /* in crt0.asm alignment gap */
+extern const char b7_sysc[];
+#endif
 
-static uint8_t isrc70x(const uint8_t *base, uint8_t which) {
-    const uint8_t *sig = (which == 0x0A) ?
-        (const uint8_t *)msg_rc700 : (const uint8_t *)msg_rc702;
-    return mcmp(base + 2, sig, 6);
-}
+static uint8_t *b7_dir;
 
-static uint8_t chk_sysfile(const uint8_t *dir_entry, const char *fname) {
-    uint8_t i;
-    for (i = 0; i < 4; i++) {
-        if (dir_entry[1 + i] != (uint8_t)fname[i]) return 1;
-    }
-    if ((dir_entry[1 + ATTOFF] & 0x3F) != 0x13) return 1;
-    return 0;
-}
-#endif /* HOST_TEST */
-
-#ifdef HOST_TEST
 void boot7(void) {
-    /* HOST_TEST: boot7 returns immediately (can't dereference FLOPPYDATA) */
+    if (b7_cmp6((const uint8_t *)0x0002, (const uint8_t *)msg_rc700) == 0) {
+        b7_dir = (uint8_t *)0x0B80;
+        while ((uint16_t)b7_dir < 0x0D00) {
+            if (*b7_dir == 0) {
+                b7_dir += 0x20;
+                continue;
+            }
+            if (b7_chksys(b7_dir, (const uint8_t *)b7_sysm) != 0)
+                goto nosys;
+            b7_dir += 0x20;
+            if (*b7_dir == 0)
+                goto nosys;
+            if (b7_chksys(b7_dir, (const uint8_t *)b7_sysc) != 0)
+                goto nosys;
+            return;
+        }
+        goto nosys;
+    }
+
+    if (b7_cmp6((const uint8_t *)0x0002, (const uint8_t *)msg_rc702) == 0) {
+        jump_to(*(uint16_t *)0x0000);
+        return;
+    }
+
+    halt_msg((const uint8_t *)msg_nocat);
     return;
-    (void)isrc70x;  /* suppress unused warning */
-    (void)chk_sysfile;
+
+nosys:
+    halt_msg((const uint8_t *)msg_nosys);
 }
-#endif /* HOST_TEST — Z80: assembly in crt0.asm */
 
 void check_prom1(void) {
 #ifndef HOST_TEST
-    {
-        const uint8_t *a = (const uint8_t *)0x2002;
-        const uint8_t *b = (const uint8_t *)msg_rc702;
-        uint8_t i, match = 1;
-        for (i = 0; i < 6; i++) {
-            if (a[i] != b[i]) { match = 0; break; }
-        }
-        if (match) {
-            jump_to(*(uint16_t *)0x2000);
-            return;
-        }
+    if (b7_cmp6((const uint8_t *)0x2002, (const uint8_t *)msg_rc702) == 0) {
+        jump_to(*(uint16_t *)0x2000);
+        return;
     }
 #endif
-    halt_msg((const uint8_t *)msg_nodisk, 29);
+    halt_msg((const uint8_t *)msg_nodisk);
 }
 
 static void nxthds(void) {

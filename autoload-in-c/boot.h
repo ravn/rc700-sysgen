@@ -114,7 +114,12 @@ void check_prom1(void);
 void flpint_body(void);
 
 /* Implemented in crt0.asm (C fallback in boot.c for HOST_TEST) */
-void halt_msg(const uint8_t *msg, uint8_t len);
+void halt_msg(const uint8_t *msg);
+
+/* Comparison helpers — assembly in crt0.asm (C fallback for HOST_TEST).
+ * These use CP (HL)/DJNZ which sdcc cannot generate from C. */
+uint8_t b7_cmp6(const uint8_t *a, const uint8_t *b);
+uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern);
 
 #ifdef HOST_TEST
 void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len);
