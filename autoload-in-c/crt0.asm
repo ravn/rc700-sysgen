@@ -121,16 +121,25 @@ _DSPSTR		EQU	0x7800
 
 ;------------------------------------------------------------------------
 ; HDINT — Display interrupt entry (CTC Ch2), calls C disint_handler
+;
+; Must save ALL registers that sdcc may use as scratch: AF, BC, DE, HL.
+; BC is critical — sdcc uses B and C freely in compiled code, and
+; hal_delay uses B for DJNZ (inner loop) and C for DEC C (middle loop).
+; If BC is not saved, CRT interrupts during hal_delay corrupt its loop
+; counters, causing infinite delay loops that prevent boot from reaching
+; the FDC driver.
 ;------------------------------------------------------------------------
 
 HDINT:
 	DI
 	PUSH	AF
-	PUSH	HL
+	PUSH	BC
 	PUSH	DE
+	PUSH	HL
 	CALL	_disint_handler
-	POP	DE
 	POP	HL
+	POP	DE
+	POP	BC
 	POP	AF
 	EI
 	RETI

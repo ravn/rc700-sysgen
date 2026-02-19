@@ -5,6 +5,7 @@
 # PROM image:  make prom     (assembles 2048-byte roa375.ic66)
 # MAME launch: make mame     (builds, installs PROM, launches with debugger)
 # MAME syms:   make mamesym  (generates roa375_mame.sym for debugger)
+# RC700 emu:   make rc700    (builds PROM, compiles & runs rc700 emulator)
 # Clean:       make clean
 
 CC = cc
@@ -66,6 +67,7 @@ rom: crt0.asm rom_all.c boot_entry.c boot.c fdc.c fmt.c isr.c peephole.def
 # Assemble PROM image: BOOT + 0xFF gap + NMI + CODE + 0xFF pad to 2048
 MAME = /Users/ravn/git/mame
 MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
+RC700 = ../../rc700
 FLOPPY = $(HOME)/Downloads/CPM_med_COMAL80.imd
 
 prom: rom
@@ -78,11 +80,27 @@ prom: rom
 	   perl -e "print \"\\xff\" x (2048 - 0x68 - $$CODE)"; \
 	 } > roa375.ic66; \
 	 echo "roa375.ic66: $$(wc -c < roa375.ic66 | tr -d ' ') bytes"
+	cp roa375.ic66 $(MAME_ROM)
+	cp roa375.ic66 $(RC700)/roa375.rom
 
 mame: prom mamesym
-	cp roa375.ic66 $(MAME_ROM)
+	@awk '{printf "comadd %s,%s\n", $$1, $$2}' roa375_mame.sym > roa375_debug.cmd
 	$(MAME)/regnecentralen rc702 -rompath $(MAME)/roms -debug \
 		-flop1 "$(FLOPPY)"
+
+# Build and run the RC700 emulator with SDL2
+RC700_SRC = cpu0.c cpu1.c cpu2.c cpu3.c cpu4.c cpu5.c cpu6.c cpu7.c \
+            rom.c charrom.c charram.c pio.c sio.c ctc.c dma.c crt.c \
+            fdc.c wdc.c ftp.c disk.c fifo.c monitor.c disasm.c
+
+rc700: prom
+	cd $(RC700) && ./rom2struct roa375.rom roa375 > roa375.c && \
+	$(CC) -DSDL_main=main -DSDL_MAIN_HANDLED -DPROM0=roa375 \
+		-o rc700-sdl2 -O3 -Wno-unused-result \
+		$(RC700_SRC) roa375.c rc700.c rcterm-sdl2.c screen.c \
+		-F/Library/Frameworks -framework SDL2 \
+		-Wl,-rpath,/Library/Frameworks
+	$(RC700)/rc700-sdl2 "$(FLOPPY)"
 
 # Convert z88dk map file to MAME debugger symbol definitions.
 # Usage in MAME debugger console: copy-paste lines, or source via Lua.
@@ -99,8 +117,8 @@ mamesym: roa375.map
 	@echo "wrote roa375_mame.sym ($$(wc -l < roa375_mame.sym) symbols)"
 
 clean:
-	rm -f test_boot test_fdc roa375 roa375_*.bin roa375_mame.sym roa375.ic66
+	rm -f test_boot test_fdc roa375 roa375_*.bin roa375_mame.sym roa375_debug.cmd roa375.ic66
 	rm -f *.o *.bin *.map *.sym *.lis *.def *.rom
 	rm -f zcc_opt.def
 
-.PHONY: test rom prom mame mamesym clean
+.PHONY: test rom prom mame mamesym rc700 clean

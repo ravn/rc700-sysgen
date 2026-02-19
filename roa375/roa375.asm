@@ -653,14 +653,20 @@ BOOT2:
 ; Additional boot helper routines
 ;------------------------------------------------------------------------
 
+; BOOT7 — Check disk signature and dispatch to appropriate boot path.
+;
+; Two signature checks via ISRC70X (see HL accumulation trick there):
+;   1st: A=0AH, HL=0x0000 → checks offset 0x0002 for " RC700" → BOOT8
+;   2nd: A=0BH, HL=0x0006 (carried over) → checks offset 0x0008 for " RC702" → BOOT9
+; Note: HL is NOT reloaded between calls — this is intentional.
 BOOT7:
 	LD	A,00AH
-	LD	HL,FLOPPYDATA
-	CALL	ISRC70X
-	JP	Z,BOOT8
-	LD	A,00BH
-	CALL	ISRC70X
-	JP	Z,BOOT9
+	LD	HL,FLOPPYDATA		; HL = 0x0000 (only set once!)
+	CALL	ISRC70X			; check 0x0002 for " RC700"
+	JP	Z,BOOT8			; → directory search for SYSM/SYSC
+	LD	A,00BH			; HL = 0x0006 (carried from ISRC70X)
+	CALL	ISRC70X			; check 0x0008 for " RC702"
+	JP	Z,BOOT9			; → jump via vector at 0x0000
 	JP	NOKATALOGERR
 
 ; Now look for system files
@@ -700,8 +706,27 @@ CHKSYSMC:
 	JP	NZ, NOSYSTEMFILESERR
 	RET
 
-ISRC70X:			; INC HL BY 2 (skipping jump address)
-				; IF A=0AH check for RC700, otherwise RC702
+; ISRC70X — Check for " RC700" or " RC702" signature in disk data.
+;
+; Entry: HL = base pointer (FLOPPYDATA on first call, accumulated on second)
+;        A  = 0x0A to check " RC700", 0x0B to check " RC702"
+; Exit:  Z  = match, NZ = no match
+;
+; HL accumulation trick (size optimization, saves 3 bytes):
+;   The function adds 2 to HL then loads HL=6 as the COMSTR length.
+;   BOOT7 calls ISRC70X twice without reloading HL between calls.
+;
+;   First call:  HL = FLOPPYDATA (0x0000) → +2 → checks offset 0x0002
+;                After failed COMSTR, HL = 0x0006 (from LD HL,6).
+;                COMSTR returns at first mismatch before DEC L, so L=6.
+;
+;   Second call: HL = 0x0006 (carried over) → +2 → checks offset 0x0008
+;                This is where " RC702" (CP/M+COMAL80 format) resides.
+;
+; Disk data layout at 0x0000:
+;   Old format (ID-COMAL):  [JP vector][" RC700"]...     signature at 0x0002
+;   New format (CP/M):      [JP vector][config  ][" RC702"]...  signature at 0x0008
+ISRC70X:
 	LD	DE, 2
 	ADD	HL, DE
 	EX	DE, HL

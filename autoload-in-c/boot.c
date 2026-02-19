@@ -98,11 +98,28 @@ void errdsp(uint8_t code) {
 }
 
 /*
- * boot7 — Verify Track 0 directory contains system files.
+ * boot7 — Verify Track 0 data and boot CP/M or ID-COMAL.
+ *
+ * After reading Track 0 into RAM at 0x0000, the boot ROM checks for
+ * two disk format signatures to determine boot mode:
+ *
+ *   Offset 0x0002: " RC700" — ID-COMAL boot (old format)
+ *     Bytes 0x0000-0x0001 are a 2-byte jump vector.  The signature
+ *     immediately follows at 0x0002.  If found, search the directory
+ *     area (0x0B80-0x0D00) for SYSM/SYSC file entries (BOOT8 path).
+ *
+ *   Offset 0x0008: " RC702" — CP/M + COMAL80 boot (new format)
+ *     Bytes 0x0000-0x0001 are a 2-byte jump vector.  Bytes 0x0002-0x0007
+ *     contain configuration data.  The signature is at 0x0008.  If found,
+ *     jump via the 16-bit vector at 0x0000 (BOOT9 path).
+ *
+ * The original assembly (roa375.asm ISRC70X) derives offset 0x0008 via
+ * an HL accumulation trick: ISRC70X adds 2 to HL and loads HL=6 as the
+ * COMSTR length.  On the second call, HL carries over as 0x0006, so
+ * HL+2 = 0x0008.  This C translation makes the offsets explicit.
  *
  * b7_cmp6/b7_chksys are C (pointer-increment avoids IX frame).
- * The "SYSM"/"SYSC" strings live
- * in the crt0.asm alignment gap (zero-cost).
+ * The "SYSM"/"SYSC" strings live in the crt0.asm alignment gap.
  *
  * Uses one file-scope global (b7_dir) to avoid IX frame pointer.
  * Uses goto for shared error paths to avoid duplicate halt_msg calls.
@@ -137,7 +154,7 @@ void boot7(void) {
         goto nosys;
     }
 
-    if (b7_cmp6((const uint8_t *)0x0002, (const uint8_t *)msg_rc702) == 0) {
+    if (b7_cmp6((const uint8_t *)0x0008, (const uint8_t *)msg_rc702) == 0) {
         jump_to(*(uint16_t *)0x0000);
         return;
     }
