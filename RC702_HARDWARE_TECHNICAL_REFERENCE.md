@@ -111,7 +111,14 @@ The RC702 supports two PROMs (see hardware manual page 17): PROM0 at 0x0000 (ROA
 - `0x01` - Count = 1
 - `0x03` - Reset channel command
 
-### Z80 CTC2 (Second Counter/Timer for Hard Disk)
+### Z80 CTC2 (Second Counter/Timer for Hard Disk — External)
+
+The CTC2 is **not on the RC702 motherboard**.  It resides on the external
+hard disk interface board, connected via the Z80 bus expansion connector
+on the motherboard.  The full Z80 bus is exposed on this connector, and
+the hard disk enclosure contains additional circuitry including this CTC.
+Systems without a hard disk have no CTC2; writes to ports 0x44-0x47 are
+ignored.
 
 ```
 0x44  CT2CH0     - Channel 0 (WD1000 hard disk interrupt)
@@ -821,19 +828,27 @@ When developing or modifying the ROA375 autoload ROM:
 |------|--------|----------|
 | 0x00 | 8275 | CRT Data Register |
 | 0x01 | 8275 | CRT Command Register |
-| 0x0C | CTC | Channel 0 |
-| 0x0D | CTC | Channel 1 |
-| 0x0E | CTC | Channel 2 (Display) |
-| 0x0F | CTC | Channel 3 (Floppy) |
-| 0x10 | PIO | Keyboard Data |
-| 0x12 | PIO | Keyboard Control |
+| 0x04 | µPD765 | FDC Main Status Register (read) |
+| 0x05 | µPD765 | FDC Data Register (read/write) |
+| 0x08 | Z80-SIO | SIO Channel A Data |
+| 0x09 | Z80-SIO | SIO Channel B Data |
+| 0x0A | Z80-SIO | SIO Channel A Control |
+| 0x0B | Z80-SIO | SIO Channel B Control |
+| 0x0C | CTC | Channel 0 (SIO-A baud rate) |
+| 0x0D | CTC | Channel 1 (SIO-B baud rate) |
+| 0x0E | CTC | Channel 2 (Display interrupt) |
+| 0x0F | CTC | Channel 3 (Floppy interrupt) |
+| 0x10 | PIO | Port A Data (Keyboard) |
+| 0x11 | PIO | Port B Data (Parallel output) |
+| 0x12 | PIO | Port A Control |
+| 0x13 | PIO | Port B Control |
 | 0x14 | System | SW1: Mini/Maxi switch (read), Mini floppy motor (write) |
 | 0x18 | System | RAMEN: PROM disable (write disables PROM0+PROM1) |
 | 0x1C | System | BIB: Speaker/beep control |
-| 0x44 | CTC2 | Channel 0 (Hard Disk) |
-| 0x45 | CTC2 | Channel 1 |
-| 0x46 | CTC2 | Channel 2 |
-| 0x47 | CTC2 | Channel 3 |
+| 0x44 | CTC2 | Channel 0 (Hard Disk) — external HD board |
+| 0x45 | CTC2 | Channel 1 — external |
+| 0x46 | CTC2 | Channel 2 — external |
+| 0x47 | CTC2 | Channel 3 — external |
 | 0xF0 | DMA | CH0 Address (HD) |
 | 0xF1 | DMA | CH0 Word Count |
 | 0xF2 | DMA | CH1 Address (FDC) |

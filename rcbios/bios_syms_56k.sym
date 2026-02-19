@@ -1,0 +1,85 @@
+# Z80 BIOS symbols for 56K RC702 CP/M (rel.2.1)
+# Format: address label
+# For use with z80dasm -t
+
+# BIOS jump table (standard CP/M 2.2)
+da00 BOOT
+da03 WBOOT
+da06 CONST
+da09 CONIN
+da0c CONOUT
+da0f LIST
+da12 PUNCH
+da15 READER
+da18 HOME
+da1b SELDSK
+da1e SETTRK
+da21 SETSEC
+da24 SETDMA
+da27 READ
+da2a WRITE
+da2d LISTST
+da30 SECTRAN
+
+# Configuration data area
+da33 ADRMOD
+da34 WR5A
+da35 WR5B
+da36 MTYPE
+da37 MTYPE2
+da38 MTYPE3
+da39 FD0
+da3a FD1
+da3b FD2
+da3c FD3
+da3d FD4
+da3e FD5
+da3f FD6
+da40 FD7
+da41 FD8
+da42 FD9
+da43 FD10
+da44 FD11
+da45 FD12
+da46 FD13
+da47 BOOTD
+
+# Non-standard extended vectors
+da4a JWFITR
+da4d JREADS
+da50 JLINSEL
+da53 JPEXIT
+da56 JPCLOCK
+da59 JHRDFMT
+
+# BIOS code entry points (from jump table)
+db78 BOOT_ENTRY
+dbc1 WBOOT_ENTRY
+
+# SIO driver
+dc8d STLIST_ENTRY
+dc91 LIST_ENTRY
+dcd4 READER_ENTRY
+dce4 PUNCH_ENTRY
+
+# Display driver
+e209 CONOUT_ENTRY
+
+# Disk driver
+e2cd SELDSK_ENTRY
+e376 SETTRK_ENTRY
+e37c SETSEC_ENTRY
+e382 SETDMA_ENTRY
+e388 SECTRAN_ENTRY
+e38b READ_ENTRY
+e39f WRITE_ENTRY
+
+# Home
+e658 HOME_ENTRY
+
+# Keyboard
+ec28 CONST_ENTRY
+ec2c CONIN_ENTRY
+
+# System addresses
+f800 DSPSTR

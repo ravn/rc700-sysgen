@@ -1,0 +1,88 @@
+# Symbol file for z80dasm -S
+# 56K BIOS (rel.2.1) - rccpm22
+
+# BIOS jump table
+da00 BOOT
+da03 WBOOT
+da06 CONST
+da09 CONIN
+da0c CONOUT
+da0f LIST
+da12 PUNCH
+da15 READER
+da18 HOME
+da1b SELDSK
+da1e SETTRK
+da21 SETSEC
+da24 SETDMA
+da27 READ
+da2a WRITE
+da2d LISTST
+da30 SECTRAN
+
+# Config area
+da33 ADRMOD
+da34 WR5A
+da35 WR5B
+da36 MTYPE
+da39 FD0
+da47 BOOTD
+
+# Extended vectors
+da4a JWFITR
+da4d JREADS
+da50 JLINSEL
+da53 JPEXIT
+da56 JPCLOCK
+da59 JHRDFMT
+
+# Strings
+da71 MSG_DISKERR
+da8e SIGNON
+dab5 MSG_WAITING
+dabe MSG_CONFIGERR
+
+# Boot code
+dae1 BOOT04
+daf7 EXIT
+db04 CLOCK
+db1a LINSEL
+db78 BOOT_ENTRY
+dbc1 WBOOT_ENTRY
+
+# SIO driver
+dc8d STLIST_ENTRY
+dc91 LIST_ENTRY
+dcd0 READS_ENTRY
+dcd4 READER_ENTRY
+dce4 PUNCH_ENTRY
+
+# Display driver
+e209 CONOUT_ENTRY
+
+# Disk selection
+e2cd SELDSK_ENTRY
+
+# Disk operations
+e376 SETTRK_ENTRY
+e37c SETSEC_ENTRY
+e382 SETDMA_ENTRY
+e388 SECTRAN_ENTRY
+e38b READ_ENTRY
+e39f WRITE_ENTRY
+
+# Home
+e658 HOME_ENTRY
+
+# FDC operations
+e745 WFITR_ENTRY
+
+# Hard disk
+e954 HRDFMT_ENTRY
+
+# Interrupt handlers
+ec28 CONST_ENTRY
+ec2c CONIN_ENTRY
+
+# Display buffer
+f800 DSPSTR

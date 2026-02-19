@@ -1,0 +1,137 @@
+; Symbol file for 56K BIOS (rel.2.1) - rccpm22
+
+
+BOOT:	equ 0xda00
+
+WBOOT:	equ 0xda03
+
+CONST:	equ 0xda06
+
+CONIN:	equ 0xda09
+
+CONOUT:	equ 0xda0c
+
+LIST:	equ 0xda0f
+
+PUNCH:	equ 0xda12
+
+READER:	equ 0xda15
+
+HOME:	equ 0xda18
+
+SELDSK:	equ 0xda1b
+
+SETTRK:	equ 0xda1e
+
+SETSEC:	equ 0xda21
+
+SETDMA:	equ 0xda24
+
+READ:	equ 0xda27
+
+WRITE:	equ 0xda2a
+
+LISTST:	equ 0xda2d
+
+SECTRAN:	equ 0xda30
+
+ADRMOD:	equ 0xda33
+
+WR5A:	equ 0xda34
+
+WR5B:	equ 0xda35
+
+MTYPE:	equ 0xda36
+
+FD0:	equ 0xda39
+
+BOOTD:	equ 0xda47
+
+JWFITR:	equ 0xda4a
+
+JREADS:	equ 0xda4d
+
+JLINSEL:	equ 0xda50
+
+JPEXIT:	equ 0xda53
+
+JPCLOCK:	equ 0xda56
+
+JHRDFMT:	equ 0xda59
+
+MSG_DISKERR:	equ 0xda71
+
+SIGNON:	equ 0xda8e
+
+MSG_WAITING:	equ 0xdab5
+
+MSG_CONFIGERR:	equ 0xdabe
+
+EXIT:	equ 0xdaf7
+
+CLOCK:	equ 0xdb04
+
+LINSEL:	equ 0xdb1a
+
+BOOT_ENTRY:	equ 0xdb78
+
+WBOOT_ENTRY:	equ 0xdbc1
+
+STLIST_ENTRY:	equ 0xdc8d
+
+LIST_ENTRY:	equ 0xdc91
+
+READS_ENTRY:	equ 0xdcd0
+
+READER_ENTRY:	equ 0xdcd4
+
+PUNCH_ENTRY:	equ 0xdce4
+
+CONOUT_ENTRY:	equ 0xe209
+
+DSPITR:	equ 0xe242
+
+SELDSK_ENTRY:	equ 0xe2cd
+
+SETTRK_ENTRY:	equ 0xe376
+
+SETSEC_ENTRY:	equ 0xe37c
+
+SETDMA_ENTRY:	equ 0xe382
+
+SECTRAN_ENTRY:	equ 0xe388
+
+READ_ENTRY:	equ 0xe38b
+
+WRITE_ENTRY:	equ 0xe39f
+
+HOME_ENTRY:	equ 0xe658
+
+WFITR_ENTRY:	equ 0xe745
+
+FLITR:	equ 0xe7d4
+; Floppy disk controller ISR
+
+HRDFMT_ENTRY:	equ 0xe954
+
+HDITR:	equ 0xe987
+; Hard disk controller ISR
+
+DUMITR:	equ 0xebe8
+; Dummy ISR (EI; RETI)
+
+ITRTAB:	equ 0xec00
+; Interrupt vector table (256-byte aligned, I register = 0xEC)
+
+CONST_ENTRY:	equ 0xec28
+
+CONIN_ENTRY:	equ 0xec2c
+
+KEYIT:	equ 0xec43
+; Keyboard interrupt handler
+
+PARIN:	equ 0xec58
+; Parallel port interrupt handler
+
+DSPSTR:	equ 0xf800
+; Display buffer (80x25 characters)

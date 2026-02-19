@@ -1,0 +1,77 @@
+# RC702 CP/M BIOS extraction and analysis
+#
+# Prerequisites:
+#   - rc700 emulator (../../../rc700/) built with --memdump support
+#   - z80dasm installed
+#   - Disk images in expected locations
+
+RC700 = ../../../rc700
+EMU = $(RC700)/rc700-vt100
+
+# Disk image locations
+IMG_RCCPM22 = $(RC700)/rccpm22.imd
+IMG_COMAL80 = $(HOME)/Downloads/CPM_med_COMAL80.imd
+IMG_REL22   = $(HOME)/Downloads/CPM_v.2.2_rel.2.2.bin
+IMG_COMPAS  = $(HOME)/Downloads/Compas_v.2.13DK.imd
+
+# RAM dumps
+DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
+
+# BIOS binaries and disassemblies
+BIOS_BINS = rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin
+BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm compas_bios.asm
+
+.PHONY: all dumps bios disasm clean emu
+
+all: disasm
+
+# Build the emulator with --memdump support
+emu:
+	cd $(RC700) && cc -DSDL_main=main -DSDL_MAIN_HANDLED \
+		-o rc700-vt100 -O3 -Wno-unused-result \
+		cpu0.c cpu1.c cpu2.c cpu3.c cpu4.c cpu5.c cpu6.c cpu7.c \
+		rom.c charrom.c charram.c pio.c sio.c ctc.c dma.c crt.c \
+		fdc.c wdc.c ftp.c disk.c fifo.c monitor.c disasm.c \
+		rob358.c rc700.c rcterm-vt100.c
+
+# Extract RAM dumps
+dumps: $(DUMPS)
+
+rccpm22_ram.bin: $(EMU) $(IMG_RCCPM22)
+	$(EMU) -memdump $@ $(IMG_RCCPM22) > /dev/null 2>$@.log
+
+cpm_comal80_ram.bin: $(EMU) $(IMG_COMAL80)
+	$(EMU) -memdump $@ $(IMG_COMAL80) > /dev/null 2>$@.log
+
+cpm22_rel22_ram.bin: $(EMU) /tmp/cpm22_rel22.imd
+	$(EMU) -memdump $@ /tmp/cpm22_rel22.imd > /dev/null 2>$@.log
+
+/tmp/cpm22_rel22.imd: $(IMG_REL22) bin2imd.py
+	python3 bin2imd.py $(IMG_REL22) $@
+
+compas_ram.bin: $(EMU) $(IMG_COMPAS)
+	$(EMU) -maxi -memdump $@ $(IMG_COMPAS) > /dev/null 2>$@.log
+
+# Extract BIOS binaries from RAM dumps
+bios: $(BIOS_BINS)
+
+rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin: extract_bios.py $(DUMPS)
+	python3 extract_bios.py
+
+# Disassemble
+disasm: $(BIOS_ASMS)
+
+rccpm22_bios.asm: rccpm22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
+	z80dasm -a -l -g 0xDA00 -S syms_56k_z80dasm.sym -b blocks_56k.def \
+		-o $@ $< 2>/dev/null
+
+cpm22_rel22_bios.asm: cpm22_rel22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
+	z80dasm -a -l -g 0xDA00 -S syms_56k_z80dasm.sym -b blocks_56k.def \
+		-o $@ $< 2>/dev/null
+
+compas_bios.asm: compas_bios.bin
+	z80dasm -a -l -g 0xE200 -o $@ $< 2>/dev/null
+
+clean:
+	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd
+	rm -f *_auto.sym

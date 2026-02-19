@@ -1,0 +1,16 @@
+; Block definitions for 56K BIOS (rel.2.1)
+
+jumptable:	start 0xda00 end 0xda33 type code
+config:		start 0xda33 end 0xda4a type bytedata
+extvec:		start 0xda4a end 0xda5c type code
+pad1:		start 0xda5c end 0xda71 type bytedata
+messages:	start 0xda71 end 0xdae1 type bytedata
+bootcode:	start 0xdae1 end 0xdc8d type code
+siocode:	start 0xdc8d end 0xde00 type code
+displaycode:	start 0xde00 end 0xe2cd type code
+diskcode:	start 0xe2cd end 0xebe8 type code
+dumitr:		start 0xebe8 end 0xebee type code
+intvars:	start 0xebee end 0xec00 type bytedata
+ivt:		start 0xec00 end 0xec24 type worddata
+kbdcode:	start 0xec24 end 0xec70 type code
+biosdata:	start 0xec70 end 0xf800 type bytedata
