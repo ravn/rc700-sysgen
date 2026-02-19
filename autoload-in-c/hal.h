@@ -67,7 +67,13 @@ void hal_di(void);
  * Z80 BUILD — inline port I/O via __sfr, minimal function calls
  * ================================================================ */
 
-/* Port declarations */
+/* Port declarations — sdcc __sfr __at maps a C variable to a Z80 I/O port.
+ * Reading the variable compiles to IN A,(port), writing to OUT (port),A.
+ * Each port access is just two bytes of Z80 code with no function call
+ * overhead.  However, sdcc naively reloads A between consecutive writes
+ * to different ports with the same value (e.g. two OUT instructions both
+ * needing A=0x4F).  Custom peephole rules in peephole.def eliminate these
+ * redundant loads, saving 2 bytes per occurrence in init sequences. */
 __sfr __at 0x14 _port_sw1;
 __sfr __at 0x18 _port_ramen;
 __sfr __at 0x1C _port_bib;

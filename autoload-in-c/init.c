@@ -42,15 +42,15 @@ void init_dma(void) {
 }
 
 void init_crt(void) {
-    hal_crt_command(0x00);
-    hal_crt_param(0x4F);
-    hal_crt_param(0x98);
-    hal_crt_param(0x9A);
-    hal_crt_param(0x5D);
-    hal_crt_command(0x80);
-    hal_crt_param(0x00);
-    hal_crt_param(0x00);
-    hal_crt_command(0xE0);
+    hal_crt_command(0x00);  /* reset (expect 4 param bytes) */
+    hal_crt_param(0x4F);    /*   S=0, H=79: 80 chars/row */
+    hal_crt_param(0x98);    /*   V=2 vretrace, R=24: 25 rows */
+    hal_crt_param(0x9A);    /*   L=9 underline pos, U=10 lines/char */
+    hal_crt_param(0x5D);    /*   F=0, M=1 transparent, C=01 blink underline cursor, Z=28 hretrace */
+    hal_crt_command(0x80);  /* load cursor (expect 2 param bytes) */
+    hal_crt_param(0x00);    /*   column = 0 */
+    hal_crt_param(0x00);    /*   row = 0 */
+    hal_crt_command(0xE0);  /* preset counters */
 }
 
 void init_fdc(void) {
@@ -95,14 +95,14 @@ void init_peripherals(void) {
     hal_dma_mode(0x4A);
     hal_dma_mode(0x4B);
 
-    /* CRT setup */
-    hal_crt_command(0x00);
-    hal_crt_param(0x4F);
-    hal_crt_param(0x98);
-    hal_crt_param(0x9A);
-    hal_crt_param(0x5D);
-    hal_crt_command(0x80);
-    hal_crt_param(0x00);
-    hal_crt_param(0x00);
-    hal_crt_command(0xE0);
+    /* CRT setup — Intel 8275 commands (bits 7-5 = command code) */
+    hal_crt_command(0x00);  /* reset (expect 4 param bytes) */
+    hal_crt_param(0x4F);    /*   S=0, H=79: 80 chars/row */
+    hal_crt_param(0x98);    /*   V=2 vretrace, R=24: 25 rows */
+    hal_crt_param(0x9A);    /*   L=9 underline pos, U=10 lines/char */
+    hal_crt_param(0x5D);    /*   F=0, M=1 transparent, C=01 blink underline cursor, Z=28 hretrace */
+    hal_crt_command(0x80);  /* load cursor (expect 2 param bytes) */
+    hal_crt_param(0x00);    /*   column = 0 */
+    hal_crt_param(0x00);    /*   row = 0 */
+    hal_crt_command(0xE0);  /* preset counters */
 }

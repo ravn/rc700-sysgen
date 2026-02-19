@@ -85,7 +85,7 @@ void display_banner(void) {
     uint8_t i = 6;
     while (i--) *dst++ = *src++;
     scroll_offset = 0;
-    hal_crt_command(0x23);
+    hal_crt_command(0x23);  /* start display: burst space=0, 8 DMA cycles/burst */
 }
 #endif
 
