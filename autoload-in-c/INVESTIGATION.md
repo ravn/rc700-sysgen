@@ -325,7 +325,7 @@ globals-only architecture:
   instead.
 - Trivially small functions (mkdhb, errcpy, setfmt, clrflf) were inlined.
 
-The previous parameterized version was archived to `autorom-in-asm/`.
+The previous parameterized version was archived to `autoload-in-asm/`.
 
 ### sccz80 Results: Globals-Only Made Things Worse
 
