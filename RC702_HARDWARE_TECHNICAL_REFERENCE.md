@@ -865,7 +865,7 @@ When developing or modifying the ROA375 autoload ROM:
 | 0x02 | 0xA002 | KBINT | PIO Keyboard |
 | 0x04 | 0xA004 | DUMINT | Dummy |
 | 0x06 | 0xA006 | DUMINT | Dummy |
-| 0x08 | 0xA008 | HDINT | CTC2 Hard Disk |
+| 0x08 | 0xA008 | HDINT | CTC2 Hard Disk (RC703 only) |
 | 0x0A | 0xA00A | DUMINT | Dummy |
 | 0x0C | 0xA00C | DUMINT | Dummy |
 | 0x0E | 0xA00E | DUMINT | Dummy |

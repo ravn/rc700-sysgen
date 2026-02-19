@@ -290,10 +290,10 @@ DMAINT:
 	OUT	(0FBH),A
 	LD	A,04BH
 	OUT	(0FBH),A
-	JP	CRTINT
+	JP	CRTINIT
 
 ; CRT Controller (8275) initialization
-CRTINT:
+CRTINIT:
 	LD	A,000H
 	OUT	(001H),A		;Reset CRT
 
@@ -660,10 +660,10 @@ DISINT:
 	RET
 
 ;------------------------------------------------------------------------
-; Hard disk and floppy interrupt handlers
+; CRT and floppy interrupt handlers
 ;------------------------------------------------------------------------
 
-HDINT:
+CRTINT:
 	DI
 	CALL	DISINT
 	EI

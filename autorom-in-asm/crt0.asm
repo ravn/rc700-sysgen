@@ -6,7 +6,7 @@
 ; - Interrupt vector table (page-aligned at 0x7300)
 ; - NMI stub (RETN at fixed ROM offset 0x0066)
 ; - DISINT display interrupt handler (timing-critical DMA reprogramming)
-; - HDINT, FLPINT, DUMINT interrupt wrappers
+; - CRTINT, FLPINT, DUMINT interrupt wrappers
 ;
 ; After relocation, sets up SP and calls _main in C code.
 ;
@@ -155,7 +155,7 @@ INIT_RELOCATED:
 ; Must stay in assembly due to tight timing requirements.
 ;------------------------------------------------------------------------
 
-	PUBLIC	_disint_handler
+	PUBLIC	_crt_refresh
 
 ; Display buffer and scroll offset — fixed RAM addresses
 _DSPSTR		EQU	0x7800
@@ -171,7 +171,7 @@ WCREG3	EQU	0xF7			; DMA Ch3 word count
 CRTCOM	EQU	0x01			; CRT command register
 CTCCH2	EQU	0x0E			; CTC channel 2
 
-_disint_handler:
+_crt_refresh:
 DISINT:
 	PUSH	AF
 	IN	A, (CRTCOM)		; Read 8275 status to acknowledge interrupt
@@ -247,11 +247,11 @@ DISINT:
 	RET
 
 ;------------------------------------------------------------------------
-; HDINT — Display interrupt entry (CTC Ch2)
+; CRTINT — CRT vertical retrace interrupt (CTC Ch2)
 ; DI -> CALL DISINT -> EI -> RETI
 ;------------------------------------------------------------------------
 
-HDINT:
+CRTINT:
 	DI
 	CALL	DISINT
 	EI
@@ -295,7 +295,7 @@ INTVEC:
 	DW	DUMINT			; +6:  Dummy
 	DW	DUMINT			; +8:  CTC CH0
 	DW	DUMINT			; +10: CTC CH1
-	DW	HDINT			; +12: CTC CH2 - Display interrupt
+	DW	CRTINT			; +12: CTC CH2 - CRT vertical retrace
 	DW	FLPINT			; +14: CTC CH3 - Floppy interrupt
 	DW	DUMINT			; +16: Dummy
 	DW	DUMINT			; +18: Dummy

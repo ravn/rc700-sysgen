@@ -417,11 +417,11 @@ DMAINT:
 	OUT	(DMAMOD),A		; Ch2: demand write mode (CRT display)
 	LD	A,01001011b		; Demand mode, addr increment, no auto-init, write, channel 3
 	OUT	(DMAMOD),A		; Ch3: demand write mode (CRT display)
-	JP	CRTINT
+	JP	CRTINIT
 
 ; CRT Controller (8275) initialization
 ; https://www.jbox.dk/rc702/hardware/intel-8275.pdf - page 8-238 -
-CRTINT:
+CRTINIT:
 	LD	A,000H			; Reset command (bits 7-5 = 000)
 	OUT	(CRTCOM),A		; Reset CRT controller, expect 4 parameter bytes
 
@@ -818,7 +818,7 @@ INTVEC:
 	DW	DUMINT		; +6:  Dummy
 	DW	DUMINT		; +8:  CTC CH0 - not used
 	DW	DUMINT		; +10: CTC CH1 - not used
-	DW	HDINT		; +12: CTC CH2 - Display interrupt
+	DW	CRTINT		; +12: CTC CH2 - CRT vertical retrace
 	DW	FLPINT		; +14: CTC CH3 - Floppy interrupt
 	DW	DUMINT		; +16: Dummy
 	DW	DUMINT		; +18: Dummy
@@ -888,7 +888,7 @@ RETSP:
 
 ;------------------------------------------------------------------------
 ; Display interrupt handler (DISINT)
-; Called via HDINT on every CTC Ch2 interrupt (triggered by 8275 vertical retrace).
+; Called via CRTINT on every CTC Ch2 interrupt (triggered by 8275 vertical retrace).
 ;
 ; [Claude Opus 4.6] Implements circular-buffer hardware scrolling using two
 ; DMA channels.  The 2000-byte display buffer at DSPSTR is treated as a
@@ -991,10 +991,10 @@ DISINT:
 	RET
 
 ;------------------------------------------------------------------------
-; Hard disk and floppy interrupt handlers
+; CRT and floppy interrupt handlers
 ;------------------------------------------------------------------------
 
-HDINT:
+CRTINT:
 	DI
 	CALL	DISINT
 	EI

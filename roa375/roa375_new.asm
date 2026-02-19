@@ -290,7 +290,7 @@ DMAINT:
 	JP	07146H
 
 ; CRT Controller (8275) initialization
-CRTINT:
+CRTINIT:
 	LD	A,000H
 	OUT	(001H),A		;Reset CRT
 
@@ -662,10 +662,10 @@ DISINT:
 	RET
 
 ;------------------------------------------------------------------------
-; Hard disk interrupt handler
+; CRT vertical retrace interrupt handler
 ;------------------------------------------------------------------------
 
-HDINT:
+CRTINT:
 	DI
 	CALL	DISINT
 	EI

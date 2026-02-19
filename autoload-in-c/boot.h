@@ -121,7 +121,7 @@ void flboot(void);
 void check_prom1(void);
 
 /* isr.c */
-void disint_handler(void);
+void crt_refresh(void);
 void flpint_body(void);
 
 /* Implemented in crt0.asm (C fallback in boot.c for HOST_TEST) */

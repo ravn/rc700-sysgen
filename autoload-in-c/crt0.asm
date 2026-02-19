@@ -13,7 +13,7 @@
 ;   CODE     0x0068+   Payload in ROM, copied to 0x7000 at boot:
 ;            0x7000      Interrupt vector table (naturally page-aligned)
 ;            0x7020      INIT_RELOCATED: SP/I/IM2, CALL init_peripherals, JP _main
-;            0x702F      HDINT, FLPINT, DUMINT: interrupt entry points
+;            0x702F      CRTINT, FLPINT, DUMINT: interrupt entry points
 ;            0x7040      Small functions: jump_to, hal_ei, hal_di
 ;            0x7046      halt_msg + halt_forever
 ;            0x7051      b7_sysm, b7_sysc strings
@@ -27,7 +27,7 @@
 ;
 ; Assembly in this file (BOOT + CODE sections):
 ; - Interrupt vector table (at CODE section start, naturally page-aligned)
-; - HDINT, FLPINT, DUMINT interrupt wrappers
+; - CRTINT, FLPINT, DUMINT interrupt wrappers
 ; - Utility: halt_msg, halt_forever, jump_to, hal_ei, hal_di
 ; - String data: b7_sysm, b7_sysc
 ;
@@ -36,7 +36,7 @@
 
 	; External symbols provided by C code
 	EXTERN	_main
-	EXTERN	_disint_handler
+	EXTERN	_crt_refresh
 	EXTERN	_flpint_body
 	EXTERN	_init_peripherals
 
@@ -93,7 +93,7 @@ INTVEC:
 	DW	DUMINT			; +6:  Dummy
 	DW	DUMINT			; +8:  CTC CH0
 	DW	DUMINT			; +10: CTC CH1
-	DW	HDINT			; +12: CTC CH2 - Display
+	DW	CRTINT			; +12: CTC CH2 - Display
 	DW	FLPINT			; +14: CTC CH3 - Floppy
 	DW	DUMINT			; +16: Dummy
 	DW	DUMINT			; +18: Dummy
@@ -120,7 +120,7 @@ INIT_RELOCATED:
 _DSPSTR		EQU	0x7800
 
 ;------------------------------------------------------------------------
-; HDINT — Display interrupt entry (CTC Ch2), calls C disint_handler
+; CRTINT — CRT vertical retrace interrupt (CTC Ch2), calls C crt_refresh
 ;
 ; Must save ALL registers that sdcc may use as scratch: AF, BC, DE, HL.
 ; BC is critical — sdcc uses B and C freely in compiled code, and
@@ -130,13 +130,13 @@ _DSPSTR		EQU	0x7800
 ; the FDC driver.
 ;------------------------------------------------------------------------
 
-HDINT:
+CRTINT:
 	DI
 	PUSH	AF
 	PUSH	BC
 	PUSH	DE
 	PUSH	HL
-	CALL	_disint_handler
+	CALL	_crt_refresh
 	POP	HL
 	POP	DE
 	POP	BC

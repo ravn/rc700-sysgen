@@ -10,7 +10,7 @@
 #define ST (&g_state)
 
 /*
- * disint_handler — display interrupt (CRT vertical retrace)
+ * crt_refresh — CRT vertical retrace handler
  *
  * Reprograms DMA channels 2 and 3 to implement hardware-assisted
  * circular-buffer scrolling of the 80x25 display at DSPSTR (0x7800).
@@ -19,9 +19,9 @@
  * DMA Ch3 transfers from DSPSTR for the full 2000-byte screen.
  * Together they present a scrolled view without copying memory.
  *
- * Called from HDINT (CTC Ch2 interrupt) with interrupts disabled.
+ * Called from CRTINT (CTC Ch2 interrupt) with interrupts disabled.
  */
-void disint_handler(void) {
+void crt_refresh(void) {
     (void)hal_crt_status();     /* acknowledge CRT interrupt */
 
     hal_dma_mask(2);            /* disable Ch2 during reprogramming */
