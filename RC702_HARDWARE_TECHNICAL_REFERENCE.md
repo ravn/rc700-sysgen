@@ -19,8 +19,13 @@ This document provides comprehensive technical information about the RC702 hardw
 6. [Hardware Controllers](#hardware-controllers)
    - [Display Control Character Protocol](#display-control-character-protocol)
    - [Keyboard](#keyboard)
+   - [Serial Port Assignments](#serial-port-assignments)
    - [Peripheral Handshake](#peripheral-handshake)
 7. [Multi-Density Disk Support](#multi-density-disk-support)
+8. [RC-Specific CP/M Utilities](#rc-specific-cpm-utilities)
+9. [RC763 Hard Disk System](#rc763-hard-disk-system)
+10. [System Diskette Generation](#system-diskette-generation-appendix-c)
+11. [Line Editing and Boot Keys](#line-editing-and-boot-keys)
 
 ---
 
@@ -676,17 +681,86 @@ character codes via PIO Port A (0x10).  No scan code processing is needed on
 the host side.
 
 Two keyboard layouts were produced:
-- **RC721**: early production
-- **RC722**: later production
+- **RC721**: early production (serial no. before KBU723 #51)
+- **RC722**: early production (serial no. before KBU722 #384)
+
+Later productions of both RC721/RC722 changed the layout (see Figures 2 and
+3 in the User's Guide, p.65).
+
+#### Keyboard Code Map (Figure 2 — Early RC721/RC722)
+
+The keyboard sends the following hex codes on PIO Port A when a key is
+pressed.  Each key has up to four values: normal, shifted (SHIFT), PA
+(function key modifier), and SHIFT+PA.
+
+**Top row (numeric keys):**
+
+| Key | Normal | SHIFT | PA | SHIFT+PA |
+|-----|--------|-------|----|----------|
+| 1 | 31 | 21 | 91 | A1 |
+| 2 | 32 | 22 | 92 | A2 |
+| 3 | 33 | 23 | 93 | A3 |
+| 4 | 34 | 24 | 94 | A4 |
+| 5 | 35 | 25 | 95 | A5 |
+| 6 | 36 | 26 | 96 | A6 |
+| 7 | 37 | 27 | 97 | A7 |
+| 8 | 38 | 28 | 98 | A8 |
+| 9 | 39 | 29 | 99 | A9 |
+| 0 | 30 | 3D | 90 | 9D |
+
+**Function keys (PA1-PA5):**
+
+| Key | Normal | SHIFT |
+|-----|--------|-------|
+| PA1 | 01 | 11 |
+| PA2 | 1E | 0E |
+| PA3 | 05 | 15 |
+| PA4 | 0E | 13 |
+| PA5 | 1E | 1E |
+
+**Special keys:**
+
+| Key | Code | Notes |
+|-----|------|-------|
+| RETURN | 0D | Carriage return |
+| SPACE | 20 | |
+| BS (backspace) | 08 | |
+| TAB | 09 | |
+| DEL | 7F | Delete character |
+| BREAK | 03 | CTRL-C equivalent |
+
+PA keys are programmable function keys.  The PA code values can be patched
+in the BIOS conversion table (see Appendix D of User's Guide for patch
+addresses).
 
 The keyboard conversion table translates raw key codes to application
 characters.  The table base address depends on disk format:
 - Mini (5.25") diskette systems: **0x2E80**
 - Maxi (8") diskette systems: **0x4680**
 
+Patch address for any key = baseaddress + key value.  For example, the
+shifted PA5 key (code 0x1E) on a mini system: 0x2E80 + 0x1E = 0x2E9E.
+
 The conversion table is part of the CP/M system image loaded from Track 0
 and can be switched between 7 language variants via CONFI.COM (Danish,
 Swedish, German, UK ASCII, US ASCII, French, Library).
+
+### Serial Port Assignments
+
+The RC702 has two serial ports, both active simultaneously:
+
+- **SIO Channel A (ports 0x08/0x0A)**: **Printer port** — directly connected
+  to a serial printer.  CP/M maps this as the LST: (list) device.
+- **SIO Channel B (ports 0x09/0x0B)**: **Terminal port** — used for an
+  optional modem, PC connection, or second RC700 (via FILEX file transfer).
+  CP/M maps this as both the PUN: (punch) and RDR: (reader) devices.
+
+The RC700 Parallel Input/Output Port is **not supported** by CP/M — only the
+serial ports are used for peripherals.
+
+The system does **not** support the IOBYTE function or the modification of
+logical-physical device assignments via the STAT command.  The system does
+not include the MOVCPM program.
 
 ### Peripheral Handshake
 
@@ -701,10 +775,16 @@ When CTS is deasserted (printer busy), the SIO holds transmission until
 CTS is reasserted.  The SIO "Auto Enables" feature (WR3 bit 5) handles
 this automatically.
 
+The printer port can be used for attachment of most printers with a serial
+interface and busy control.
+
 #### Terminal Port (SIO Channel B)
 
 - **Transmitter**: same RTS/CTS handshake as printer port
 - **Receiver**: uses DCD (Data Carrier Detect) signal to enable receiving
+
+The transmitter part functions exactly as the printer port and could be used
+for a punch device.  The receiver part can be used to attach e.g. a reader.
 
 ---
 
@@ -889,6 +969,403 @@ When developing or modifying the ROA375 autoload ROM:
 
 ---
 
+## RC-Specific CP/M Utilities
+
+The RC700 CP/M distribution includes several utilities beyond the standard
+Digital Research set.  These are RC700 transient commands (.COM files).
+
+### FORMAT (4.3.1)
+
+Formats diskettes for use on the RC700.  Erases all data.
+
+- **5.25" mini**: always double-sided, double-density (no format prompt).
+  36 tracks formatted.
+- **8" maxi**: prompts for type — 1=SS/SD (128 B/S, 26 S/T) or 2=DS/DD
+  (512 B/S, 15 S/T).  77 tracks formatted.
+- CP/M System Diskettes always use format type 2 (DS/DD).
+- Factory-fresh 8" diskettes are usually preformatted but formatting
+  improves reliability.  5.25" diskettes must always be formatted.
+
+Version string: `RC700 FORMAT UTILITY VERS 1.2 82.03.03`
+
+### HDINST (4.3.2)
+
+Configures (or reconfigures) the RC763 hard disk.  Only for systems with
+hard disk.  Four partition configurations available (see Appendix H).
+
+- First logical disk is always C (even if only one floppy is present,
+  making C have the same capacity as the floppy).
+- Can copy CP/M system to tracks 0 and 1 of the hard disk.
+- Hard disk boot requires hard disk autoload PROM (DF016, micro fuse in
+  pos. 66) and CP/M system copied to HD tracks 0+1.
+- **WARNING**: A new configuration erases all data on the hard disk.
+
+Version string: `RC700 HARD DISK INSTALLATION - VERS.1.1 82.09.28`
+
+### BACKUP (4.3.3)
+
+Copies an entire 8" or 5.25" diskette on a one-drive or two-drive system.
+
+- 8" diskettes may be single-sided single-density or double-sided
+  double-density.  5.25" must be double-sided double-density.
+- Normally copies entire disk and verifies.  With `FAST` option, copies
+  without verifying.
+- If an HD system has logical disk C, C may also be used as source/dest.
+- Reports `BAD SECTOR ON SOURCE DISK` or `BAD SECTOR ON DESTINATION DISK`
+  on read/write errors.
+
+Version string: `RC700 BACKUP VERS 2.1 82.10.12`
+
+### ASSIGN (4.3.4)
+
+Assigns a format to an 8" diskette drive (A or B).  The specified format
+may be `SD` (single-sided, single-density) or `DD` (double-sided,
+double-density).
+
+Example: `A>ASSIGN B:=SD` makes B: ready for single-density diskettes.
+
+### VERIFY (4.3.5)
+
+Checks a disk for bad sectors.  If bad sectors are found, displays total
+number of bad blocks and offers to create a read-only dummy file called
+`BLOCKS.BAD` to reserve those blocks.
+
+- Creating the dummy file may damage existing files on the disk.  Copy
+  important files first.
+- Can be interrupted at any time with CTRL-C.
+
+Version string: `RC700 DISKETTE VERIFICATION VERS.1.0 82.09.14`
+
+### STORE (4.3.6)
+
+Backs up files from a hard disk unit to one or more floppy diskettes.
+Labels the floppy with an "iden" string (up to 8 chars) for later RESTORE.
+Maximum 100 file references per operation.
+
+Version string: `RC700 STORE VERS.1.1 83.01.03`
+
+### RESTORE (4.3.7)
+
+Restores files from a STORE-created floppy backup onto a hard disk unit.
+The "iden" must match the one used during STORE.  Optionally verifies with
+`CHECK` option without actually copying.
+
+Version string: `RC700 RESTORE VERS: 1.0 82.10.06`
+
+### SYSGEN (4.3.8)
+
+RC700-modified version of the standard CP/M SYSGEN.  Reads BIOS, BDOS, and
+CCP from a System Diskette or from a file, and writes them to the reserved
+tracks of a new or existing System Diskette.
+
+- Works with or without a previously created COM file.
+- Mini diskette systems: `SAVE 68 <filename>` (68 pages of 256 bytes)
+- Maxi diskette systems: `SAVE 107 <filename>` (107 pages of 256 bytes)
+
+### CONFI (4.3.9)
+
+RC700 Configuration Utility.  Modifies BIOS configuration parameters stored
+on Track 0 of the system diskette.  Changes take effect at next cold boot.
+
+Version string: `RC700 CP/M CONFIGURATION UTILITY vers 2.1 13.02.33`
+
+**Main menu:**
+1. PRINTER PORT
+2. TERMINAL PORT
+3. CONVERSION
+4. CURSOR
+5. MINI MOTOR STOP TIMER
+6. SAVE CONFIGURATION DESCRIPTION
+
+**CONFI parameter details (Appendix G):**
+
+#### G.1 Printer Port (SIO Channel A)
+
+| Parameter | Options (* = default) |
+|-----------|----------------------|
+| G.1.1 Stop bits | 1: 1 bit*, 2: 1.5 bit, 3: 2 bits |
+| G.1.2 Parity | 1: even*, 2: no, 3: odd |
+| G.1.3 Baud rate | 1:50, 2:75, 3:110, 4:150, 5:300, 6:600, 7:1200*, 8:2400, 9:4800, 10:9600, 11:19200 |
+| G.1.4 Bits/char | 1: 5 bits, 2: 6 bits, 3: 7 bits*, 4: 8 bits |
+
+#### G.2 Terminal Port (SIO Channel B)
+
+| Parameter | Options (* = default) |
+|-----------|----------------------|
+| G.2.1 Stop bits | 1: 1 bit*, 2: 1.5 bit, 3: 2 bits |
+| G.2.2 Parity | 1: even*, 2: no, 3: odd |
+| G.2.3 Baud rate | 1:50, 2:75, 3:110, 4:150, 5:300, 6:600, 7:1200*, 8:2400, 9:4800, 10:9600, 11:19200 |
+| G.2.4 Bits/char TX | 1: 5 bits, 2: 6 bits, 3: 7 bits*, 4: 8 bits |
+| G.2.5 Bits/char RX | 1: 5 bits, 2: 6 bits, 3: 7 bits*, 4: 8 bits |
+
+Note: The terminal port has separate TX and RX character width settings,
+unlike the printer port.
+
+#### G.3 Conversion Tables
+
+| Option | Language |
+|--------|----------|
+| 1 | Danish |
+| 2 | Swedish |
+| 3 | German |
+| 4 | UK ASCII |
+| 5 | US ASCII* |
+| 6 | French |
+| 7 | Library |
+
+The current value is marked with an asterisk in the CONFI menu.  Typing
+RETURN on the current value keeps it unchanged.
+
+#### G.4 Cursor Presentation
+
+| Parameter | Options (* = default) |
+|-----------|----------------------|
+| G.4.1 Format | 1: blinking reverse video*, 2: blinking underline, 3: reverse video, 4: underline |
+| G.4.2 Addressing | 1: H,V (horizontal,vertical)*, 2: V,H (vertical,horizontal) |
+
+#### G.5 Mini Motor Stop Timer
+
+- Range: 5-1200 seconds
+- Default: 5 seconds
+- Controls how long the 5.25" floppy motor runs after the last disk
+  access.  Not applicable to 8" drives (always spinning).
+
+**Saving configuration:**
+
+Option 6 in the main menu saves the new configuration to the system disk.
+The CP/M system diskette must be in drive A during execution.  If C: is
+being reconfigured, the system must already be installed on the hard disk.
+Pressing RETURN without saving exits CONFI and restores the old
+configuration at next cold boot.
+
+### SELECT (4.3.10)
+
+Controls the RC791 Line Selector from the command line.
+
+Syntax: `SELECT port function`
+
+- **port**: P (printer port) or T (terminal port)
+- **function**: A (select line A), B (select line B), R (release line)
+
+Responses:
+- `LINE READY` — selection successful
+- `LINE BUSY OR DEVICE OFFLINE` — line occupied or device not connected
+- `LINE RELEASED` — line released successfully
+
+### USER (4.3.11)
+
+Built-in CP/M command (not RC-specific).  Allows up to 15 logical user
+areas within the same directory.  `USER n` where n = 0-15.  Default after
+cold boot is user area 0.
+
+### AUTOEXEC (4.3.12)
+
+Modifies the CP/M System Disk to automatically execute a command line after
+boot.
+
+Two modes:
+1. Execute after each cold boot AND warm boot
+2. Execute after cold boot only
+
+Example: `AUTOEXEC` then enter `CAT` to auto-run CAT on every boot.
+
+Version string: `RC700 Autoexec vers. 1.0 10.01.83`
+
+### CAT (4.1.9)
+
+Enhanced directory listing.  Lists one or more filenames in alphabetical
+order, shows total unused directory entries and free disk space.
+
+Options:
+- `$SYS` — include files with SYS attribute (listed in parentheses)
+- `$R/O` — mark read-only files with asterisk (*)
+
+Example: `CAT *.COM $SYS $R/O` — lists all .COM files including system
+files, marking read-only ones.
+
+### TRANSFER (4.1.7)
+
+Transfers files between disks with format conversion.  Reads up to 32K
+bytes at a time into main memory, asks user to swap disks, then writes.
+
+- Source and destination disk formats must be specified:
+  `SS` (single-sided single-density) or `DD` (double-sided double-density)
+- 5.25" diskettes default to DD; format type prompt only for 8".
+- Can transfer from SS to DD format (converts between CP/M formats).
+- Source files larger than 32K are destroyed if written to same disk under
+  same name.
+
+Version string: `RC700 TRANSFER UTILITY VERS 2.0 82.01.05`
+
+### FILEX (4.1.10)
+
+File transfer between two computers via the terminal port (SIO Channel B).
+Both computers must use the same baud rate and 7-bit character format
+(configure via CONFI).
+
+**Setup:**
+1. On remote computer: `FILEX REMOTE`
+2. On local computer: `FILEX` (interactive) or
+   `FILEX destination=source` (single command)
+
+Remote drive names use prefix `R` — e.g., `RA:` and `RB:` for the remote
+computer's A: and B: drives.
+
+The `MORED` option prevents the remote station from exiting remote mode
+after the transfer.
+
+**Cable requirements for direct connection (no Line Selector):**
+- CML012 (5 meters)
+- CML013 (12 meters)
+- CML014 (25 meters)
+
+**Cable requirements with RC791 Line Selector:**
+- CML092 (5 meters)
+- CML093 (12 meters)
+- CML094 (25 meters)
+
+### FILEX Transmission Protocol (Appendix I)
+
+FILEX uses a blocked transmission protocol via the terminal port.
+
+**Transaction opcodes:**
+
+| Opcode | Operation | Request payload | Answer payload |
+|--------|-----------|-----------------|----------------|
+| 1 | OPEN | 16 bytes: filename | result code |
+| 2 | MAKE | 16 bytes: filename | result code |
+| 3 | READ | (none) | result + 128 bytes data |
+| 4 | WRITE | 16 bytes data | result code |
+| 5 | CLOSE | (none) | result code |
+| 6 | END | (none) | result code |
+
+Result codes: 0=ok, 1=does not exist, 2=full, 3=end of file.
+
+**Block format:**
+1. Start character: ASCII 35 (`#`)
+2. Block size: 16-bit integer split into 4 ASCII digits (each digit + 64)
+3. Data section: each byte split into 2 ASCII digits (each + 64)
+4. Checksum: 8-bit, transmitted as 2 ASCII digits
+   - Condition: (sum of original string bytes + checksum) mod 256 = 0
+5. Stop character: ASCII 13 (CR)
+
+Total characters per block of N data bytes: 2*N + 9.
+
+### XSUB
+
+Extends the SUBMIT facility.  When XSUB is the first command in a .SUB
+file, it relocates below the CCP and provides buffered console input to
+programs that read from the console.  This means PIP, ED, and DDT can
+receive their input directly from the SUB file.
+
+The message `(xsub active)` is displayed to indicate XSUB is resident.
+XSUB remains active until the SUB file is exhausted or a cold boot occurs.
+
+---
+
+## RC763 Hard Disk System
+
+### Hard Disk Boot
+
+Hard disk cold boot is possible if:
+1. The RC700 has a hard disk autoload PROM (DF016, micro fuse at board
+   pos. 66) instead of the standard floppy autoload PROM (ROA375).
+2. The CP/M system has been copied to tracks 0 and 1 of the hard disk
+   (via HDINST answering "Y" to "COPY CP/M SYSTEM TO HARD DISK").
+
+### Partition Configurations (Appendix H)
+
+The RC763 hard disk (approximately 8MB) can be configured in 4 layouts
+via HDINST.  Drive C is always the floppy (matching the physical drive):
+
+| Config | C (floppy) | D | E | F | G |
+|--------|-----------|------|------|------|------|
+| 1 | 0.270/0.900 | 7.920 MB | — | — | — |
+| 2 | 0.270/0.900 | 3.936 MB | 3.936 MB | — | — |
+| 3 | 0.270/0.900 | 1.968 MB | 1.968 MB | 3.936 MB | — |
+| 4 | 0.270/0.900 | 1.968 MB | 1.968 MB | 1.968 MB | 1.968 MB |
+
+### CP/M Parameters by Disk Size
+
+| Capacity (MB) | Block size | Directory entries |
+|---------------|-----------|-------------------|
+| 0.270 | 2 KB | 128 |
+| 0.900 | 2 KB | 128 |
+| 1.968 | 4 KB | 512 |
+| 3.936 | 8 KB | 512 |
+| 7.920 | 16 KB | 512 |
+
+---
+
+## System Diskette Generation (Appendix C)
+
+Procedure to create a custom System Diskette:
+
+1. Patch BIOS/BDOS/CCP as desired (e.g., keyboard conversion table).
+2. Format a diskette with FORMAT.
+3. Copy existing system using BACKUP, delete unwanted files with ERA.
+4. Write BIOS+BDOS+CCP using SYSGEN.
+
+**Example — patching keyboard conversion table:**
+```
+A>SYSGEN
+SYSGEN VER 2.0
+SOURCE DRIVE NAME (OR RETURN TO SKIP) A
+; read the system tracks
+A>SAVE 107 CPM56.COM     ; 107 pages for maxi, 68 for mini
+A>DDT CPM56.COM
+DDT VERS 2.2
+NEXT PC
+; find patch addresses for PA2, PA3, PA4:
+; patchaddr = 4680h + key_value  (for maxi; 2E80h for mini)
+-S4704                    ; patch PA2
+-4704 04 12 .             ; change to CTRL-R
+-S4705                    ; patch PA3
+-4705 05 . .
+-S470E                    ; patch PA4
+-470E 0E 13 .             ; change to CTRL-S
+-470F 8F . .
+-GO
+A>SAVE 107 CPM56.COM      ; save patched image
+A>SYSGEN CPM56.COM        ; write to system tracks
+```
+
+---
+
+## Line Editing and Boot Keys
+
+### Command Line Editing
+
+On the RC700 keyboard:
+- **Key marked `<-`**: deletes the last character typed
+- **Key marked `->`**: deletes the entire line typed
+
+The up-arrow key (8) may be used to denote CTRL key combinations, e.g.,
+`8C` for CTRL-C (system reboot/warm boot).
+
+### System Boot
+
+- **Cold boot (system boot)**: press the RESET button on the front of the
+  console, or power on the system.  Loads CP/M from disk.
+- **Warm boot (system reboot)**: press CTRL and C simultaneously.  Required
+  after changing a disk in the drive (to update read-only status).
+
+### Error Messages
+
+All disk errors are reported as: `BDOS ERR ON d: message`
+
+| Message | Cause |
+|---------|-------|
+| BAD SECTOR | Disk controller cannot read/write — worn disk, bad controller, wrong format, or damaged data |
+| SELECT | Non-existent disk drive selected |
+| READ ONLY | Disk has R/O attribute (needs warm boot after disk change) |
+| FILE R/O | File has read-only attribute (change with STAT) |
+
+Recovery from BAD SECTOR: retry (R), ignore and continue (RETURN), or
+abort and reboot (^C).
+
+---
+
 ## References and Sources
 
 ### Primary Sources
@@ -937,6 +1414,7 @@ When developing or modifying the ROA375 autoload ROM:
 |---------|------|--------|---------|
 | 1.0 | 2026-02-07 | Analysis | Initial document creation from jbox.dk sources and source code analysis |
 | 1.1 | 2026-02-20 | Analysis | Added display control chars, keyboard, peripheral handshake, CP/M disk params from User's Guide |
+| 1.2 | 2026-02-21 | Analysis | Added RC-specific utilities (FORMAT, BACKUP, ASSIGN, VERIFY, STORE, RESTORE, CONFI, SELECT, AUTOEXEC, CAT, TRANSFER, FILEX, HDINST, XSUB), CONFI parameter tables, FILEX protocol, serial port assignments, keyboard code map, HD boot/partition details, system diskette generation, line editing, error messages |
 
 ---
 
