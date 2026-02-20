@@ -1,5 +1,5 @@
 ; Symbol file for 58K BIOS (Compas, rel.1.4)
-; Derived from disk-extracted binary, no 56K assumptions
+; Labels matched against 56K BIOS source (rcbios/src/) by instruction sequences
 
 ; === Standard CP/M 2.2 BIOS jump table ===
 
@@ -54,19 +54,19 @@ DISKFMT:	equ 0xe237
 ; === Extension vectors (E24A-E258) ===
 
 JEXTVEC1:	equ 0xe24a
-; JP F276
+; JP WFITR (F276)
 
 JEXTVEC2:	equ 0xe24d
 ; JP E3EB
 
 JEXTVEC3:	equ 0xe250
-; JP E2C0
+; JP EXTVEC3_ENTRY (E2C0)
 
 JEXTVEC4:	equ 0xe253
-; JP E29F
+; JP EXTVEC4_ENTRY (E29F)
 
 JEXTVEC5:	equ 0xe256
-; JP E2AC
+; JP EXTVEC5_ENTRY (E2AC)
 
 ; === Messages ===
 
@@ -76,24 +76,82 @@ MSG_DISKERR:	equ 0xe25c
 SIGNON:	equ 0xe274
 ; "58K CP/M VERS 2.2" (preceded by 0x0C clear screen)
 
-; === Code entry points (jump table targets) ===
+; === CPMBOOT.MAC — Boot/system code ===
 
 PRTSTR:	equ 0xe289
 ; Print null-terminated string at HL
+
+BOTERR:	equ 0xe296
+; Boot error: LD HL,MSG_DISKERR / CALL PRTSTR then halt loop
+
+BOPLP:	equ 0xe29c
+; JP BOPLP self-loop (halt in boot error)
 
 EXTVEC4_ENTRY:	equ 0xe29f
 
 EXTVEC5_ENTRY:	equ 0xe2ac
 
+CLOCK1:	equ 0xe2b8
+; Set clock branch: LD (RTC0),DE / LD (RTC2),HL / RET
+
 EXTVEC3_ENTRY:	equ 0xe2c0
+
+LINSE1:	equ 0xe2e9
+; AND 20H / JP Z — CTS bit check in LINSEL
+
+SETSIG:	equ 0xe2f1
+; DI / OUT (C),D / OUT (C),A / EI / RET — SIO signal control
 
 BOOT_ENTRY:	equ 0xe2f8
 
+BOOT1:	equ 0xe325
+; LD (DRNO),A — drive count init in BOOT
+
 WBOOT_ENTRY:	equ 0xe328
+
+RDSEC:	equ 0xe353
+; Warm boot read loop: READ, advance DMA+80h, next sector
+
+GOCPM:	equ 0xe39b
+; Warm boot done: EI / JP CCP
+
+; === SIO.MAC — Serial I/O variables (E39F-E3A7) ===
+
+PRTFLG:	equ 0xe39f
+; Printer-busy flag
+
+RDRFLG:	equ 0xe3a0
+; Reader-busy flag
+
+PTPFLG:	equ 0xe3a1
+; Punch-busy flag
+
+CHARA:	equ 0xe3a2
+; SIO Ch.A receive buffer
+
+CHARB:	equ 0xe3a3
+; SIO Ch.B receive buffer
+
+RR0A:	equ 0xe3a4
+; SIO Ch.A RR0 mirror
+
+RR1A:	equ 0xe3a5
+; SIO Ch.A RR1 mirror
+
+RR0B:	equ 0xe3a6
+; SIO Ch.B RR0 mirror
+
+RR1B:	equ 0xe3a7
+; SIO Ch.B RR1 mirror
+
+; === SIO.MAC — Serial I/O code ===
 
 LISTST_ENTRY:	equ 0xe3a8
 
 LIST_ENTRY:	equ 0xe3ac
+
+READI:	equ 0xe3d1
+; DI / XOR A / LD (RDRFLG),A ... start reader
 
 EXTVEC2_ENTRY:	equ 0xe3eb
 
@@ -101,50 +159,380 @@ READER_ENTRY:	equ 0xe3ef
 
 PUNCH_ENTRY:	equ 0xe3ff
 
-; === CRT interrupt handlers (IVT entries 8-15) ===
+; === SIO ISRs (IVT entries 8-15, named per SIO.MAC) ===
 
-ISR_CRT0:	equ 0xe424
+TXB:	equ 0xe424
+; SIO Ch.B transmit complete — sets PRTFLG=0xFF
 
-ISR_CRT1:	equ 0xe43d
+EXTSTB:	equ 0xe43d
+; SIO Ch.B external status — reads RR0 to RR0B
 
-ISR_CRT2:	equ 0xe456
+RCB:	equ 0xe456
+; SIO Ch.B receive — reads data to CHARB
 
-ISR_CRT3:	equ 0xe46b
+SPECB:	equ 0xe46b
+; SIO Ch.B special condition — reads RR1, error reset
 
-ISR_CRT4:	equ 0xe488
+TXA:	equ 0xe488
+; SIO Ch.A transmit complete — sets PTPFLG=0xFF
 
-ISR_CRT5:	equ 0xe4a1
+EXTSTA:	equ 0xe4a1
+; SIO Ch.A external status — reads RR0 to RR0A
 
-ISR_CRT6:	equ 0xe4ba
+RCA:	equ 0xe4ba
+; SIO Ch.A receive — reads data to CHARA, sets RDRFLG
 
-ISR_CRT7:	equ 0xe4d4
+SPECA:	equ 0xe4d4
+; SIO Ch.A special condition — reads RR1, error reset
+
+; === PIO.MAC — Keyboard variables and ISRs ===
+
+KEYFLG:	equ 0xe4f1
+; Keyboard ready flag
+
+PARFLG:	equ 0xe4f2
+; Parallel port flag
 
 CONST_ENTRY:	equ 0xe4f3
 
 CONIN_ENTRY:	equ 0xe4f7
 
-; === CTC interrupt handlers (IVT entries 1-2) ===
+KEYIT:	equ 0xe50e
+; Keyboard ISR: LD A,0FFH / LD (KEYFLG),A
 
-ISR_CTC1:	equ 0xe50e
+PARIN:	equ 0xe523
+; Parallel port ISR: LD A,0FFH / LD (PARFLG),A
 
-ISR_CTC2:	equ 0xe523
+; === DISPLAY.MAC — Display driver variables ===
 
-; === Display/CONOUT code ===
+GRAPH:	equ 0xe538
+; Display mode flag (graphical mode)
+
+LINTEM:	equ 0xe539
+; Line temp save area (2 bytes)
+
+; === DISPLAY.MAC — Display driver subroutines ===
+
+CPLHL:	equ 0xe53b
+; Complement HL: CPL H, CPL L, RET
+
+NEGHL:	equ 0xe542
+; Negate HL: CALL CPLHL / INC HL / RET
+
+TSTLROW:	equ 0xe547
+; Test if at last row (HL=1920=80*24)
+
+CONV:	equ 0xe552
+; Char conversion: checks GRAPH, table lookup
+
+CON1:	equ 0xe558
+; Inner label of CONV: LD B,0 / ADD HL,BC / LD A,(HL) / RET
+
+WP75:	equ 0xe55d
+; Cursor position: OUT (DSPLC),80H / OUT col / OUT row
+
+ROWDN:	equ 0xe56e
+; Row down: RCTAD+=80, CURSY++, JP WP75
+
+ROWUP:	equ 0xe57f
+; Row up: RCTAD-=80, CURSY--, JP WP75
+
+ES0H:	equ 0xe590
+; Home cursor: zero RCTAD, CCTAD, CURSY
+
+CHKDC:	equ 0xe59e
+; A mod B: CP B / RET C / SUB B / JP CHKDC
+
+FILL:	equ 0xe5a4
+; Fill line with spaces using LDIR
+
+SCROLL:	equ 0xe5c5
+; Scroll screen up: LDIR display, handle background bitmap
+
+ADDOFF:	equ 0xe5f2
+; Background address offset calculation (SRL/RRA loop)
+
+ADDOF1:	equ 0xe5f6
+; SRL/RR/RRA loop in ADDOFF
+
+ADDOF2:	equ 0xe604
+; RRA loop in ADDOFF
+
+CLRBIT:	equ 0xe60a
+; Clear background bitmap bit
+
+CLRBI1:	equ 0xe619
+; SCF/RLA bitmask loop in CLRBIT
+
+MOVUP:	equ 0xe622
+; Block move up: LDIR with zero-length check
+
+MOVUP1:	equ 0xe628
+; LDIR / RET in MOVUP
+
+MOVUP2:	equ 0xe62b
+; CP B / JP NZ in MOVUP
+
+MOVDWN:	equ 0xe630
+; Block move down: LDDR with zero-length check
+
+MOVDWN1:	equ 0xe636
+; LDDR / RET in MOVDWN
+
+MOVDWN2:	equ 0xe639
+; CP B / JP NZ in MOVDWN
+
+ESCD1:	equ 0xe723
+; Backspace wrap: col 0 -> col 79, row up
+
+ESCC:	equ 0xe73e
+; Cursor right: increment column, wrap at 79
+
+ESCC1:	equ 0xe74d
+; Cursor right wrap: col 79 -> col 0, row down or scroll
+
+ESCCF1:	equ 0xe847
+; Clear foreground outer loop: load bitmap byte
+
+ESCCF2:	equ 0xe84f
+; Clear foreground: fill 8 spaces (bitmap byte = 0)
+
+ESCCF3:	equ 0xe859
+; Clear foreground: test each bit, skip if background
+
+ESCCF4:	equ 0xe85f
+; Clear foreground: advance to next position
+
+ESCCF5:	equ 0xe864
+; Clear foreground: advance to next bitmap byte
+
+TAB1:	equ 0xe86a
+; Control character dispatch table (address pairs for BS, TAB, LF, CR, ESC, etc.)
+
+DISPL1:	equ 0xe91e
+; DISPL: semi-graphics range entry (char >= 0xC0)
+
+DISPL2:	equ 0xe92d
+; DISPL: normal char path, load conversion table + CONV
+
+DISPL3:	equ 0xe933
+; DISPL: store char to display buffer, call ESCC, update bitmap
+
+DISPL4:	equ 0xe959
+; DISPL: RLCA/DEC B loop to position background bitmap bit
+
+XYADD:	equ 0xe8c1
+; XY/YX cursor addressing handler
+
+XYADD1:	equ 0xe8d3
+; Second-byte handler in XYADD
+
+XYADD2:	equ 0xe8e0
+; YX mode branch in XYADD
+
+XYADD3:	equ 0xe8fc
+; Row offset multiplication loop
+
+DISPL:	equ 0xe907
+; Display character at current position
+
+; === DISPLAY.MAC — CONOUT and DSPITR ===
 
 CONOUT_ENTRY:	equ 0xe961
 
-; === SIO interrupt handler (IVT entry 6) ===
+CONOU1:	equ 0xe980
+; Branch when XFLG=0, checks control chars
 
-ISR_SIO_RX:	equ 0xe99a
+CONOU2:	equ 0xe98e
+; Calls DISPL for printable chars
 
-; === Disk tables ===
+CONOU3:	equ 0xe991
+; POP/restore/RET exit sequence
+
+DSPITR:	equ 0xe99a
+; Display ISR: DMA reprogram, RTC, EXCNT timers
+
+AFB11:	equ 0xe9ec
+; EXCNT0 check in DSPITR
+
+AFB12:	equ 0xe9fd
+; EXCNT1 check in DSPITR
+
+AFB13:	equ 0xea0e
+; DELCNT check in DSPITR
+
+AFB14:	equ 0xea1a
+; Restore and RETI exit in DSPITR
+
+; === DISKTAB.MAC — Disk tables ===
 
 XLTTAB_MAXI26:	equ 0xea25
 ; 26-entry 6:1 interleave table (8" T0)
 
-; === Disk code entry points ===
+TRAN8:	equ 0xea3f
+; 15-entry translation table (8" DD 512B, skew 4)
+
+TRAN16:	equ 0xea4e
+; 9-entry translation table (5.25" DD, skew 2)
+
+TRAN24:	equ 0xea57
+; 26-entry sequential translation (no interleave)
+
+FDF2:	equ 0xeaad
+; Second format descriptor entry (MFM 256B)
+
+FDF1:	equ 0xeaee
+; Format descriptor table base; used by GFPA
+
+DPBASE:	equ 0xeb0d
+; Disk parameter headers (2 drives x 16 bytes)
+
+; === FLOPPY.MAC — Floppy driver variables ===
+
+SEKDSK:	equ 0xeb2d
+; Seek disk
+
+DPBLKH:	equ 0xeb2e
+; DPB pointer high byte
+
+CPMRBP:	equ 0xeb2f
+; CP/M records per block
+
+CPMSPT:	equ 0xeb30
+; CP/M sectors per track
+
+SECMSK:	equ 0xeb31
+; Sector mask
+
+SECSHF:	equ 0xeb32
+; Sector shift count
+
+TRANTB:	equ 0xeb33
+; Translation table pointer (2 bytes)
+
+DTLV:	equ 0xeb35
+; Data length value for FDC commands
+
+SEKDSK2:	equ 0xeb3d
+; Seek disk (alternate ref)
+
+SEKTRK:	equ 0xeb3e
+; Seek track (2 bytes)
+
+SEKSEC:	equ 0xeb40
+; Seek sector
+
+HSTDSK:	equ 0xeb41
+; Host disk number
+
+HSTTRK:	equ 0xeb42
+; Host track (2 bytes)
+
+HSTSEC:	equ 0xeb44
+; Host sector
+
+LSTDSK:	equ 0xeb45
+; Last disk seeked
+
+LSTTRK:	equ 0xeb46
+; Last track (2 bytes)
+
+SEKHST:	equ 0xeb47
+; Seek host sector
+
+HSTACT:	equ 0xeb48
+; Host active flag
+
+HSTWRT:	equ 0xeb49
+; Host written flag
+
+UNACNT:	equ 0xeb4a
+; Unallocated record count
+
+UNADSK:	equ 0xeb4b
+; Unallocated disk
+
+UNATRK:	equ 0xeb4c
+; Unallocated track (2 bytes)
+
+UNASEC:	equ 0xeb4e
+; Unallocated sector
+
+UNAMSK:	equ 0xeb4f
+; Unallocated sector mask
+
+ERFLAG:	equ 0xeb50
+; Error flag
+
+RSFLAG:	equ 0xeb51
+; Read sector flag
+
+READOP:	equ 0xeb52
+; Read operation flag
+
+WRTYPE:	equ 0xeb53
+; Write type
+
+DMAADR:	equ 0xeb54
+; DMA address (2 bytes)
+
+HSTBUF:	equ 0xeb56
+; Host buffer (512 bytes)
+
+FORM:	equ 0xee88
+; Current format table pointer (2 bytes)
+
+CFORM:	equ 0xee8a
+; Current format byte
+
+EOTV:	equ 0xee8b
+; End-of-track value (sectors per side)
+
+DRNO:	equ 0xee8c
+; Max drive number
+
+DSKNO:	equ 0xee8d
+; Current disk/head select byte
+
+DSKAD:	equ 0xee8e
+; Disk DMA address (2 bytes)
+
+DSKADH:	equ 0xee8f
+; Disk DMA address high byte
+
+ACTRA:	equ 0xee90
+; Actual track number
+
+ACSEC:	equ 0xee91
+; Actual sector (translated)
+
+REPET:	equ 0xee92
+; Retry counter
+
+RSTAB:	equ 0xee93
+; FDC result table (8 bytes)
+
+RSTAB1:	equ 0xee94
+; FDC result byte 1 (PCN after seek, ST1 after read/write)
+
+FL_FLG:	equ 0xee9b
+; Floppy interrupt flag
+
+SP_SAV:	equ 0xee9c
+; Stack pointer save (2 bytes)
+
+; === FLOPPY.MAC — Floppy driver code ===
 
 SELDSK_ENTRY:	equ 0xee9e
+
+SELD20:	equ 0xeec2
+; Format comparison in SELDSK
+
+SELN:	equ 0xeed9
+; LD (CFORM),A — new format selected
+
+RSELD:	equ 0xef13
+; Return from SELDSK with error (HL=0)
 
 SETTRK_ENTRY:	equ 0xef18
 
@@ -158,13 +546,166 @@ READ_ENTRY:	equ 0xef2c
 
 WRITE_ENTRY:	equ 0xef3c
 
+CHKUNA:	equ 0xef61
+; Check unallocated: reads UNACNT, OR A, JP Z ALLOC
+
+NOOVF:	equ 0xef9e
+; CHKUNA: no track overflow, clear RSFLAG, compute UNAMSK
+
+SETMSK:	equ 0xefb0
+; CHKUNA: store computed UNAMSK, JP RWOPER
+
+ALLOC:	equ 0xefb6
+; XOR A / LD (UNACNT),A / LD A,(SECMSK) / LD (RSFLAG),A
+
+RWOPER:	equ 0xefc0
+; Read/write operation: SP save, sector shift loop
+
+RSECS:	equ 0xefcf
+; Sector shift loop in RWOPER
+
+SETSH:	equ 0xefd8
+; LD (SEKHST),A
+
+NOMATC:	equ 0xf002
+; Host buffer mismatch: flush if dirty
+
+FILHST:	equ 0xf009
+; Fill host buffer: set HSTDSK/TRK/SEC, read
+
+MATCH:	equ 0xf026
+; Compute buffer offset for CP/M sector
+
+RWMOVE:	equ 0xf050
+; LDIR — sector data copy
+
+RRWOP:	equ 0xf071
+; Return from RWOPER: POP HL / LD SP,HL / RET
+
+TRKCMP:	equ 0xf074
+; EX DE,HL / LD HL,SEKTRK / CP (HL) x2 — track compare
+
+WRTHST:	equ 0xf080
+; Write host sector: calls CHKTRK then SECWR
+
+RDHST:	equ 0xf086
+; Read host sector: UNAMSK check then CHKTRK+SECRD
+
+RCHECK:	equ 0xf090
+; UNAMSK check path in RDHST
+
+CHKTRK:	equ 0xf096
+; Head/sector calc, translate, compare with last
+
+SET1:	equ 0xf0b1
+; LD (DSKNO),A in CHKTRK
+
+SET2:	equ 0xf0b4
+; Sector translate in CHKTRK
+
+SEEKT:	equ 0xf0dc
+; Seek: save LSTDSK/LSTTRK, CLFIT, FLO7, WFITR
+
+RECA:	equ 0xf0fa
+; Recalibrate and seek: CLFIT, FLO4, WFITR, FLO7
+
+SECRD:	equ 0xf10c
+; Read sector with 10 retries
+
+RPSC:	equ 0xf111
+; Read sector retry loop
+
+SECCH:	equ 0xf129
+; Check FDC result: LD A,(RSTAB) / AND F8H
+
+SCR1:	equ 0xf14c
+; Error: clear HSTACT, set ERFLAG
+
+SECWR:	equ 0xf156
+; Write sector with 10 retries
+
+RPSW:	equ 0xf15b
+; Write sector retry loop
+
+RFDAT:	equ 0xf176
+; Read FDC data command: LD A,6 / JP GNCOM
+
+WFDAT:	equ 0xf17b
+; Write FDC data command: LD A,5 / JP GNCOM
+
+GFPA:	equ 0xf180
+; Get format params: LD HL,FDF1 / ADD HL,CFORM
+
+FDSTAR:	equ 0xf18b
+; Start floppy motor
+
+FDSTOP:	equ 0xf1a9
+; Stop floppy motor
+
+WAITD:	equ 0xf1b3
+; Delay wait: set DELCNT, loop until zero
+
+WAIT10:	equ 0xf1b6
+; Inner loop of WAITD
+
 HOME_ENTRY:	equ 0xf1bf
 
-EXTVEC1_ENTRY:	equ 0xf276
+FLO2:	equ 0xf1d6
+; Wait FDC ready for write: IN (FDC) / AND C0 / CP 80
 
-; === SIO special condition ISR (IVT entry 7) ===
+FLO3:	equ 0xf1e0
+; Wait FDC ready for read: IN (FDC) / AND C0 / CP C0
 
-ISR_SIO_SPECIAL:	equ 0xf305
+FLO4:	equ 0xf1ea
+; Recalibrate: cmd 0x07 to FDD
+
+FLO6:	equ 0xf219
+; Sense interrupt status: cmd 0x08
+
+FLO7:	equ 0xf236
+; Seek: cmd 0x0F to FDD
+
+RSULT:	equ 0xf253
+; Read FDC result bytes (up to 7)
+
+RSL1:	equ 0xf258
+; RSULT inner byte-read loop
+
+RSL2:	equ 0xf261
+; RSULT delay loop
+
+CLFIT:	equ 0xf26f
+; Clear floppy interrupt flag
+
+WFITR:	equ 0xf276
+; Wait for interrupt then read result
+
+WATIR:	equ 0xf285
+; Spin-wait on FL_FLG
+
+FLPW:	equ 0xf28d
+; Start DMA write for floppy
+
+FLFW:	equ 0xf294
+; Shared DMA setup code (FLPW/FLPR common path)
+
+FLPR:	equ 0xf2ae
+; Start DMA read for floppy
+
+GNCOM:	equ 0xf2b8
+; General FDC command: sends command bytes from table
+
+FLITR:	equ 0xf305
+; Floppy disk ISR
+
+FITX:	equ 0xf317
+; Delay loop in FLITR
+
+FIT1:	equ 0xf328
+; FLITR branch: call RSULT
+
+FIT2:	equ 0xf32b
+; FLITR restore before RETI
 
 ; === Dummy ISR ===
 
@@ -176,7 +717,89 @@ DUMITR:	equ 0xf336
 ITRTAB:	equ 0xf400
 ; 18-entry IVT, I register = F4
 
+; === BIOS.MAC — Stack/buffer addresses (outside binary) ===
+
+BGSTAR:	equ 0xf500
+; Background bitmap (250 bytes, 10 bytes/row x 25 rows, 1 bit/char)
+
+BGROW1:	equ 0xf50a
+; Background bitmap row 1 (BGSTAR+10); LDIR source for scroll-up
+
+BGLN23:	equ 0xf5ef
+; Background bitmap last byte of row 23 (BGSTAR+239); LDDR source for insert-line
+
+BGROW24:	equ 0xf5f0
+; Background bitmap row 24 (BGSTAR+240); last row, cleared after scroll
+
+BGLST1:	equ 0xf5f8
+; Background bitmap BGSTAR+248; LDDR dest for zero-fill
+
+BGLAST:	equ 0xf5f9
+; Background bitmap last byte (BGSTAR+249); LDDR source for zero-fill
+
+ISTACK:	equ 0xf620
+; Interrupt stack
+
+STACK:	equ 0xf680
+; BIOS working stack
+
+INCONV:	equ 0xf700
+; Input char conversion table
+
 ; === Display buffer ===
 
 DSPSTR:	equ 0xf800
-; Display buffer (80x24 characters) - past end of BIOS binary
+; Display buffer (80x24 characters)
+
+; === Display variables (absolute addresses 0xFFD1-0xFFFF) ===
+
+CCTAD:	equ 0xffd1
+; Column count
+
+RCTAD:	equ 0xffd2
+; Row count (2 bytes)
+
+CURSY:	equ 0xffd4
+; Cursor Y position
+
+LOCBUF:	equ 0xffd5
+; Display buffer location pointer (2 bytes)
+
+XFLG:	equ 0xffd7
+; XY addressing countdown
+
+LOCAD:	equ 0xffd8
+; Current character location (2 bytes)
+
+USHER:	equ 0xffda
+; Output character to display
+
+BGFLG:	equ 0xffdb
+; Background mode flag (0/1/2)
+
+LOCBBU:	equ 0xffdc
+; Background bitmap buffer location (2 bytes)
+
+ADR0:	equ 0xffde
+; First byte of XY address
+
+EXCNT0:	equ 0xffdf
+; Exit routine 0 counter (2 bytes)
+
+EXCNT1:	equ 0xffe1
+; Exit routine 1 counter (2 bytes)
+
+DELCNT:	equ 0xffe3
+; Delay counter (2 bytes)
+
+EXROUT:	equ 0xffe5
+; JP to exit routine (3 bytes)
+
+FDTIMO:	equ 0xffe7
+; Floppy motor timeout value (2 bytes)
+
+RTC0:	equ 0xfffc
+; Real-time clock byte 0
+
+RTC2:	equ 0xfffe
+; Real-time clock byte 2 (2 bytes)

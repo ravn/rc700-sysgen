@@ -906,6 +906,104 @@ The display ISR runs at 50 Hz (CTC Ch.2 interrupt) and:
 
 ---
 
+## Background Bitmap (Semi-graphics Overlay)
+
+The RC702 BIOS display driver implements a background/foreground character
+overlay system using a 250-byte bitmap at `BGSTAR` (0xF500).  This allows
+applications to paint a static background (e.g. form fields, borders) that
+can be selectively preserved while the foreground is cleared.
+
+### Bitmap Structure
+
+The bitmap maps 1:1 to the 80x25 display (2000 characters):
+- 10 bytes per row (80 characters / 8 bits per byte)
+- 25 rows x 10 bytes = 250 bytes total
+- Bit set = character is **background** (protected from foreground clear)
+- Bit clear = character is **foreground** (cleared by ESCCF)
+
+```
+BGSTAR+0   to BGSTAR+9   = Row 0   (columns 0-79)
+BGSTAR+10  to BGSTAR+19  = Row 1
+  ...
+BGSTAR+230 to BGSTAR+239 = Row 23
+BGSTAR+240 to BGSTAR+249 = Row 24
+```
+
+Named offsets: `BGROW1` (+10), `BGLN23` (+239), `BGROW24` (+240),
+`BGLST1` (+248), `BGLAST` (+249).
+
+### Mode Flag (BGFLG)
+
+`BGFLG` (0xFFDB) controls the three states:
+- **0** — OFF (after clear screen).  No bitmap tracking.  FILL, SCROLL,
+  and DISPL skip all bitmap operations.
+- **1** — FOREGROUND mode.  Characters display normally but are NOT marked
+  in the bitmap.  FILL and SCROLL maintain the existing bitmap.
+- **2** — BACKGROUND mode.  Characters display AND their positions are
+  marked (bit set) in the bitmap.
+
+### Control Sequences
+
+Three ESC sequences (dispatched via `TAB1` control character table):
+
+| Sequence | Handler | Action |
+|----------|---------|--------|
+| ESC + ctrl-20 | ESCSB | Set `BGFLG=2` (background mode) |
+| ESC + ctrl-21 | ESCSF | Set `BGFLG=1` (foreground mode) |
+| ESC + ctrl-22 | ESCCF | Clear foreground: erase all characters whose bitmap bit is 0 |
+
+### ESCCF — Clear Foreground
+
+Iterates through all 250 bitmap bytes.  For each byte:
+- If byte is 0x00: all 8 display positions → space (fast path, `ESCCF2`)
+- If byte is non-zero: test each bit with RRA (`ESCCF3`).
+  If carry=0 (foreground), write space.  If carry=1 (background), skip.
+
+This erases everything the user typed in foreground mode while preserving
+the background template (form labels, box-drawing characters, etc.).
+
+### DISPL — Bitmap Marking
+
+When `BGFLG=2`, after writing a character to the display buffer, `DISPL`
+marks the corresponding bit in the bitmap:
+1. `ADDOFF`: divides display offset by 8 → byte offset in bitmap + bit number
+2. Creates a bitmask by rotating 1 left (RLCA loop in `DISPL4`)
+3. ORs the mask into the bitmap byte at `BGSTAR + offset`
+
+### SCROLL — Bitmap Shift
+
+When the display scrolls up one line:
+1. Display: LDIR 1920 bytes (rows 1-24 → rows 0-23)
+2. Bitmap: LDIR 240 bytes from `BGROW1` to `BGSTAR` (rows 1-24 → rows 0-23)
+3. `LOCBBU` set to `BGROW24` so `FILL` clears only the last bitmap row
+
+### ESCE — Clear Screen
+
+Clears the entire display AND resets bitmap mode:
+1. Fills display with spaces (LDDR)
+2. Sets `BGFLG=0` (OFF)
+3. Zero-fills entire bitmap: `LD (HL),0` at `BGLAST`, LDDR 249 bytes backward
+
+### DELETE/INSERT Line — Bitmap Maintenance
+
+`ESCDL` (delete line) and `ESCIL` (insert line) shift bitmap rows to match
+the display operation, using `ADDOFF` to find the bitmap offset for the
+current row, then `MOVUP`/`MOVDWN` to shift the bitmap data.  `LOCBBU`
+is set to the newly-blank row so `FILL` clears its bitmap bytes.
+
+### Typical Application Use
+
+```
+ESC+ESCSB          ; switch to background mode
+(draw form: labels, borders, boxes)
+ESC+ESCSF          ; switch to foreground mode
+(user types data in form fields)
+ESC+ESCCF          ; clear foreground — form template remains,
+                   ; user data erased — ready for next entry
+```
+
+---
+
 ## Floppy Disk Driver
 
 The FDC driver uses sector blocking/deblocking — CP/M works with 128-byte

@@ -122,6 +122,7 @@ compas_bios.asm: compas_bios_disk.bin syms_58k_z80dasm.sym blocks_58k.def
 	z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def \
 		-o $@ $< 2>/dev/null
 	sed -i '' '/^trailing_end:.*equ/d' $@
+	python3 defb2str.py $@
 
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd
