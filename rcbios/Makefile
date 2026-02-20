@@ -3,8 +3,11 @@
 # Assembly targets (from jbox.dk sources with conditional assembly):
 #   make rel21    - Build rel.2.1 BIOS (5.25" mini, 56K)
 #   make rel22    - Build rel.2.2 BIOS (5.25" mini, 56K)
-#   make compas   - Build Compas BIOS (8" maxi, 58K)
+#   make compas   - Build rel.1.4 BIOS (8" maxi, 58K, Compas disk)
 #   make verify   - Build all and verify against reference binaries
+#
+# Disassembly targets:
+#   make rel14_bios.asm  - Regenerate annotated rel.1.4 disassembly
 #
 # Extraction targets (require emulator and disk images):
 #   make dumps    - Extract RAM dumps from disk images
@@ -28,7 +31,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 
 # BIOS binaries and disassemblies
 BIOS_BINS = rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin
-BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm compas_bios.asm
+BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
 .PHONY: all rel21 rel22 compas verify dumps bios disasm clean emu
 
@@ -102,8 +105,8 @@ bios: $(BIOS_BINS)
 rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin: extract_bios.py $(DUMPS)
 	python3 extract_bios.py
 
-# Extract 58K BIOS from disk image (Track 0)
-compas_bios_disk.bin: imd2raw.py $(IMG_COMPAS)
+# Extract rel.1.4 BIOS from disk image (Track 0)
+rel14_bios_disk.bin: imd2raw.py $(IMG_COMPAS)
 	python3 imd2raw.py $(IMG_COMPAS) compas_disk_t0.bin
 	python3 -c "d=open('compas_disk_t0.bin','rb').read(); open('$@','wb').write(d[0x500:0x500+5632])"
 
@@ -118,11 +121,12 @@ cpm22_rel22_bios.asm: cpm22_rel22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
 	z80dasm -a -l -g 0xDA00 -S syms_56k_z80dasm.sym -b blocks_56k.def \
 		-o $@ $< 2>/dev/null
 
-compas_bios.asm: compas_bios_disk.bin syms_58k_z80dasm.sym blocks_58k.def
-	z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def \
+rel14_bios.asm: rel14_bios_disk.bin syms_rel14_z80dasm.sym blocks_rel14.def
+	z80dasm -a -l -g 0xE200 -S syms_rel14_z80dasm.sym -b blocks_rel14.def \
 		-o $@ $< 2>/dev/null
 	sed -i '' '/^trailing_end:.*equ/d' $@
 	python3 defb2str.py $@
+	python3 portnames.py $@
 
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd

@@ -1,4 +1,4 @@
-; Block definitions for 58K BIOS (Compas, rel.1.4)
+; Block definitions for rel.1.4 BIOS (58K, from Compas Pascal disk image)
 ; Derived from disk-extracted binary analysis
 
 jumptable:	start 0xe200 end 0xe233 type code

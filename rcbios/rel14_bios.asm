@@ -1,7 +1,38 @@
 ; z80dasm 1.2.0
-; command line: z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def -o compas_bios.asm compas_bios_disk.bin
+; command line: z80dasm -a -l -g 0xE200 -S syms_rel14_z80dasm.sym -b blocks_rel14.def -o rel14_bios.asm rel14_bios_disk.bin
 
 	org 0e200h
+
+DSPLD:	equ 000h
+DSPLC:	equ 001h
+FDC:	equ 004h
+FDD:	equ 005h
+SIOAD:	equ 008h
+SIOBD:	equ 009h
+SIOAC:	equ 00ah
+SIOBC:	equ 00bh
+CTCCH0:	equ 00ch
+CTCCH1:	equ 00dh
+CTCCH2:	equ 00eh
+CTCCH3:	equ 00fh
+PIOAD:	equ 010h
+PIOBD:	equ 011h
+PIOAC:	equ 012h
+PIOBC:	equ 013h
+SW1:	equ 014h
+BELL:	equ 01ch
+DMAAD0:	equ 0f0h
+DMACN0:	equ 0f1h
+DMAAD1:	equ 0f2h
+DMACN1:	equ 0f3h
+DMAAD2:	equ 0f4h
+DMACN2:	equ 0f5h
+DMAAD3:	equ 0f6h
+DMACN3:	equ 0f7h
+DMAC:	equ 0f8h
+DMAMAS:	equ 0fah
+DMAMOD:	equ 0fbh
+DMACBC:	equ 0fch
 CCTAD:	equ 0xffd1
 RCTAD:	equ 0xffd2
 CURSY:	equ 0xffd4
@@ -193,7 +224,7 @@ BOOT_ENTRY:
 	ld (HSTACT),a		;e305
 	ld (ERFLAG),a		;e308
 	ld (HSTWRT),a		;e30b
-	in a,(014h)		;e30e
+	in a,(SW1)		;e30e
 	and 080h		;e310
 	jp z,WBOOT_ENTRY	;e312
 	ld c,001h		;e315
@@ -290,16 +321,16 @@ LIST_ENTRY:
 	ld a,000h		;e3b4
 	ld (PRTFLG),a		;e3b6
 	ld a,005h		;e3b9
-	out (00bh),a		;e3bb
+	out (SIOBC),a		;e3bb
 	ld a,(WR5B)		;e3bd
 	add a,08ah		;e3c0
-	out (00bh),a		;e3c2
+	out (SIOBC),a		;e3c2
 	ld a,001h		;e3c4
-	out (00bh),a		;e3c6
+	out (SIOBC),a		;e3c6
 	ld a,007h		;e3c8
-	out (00bh),a		;e3ca
+	out (SIOBC),a		;e3ca
 	ld a,c			;e3cc
-	out (009h),a		;e3cd
+	out (SIOBD),a		;e3cd
 	ei			;e3cf
 	ret			;e3d0
 READI:
@@ -307,14 +338,14 @@ READI:
 	xor a			;e3d2
 	ld (RDRFLG),a		;e3d3
 	ld a,005h		;e3d6
-	out (00ah),a		;e3d8
+	out (SIOAC),a		;e3d8
 	ld a,(WR5A)		;e3da
 	add a,08ah		;e3dd
-	out (00ah),a		;e3df
+	out (SIOAC),a		;e3df
 	ld a,001h		;e3e1
-	out (00ah),a		;e3e3
+	out (SIOAC),a		;e3e3
 	ld a,01bh		;e3e5
-	out (00ah),a		;e3e7
+	out (SIOAC),a		;e3e7
 	ei			;e3e9
 	ret			;e3ea
 EXTVEC2_ENTRY:
@@ -337,16 +368,16 @@ PUNCH_ENTRY:
 	ld a,000h		;e407
 	ld (PTPFLG),a		;e409
 	ld a,005h		;e40c
-	out (00ah),a		;e40e
+	out (SIOAC),a		;e40e
 	ld a,(WR5A)		;e410
 	add a,08ah		;e413
-	out (00ah),a		;e415
+	out (SIOAC),a		;e415
 	ld a,001h		;e417
-	out (00ah),a		;e419
+	out (SIOAC),a		;e419
 	ld a,01bh		;e41b
-	out (00ah),a		;e41d
+	out (SIOAC),a		;e41d
 	ld a,c			;e41f
-	out (008h),a		;e420
+	out (SIOAD),a		;e420
 	ei			;e422
 	ret			;e423
 TXB:
@@ -354,7 +385,7 @@ TXB:
 	ld sp,ISTACK		;e428
 	push af			;e42b
 	ld a,028h		;e42c
-	out (00bh),a		;e42e
+	out (SIOBC),a		;e42e
 	ld a,0ffh		;e430
 	ld (PRTFLG),a		;e432
 	pop af			;e435
@@ -365,10 +396,10 @@ EXTSTB:
 	ld (SP_SAV),sp		;e43d
 	ld sp,ISTACK		;e441
 	push af			;e444
-	in a,(00bh)		;e445
+	in a,(SIOBC)		;e445
 	ld (RR0B),a		;e447
 	ld a,010h		;e44a
-	out (00bh),a		;e44c
+	out (SIOBC),a		;e44c
 	pop af			;e44e
 	ld sp,(SP_SAV)		;e44f
 	ei			;e453
@@ -377,7 +408,7 @@ RCB:
 	ld (SP_SAV),sp		;e456
 	ld sp,ISTACK		;e45a
 	push af			;e45d
-	in a,(008h)		;e45e
+	in a,(SIOAD)		;e45e
 	ld (CHARB),a		;e460
 	pop af			;e463
 	ld sp,(SP_SAV)		;e464
@@ -388,11 +419,11 @@ SPECB:
 	ld sp,ISTACK		;e46f
 	push af			;e472
 	ld a,001h		;e473
-	out (00bh),a		;e475
-	in a,(00bh)		;e477
+	out (SIOBC),a		;e475
+	in a,(SIOBC)		;e477
 	ld (RR1B),a		;e479
 	ld a,030h		;e47c
-	out (00bh),a		;e47e
+	out (SIOBC),a		;e47e
 	pop af			;e480
 	ld sp,(SP_SAV)		;e481
 	ei			;e485
@@ -402,7 +433,7 @@ TXA:
 	ld sp,ISTACK		;e48c
 	push af			;e48f
 	ld a,028h		;e490
-	out (00ah),a		;e492
+	out (SIOAC),a		;e492
 	ld a,0ffh		;e494
 	ld (PTPFLG),a		;e496
 	pop af			;e499
@@ -413,10 +444,10 @@ EXTSTA:
 	ld (SP_SAV),sp		;e4a1
 	ld sp,ISTACK		;e4a5
 	push af			;e4a8
-	in a,(00ah)		;e4a9
+	in a,(SIOAC)		;e4a9
 	ld (RR0A),a		;e4ab
 	ld a,010h		;e4ae
-	out (00ah),a		;e4b0
+	out (SIOAC),a		;e4b0
 	pop af			;e4b2
 	ld sp,(SP_SAV)		;e4b3
 	ei			;e4b7
@@ -425,7 +456,7 @@ RCA:
 	ld (SP_SAV),sp		;e4ba
 	ld sp,ISTACK		;e4be
 	push af			;e4c1
-	in a,(008h)		;e4c2
+	in a,(SIOAD)		;e4c2
 	ld (CHARA),a		;e4c4
 	ld a,0ffh		;e4c7
 	ld (RDRFLG),a		;e4c9
@@ -438,11 +469,11 @@ SPECA:
 	ld sp,ISTACK		;e4d8
 	push af			;e4db
 	ld a,001h		;e4dc
-	out (00ah),a		;e4de
-	in a,(00ah)		;e4e0
+	out (SIOAC),a		;e4de
+	in a,(SIOAC)		;e4e0
 	ld (RR1A),a		;e4e2
 	ld a,030h		;e4e5
-	out (00ah),a		;e4e7
+	out (SIOAC),a		;e4e7
 	pop af			;e4e9
 	ld sp,(SP_SAV)		;e4ea
 	ei			;e4ee
@@ -462,7 +493,7 @@ CONIN_ENTRY:
 	xor a			;e4ff
 	ld (KEYFLG),a		;e500
 	ei			;e503
-	in a,(010h)		;e504
+	in a,(PIOAD)		;e504
 	ld c,a			;e506
 	ld hl,INCONV		;e507
 	call CON1		;e50a
@@ -525,11 +556,11 @@ CON1:
 WP75:
 	push af			;e55d
 	ld a,080h		;e55e
-	out (001h),a		;e560
+	out (DSPLC),a		;e560
 	ld a,(CCTAD)		;e562
-	out (000h),a		;e565
+	out (DSPLD),a		;e565
 	ld a,(CURSY)		;e567
-	out (000h),a		;e56a
+	out (DSPLD),a		;e56a
 	pop af			;e56c
 	ret			;e56d
 ROWDN:
@@ -653,7 +684,7 @@ MOVDWN2:
 	cp b			;e639
 	jp nz,MOVDWN1		;e63a
 	ret			;e63d
-	out (01ch),a		;e63e
+	out (BELL),a		;e63e
 	ret			;e640
 	call ES0H		;e641
 	ld a,002h		;e644
@@ -1104,33 +1135,33 @@ DSPITR:
 	push bc			;e9a2
 	push de			;e9a3
 	push hl			;e9a4
-	in a,(001h)		;e9a5
+	in a,(DSPLC)		;e9a5
 	ld a,006h		;e9a7
-	out (0fah),a		;e9a9
+	out (DMAMAS),a		;e9a9
 	ld a,007h		;e9ab
-	out (0fah),a		;e9ad
-	out (0fch),a		;e9af
+	out (DMAMAS),a		;e9ad
+	out (DMACBC),a		;e9af
 	ld hl,trailing_end	;e9b1
 	ld a,l			;e9b4
-	out (0f4h),a		;e9b5
+	out (DMAAD2),a		;e9b5
 	ld a,h			;e9b7
-	out (0f4h),a		;e9b8
+	out (DMAAD2),a		;e9b8
 	ld hl,007cfh		;e9ba
 	ld a,l			;e9bd
-	out (0f5h),a		;e9be
+	out (DMACN2),a		;e9be
 	ld a,h			;e9c0
-	out (0f5h),a		;e9c1
+	out (DMACN2),a		;e9c1
 	ld a,000h		;e9c3
-	out (0f7h),a		;e9c5
-	out (0f7h),a		;e9c7
+	out (DMACN3),a		;e9c5
+	out (DMACN3),a		;e9c7
 	ld a,002h		;e9c9
-	out (0fah),a		;e9cb
+	out (DMAMAS),a		;e9cb
 	ld a,003h		;e9cd
-	out (0fah),a		;e9cf
+	out (DMAMAS),a		;e9cf
 	ld a,0d7h		;e9d1
-	out (00eh),a		;e9d3
+	out (CTCCH2),a		;e9d3
 	ld a,001h		;e9d5
-	out (00eh),a		;e9d7
+	out (CTCCH2),a		;e9d7
 	ld hl,RTC0		;e9d9
 	inc (hl)		;e9dc
 	jp nz,AFB11		;e9dd
@@ -2784,7 +2815,7 @@ GFPA:
 	add hl,de		;f189
 	ret			;f18a
 FDSTAR:
-	in a,(014h)		;f18b
+	in a,(SW1)		;f18b
 	and 080h		;f18d
 	ret z			;f18f
 	di			;f190
@@ -2796,16 +2827,16 @@ FDSTAR:
 	ei			;f19c
 	ret nz			;f19d
 	ld a,001h		;f19e
-	out (014h),a		;f1a0
+	out (SW1),a		;f1a0
 	ld hl,00032h		;f1a2
 	call WAITD		;f1a5
 	ret			;f1a8
 FDSTOP:
-	in a,(014h)		;f1a9
+	in a,(SW1)		;f1a9
 	and 080h		;f1ab
 	ret z			;f1ad
 	ld a,000h		;f1ae
-	out (014h),a		;f1b0
+	out (SW1),a		;f1b0
 	ret			;f1b2
 WAITD:
 	ld (DELCNT),hl		;f1b3
@@ -2826,13 +2857,13 @@ HOME_ENTRY:
 	call WFITR		;f1d2
 	ret			;f1d5
 FLO2:
-	in a,(004h)		;f1d6
+	in a,(FDC)		;f1d6
 	and 0c0h		;f1d8
 	cp 080h			;f1da
 	jp nz,FLO2		;f1dc
 	ret			;f1df
 FLO3:
-	in a,(004h)		;f1e0
+	in a,(FDC)		;f1e0
 	and 0c0h		;f1e2
 	cp 0c0h			;f1e4
 	jp nz,FLO3		;f1e6
@@ -2841,63 +2872,63 @@ FLO4:
 	call FDSTAR		;f1ea
 	call FLO2		;f1ed
 	ld a,007h		;f1f0
-	out (005h),a		;f1f2
+	out (FDD),a		;f1f2
 	call FLO2		;f1f4
 	ld a,(DSKNO)		;f1f7
 	and 003h		;f1fa
-	out (005h),a		;f1fc
+	out (FDD),a		;f1fc
 	ret			;f1fe
 	call FLO2		;f1ff
 	ld a,004h		;f202
-	out (005h),a		;f204
+	out (FDD),a		;f204
 	call FLO2		;f206
 	ld a,(DSKNO)		;f209
 	and 003h		;f20c
-	out (005h),a		;f20e
+	out (FDD),a		;f20e
 	call FLO3		;f210
-	in a,(005h)		;f213
+	in a,(FDD)		;f213
 	ld (RSTAB),a		;f215
 	ret			;f218
 FLO6:
 	call FLO2		;f219
 	ld a,008h		;f21c
-	out (005h),a		;f21e
+	out (FDD),a		;f21e
 	call FLO3		;f220
-	in a,(005h)		;f223
+	in a,(FDD)		;f223
 	ld (RSTAB),a		;f225
 	and 0c0h		;f228
 	cp 080h			;f22a
 	ret z			;f22c
 	call FLO3		;f22d
-	in a,(005h)		;f230
+	in a,(FDD)		;f230
 	ld (RSTAB1),a		;f232
 	ret			;f235
 FLO7:
 	call FDSTAR		;f236
 	call FLO2		;f239
 	ld a,00fh		;f23c
-	out (005h),a		;f23e
+	out (FDD),a		;f23e
 	call FLO2		;f240
 	ld a,(DSKNO)		;f243
 	and 003h		;f246
-	out (005h),a		;f248
+	out (FDD),a		;f248
 	call FLO2		;f24a
 	ld a,(ACTRA)		;f24d
-	out (005h),a		;f250
+	out (FDD),a		;f250
 	ret			;f252
 RSULT:
 	ld hl,RSTAB		;f253
 	ld d,007h		;f256
 RSL1:
 	call FLO3		;f258
-	in a,(005h)		;f25b
+	in a,(FDD)		;f25b
 	ld (hl),a		;f25d
 	inc hl			;f25e
 	ld a,004h		;f25f
 RSL2:
 	dec a			;f261
 	jp nz,RSL2		;f262
-	in a,(004h)		;f265
+	in a,(FDC)		;f265
 	and 010h		;f267
 	ret z			;f269
 	dec d			;f26a
@@ -2925,27 +2956,27 @@ WATIR:
 FLPW:
 	ld a,005h		;f28d
 	di			;f28f
-	out (0fah),a		;f290
+	out (DMAMAS),a		;f290
 	ld a,049h		;f292
 FLFW:
-	out (0fbh),a		;f294
-	out (0fch),a		;f296
+	out (DMAMOD),a		;f294
+	out (DMACBC),a		;f296
 	ld a,(DSKAD)		;f298
-	out (0f2h),a		;f29b
+	out (DMAAD1),a		;f29b
 	ld a,(DSKADH)		;f29d
-	out (0f2h),a		;f2a0
+	out (DMAAD1),a		;f2a0
 	ld a,c			;f2a2
-	out (0f3h),a		;f2a3
+	out (DMACN1),a		;f2a3
 	ld a,b			;f2a5
-	out (0f3h),a		;f2a6
+	out (DMACN1),a		;f2a6
 	ld a,001h		;f2a8
-	out (0fah),a		;f2aa
+	out (DMAMAS),a		;f2aa
 	ei			;f2ac
 	ret			;f2ad
 FLPR:
 	ld a,005h		;f2ae
 	di			;f2b0
-	out (0fah),a		;f2b1
+	out (DMAMAS),a		;f2b1
 	ld a,045h		;f2b3
 	jp FLFW			;f2b5
 GNCOM:
@@ -2956,36 +2987,36 @@ GNCOM:
 	ld b,(hl)		;f2be
 	inc hl			;f2bf
 	add a,b			;f2c0
-	out (005h),a		;f2c1
+	out (FDD),a		;f2c1
 	call FLO2		;f2c3
 	ld a,(DSKNO)		;f2c6
-	out (005h),a		;f2c9
+	out (FDD),a		;f2c9
 	call FLO2		;f2cb
 	ld a,(ACTRA)		;f2ce
-	out (005h),a		;f2d1
+	out (FDD),a		;f2d1
 	call FLO2		;f2d3
 	ld a,(DSKNO)		;f2d6
 	rra			;f2d9
 	rra			;f2da
 	and 003h		;f2db
-	out (005h),a		;f2dd
+	out (FDD),a		;f2dd
 	call FLO2		;f2df
 	ld a,(ACSEC)		;f2e2
-	out (005h),a		;f2e5
+	out (FDD),a		;f2e5
 	call FLO2		;f2e7
 	ld a,(hl)		;f2ea
 	inc hl			;f2eb
-	out (005h),a		;f2ec
+	out (FDD),a		;f2ec
 	call FLO2		;f2ee
 	ld a,(hl)		;f2f1
 	inc hl			;f2f2
-	out (005h),a		;f2f3
+	out (FDD),a		;f2f3
 	call FLO2		;f2f5
 	ld a,(hl)		;f2f8
-	out (005h),a		;f2f9
+	out (FDD),a		;f2f9
 	call FLO2		;f2fb
 	ld a,(DTLV)		;f2fe
-	out (005h),a		;f301
+	out (FDD),a		;f301
 	ei			;f303
 	ret			;f304
 FLITR:
@@ -3001,7 +3032,7 @@ FLITR:
 FITX:
 	dec a			;f317
 	jp nz,FITX		;f318
-	in a,(004h)		;f31b
+	in a,(FDC)		;f31b
 	and 010h		;f31d
 	jp nz,FIT1		;f31f
 	call FLO6		;f322
@@ -3272,25 +3303,25 @@ code_fdc_start:
 	call FDSTAR		;f436
 	call FLO2		;f439
 	ld a,00fh		;f43c
-	out (005h),a		;f43e
+	out (FDD),a		;f43e
 	call FLO2		;f440
 	ld a,(DSKNO)		;f443
 	and 003h		;f446
-	out (005h),a		;f448
+	out (FDD),a		;f448
 	call FLO2		;f44a
 	ld a,(ACTRA)		;f44d
-	out (005h),a		;f450
+	out (FDD),a		;f450
 	ret			;f452
 	ld hl,RSTAB		;f453
 	ld d,007h		;f456
 	call FLO3		;f458
-	in a,(005h)		;f45b
+	in a,(FDD)		;f45b
 	ld (hl),a		;f45d
 	inc hl			;f45e
 	ld a,004h		;f45f
 	dec a			;f461
 	jp nz,RSL2		;f462
-	in a,(004h)		;f465
+	in a,(FDC)		;f465
 	and 010h		;f467
 	ret z			;f469
 	dec d			;f46a
@@ -3314,25 +3345,25 @@ code_fdc_start:
 	ret			;f48c
 	ld a,005h		;f48d
 	di			;f48f
-	out (0fah),a		;f490
+	out (DMAMAS),a		;f490
 	ld a,049h		;f492
-	out (0fbh),a		;f494
-	out (0fch),a		;f496
+	out (DMAMOD),a		;f494
+	out (DMACBC),a		;f496
 	ld a,(DSKAD)		;f498
-	out (0f2h),a		;f49b
+	out (DMAAD1),a		;f49b
 	ld a,(DSKADH)		;f49d
-	out (0f2h),a		;f4a0
+	out (DMAAD1),a		;f4a0
 	ld a,c			;f4a2
-	out (0f3h),a		;f4a3
+	out (DMACN1),a		;f4a3
 	ld a,b			;f4a5
-	out (0f3h),a		;f4a6
+	out (DMACN1),a		;f4a6
 	ld a,001h		;f4a8
-	out (0fah),a		;f4aa
+	out (DMAMAS),a		;f4aa
 	ei			;f4ac
 	ret			;f4ad
 	ld a,005h		;f4ae
 	di			;f4b0
-	out (0fah),a		;f4b1
+	out (DMAMAS),a		;f4b1
 	ld a,045h		;f4b3
 	jp FLFW			;f4b5
 	push af			;f4b8
@@ -3342,33 +3373,33 @@ code_fdc_start:
 	ld b,(hl)		;f4be
 	inc hl			;f4bf
 	add a,b			;f4c0
-	out (005h),a		;f4c1
+	out (FDD),a		;f4c1
 	call FLO2		;f4c3
 	ld a,(DSKNO)		;f4c6
-	out (005h),a		;f4c9
+	out (FDD),a		;f4c9
 	call FLO2		;f4cb
 	ld a,(ACTRA)		;f4ce
-	out (005h),a		;f4d1
+	out (FDD),a		;f4d1
 	call FLO2		;f4d3
 	ld a,(DSKNO)		;f4d6
 	rra			;f4d9
 	rra			;f4da
 	and 003h		;f4db
-	out (005h),a		;f4dd
+	out (FDD),a		;f4dd
 	call FLO2		;f4df
 	ld a,(ACSEC)		;f4e2
-	out (005h),a		;f4e5
+	out (FDD),a		;f4e5
 	call FLO2		;f4e7
 	ld a,(hl)		;f4ea
 	inc hl			;f4eb
-	out (005h),a		;f4ec
+	out (FDD),a		;f4ec
 	call FLO2		;f4ee
 	ld a,(hl)		;f4f1
 	inc hl			;f4f2
-	out (005h),a		;f4f3
+	out (FDD),a		;f4f3
 	call FLO2		;f4f5
 	ld a,(hl)		;f4f8
-	out (005h),a		;f4f9
+	out (FDD),a		;f4f9
 	call FLO2		;f4fb
 code_fdc_end:
 

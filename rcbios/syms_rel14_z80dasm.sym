@@ -1,4 +1,4 @@
-; Symbol file for 58K BIOS (Compas, rel.1.4)
+; Symbol file for rel.1.4 BIOS (58K, from Compas Pascal disk image)
 ; Labels matched against 56K BIOS source (rcbios/src/) by instruction sequences
 
 ; === Standard CP/M 2.2 BIOS jump table ===
