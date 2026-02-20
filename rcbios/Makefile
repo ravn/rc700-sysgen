@@ -1,9 +1,18 @@
-# RC702 CP/M BIOS extraction and analysis
+# RC702 CP/M BIOS - assembly, extraction, and analysis
 #
-# Prerequisites:
-#   - rc700 emulator (../../../rc700/) built with --memdump support
-#   - z80dasm installed
-#   - Disk images in expected locations
+# Assembly targets (from jbox.dk sources with conditional assembly):
+#   make rel21    - Build rel.2.1 BIOS (5.25" mini, 56K)
+#   make rel22    - Build rel.2.2 BIOS (5.25" mini, 56K)
+#   make compas   - Build Compas BIOS (8" maxi, 58K)
+#   make verify   - Build all and verify against reference binaries
+#
+# Extraction targets (require emulator and disk images):
+#   make dumps    - Extract RAM dumps from disk images
+#   make bios     - Extract BIOS binaries from RAM dumps
+#   make disasm   - Disassemble extracted BIOS binaries
+
+ZMAC = ../zmac/bin/zmac
+ZMFLAGS = -z --dri -I src
 
 RC700 = ../../../rc700
 EMU = $(RC700)/rc700-vt100
@@ -21,9 +30,44 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm compas_bios.asm
 
-.PHONY: all dumps bios disasm clean emu
+.PHONY: all rel21 rel22 compas verify dumps bios disasm clean emu
 
-all: disasm
+all: verify
+
+# ============================================================
+# Assembly targets
+# ============================================================
+
+# BIOS offset in output: BIOS base - START (code start)
+# 56K: DA00 - D480 = 0x580
+# 58K: E200 - DD00 = 0x500
+BIOS_OFFSET_56K = 0x580
+BIOS_OFFSET_58K = 0x500
+
+rel21: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DMINI -DREL21 src/BIOS.MAC
+
+rel22: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DMINI -DREL22 src/BIOS.MAC
+
+compas: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DCOMPAS src/BIOS.MAC
+
+# Verify all variants against reference binaries
+verify: verify-rel21 verify-rel22 verify-compas
+
+verify-rel21: rel21
+	python3 verify_bios.py zout/BIOS.hex rccpm22_bios.bin $(BIOS_OFFSET_56K)
+
+verify-rel22: rel22
+	python3 verify_bios.py zout/BIOS.hex cpm22_rel22_bios.bin $(BIOS_OFFSET_56K)
+
+verify-compas: compas
+	python3 verify_bios.py zout/BIOS.hex compas_bios.bin $(BIOS_OFFSET_58K)
+
+# ============================================================
+# Extraction and disassembly targets
+# ============================================================
 
 # Build the emulator with --memdump support
 emu:
@@ -75,3 +119,4 @@ compas_bios.asm: compas_bios.bin
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd
 	rm -f *_auto.sym
+	rm -rf zout

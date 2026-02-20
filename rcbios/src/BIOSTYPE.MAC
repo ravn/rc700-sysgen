@@ -1,0 +1,9 @@
+;==============================================================================
+;= THE MINI/MAXI SWITCH IS NOW CONTROLLED VIA COMMAND-LINE DEFINES:          =
+;=                                                                           =
+;=   zmac -DMINI   → 5.25" mini diskette system                             =
+;=   (no -DMINI)   → 8" maxi diskette system                                =
+;==============================================================================
+
+	PAGE
+

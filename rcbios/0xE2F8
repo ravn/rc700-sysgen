@@ -1,0 +1,879 @@
+; Symbol file
+
+
+le2f8h:	equ 0xe2f8
+; Used at following locations:
+; 0xe2f8	(jp destination)
+
+le328h:	equ 0xe328
+; Used at following locations:
+; 0xe40a	(jp destination)
+; 0xe2fb	(jp destination)
+
+le34eh:	equ 0xe34e
+; Used at following locations:
+; 0xe32c	(jr destination)
+
+le353h:	equ 0xe353
+; Used at following locations:
+; 0xe467	(jp destination)
+
+le39fh:	equ 0xe39f
+; Used at following locations:
+; 0xe52a	(byte load pointer)
+; 0xe4ae	(byte load pointer)
+; 0xe4a4	(byte load pointer)
+; 0xe4a0	(byte load pointer)
+
+le3a0h:	equ 0xe3a0
+; Used at following locations:
+; 0xe5c1	(byte load pointer)
+; 0xe4e3	(byte load pointer)
+; 0xe4cb	(byte load pointer)
+
+le3a3h:	equ 0xe3a3
+; Used at following locations:
+; 0xe558	(byte load pointer)
+
+le3a4h:	equ 0xe3a4
+; Used at following locations:
+; 0xe5a3	(byte load pointer)
+; 0xe3d8	(byte load pointer)
+
+le3a5h:	equ 0xe3a5
+; Used at following locations:
+; 0xe5da	(byte load pointer)
+
+le3a8h:	equ 0xe3a8
+; Used at following locations:
+; 0xe325	(jp destination)
+
+le3ach:	equ 0xe3ac
+; Used at following locations:
+; 0xe4a8	(jp destination)
+; 0xe307	(jp destination)
+
+le3bbh:	equ 0xe3bb
+; Used at following locations:
+; 0xe36e	(jr destination)
+
+le3efh:	equ 0xe3ef
+; Used at following locations:
+; 0xe4eb	(jp destination)
+; 0xe30d	(jp destination)
+
+le41dh:	equ 0xe41d
+; Used at following locations:
+; 0xe41a	(jr destination)
+
+le4e3h:	equ 0xe4e3
+; Used at following locations:
+; 0xf8da	(jp destination)
+
+le4f1h:	equ 0xe4f1
+; Used at following locations:
+; 0xe610	(byte load pointer)
+; 0xe5f8	(byte load pointer)
+; 0xe5ef	(byte load pointer)
+; 0xe5eb	(byte load pointer)
+; 0xe430	(byte load pointer)
+
+le4f2h:	equ 0xe4f2
+; Used at following locations:
+; 0xe625	(byte load pointer)
+
+le4f7h:	equ 0xe4f7
+; Used at following locations:
+; 0xe5f3	(jp destination)
+; 0xe301	(jp destination)
+
+le539h:	equ 0xe539
+; Used at following locations:
+; 0xe8d6	(word load pointer)
+; 0xe8c3	(word load pointer)
+; 0xe8a3	(word load pointer)
+; 0xe890	(word load pointer)
+
+sub_e542h:	equ 0xe542
+; Used at following locations:
+; 0xe916	(call destination)
+; 0xe8ef	(call destination)
+; 0xe8cd	(call destination)
+; 0xe89a	(call destination)
+; 0xe7cd	(call destination)
+
+sub_e547h:	equ 0xe547
+; Used at following locations:
+; 0xe862	(call destination)
+; 0xe84a	(call destination)
+
+sub_e552h:	equ 0xe552
+; Used at following locations:
+; 0xea28	(call destination)
+
+sub_e558h:	equ 0xe558
+; Used at following locations:
+; 0xe602	(call destination)
+
+le5c5h:	equ 0xe5c5
+; Used at following locations:
+; 0xe868	(jp destination)
+; 0xe853	(jp destination)
+
+sub_e5f2h:	equ 0xe5f2
+; Used at following locations:
+; 0xea3f	(call destination)
+; 0xe90c	(call destination)
+; 0xe8ba	(call destination)
+; 0xe7f1	(call destination)
+; 0xe7a4	(call destination)
+
+le5f6h:	equ 0xe5f6
+; Used at following locations:
+; 0xe6f4	(jp destination)
+
+sub_e60ah:	equ 0xe60a
+; Used at following locations:
+; 0xe7f4	(call destination)
+; 0xe7a7	(call destination)
+
+le619h:	equ 0xe619
+; Used at following locations:
+; 0xe714	(jp destination)
+; 0xe70b	(jp destination)
+
+le622h:	equ 0xe622
+; Used at following locations:
+; 0xe8d9	(call destination)
+; 0xe8a6	(call destination)
+; 0xe7c0	(jp destination)
+
+le628h:	equ 0xe628
+; Used at following locations:
+; 0xe724	(jp destination)
+
+sub_e630h:	equ 0xe630
+; Used at following locations:
+; 0xe925	(call destination)
+; 0xe8fe	(call destination)
+; 0xe809	(jp destination)
+; 0xe7de	(call destination)
+; 0xe791	(call destination)
+
+le636h:	equ 0xe636
+; Used at following locations:
+; 0xe732	(jp destination)
+
+le639h:	equ 0xe639
+; Used at following locations:
+; 0xe72b	(jp destination)
+
+le723h:	equ 0xe723
+; Used at following locations:
+; 0xe811	(jp destination)
+
+sub_e73eh:	equ 0xe73e
+; Used at following locations:
+; 0xea33	(call destination)
+; 0xe85f	(jp destination)
+; 0xe85c	(call destination)
+; 0xe859	(call destination)
+; 0xe856	(call destination)
+
+le847h:	equ 0xe847
+; Used at following locations:
+; 0xe95e	(jp destination)
+
+le859h:	equ 0xe859
+; Used at following locations:
+; 0xe959	(jp destination)
+; 0xe944	(jp destination)
+
+le85fh:	equ 0xe85f
+; Used at following locations:
+; 0xe952	(jp destination)
+
+le8d3h:	equ 0xe8d3
+; Used at following locations:
+; 0xe9c4	(jp destination)
+
+le91eh:	equ 0xe91e
+; Used at following locations:
+; 0xea11	(jp destination)
+
+le92dh:	equ 0xe92d
+; Used at following locations:
+; 0xea19	(jp destination)
+
+le933h:	equ 0xe933
+; Used at following locations:
+; 0xea22	(jp destination)
+
+le959h:	equ 0xe959
+; Used at following locations:
+; 0xea53	(jp destination)
+; 0xea4b	(jp destination)
+
+le961h:	equ 0xe961
+; Used at following locations:
+; 0xe386	(call destination)
+; 0xe304	(jp destination)
+
+le98eh:	equ 0xe98e
+; Used at following locations:
+; 0xea7d	(jp destination)
+
+le991h:	equ 0xe991
+; Used at following locations:
+; 0xea83	(jp destination)
+; 0xea75	(jp destination)
+
+lea25h:	equ 0xea25
+; Used at following locations:
+; 0xebaa	(immediate value)
+
+lea57h:	equ 0xea57
+; Used at following locations:
+; 0xebca	(immediate value)
+
+leaadh:	equ 0xeaad
+; Used at following locations:
+; 0xefeb	(immediate value)
+
+leaeeh:	equ 0xeaee
+; Used at following locations:
+; 0xf278	(immediate value)
+
+leb2eh:	equ 0xeb2e
+; Used at following locations:
+; 0xf007	(byte load pointer)
+
+leb2fh:	equ 0xeb2f
+; Used at following locations:
+; 0xf041	(byte load pointer)
+
+leb31h:	equ 0xeb31
+; Used at following locations:
+; 0xf121	(immediate value)
+; 0xf0b2	(byte load pointer)
+; 0xf09d	(immediate value)
+
+leb32h:	equ 0xeb32
+; Used at following locations:
+; 0xf0c0	(byte load pointer)
+
+leb35h:	equ 0xeb35
+; Used at following locations:
+; 0xf3f6	(byte load pointer)
+
+leb3eh:	equ 0xeb3e
+; Used at following locations:
+; 0xf16d	(immediate value)
+; 0xf107	(word load pointer)
+; 0xf04d	(word load pointer)
+; 0xf012	(word load pointer)
+
+leb40h:	equ 0xeb40
+; Used at following locations:
+; 0xf11e	(byte load pointer)
+; 0xf0c4	(byte load pointer)
+; 0xf09a	(byte load pointer)
+; 0xf077	(byte load pointer)
+; 0xf053	(byte load pointer)
+; 0xf017	(byte load pointer)
+
+leb41h:	equ 0xeb41
+; Used at following locations:
+; 0xf1d4	(byte load pointer)
+; 0xf1c2	(byte load pointer)
+; 0xf198	(byte load pointer)
+; 0xf104	(byte load pointer)
+; 0xf0e0	(immediate value)
+
+leb42h:	equ 0xeb42
+; Used at following locations:
+; 0xf1da	(byte load pointer)
+; 0xf1cc	(byte load pointer)
+; 0xf1b6	(byte load pointer)
+; 0xf10a	(word load pointer)
+; 0xf0e7	(immediate value)
+
+leb44h:	equ 0xeb44
+; Used at following locations:
+; 0xf18e	(byte load pointer)
+; 0xf110	(byte load pointer)
+; 0xf0f3	(immediate value)
+
+leb45h:	equ 0xeb45
+; Used at following locations:
+; 0xf2bd	(byte load pointer)
+; 0xf1d7	(byte load pointer)
+; 0xf1c5	(immediate value)
+
+leb46h:	equ 0xeb46
+; Used at following locations:
+; 0xf2c1	(byte load pointer)
+; 0xf1dd	(byte load pointer)
+; 0xf1cf	(immediate value)
+
+leb49h:	equ 0xeb49
+; Used at following locations:
+; 0xf15d	(byte load pointer)
+; 0xf144	(byte load pointer)
+; 0xf11b	(byte load pointer)
+; 0xf0fa	(byte load pointer)
+; 0xefcc	(byte load pointer)
+; 0xefc4	(byte load pointer)
+; 0xe403	(byte load pointer)
+
+leb4ah:	equ 0xeb4a
+; Used at following locations:
+; 0xf185	(byte load pointer)
+; 0xf0af	(byte load pointer)
+; 0xf061	(byte load pointer)
+; 0xf059	(byte load pointer)
+; 0xf044	(byte load pointer)
+; 0xe427	(byte load pointer)
+
+leb4bh:	equ 0xeb4b
+; Used at following locations:
+; 0xf067	(immediate value)
+; 0xf04a	(byte load pointer)
+
+leb4ch:	equ 0xeb4c
+; Used at following locations:
+; 0xf093	(word load pointer)
+; 0xf08f	(word load pointer)
+; 0xf06e	(immediate value)
+; 0xf050	(word load pointer)
+
+leb4dh:	equ 0xeb4d
+; Used at following locations:
+; 0xeb35	(djnz destination)
+
+leb4fh:	equ 0xeb4f
+; Used at following locations:
+; 0xf17e	(byte load pointer)
+; 0xf0a8	(byte load pointer)
+
+leb52h:	equ 0xeb52
+; Used at following locations:
+; 0xf13b	(byte load pointer)
+; 0xf035	(byte load pointer)
+; 0xf026	(byte load pointer)
+
+leb53h:	equ 0xeb53
+; Used at following locations:
+; 0xf14a	(byte load pointer)
+; 0xf039	(byte load pointer)
+; 0xf02e	(byte load pointer)
+
+leb54h:	equ 0xeb54
+; Used at following locations:
+; 0xf134	(word load pointer)
+; 0xf01d	(word load pointer)
+; 0xe453	(word load pointer)
+
+leb56h:	equ 0xeb56
+; Used at following locations:
+; 0xf1bc	(immediate value)
+; 0xf12f	(immediate value)
+
+leb71h:	equ 0xeb71
+; Used at following locations:
+; 0xeb5e	(djnz destination)
+
+leb76h:	equ 0xeb76
+; Used at following locations:
+; 0xeb74	(djnz destination)
+
+leb81h:	equ 0xeb81
+; Used at following locations:
+; 0xeb66	(jr destination)
+
+leb85h:	equ 0xeb85
+; Used at following locations:
+; 0xeb83	(jr destination)
+
+leb94h:	equ 0xeb94
+; Used at following locations:
+; 0xeb92	(djnz destination)
+
+leba3h:	equ 0xeba3
+; Used at following locations:
+; 0xeba1	(jr destination)
+
+lec09h:	equ 0xec09
+; Used at following locations:
+; 0xec07	(jr destination)
+
+lec74h:	equ 0xec74
+; Used at following locations:
+; 0xec52	(jr destination)
+
+lec76h:	equ 0xec76
+; Used at following locations:
+; 0xec54	(jr destination)
+
+lec94h:	equ 0xec94
+; Used at following locations:
+; 0xec72	(jr destination)
+
+lec96h:	equ 0xec96
+; Used at following locations:
+; 0xec74	(jr destination)
+
+leca8h:	equ 0xeca8
+; Used at following locations:
+; 0xec56	(jr destination)
+
+lecbbh:	equ 0xecbb
+; Used at following locations:
+; 0xec76	(jr destination)
+
+lee0fh:	equ 0xee0f
+; Used at following locations:
+; 0xec10	(jp destination)
+
+lee68h:	equ 0xee68
+; Used at following locations:
+; 0xec20	(jp destination)
+
+lee74h:	equ 0xee74
+; Used at following locations:
+; 0xee52	(jr destination)
+
+lee76h:	equ 0xee76
+; Used at following locations:
+; 0xee54	(jr destination)
+
+lee88h:	equ 0xee88
+; Used at following locations:
+; 0xf259	(word load pointer)
+; 0xf20f	(word load pointer)
+; 0xefd7	(word load pointer)
+
+lee8ah:	equ 0xee8a
+; Used at following locations:
+; 0xf27b	(byte load pointer)
+; 0xefe3	(byte load pointer)
+; 0xefd1	(byte load pointer)
+; 0xefbb	(immediate value)
+
+lee8bh:	equ 0xee8b
+; Used at following locations:
+; 0xf192	(byte load pointer)
+; 0xefdf	(byte load pointer)
+
+lee8ch:	equ 0xee8c
+; Used at following locations:
+; 0xefa1	(byte load pointer)
+; 0xe48a	(byte load pointer)
+; 0xe41d	(byte load pointer)
+
+lee8dh:	equ 0xee8d
+; Used at following locations:
+; 0xf5ce	(byte load pointer)
+; 0xf5be	(byte load pointer)
+; 0xf53b	(byte load pointer)
+; 0xf3ce	(byte load pointer)
+; 0xf3be	(byte load pointer)
+; 0xf33b	(byte load pointer)
+; 0xf301	(byte load pointer)
+; 0xf2ef	(byte load pointer)
+; 0xf2ba	(byte load pointer)
+; 0xf1e9	(byte load pointer)
+; 0xf1a9	(byte load pointer)
+; 0xf1a0	(byte load pointer)
+; 0xe42d	(byte load pointer)
+
+lee8eh:	equ 0xee8e
+; Used at following locations:
+; 0xf590	(byte load pointer)
+; 0xf390	(byte load pointer)
+; 0xf1bf	(word load pointer)
+
+lee8fh:	equ 0xee8f
+; Used at following locations:
+; 0xf595	(byte load pointer)
+; 0xf395	(byte load pointer)
+
+lee90h:	equ 0xee90
+; Used at following locations:
+; 0xf5c6	(byte load pointer)
+; 0xf545	(byte load pointer)
+; 0xf3c6	(byte load pointer)
+; 0xf345	(byte load pointer)
+; 0xf1b9	(byte load pointer)
+
+lee91h:	equ 0xee91
+; Used at following locations:
+; 0xf5da	(byte load pointer)
+; 0xf3da	(byte load pointer)
+; 0xf1b3	(byte load pointer)
+
+lee92h:	equ 0xee92
+; Used at following locations:
+; 0xf250	(byte load pointer)
+; 0xf231	(byte load pointer)
+; 0xf22d	(byte load pointer)
+; 0xf206	(byte load pointer)
+
+lee93h:	equ 0xee93
+; Used at following locations:
+; 0xf571	(byte load pointer)
+; 0xf54b	(immediate value)
+; 0xf371	(byte load pointer)
+; 0xf34b	(immediate value)
+; 0xf31d	(byte load pointer)
+; 0xf30d	(byte load pointer)
+; 0xf221	(immediate value)
+
+lee94h:	equ 0xee94
+; Used at following locations:
+; 0xf575	(byte load pointer)
+; 0xf375	(byte load pointer)
+; 0xf32a	(byte load pointer)
+; 0xee72	(jr destination)
+
+lee96h:	equ 0xee96
+; Used at following locations:
+; 0xee74	(jr destination)
+
+lee9bh:	equ 0xee9b
+; Used at following locations:
+; 0xf57d	(byte load pointer)
+; 0xf569	(byte load pointer)
+; 0xf40a	(byte load pointer)
+; 0xf37d	(byte load pointer)
+; 0xf369	(byte load pointer)
+
+lee9ch:	equ 0xee9c
+; Used at following locations:
+; 0xf427	(word load pointer)
+; 0xf3fd	(word load pointer)
+; 0xeb16	(word load pointer)
+; 0xea92	(word load pointer)
+; 0xe629	(word load pointer)
+; 0xe61b	(word load pointer)
+; 0xe614	(word load pointer)
+; 0xe606	(word load pointer)
+; 0xe5e2	(word load pointer)
+; 0xe5cc	(word load pointer)
+; 0xe5c5	(word load pointer)
+; 0xe5b2	(word load pointer)
+; 0xe5ab	(word load pointer)
+; 0xe599	(word load pointer)
+; 0xe592	(word load pointer)
+; 0xe580	(word load pointer)
+; 0xe579	(word load pointer)
+; 0xe563	(word load pointer)
+; 0xe55c	(word load pointer)
+; 0xe54e	(word load pointer)
+; 0xe547	(word load pointer)
+; 0xe535	(word load pointer)
+; 0xe52e	(word load pointer)
+; 0xe51c	(word load pointer)
+
+lee9eh:	equ 0xee9e
+; Used at following locations:
+; 0xe423	(call destination)
+; 0xe40f	(call destination)
+; 0xe313	(jp destination)
+
+leea8h:	equ 0xeea8
+; Used at following locations:
+; 0xee56	(jr destination)
+
+leebbh:	equ 0xeebb
+; Used at following locations:
+; 0xee76	(jr destination)
+
+leec2h:	equ 0xeec2
+; Used at following locations:
+; 0xefb3	(jp destination)
+
+leed9h:	equ 0xeed9
+; Used at following locations:
+; 0xefbf	(jp destination)
+
+lef13h:	equ 0xef13
+; Used at following locations:
+; 0xefa5	(jp destination)
+
+lef18h:	equ 0xef18
+; Used at following locations:
+; 0xe443	(call destination)
+; 0xe316	(jp destination)
+
+lef1eh:	equ 0xef1e
+; Used at following locations:
+; 0xe461	(call destination)
+; 0xe448	(call destination)
+; 0xe319	(jp destination)
+
+lef23h:	equ 0xef23
+; Used at following locations:
+; 0xe46d	(call destination)
+; 0xe45c	(call destination)
+; 0xe43c	(call destination)
+; 0xe31c	(jp destination)
+
+lef29h:	equ 0xef29
+; Used at following locations:
+; 0xe328	(jp destination)
+
+lef2ch:	equ 0xef2c
+; Used at following locations:
+; 0xe44c	(call destination)
+; 0xe31f	(jp destination)
+
+lef3ch:	equ 0xef3c
+; Used at following locations:
+; 0xe322	(jp destination)
+
+lef61h:	equ 0xef61
+; Used at following locations:
+; 0xf03e	(jp destination)
+
+lef9eh:	equ 0xef9e
+; Used at following locations:
+; 0xf087	(jp destination)
+
+lefb6h:	equ 0xefb6
+; Used at following locations:
+; 0xf07e	(jp destination)
+; 0xf074	(jp destination)
+; 0xf06b	(jp destination)
+; 0xf05d	(jp destination)
+
+lefcfh:	equ 0xefcf
+; Used at following locations:
+; 0xf0cd	(jp destination)
+
+lf002h:	equ 0xf002
+; Used at following locations:
+; 0xf0ed	(jp destination)
+; 0xf0e4	(jp destination)
+
+lf026h:	equ 0xf026
+; Used at following locations:
+; 0xf0f7	(jp destination)
+
+lf050h:	equ 0xf050
+; Used at following locations:
+; 0xf13f	(jp destination)
+
+lf071h:	equ 0xf071
+; Used at following locations:
+; 0xf159	(jp destination)
+; 0xf155	(jp destination)
+
+sub_f074h:	equ 0xf074
+; Used at following locations:
+; 0xf0ea	(call destination)
+; 0xf071	(call destination)
+
+sub_f086h:	equ 0xf086
+; Used at following locations:
+; 0xf117	(call destination)
+
+sub_f096h:	equ 0xf096
+; Used at following locations:
+; 0xf188	(call destination)
+; 0xf178	(call destination)
+
+sub_f0fah:	equ 0xf0fa
+; Used at following locations:
+; 0xf239	(call destination)
+
+lf129h:	equ 0xf129
+; Used at following locations:
+; 0xf26b	(jp destination)
+
+sub_f176h:	equ 0xf176
+; Used at following locations:
+; 0xf219	(call destination)
+
+sub_f17bh:	equ 0xf17b
+; Used at following locations:
+; 0xf263	(call destination)
+
+sub_f18bh:	equ 0xf18b
+; Used at following locations:
+; 0xf52e	(call destination)
+; 0xf32e	(call destination)
+; 0xf2e2	(call destination)
+; 0xf253	(call destination)
+; 0xf209	(call destination)
+
+sub_f1a9h:	equ 0xf1a9
+; Used at following locations:
+; 0xeb03	(call destination)
+
+sub_f1b3h:	equ 0xf1b3
+; Used at following locations:
+; 0xf29d	(call destination)
+; 0xe3d2	(call destination)
+
+lf1b6h:	equ 0xf1b6
+; Used at following locations:
+; 0xf2b3	(jp destination)
+
+lf1bfh:	equ 0xf1bf
+; Used at following locations:
+; 0xe433	(call destination)
+; 0xe412	(call destination)
+; 0xe310	(jp destination)
+
+lf1e0h:	equ 0xf1e0
+; Used at following locations:
+; 0xf550	(call destination)
+; 0xf350	(call destination)
+; 0xf325	(call destination)
+; 0xf318	(call destination)
+; 0xf308	(call destination)
+; 0xf2de	(jp destination)
+
+sub_f219h:	equ 0xf219
+; Used at following locations:
+; 0xf41a	(call destination)
+
+sub_f253h:	equ 0xf253
+; Used at following locations:
+; 0xf420	(call destination)
+
+sub_f285h:	equ 0xf285
+; Used at following locations:
+; 0xf581	(jp destination)
+; 0xf56e	(call destination)
+; 0xf381	(jp destination)
+; 0xf36e	(call destination)
+; 0xf266	(call destination)
+; 0xf21c	(call destination)
+
+sub_f28dh:	equ 0xf28d
+; Used at following locations:
+; 0xf260	(call destination)
+
+lf294h:	equ 0xf294
+; Used at following locations:
+; 0xf5ad	(jp destination)
+; 0xf3ad	(jp destination)
+
+sub_f2aeh:	equ 0xf2ae
+; Used at following locations:
+; 0xf216	(call destination)
+
+lf328h:	equ 0xf328
+; Used at following locations:
+; 0xf417	(jp destination)
+
+lf500h:	equ 0xf500
+; Used at following locations:
+; 0xea42	(immediate value)
+; 0xe93a	(immediate value)
+; 0xe90f	(immediate value)
+; 0xe702	(immediate value)
+; 0xe6d9	(immediate value)
+
+lf5f0h:	equ 0xf5f0
+; Used at following locations:
+; 0xe919	(immediate value)
+; 0xe8dc	(immediate value)
+; 0xe6e1	(immediate value)
+
+lf5f9h:	equ 0xf5f9
+; Used at following locations:
+; 0xe922	(immediate value)
+; 0xe7fa	(immediate value)
+; 0xe768	(immediate value)
+
+lf620h:	equ 0xf620
+; Used at following locations:
+; 0xf401	(immediate value)
+; 0xea96	(immediate value)
+; 0xe61f	(immediate value)
+; 0xe60a	(immediate value)
+; 0xe5d0	(immediate value)
+; 0xe5b6	(immediate value)
+; 0xe59d	(immediate value)
+; 0xe584	(immediate value)
+; 0xe567	(immediate value)
+; 0xe552	(immediate value)
+; 0xe539	(immediate value)
+; 0xe520	(immediate value)
+
+lf680h:	equ 0xf680
+; Used at following locations:
+; 0xf0bc	(immediate value)
+; 0xef9a	(immediate value)
+; 0xea5f	(immediate value)
+; 0xea25	(immediate value)
+
+lf700h:	equ 0xf700
+; Used at following locations:
+; 0xe5ff	(immediate value)
+
+lf7bbh:	equ 0xf7bb
+; Used at following locations:
+; 0xf798	(jr destination)
+
+lf7cbh:	equ 0xf7cb
+; Used at following locations:
+; 0xf7a0	(jr destination)
+
+lf7dbh:	equ 0xf7db
+; Used at following locations:
+; 0xf7a8	(jr destination)
+
+lf7ebh:	equ 0xf7eb
+; Used at following locations:
+; 0xf7b0	(jr destination)
+
+lf800h:	equ 0xf800
+; Used at following locations:
+; 0xeaa9	(immediate value)
+; 0xea2e	(immediate value)
+; 0xe937	(immediate value)
+; 0xe8e8	(immediate value)
+; 0xe776	(immediate value)
+; 0xe6c0	(immediate value)
+
+lf83bh:	equ 0xf83b
+; Used at following locations:
+; 0xf818	(jr destination)
+
+lf84bh:	equ 0xf84b
+; Used at following locations:
+; 0xf820	(jr destination)
+
+lf850h:	equ 0xf850
+; Used at following locations:
+; 0xe88c	(immediate value)
+; 0xe6bd	(immediate value)
+
+lf85bh:	equ 0xf85b
+; Used at following locations:
+; 0xf828	(jr destination)
+
+lf86bh:	equ 0xf86b
+; Used at following locations:
+; 0xf830	(jr destination)
+
+lf8cbh:	equ 0xf8cb
+; Used at following locations:
+; 0xf898	(jr destination)
+
+lf8d2h:	equ 0xf8d2
+; Used at following locations:
+; 0xf8a3	(jr destination)
+
+lf8e2h:	equ 0xf8e2
+; Used at following locations:
+; 0xf8b3	(jr destination)
+
+lf8ebh:	equ 0xf8eb
+; Used at following locations:
+; 0xf8b0	(jr destination)
+
