@@ -121,6 +121,7 @@ cpm22_rel22_bios.asm: cpm22_rel22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
 compas_bios.asm: compas_bios_disk.bin syms_58k_z80dasm.sym blocks_58k.def
 	z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def \
 		-o $@ $< 2>/dev/null
+	sed -i '' '/^trailing_end:.*equ/d' $@
 
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd

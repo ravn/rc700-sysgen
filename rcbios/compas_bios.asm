@@ -2,7 +2,6 @@
 ; command line: z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def -o compas_bios.asm compas_bios_disk.bin
 
 	org 0e200h
-DSPSTR:	equ 0xf800
 
 BOOT:
 
@@ -608,7 +607,7 @@ le5a4h:
 	ret			;e5c4
 le5c5h:
 	ld hl,0f850h		;e5c5
-	ld de,DSPSTR		;e5c8
+	ld de,trailing_end	;e5c8
 	ld bc,00780h		;e5cb
 	ldir			;e5ce
 	ld hl,0ff80h		;e5d0
@@ -708,7 +707,7 @@ le639h:
 	ld (hl),000h		;e679
 	lddr			;e67b
 	ret			;e67d
-	ld de,DSPSTR		;e67e
+	ld de,trailing_end	;e67e
 	ld hl,(0ffd2h)		;e681
 	add hl,de		;e684
 	ld de,0004fh		;e685
@@ -882,7 +881,7 @@ le74dh:
 	ld (0ffdch),hl		;e7e7
 	jp le5a4h		;e7ea
 	ld hl,(0ffd2h)		;e7ed
-	ld de,DSPSTR		;e7f0
+	ld de,trailing_end	;e7f0
 	add hl,de		;e7f3
 	ld (0ffd5h),hl		;e7f4
 	call sub_e542h		;e7f7
@@ -916,7 +915,7 @@ le74dh:
 	ld a,001h		;e839
 	ld (0ffdbh),a		;e83b
 	ret			;e83e
-	ld hl,DSPSTR		;e83f
+	ld hl,trailing_end	;e83f
 	ld de,lf500h		;e842
 	ld b,0fah		;e845
 le847h:
@@ -1063,7 +1062,7 @@ le92dh:
 	call sub_e552h		;e930
 le933h:
 	ld hl,(0ffd8h)		;e933
-	ld de,DSPSTR		;e936
+	ld de,trailing_end	;e936
 	add hl,de		;e939
 	ld (hl),a		;e93a
 	call sub_e73eh		;e93b
@@ -1137,7 +1136,7 @@ ISR_SIO_RX:
 	ld a,007h		;e9ab
 	out (0fah),a		;e9ad
 	out (0fch),a		;e9af
-	ld hl,DSPSTR		;e9b1
+	ld hl,trailing_end	;e9b1
 	ld a,l			;e9b4
 	out (0f4h),a		;e9b5
 	ld a,h			;e9b7
@@ -3394,7 +3393,7 @@ code_fdc_start:
 	call lf1d6h		;f4fb
 code_fdc_end:
 
-; BLOCK 'trailing' (start 0xf4fe end 0xf7ff)
+; BLOCK 'trailing' (start 0xf4fe end 0xf800)
 trailing_start:
 	defb 03ah		;f4fe
 	defb 035h		;f4ff
@@ -4174,6 +4173,6 @@ lf700h:
 	defb 0e5h		;f7fc
 	defb 0e5h		;f7fd
 	defb 0e5h		;f7fe
+	defb 0e5h		;f7ff
 trailing_end:
-	push hl			;f7ff
 DSPSTR:

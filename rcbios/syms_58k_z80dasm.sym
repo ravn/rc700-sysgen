@@ -179,4 +179,4 @@ ITRTAB:	equ 0xf400
 ; === Display buffer ===
 
 DSPSTR:	equ 0xf800
-; Display buffer (80x24 characters)
+; Display buffer (80x24 characters) - past end of BIOS binary

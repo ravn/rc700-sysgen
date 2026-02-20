@@ -15,4 +15,4 @@ pad2:		start 0xf339 end 0xf400 type bytedata
 ivt:		start 0xf400 end 0xf424 type worddata
 postivt:	start 0xf424 end 0xf432 type bytedata
 code_fdc:	start 0xf432 end 0xf4fe type code
-trailing:	start 0xf4fe end 0xf7ff type bytedata
+trailing:	start 0xf4fe end 0xf800 type bytedata
