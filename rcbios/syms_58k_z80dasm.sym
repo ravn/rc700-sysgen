@@ -1,0 +1,182 @@
+; Symbol file for 58K BIOS (Compas, rel.1.4)
+; Derived from disk-extracted binary, no 56K assumptions
+
+; === Standard CP/M 2.2 BIOS jump table ===
+
+BOOT:	equ 0xe200
+
+WBOOT:	equ 0xe203
+
+CONST:	equ 0xe206
+
+CONIN:	equ 0xe209
+
+CONOUT:	equ 0xe20c
+
+LIST:	equ 0xe20f
+
+PUNCH:	equ 0xe212
+
+READER:	equ 0xe215
+
+HOME:	equ 0xe218
+
+SELDSK:	equ 0xe21b
+
+SETTRK:	equ 0xe21e
+
+SETSEC:	equ 0xe221
+
+SETDMA:	equ 0xe224
+
+READ:	equ 0xe227
+
+WRITE:	equ 0xe22a
+
+LISTST:	equ 0xe22d
+
+SECTRAN:	equ 0xe230
+
+; === Config area ===
+
+ADRMOD:	equ 0xe233
+; Address mode byte
+
+WR5A:	equ 0xe234
+; SIO channel A WR5 (DTR/RTS)
+
+WR5B:	equ 0xe235
+; SIO channel B WR5 (DTR/RTS)
+
+DISKFMT:	equ 0xe237
+; Disk format type bytes (one per drive)
+
+; === Extension vectors (E24A-E258) ===
+
+JEXTVEC1:	equ 0xe24a
+; JP F276
+
+JEXTVEC2:	equ 0xe24d
+; JP E3EB
+
+JEXTVEC3:	equ 0xe250
+; JP E2C0
+
+JEXTVEC4:	equ 0xe253
+; JP E29F
+
+JEXTVEC5:	equ 0xe256
+; JP E2AC
+
+; === Messages ===
+
+MSG_DISKERR:	equ 0xe25c
+; "DISKETTE READ ERROR"
+
+SIGNON:	equ 0xe274
+; "58K CP/M VERS 2.2" (preceded by 0x0C clear screen)
+
+; === Code entry points (jump table targets) ===
+
+PRTSTR:	equ 0xe289
+; Print null-terminated string at HL
+
+EXTVEC4_ENTRY:	equ 0xe29f
+
+EXTVEC5_ENTRY:	equ 0xe2ac
+
+EXTVEC3_ENTRY:	equ 0xe2c0
+
+BOOT_ENTRY:	equ 0xe2f8
+
+WBOOT_ENTRY:	equ 0xe328
+
+LISTST_ENTRY:	equ 0xe3a8
+
+LIST_ENTRY:	equ 0xe3ac
+
+EXTVEC2_ENTRY:	equ 0xe3eb
+
+READER_ENTRY:	equ 0xe3ef
+
+PUNCH_ENTRY:	equ 0xe3ff
+
+; === CRT interrupt handlers (IVT entries 8-15) ===
+
+ISR_CRT0:	equ 0xe424
+
+ISR_CRT1:	equ 0xe43d
+
+ISR_CRT2:	equ 0xe456
+
+ISR_CRT3:	equ 0xe46b
+
+ISR_CRT4:	equ 0xe488
+
+ISR_CRT5:	equ 0xe4a1
+
+ISR_CRT6:	equ 0xe4ba
+
+ISR_CRT7:	equ 0xe4d4
+
+CONST_ENTRY:	equ 0xe4f3
+
+CONIN_ENTRY:	equ 0xe4f7
+
+; === CTC interrupt handlers (IVT entries 1-2) ===
+
+ISR_CTC1:	equ 0xe50e
+
+ISR_CTC2:	equ 0xe523
+
+; === Display/CONOUT code ===
+
+CONOUT_ENTRY:	equ 0xe961
+
+; === SIO interrupt handler (IVT entry 6) ===
+
+ISR_SIO_RX:	equ 0xe99a
+
+; === Disk tables ===
+
+XLTTAB_MAXI26:	equ 0xea25
+; 26-entry 6:1 interleave table (8" T0)
+
+; === Disk code entry points ===
+
+SELDSK_ENTRY:	equ 0xee9e
+
+SETTRK_ENTRY:	equ 0xef18
+
+SETSEC_ENTRY:	equ 0xef1e
+
+SETDMA_ENTRY:	equ 0xef23
+
+SECTRAN_ENTRY:	equ 0xef29
+
+READ_ENTRY:	equ 0xef2c
+
+WRITE_ENTRY:	equ 0xef3c
+
+HOME_ENTRY:	equ 0xf1bf
+
+EXTVEC1_ENTRY:	equ 0xf276
+
+; === SIO special condition ISR (IVT entry 7) ===
+
+ISR_SIO_SPECIAL:	equ 0xf305
+
+; === Dummy ISR ===
+
+DUMITR:	equ 0xf336
+; EI; RETI - dummy interrupt handler
+
+; === Interrupt vector table ===
+
+ITRTAB:	equ 0xf400
+; 18-entry IVT, I register = F4
+
+; === Display buffer ===
+
+DSPSTR:	equ 0xf800
+; Display buffer (80x24 characters)

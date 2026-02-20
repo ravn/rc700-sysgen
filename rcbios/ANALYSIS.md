@@ -956,6 +956,21 @@ or extended INIT routines.
 
 ### 56K vs 58K (Compas) — **DIFFERENT BIOS VARIANT**
 
+The 58K BIOS comes from the Compas_v.2.13DK.imd disk image.  The IMD metadata
+identifies the original disk as "SW7803/2 RC700 CP/M 2.2 system diskette rel. 1.4",
+overwritten with Compas Pascal files.  The BIOS signon string contains no release
+number — just "58K CP/M VERS 2.2" — so "rel. 1.4" comes from the disk label or
+documentation, not the binary itself.  This predates the RC700-branded 56K versions
+(rel.2.1, rel.2.2) which added the release number to the signon string.
+
+**Compas Pascal** (v2.x) was later renamed **PolyPascal** (v3.x).  Both were
+developed by PolyData in Denmark and sold through Regnecentralen for the RC700.
+The disk image contains Compas Pascal v2.13 (Danish) alongside the 58K CP/M system.
+The "overwritten" IMD annotation means Compas Pascal files were added to (or replaced
+files on) the original rel. 1.4 system diskette — the BIOS itself was not modified.
+See https://datamuseum.dk/wiki/Bits:Keyword/LANGUAGES/PASCAL for the full collection
+of Compas Pascal and PolyPascal disk images.
+
 | Aspect | 56K | 58K (Compas) |
 |--------|-----|--------------|
 | Entry point | **0x0280** | **0x0380** |
@@ -1122,6 +1137,10 @@ for Track 0 config blocks and INIT code that are overwritten after boot.
 | CPM_v.2.2_rel.2.2.bin | 5.25" | 0x0280 | 0xDA00 | 0xD480 | rel. 2.2 | 41 |
 | Compas_v.2.13DK.imd | 8" | **0x0380** | **0xE200** | **0xDD00** | 58K CP/M VERS 2.2 | 21 |
 
+The Compas disk was originally a rel. 1.4 system diskette (per IMD metadata) with
+Compas Pascal v2.13 (Danish) files added.  Compas Pascal v2.x was later renamed
+PolyPascal v3.x (both by PolyData/Regnecentralen).
+
 ---
 
 ## Reference Cross-Reference
@@ -1149,9 +1168,13 @@ data persistent, which is NOT how the stock BIOS works.
 ## Generated Files
 
 - `*_ram.bin` — Full 64K RAM dumps (captured via rc700 emulator `--memdump`)
-- `*_bios.bin` — Extracted BIOS regions
+- `*_bios.bin` — Extracted BIOS regions (from RAM dumps)
+- `compas_bios_disk.bin` — 58K BIOS extracted from disk image (clean initial state)
 - `*_bios.asm` — Z80 disassembly with labels
-- `syms_56k_z80dasm.sym` — Symbol definitions for z80dasm
-- `blocks_56k.def` — Code/data block boundaries for z80dasm
+- `syms_56k_z80dasm.sym` — Symbol definitions for 56K BIOS (z80dasm)
+- `syms_58k_z80dasm.sym` — Symbol definitions for 58K BIOS (z80dasm)
+- `blocks_56k.def` — Code/data block boundaries for 56K BIOS (z80dasm)
+- `blocks_58k.def` — Code/data block boundaries for 58K BIOS (z80dasm)
 - `extract_bios.py` — BIOS extraction from RAM dumps
+- `imd2raw.py` — IMD Track 0 extraction to raw binary
 - `bin2imd.py` — Converter for raw BIN disk images to IMD format

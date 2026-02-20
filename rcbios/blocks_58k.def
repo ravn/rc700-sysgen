@@ -1,0 +1,18 @@
+; Block definitions for 58K BIOS (Compas, rel.1.4)
+; Derived from disk-extracted binary analysis
+
+jumptable:	start 0xe200 end 0xe233 type code
+config:		start 0xe233 end 0xe24a type bytedata
+extvec:		start 0xe24a end 0xe259 type code
+pad1:		start 0xe259 end 0xe25c type bytedata
+messages:	start 0xe25c end 0xe289 type bytedata
+code_main:	start 0xe289 end 0xea25 type code
+tables:		start 0xea25 end 0xeb0d type bytedata
+dph:		start 0xeb0d end 0xeb2d type bytedata
+biosdata:	start 0xeb2d end 0xee9e type bytedata
+code_disk:	start 0xee9e end 0xf339 type code
+pad2:		start 0xf339 end 0xf400 type bytedata
+ivt:		start 0xf400 end 0xf424 type worddata
+postivt:	start 0xf424 end 0xf432 type bytedata
+code_fdc:	start 0xf432 end 0xf4fe type code
+trailing:	start 0xf4fe end 0xf7ff type bytedata

@@ -102,6 +102,11 @@ bios: $(BIOS_BINS)
 rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin: extract_bios.py $(DUMPS)
 	python3 extract_bios.py
 
+# Extract 58K BIOS from disk image (Track 0)
+compas_bios_disk.bin: imd2raw.py $(IMG_COMPAS)
+	python3 imd2raw.py $(IMG_COMPAS) compas_disk_t0.bin
+	python3 -c "d=open('compas_disk_t0.bin','rb').read(); open('$@','wb').write(d[0x500:0x500+5632])"
+
 # Disassemble
 disasm: $(BIOS_ASMS)
 
@@ -113,8 +118,9 @@ cpm22_rel22_bios.asm: cpm22_rel22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
 	z80dasm -a -l -g 0xDA00 -S syms_56k_z80dasm.sym -b blocks_56k.def \
 		-o $@ $< 2>/dev/null
 
-compas_bios.asm: compas_bios.bin
-	z80dasm -a -l -g 0xE200 -o $@ $< 2>/dev/null
+compas_bios.asm: compas_bios_disk.bin syms_58k_z80dasm.sym blocks_58k.def
+	z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def \
+		-o $@ $< 2>/dev/null
 
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd

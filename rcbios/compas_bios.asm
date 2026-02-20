@@ -1,123 +1,176 @@
 ; z80dasm 1.2.0
-; command line: z80dasm -a -l -g 0xE200 -o compas_bios.asm compas_bios.bin
+; command line: z80dasm -a -l -g 0xE200 -S syms_58k_z80dasm.sym -b blocks_58k.def -o compas_bios.asm compas_bios_disk.bin
 
 	org 0e200h
+DSPSTR:	equ 0xf800
 
-	jp le2f8h		;e200
-le203h:
-	jp le328h		;e203
-	jp le4f3h		;e206
-	jp le4f7h		;e209
-	jp le961h		;e20c
-	jp le3ach		;e20f
-	jp le3ffh		;e212
-	jp le3efh		;e215
-	jp lf1bfh		;e218
-	jp lee9eh		;e21b
-	jp lef18h		;e21e
-	jp lef1eh		;e221
-	jp lef23h		;e224
-	jp lef2ch		;e227
-	jp lef3ch		;e22a
-	jp le3a8h		;e22d
-	jp lef29h		;e230
-le233h:
-	nop			;e233
-le234h:
-	jr nz,le256h		;e234
-	nop			;e236
-le237h:
-	ex af,af'		;e237
-	ex af,af'		;e238
-	nop			;e239
-	nop			;e23a
-	nop			;e23b
-	nop			;e23c
-	nop			;e23d
-	nop			;e23e
-	nop			;e23f
-	nop			;e240
-	nop			;e241
-	nop			;e242
-	nop			;e243
-	nop			;e244
-	nop			;e245
-	nop			;e246
-	nop			;e247
-	nop			;e248
-	nop			;e249
-	jp lf276h		;e24a
-	jp le3ebh		;e24d
-	jp le2c0h		;e250
-	jp le29fh		;e253
-le256h:
-	jp le2ach		;e256
-	nop			;e259
-	nop			;e25a
-	nop			;e25b
-le25ch:
-	dec c			;e25c
-	ld a,(bc)		;e25d
-	ld b,h			;e25e
-	ld c,c			;e25f
-	ld d,e			;e260
-	ld c,e			;e261
-	ld b,l			;e262
-	ld d,h			;e263
-	ld d,h			;e264
-	ld b,l			;e265
-	jr nz,$+84		;e266
-	ld b,l			;e268
-	ld b,c			;e269
-	ld b,h			;e26a
-	jr nz,$+71		;e26b
-	ld d,d			;e26d
-	ld d,d			;e26e
-	ld c,a			;e26f
-	ld d,d			;e270
-	dec c			;e271
-	ld a,(bc)		;e272
-	nop			;e273
-le274h:
-	inc c			;e274
-	dec (hl)		;e275
-	jr c,le2c3h		;e276
-	jr nz,$+69		;e278
-	ld d,b			;e27a
-	cpl			;e27b
-	ld c,l			;e27c
-	jr nz,$+88		;e27d
-	ld b,l			;e27f
-	ld d,d			;e280
-	ld d,e			;e281
-	jr nz,$+52		;e282
-	ld l,032h		;e284
-	dec c			;e286
-	ld a,(bc)		;e287
-	nop			;e288
-le289h:
+BOOT:
+
+; BLOCK 'jumptable' (start 0xe200 end 0xe233)
+jumptable_start:
+	jp BOOT_ENTRY		;e200
+WBOOT:
+	jp WBOOT_ENTRY		;e203
+CONST:
+	jp CONST_ENTRY		;e206
+CONIN:
+	jp CONIN_ENTRY		;e209
+CONOUT:
+	jp CONOUT_ENTRY		;e20c
+LIST:
+	jp LIST_ENTRY		;e20f
+PUNCH:
+	jp PUNCH_ENTRY		;e212
+READER:
+	jp READER_ENTRY		;e215
+HOME:
+	jp HOME_ENTRY		;e218
+SELDSK:
+	jp biosdata_end		;e21b
+SETTRK:
+	jp SETTRK_ENTRY		;e21e
+SETSEC:
+	jp SETSEC_ENTRY		;e221
+SETDMA:
+	jp SETDMA_ENTRY		;e224
+READ:
+	jp READ_ENTRY		;e227
+WRITE:
+	jp WRITE_ENTRY		;e22a
+LISTST:
+	jp LISTST_ENTRY		;e22d
+SECTRAN:
+	jp SECTRAN_ENTRY	;e230
+jumptable_end:
+ADRMOD:
+
+; BLOCK 'config' (start 0xe233 end 0xe24a)
+config_start:
+	defb 000h		;e233
+WR5A:
+	defb 000h		;e234
+WR5B:
+	defb 000h		;e235
+	defb 000h		;e236
+DISKFMT:
+	defb 008h		;e237
+	defb 008h		;e238
+	defb 000h		;e239
+	defb 000h		;e23a
+	defb 000h		;e23b
+	defb 000h		;e23c
+	defb 000h		;e23d
+	defb 000h		;e23e
+	defb 000h		;e23f
+	defb 000h		;e240
+	defb 000h		;e241
+	defb 000h		;e242
+	defb 000h		;e243
+	defb 000h		;e244
+	defb 000h		;e245
+	defb 000h		;e246
+	defb 000h		;e247
+	defb 000h		;e248
+	defb 000h		;e249
+config_end:
+JEXTVEC1:
+
+; BLOCK 'extvec' (start 0xe24a end 0xe259)
+extvec_start:
+	jp EXTVEC1_ENTRY	;e24a
+JEXTVEC2:
+	jp EXTVEC2_ENTRY	;e24d
+JEXTVEC3:
+	jp EXTVEC3_ENTRY	;e250
+JEXTVEC4:
+	jp EXTVEC4_ENTRY	;e253
+JEXTVEC5:
+	jp EXTVEC5_ENTRY	;e256
+extvec_end:
+
+; BLOCK 'pad1' (start 0xe259 end 0xe25c)
+pad1_start:
+	defb 000h		;e259
+	defb 000h		;e25a
+	defb 000h		;e25b
+pad1_end:
+MSG_DISKERR:
+
+; BLOCK 'messages' (start 0xe25c end 0xe289)
+messages_start:
+	defb 00dh		;e25c
+	defb 00ah		;e25d
+	defb 044h		;e25e
+	defb 049h		;e25f
+	defb 053h		;e260
+	defb 04bh		;e261
+	defb 045h		;e262
+	defb 054h		;e263
+	defb 054h		;e264
+	defb 045h		;e265
+	defb 020h		;e266
+	defb 052h		;e267
+	defb 045h		;e268
+	defb 041h		;e269
+	defb 044h		;e26a
+	defb 020h		;e26b
+	defb 045h		;e26c
+	defb 052h		;e26d
+	defb 052h		;e26e
+	defb 04fh		;e26f
+	defb 052h		;e270
+	defb 00dh		;e271
+	defb 00ah		;e272
+	defb 000h		;e273
+SIGNON:
+	defb 00ch		;e274
+	defb 035h		;e275
+	defb 038h		;e276
+	defb 04bh		;e277
+	defb 020h		;e278
+	defb 043h		;e279
+	defb 050h		;e27a
+	defb 02fh		;e27b
+	defb 04dh		;e27c
+	defb 020h		;e27d
+	defb 056h		;e27e
+	defb 045h		;e27f
+	defb 052h		;e280
+	defb 053h		;e281
+	defb 020h		;e282
+	defb 032h		;e283
+	defb 02eh		;e284
+	defb 032h		;e285
+	defb 00dh		;e286
+	defb 00ah		;e287
+	defb 000h		;e288
+messages_end:
+PRTSTR:
+
+; BLOCK 'code_main' (start 0xe289 end 0xea25)
+code_main_start:
 	ld a,(hl)		;e289
 	or a			;e28a
 	ret z			;e28b
 	push hl			;e28c
 	ld c,a			;e28d
-	call le961h		;e28e
+	call CONOUT_ENTRY	;e28e
 	pop hl			;e291
 	inc hl			;e292
-	jp le289h		;e293
+	jp messages_end		;e293
 le296h:
-	ld hl,le25ch		;e296
-	call le289h		;e299
+	ld hl,pad1_end		;e296
+	call messages_end	;e299
 le29ch:
 	jp le29ch		;e29c
-le29fh:
+EXTVEC4_ENTRY:
 	ld a,0c3h		;e29f
 	ld (0ffe5h),a		;e2a1
 	ld (0ffe6h),hl		;e2a4
 	ex de,hl		;e2a7
 	ld (0ffdfh),hl		;e2a8
 	ret			;e2ab
-le2ach:
+EXTVEC5_ENTRY:
 	or a			;e2ac
 	jp z,le2b8h		;e2ad
 	ld de,(0fffch)		;e2b0
@@ -127,10 +180,9 @@ le2b8h:
 	ld (0fffch),de		;e2b8
 	ld (0fffeh),hl		;e2bc
 	ret			;e2bf
-le2c0h:
+EXTVEC3_ENTRY:
 	add a,00ah		;e2c0
 	ld c,a			;e2c2
-le2c3h:
 	ld d,005h		;e2c3
 	ld a,000h		;e2c5
 	call sub_e2f1h		;e2c7
@@ -159,21 +211,21 @@ sub_e2f1h:
 	out (c),a		;e2f4
 	ei			;e2f6
 	ret			;e2f7
-le2f8h:
+BOOT_ENTRY:
 	ld sp,00080h		;e2f8
-	ld hl,le274h		;e2fb
-	call le289h		;e2fe
+	ld hl,SIGNON		;e2fb
+	call messages_end	;e2fe
 	xor a			;e301
 	ld (00004h),a		;e302
 	ld (leb48h),a		;e305
 	ld (leb50h),a		;e308
-	ld (leb48h+1),a		;e30b
+	ld (leb49h),a		;e30b
 	in a,(014h)		;e30e
 	and 080h		;e310
-	jp z,le328h		;e312
+	jp z,WBOOT_ENTRY	;e312
 	ld c,001h		;e315
-	call lee9eh		;e317
-	call lf1bfh		;e31a
+	call biosdata_end	;e317
+	call HOME_ENTRY		;e31a
 	ld a,b			;e31d
 	and 010h		;e31e
 	ld a,000h		;e320
@@ -181,27 +233,27 @@ le2f8h:
 	inc a			;e324
 le325h:
 	ld (lee8ch),a		;e325
-le328h:
+WBOOT_ENTRY:
 	ei			;e328
 	ld c,000h		;e329
-	call lee9eh		;e32b
+	call biosdata_end	;e32b
 	xor a			;e32e
-	ld (leb48h+2),a		;e32f
+	ld (leb4ah),a		;e32f
 	ld (00003h),a		;e332
-	ld (lee8ch+1),a		;e335
+	ld (lee8dh),a		;e335
 	ld (le4f1h),a		;e338
-	call lf1bfh		;e33b
+	call HOME_ENTRY		;e33b
 	ld sp,00080h		;e33e
 	ld bc,0cc00h		;e341
-	call lef23h		;e344
+	call SETDMA_ENTRY	;e344
 	ld b,000h		;e347
 	ld c,001h		;e349
-	call lef18h		;e34b
+	call SETTRK_ENTRY	;e34b
 	ld c,000h		;e34e
-	call lef1eh		;e350
+	call SETSEC_ENTRY	;e350
 le353h:
 	push bc			;e353
-	call lef2ch		;e354
+	call READ_ENTRY		;e354
 	or a			;e357
 	jp nz,le296h		;e358
 	ld hl,(leb54h)		;e35b
@@ -209,19 +261,19 @@ le353h:
 	add hl,de		;e361
 	ld b,h			;e362
 	ld c,l			;e363
-	call lef23h		;e364
+	call SETDMA_ENTRY	;e364
 	pop bc			;e367
 	inc c			;e368
-	call lef1eh		;e369
+	call SETSEC_ENTRY	;e369
 	ld a,c			;e36c
 	cp 02ch			;e36d
 	jp nz,le353h		;e36f
 	ld bc,00080h		;e372
-	call lef23h		;e375
+	call SETDMA_ENTRY	;e375
 	di			;e378
 	ld a,0c3h		;e379
 	ld (00000h),a		;e37b
-	ld hl,le203h		;e37e
+	ld hl,WBOOT		;e37e
 	ld (00001h),hl		;e381
 	ld (00005h),a		;e384
 	ld hl,0d406h		;e387
@@ -254,19 +306,19 @@ le3a6h:
 	nop			;e3a6
 le3a7h:
 	nop			;e3a7
-le3a8h:
+LISTST_ENTRY:
 	ld a,(le39fh)		;e3a8
 	ret			;e3ab
-le3ach:
+LIST_ENTRY:
 	ld a,(le39fh)		;e3ac
 	or a			;e3af
-	jp z,le3ach		;e3b0
+	jp z,LIST_ENTRY		;e3b0
 	di			;e3b3
 	ld a,000h		;e3b4
 	ld (le39fh),a		;e3b6
 	ld a,005h		;e3b9
 	out (00bh),a		;e3bb
-	ld a,(le234h+1)		;e3bd
+	ld a,(WR5B)		;e3bd
 	add a,08ah		;e3c0
 	out (00bh),a		;e3c2
 	ld a,001h		;e3c4
@@ -283,7 +335,7 @@ sub_e3d1h:
 	ld (le3a0h),a		;e3d3
 	ld a,005h		;e3d6
 	out (00ah),a		;e3d8
-	ld a,(le234h)		;e3da
+	ld a,(WR5A)		;e3da
 	add a,08ah		;e3dd
 	out (00ah),a		;e3df
 	ld a,001h		;e3e1
@@ -292,28 +344,28 @@ sub_e3d1h:
 	out (00ah),a		;e3e7
 	ei			;e3e9
 	ret			;e3ea
-le3ebh:
+EXTVEC2_ENTRY:
 	ld a,(le3a0h)		;e3eb
 	ret			;e3ee
-le3efh:
-	call le3ebh		;e3ef
+READER_ENTRY:
+	call EXTVEC2_ENTRY	;e3ef
 	or a			;e3f2
-	jp z,le3efh		;e3f3
+	jp z,READER_ENTRY	;e3f3
 	ld a,(le3a2h)		;e3f6
 	push af			;e3f9
 	call sub_e3d1h		;e3fa
 	pop af			;e3fd
 	ret			;e3fe
-le3ffh:
+PUNCH_ENTRY:
 	ld a,(le3a1h)		;e3ff
 	or a			;e402
-	jp z,le3ffh		;e403
+	jp z,PUNCH_ENTRY	;e403
 	di			;e406
 	ld a,000h		;e407
 	ld (le3a1h),a		;e409
 	ld a,005h		;e40c
 	out (00ah),a		;e40e
-	ld a,(le234h)		;e410
+	ld a,(WR5A)		;e410
 	add a,08ah		;e413
 	out (00ah),a		;e415
 	ld a,001h		;e417
@@ -324,6 +376,7 @@ le3ffh:
 	out (008h),a		;e420
 	ei			;e422
 	ret			;e423
+ISR_CRT0:
 	ld (lee9ch),sp		;e424
 	ld sp,lf620h		;e428
 	push af			;e42b
@@ -335,7 +388,7 @@ le3ffh:
 	ld sp,(lee9ch)		;e436
 	ei			;e43a
 	reti			;e43b
-sub_e43dh:
+ISR_CRT1:
 	ld (lee9ch),sp		;e43d
 	ld sp,lf620h		;e441
 	push af			;e444
@@ -347,6 +400,7 @@ sub_e43dh:
 	ld sp,(lee9ch)		;e44f
 	ei			;e453
 	reti			;e454
+ISR_CRT2:
 	ld (lee9ch),sp		;e456
 	ld sp,lf620h		;e45a
 	push af			;e45d
@@ -356,7 +410,7 @@ sub_e43dh:
 	ld sp,(lee9ch)		;e464
 	ei			;e468
 	reti			;e469
-sub_e46bh:
+ISR_CRT3:
 	ld (lee9ch),sp		;e46b
 	ld sp,lf620h		;e46f
 	push af			;e472
@@ -370,6 +424,7 @@ sub_e46bh:
 	ld sp,(lee9ch)		;e481
 	ei			;e485
 	reti			;e486
+ISR_CRT4:
 	ld (lee9ch),sp		;e488
 	ld sp,lf620h		;e48c
 	push af			;e48f
@@ -381,7 +436,7 @@ sub_e46bh:
 	ld sp,(lee9ch)		;e49a
 	ei			;e49e
 	reti			;e49f
-sub_e4a1h:
+ISR_CRT5:
 	ld (lee9ch),sp		;e4a1
 	ld sp,lf620h		;e4a5
 	push af			;e4a8
@@ -393,6 +448,7 @@ sub_e4a1h:
 	ld sp,(lee9ch)		;e4b3
 	ei			;e4b7
 	reti			;e4b8
+ISR_CRT6:
 	ld (lee9ch),sp		;e4ba
 	ld sp,lf620h		;e4be
 	push af			;e4c1
@@ -404,7 +460,7 @@ sub_e4a1h:
 	ld sp,(lee9ch)		;e4cd
 	ei			;e4d1
 	reti			;e4d2
-sub_e4d4h:
+ISR_CRT7:
 	ld (lee9ch),sp		;e4d4
 	ld sp,lf620h		;e4d8
 	push af			;e4db
@@ -422,13 +478,13 @@ le4f1h:
 	nop			;e4f1
 le4f2h:
 	nop			;e4f2
-le4f3h:
+CONST_ENTRY:
 	ld a,(le4f1h)		;e4f3
 	ret			;e4f6
-le4f7h:
+CONIN_ENTRY:
 	ld a,(le4f1h)		;e4f7
 	or a			;e4fa
-	jp z,le4f7h		;e4fb
+	jp z,CONIN_ENTRY	;e4fb
 	di			;e4fe
 	xor a			;e4ff
 	ld (le4f1h),a		;e500
@@ -438,6 +494,7 @@ le4f7h:
 	ld hl,lf700h		;e507
 	call sub_e558h		;e50a
 	ret			;e50d
+ISR_CTC1:
 	ld (lee9ch),sp		;e50e
 	ld sp,lf620h		;e512
 	push af			;e515
@@ -447,6 +504,7 @@ le4f7h:
 	ld sp,(lee9ch)		;e51c
 	ei			;e520
 	reti			;e521
+ISR_CTC2:
 	ld (lee9ch),sp		;e523
 	ld sp,lf620h		;e527
 	push af			;e52a
@@ -550,7 +608,7 @@ le5a4h:
 	ret			;e5c4
 le5c5h:
 	ld hl,0f850h		;e5c5
-	ld de,0f800h		;e5c8
+	ld de,DSPSTR		;e5c8
 	ld bc,00780h		;e5cb
 	ldir			;e5ce
 	ld hl,0ff80h		;e5d0
@@ -559,7 +617,7 @@ le5c5h:
 	cp 000h			;e5d9
 	jp z,le5a4h		;e5db
 	ld hl,lf50ah		;e5de
-	ld de,0f500h		;e5e1
+	ld de,lf500h		;e5e1
 	ld bc,000f0h		;e5e4
 	ldir			;e5e7
 	ld hl,lf5f0h		;e5e9
@@ -583,7 +641,7 @@ le604h:
 	jp nz,le604h		;e606
 	ret			;e609
 sub_e60ah:
-	ld de,0f500h		;e60a
+	ld de,lf500h		;e60a
 	add hl,de		;e60d
 	cp 000h			;e60e
 	ld b,a			;e610
@@ -650,7 +708,7 @@ le639h:
 	ld (hl),000h		;e679
 	lddr			;e67b
 	ret			;e67d
-	ld de,0f800h		;e67e
+	ld de,DSPSTR		;e67e
 	ld hl,(0ffd2h)		;e681
 	add hl,de		;e684
 	ld de,0004fh		;e685
@@ -824,7 +882,7 @@ le74dh:
 	ld (0ffdch),hl		;e7e7
 	jp le5a4h		;e7ea
 	ld hl,(0ffd2h)		;e7ed
-	ld de,0f800h		;e7f0
+	ld de,DSPSTR		;e7f0
 	add hl,de		;e7f3
 	ld (0ffd5h),hl		;e7f4
 	call sub_e542h		;e7f7
@@ -840,7 +898,7 @@ le74dh:
 	jp z,le5a4h		;e80e
 	ld hl,(0ffd2h)		;e811
 	call sub_e5f2h		;e814
-	ld de,0f500h		;e817
+	ld de,lf500h		;e817
 	add hl,de		;e81a
 	ld (0ffdch),hl		;e81b
 	call sub_e542h		;e81e
@@ -858,8 +916,8 @@ le74dh:
 	ld a,001h		;e839
 	ld (0ffdbh),a		;e83b
 	ret			;e83e
-	ld hl,0f800h		;e83f
-	ld de,0f500h		;e842
+	ld hl,DSPSTR		;e83f
+	ld de,lf500h		;e842
 	ld b,0fah		;e845
 le847h:
 	ld a,(de)		;e847
@@ -958,7 +1016,7 @@ le8d3h:
 	ld d,a			;e8d3
 	ld a,(0ffdeh)		;e8d4
 	ld h,a			;e8d7
-	ld a,(le233h)		;e8d8
+	ld a,(jumptable_end)	;e8d8
 	or a			;e8db
 	jp z,le8e0h		;e8dc
 	ex de,hl		;e8df
@@ -1005,7 +1063,7 @@ le92dh:
 	call sub_e552h		;e930
 le933h:
 	ld hl,(0ffd8h)		;e933
-	ld de,0f800h		;e936
+	ld de,DSPSTR		;e936
 	add hl,de		;e939
 	ld (hl),a		;e93a
 	call sub_e73eh		;e93b
@@ -1014,7 +1072,7 @@ le933h:
 	ret nz			;e943
 	ld hl,(0ffd8h)		;e944
 	call sub_e5f2h		;e947
-	ld de,0f500h		;e94a
+	ld de,lf500h		;e94a
 	add hl,de		;e94d
 	cp 000h			;e94e
 	ld b,a			;e950
@@ -1030,7 +1088,7 @@ le959h:
 	or (hl)			;e95e
 	ld (hl),a		;e95f
 	ret			;e960
-le961h:
+CONOUT_ENTRY:
 	di			;e961
 	push hl			;e962
 	ld hl,00000h		;e963
@@ -1066,6 +1124,7 @@ le991h:
 	pop hl			;e997
 	ei			;e998
 	ret			;e999
+ISR_SIO_RX:
 	ld (lee9ch),sp		;e99a
 	ld sp,lf620h		;e99e
 	push af			;e9a1
@@ -1078,7 +1137,7 @@ le991h:
 	ld a,007h		;e9ab
 	out (0fah),a		;e9ad
 	out (0fch),a		;e9af
-	ld hl,0f800h		;e9b1
+	ld hl,DSPSTR		;e9b1
 	ld a,l			;e9b4
 	out (0f4h),a		;e9b5
 	ld a,h			;e9b7
@@ -1145,1117 +1204,1214 @@ lea1ah:
 	ld sp,(lee9ch)		;ea1e
 	ei			;ea22
 	reti			;ea23
-lea25h:
-	ld bc,00d07h		;ea25
-	inc de			;ea28
-	add hl,de		;ea29
-	dec b			;ea2a
-	dec bc			;ea2b
-	ld de,00317h		;ea2c
-	add hl,bc		;ea2f
-	rrca			;ea30
-	dec d			;ea31
-	ld (bc),a		;ea32
-	ex af,af'		;ea33
-	ld c,014h		;ea34
-	ld a,(de)		;ea36
-	ld b,00ch		;ea37
-	ld (de),a		;ea39
-	jr $+6			;ea3a
-	ld a,(bc)		;ea3c
-	djnz lea55h		;ea3d
-	ld bc,00905h		;ea3f
-	dec c			;ea42
-	ld (bc),a		;ea43
-	ld b,00ah		;ea44
-	ld c,003h		;ea46
-	rlca			;ea48
-	dec bc			;ea49
-	rrca			;ea4a
-	inc b			;ea4b
-	ex af,af'		;ea4c
-	inc c			;ea4d
-	ld bc,00503h		;ea4e
-	rlca			;ea51
-	add hl,bc		;ea52
-	ld (bc),a		;ea53
-	inc b			;ea54
-lea55h:
-	ld b,008h		;ea55
-lea57h:
-	ld bc,00302h		;ea57
-	inc b			;ea5a
-	dec b			;ea5b
-	ld b,007h		;ea5c
-	ex af,af'		;ea5e
-	add hl,bc		;ea5f
-	ld a,(bc)		;ea60
-	dec bc			;ea61
-	inc c			;ea62
-	dec c			;ea63
-	ld c,00fh		;ea64
-	djnz lea79h		;ea66
-	ld (de),a		;ea68
-	inc de			;ea69
-	inc d			;ea6a
-	dec d			;ea6b
-	ld d,017h		;ea6c
-	jr lea89h		;ea6e
-	ld a,(de)		;ea70
-	ld a,(de)		;ea71
-	nop			;ea72
-	inc bc			;ea73
-	rlca			;ea74
-	nop			;ea75
-	jp p,03f00h		;ea76
-lea79h:
-	nop			;ea79
-	ret nz			;ea7a
-	nop			;ea7b
-	djnz lea7eh		;ea7c
-lea7eh:
-	ld (bc),a		;ea7e
-	nop			;ea7f
-	ld a,b			;ea80
-	nop			;ea81
-	inc b			;ea82
-	rrca			;ea83
-	nop			;ea84
-	pop bc			;ea85
-	ld bc,0007fh		;ea86
-lea89h:
-	ret nz			;ea89
-	nop			;ea8a
-	jr nz,lea8dh		;ea8b
-lea8dh:
-	ld (bc),a		;ea8d
-	nop			;ea8e
-	ld a,(de)		;ea8f
-	nop			;ea90
-	inc bc			;ea91
-	rlca			;ea92
-	nop			;ea93
-	jp p,03f00h		;ea94
-	nop			;ea97
-	ret nz			;ea98
-	nop			;ea99
-	djnz lea9ch		;ea9a
-lea9ch:
-	nop			;ea9c
-	nop			;ea9d
-	ld l,b			;ea9e
-	nop			;ea9f
-	inc b			;eaa0
-	rrca			;eaa1
-	nop			;eaa2
-	rst 10h			;eaa3
-	ld bc,0007fh		;eaa4
-	ret nz			;eaa7
-	nop			;eaa8
-	jr nz,leaabh		;eaa9
-leaabh:
-	nop			;eaab
-	nop			;eaac
+code_main_end:
+XLTTAB_MAXI26:
+
+; BLOCK 'tables' (start 0xea25 end 0xeb0d)
+tables_start:
+	defb 001h		;ea25
+	defb 007h		;ea26
+	defb 00dh		;ea27
+	defb 013h		;ea28
+	defb 019h		;ea29
+	defb 005h		;ea2a
+	defb 00bh		;ea2b
+	defb 011h		;ea2c
+	defb 017h		;ea2d
+	defb 003h		;ea2e
+	defb 009h		;ea2f
+	defb 00fh		;ea30
+	defb 015h		;ea31
+	defb 002h		;ea32
+	defb 008h		;ea33
+	defb 00eh		;ea34
+	defb 014h		;ea35
+	defb 01ah		;ea36
+	defb 006h		;ea37
+	defb 00ch		;ea38
+	defb 012h		;ea39
+	defb 018h		;ea3a
+	defb 004h		;ea3b
+	defb 00ah		;ea3c
+	defb 010h		;ea3d
+	defb 016h		;ea3e
+	defb 001h		;ea3f
+	defb 005h		;ea40
+	defb 009h		;ea41
+	defb 00dh		;ea42
+	defb 002h		;ea43
+	defb 006h		;ea44
+	defb 00ah		;ea45
+	defb 00eh		;ea46
+	defb 003h		;ea47
+	defb 007h		;ea48
+	defb 00bh		;ea49
+	defb 00fh		;ea4a
+	defb 004h		;ea4b
+	defb 008h		;ea4c
+	defb 00ch		;ea4d
+	defb 001h		;ea4e
+	defb 003h		;ea4f
+	defb 005h		;ea50
+	defb 007h		;ea51
+	defb 009h		;ea52
+	defb 002h		;ea53
+	defb 004h		;ea54
+	defb 006h		;ea55
+	defb 008h		;ea56
+	defb 001h		;ea57
+	defb 002h		;ea58
+	defb 003h		;ea59
+	defb 004h		;ea5a
+	defb 005h		;ea5b
+	defb 006h		;ea5c
+	defb 007h		;ea5d
+	defb 008h		;ea5e
+	defb 009h		;ea5f
+	defb 00ah		;ea60
+	defb 00bh		;ea61
+	defb 00ch		;ea62
+	defb 00dh		;ea63
+	defb 00eh		;ea64
+	defb 00fh		;ea65
+	defb 010h		;ea66
+	defb 011h		;ea67
+	defb 012h		;ea68
+	defb 013h		;ea69
+	defb 014h		;ea6a
+	defb 015h		;ea6b
+	defb 016h		;ea6c
+	defb 017h		;ea6d
+	defb 018h		;ea6e
+	defb 019h		;ea6f
+	defb 01ah		;ea70
+	defb 01ah		;ea71
+	defb 000h		;ea72
+	defb 003h		;ea73
+	defb 007h		;ea74
+	defb 000h		;ea75
+	defb 0f2h		;ea76
+	defb 000h		;ea77
+	defb 03fh		;ea78
+	defb 000h		;ea79
+	defb 0c0h		;ea7a
+	defb 000h		;ea7b
+	defb 010h		;ea7c
+	defb 000h		;ea7d
+	defb 002h		;ea7e
+	defb 000h		;ea7f
+	defb 078h		;ea80
+	defb 000h		;ea81
+	defb 004h		;ea82
+	defb 00fh		;ea83
+	defb 000h		;ea84
+	defb 0c1h		;ea85
+	defb 001h		;ea86
+	defb 07fh		;ea87
+	defb 000h		;ea88
+	defb 0c0h		;ea89
+	defb 000h		;ea8a
+	defb 020h		;ea8b
+	defb 000h		;ea8c
+	defb 002h		;ea8d
+	defb 000h		;ea8e
+	defb 01ah		;ea8f
+	defb 000h		;ea90
+	defb 003h		;ea91
+	defb 007h		;ea92
+	defb 000h		;ea93
+	defb 0f2h		;ea94
+	defb 000h		;ea95
+	defb 03fh		;ea96
+	defb 000h		;ea97
+	defb 0c0h		;ea98
+	defb 000h		;ea99
+	defb 010h		;ea9a
+	defb 000h		;ea9b
+	defb 000h		;ea9c
+	defb 000h		;ea9d
+	defb 068h		;ea9e
+	defb 000h		;ea9f
+	defb 004h		;eaa0
+	defb 00fh		;eaa1
+	defb 000h		;eaa2
+	defb 0d7h		;eaa3
+	defb 001h		;eaa4
+	defb 07fh		;eaa5
+	defb 000h		;eaa6
+	defb 0c0h		;eaa7
+	defb 000h		;eaa8
+	defb 020h		;eaa9
+	defb 000h		;eaaa
+	defb 000h		;eaab
+	defb 000h		;eaac
 leaadh:
-	ld (hl),c		;eaad
-	jp pe,01a08h		;eaae
-	nop			;eab1
-	ld bc,lea25h		;eab2
-	add a,b			;eab5
-	nop			;eab6
-	nop			;eab7
-	nop			;eab8
-	nop			;eab9
-	nop			;eaba
-	nop			;eabb
-	nop			;eabc
-	add a,b			;eabd
-	jp pe,07810h		;eabe
-	inc bc			;eac1
-	inc bc			;eac2
-	ccf			;eac3
-	jp pe,000ffh		;eac4
-	nop			;eac7
-	nop			;eac8
-	nop			;eac9
-	nop			;eaca
-	nop			;eacb
-	nop			;eacc
-	ld (hl),c		;eacd
-	jp pe,01a08h		;eace
-	nop			;ead1
-	ld bc,lea57h		;ead2
-	add a,b			;ead5
-	nop			;ead6
-	nop			;ead7
-	nop			;ead8
-	nop			;ead9
-	nop			;eada
-	nop			;eadb
-	nop			;eadc
-	sbc a,(hl)		;eadd
-	jp pe,06808h		;eade
-	ld bc,05702h		;eae1
-	jp pe,000ffh		;eae4
-	nop			;eae7
-	nop			;eae8
-	nop			;eae9
-	nop			;eaea
-	nop			;eaeb
-	nop			;eaec
-	ld a,(de)		;eaed
+	defb 071h		;eaad
+	defb 0eah		;eaae
+	defb 008h		;eaaf
+	defb 01ah		;eab0
+	defb 000h		;eab1
+	defb 001h		;eab2
+	defb 025h		;eab3
+	defb 0eah		;eab4
+	defb 080h		;eab5
+	defb 000h		;eab6
+	defb 000h		;eab7
+	defb 000h		;eab8
+	defb 000h		;eab9
+	defb 000h		;eaba
+	defb 000h		;eabb
+	defb 000h		;eabc
+	defb 080h		;eabd
+	defb 0eah		;eabe
+	defb 010h		;eabf
+	defb 078h		;eac0
+	defb 003h		;eac1
+	defb 003h		;eac2
+	defb 03fh		;eac3
+	defb 0eah		;eac4
+	defb 0ffh		;eac5
+	defb 000h		;eac6
+	defb 000h		;eac7
+	defb 000h		;eac8
+	defb 000h		;eac9
+	defb 000h		;eaca
+	defb 000h		;eacb
+	defb 000h		;eacc
+	defb 071h		;eacd
+	defb 0eah		;eace
+	defb 008h		;eacf
+	defb 01ah		;ead0
+	defb 000h		;ead1
+	defb 001h		;ead2
+	defb 057h		;ead3
+	defb 0eah		;ead4
+	defb 080h		;ead5
+	defb 000h		;ead6
+	defb 000h		;ead7
+	defb 000h		;ead8
+	defb 000h		;ead9
+	defb 000h		;eada
+	defb 000h		;eadb
+	defb 000h		;eadc
+	defb 09eh		;eadd
+	defb 0eah		;eade
+	defb 008h		;eadf
+	defb 068h		;eae0
+	defb 001h		;eae1
+	defb 002h		;eae2
+	defb 057h		;eae3
+	defb 0eah		;eae4
+	defb 0ffh		;eae5
+	defb 000h		;eae6
+	defb 000h		;eae7
+	defb 000h		;eae8
+	defb 000h		;eae9
+	defb 000h		;eaea
+	defb 000h		;eaeb
+	defb 000h		;eaec
+	defb 01ah		;eaed
 leaeeh:
-	ld a,a			;eaee
-	nop			;eaef
-	nop			;eaf0
-	nop			;eaf1
-	ld a,(de)		;eaf2
-	rlca			;eaf3
-	ld c,l			;eaf4
-	ld e,0ffh		;eaf5
-	ld bc,00240h		;eaf7
-	rrca			;eafa
-	dec de			;eafb
-	ld c,l			;eafc
-	ld a,(de)		;eafd
-	ld a,a			;eafe
-	nop			;eaff
-	nop			;eb00
-	nop			;eb01
-	ld a,(de)		;eb02
-	rlca			;eb03
-	ld c,l			;eb04
-	inc (hl)		;eb05
-	rst 38h			;eb06
-	nop			;eb07
-	ld b,b			;eb08
-	ld bc,00e1ah		;eb09
-	ld c,l			;eb0c
-leb0dh:
-	nop			;eb0d
-	nop			;eb0e
-	jr nz,leb11h		;eb0f
-leb11h:
-	nop			;eb11
-	nop			;eb12
-	nop			;eb13
-	nop			;eb14
-	ld d,(hl)		;eb15
-	defb 0edh ;next byte illegal after ed	;eb16
-	add a,b			;eb17
-	jp pe,lee0fh		;eb18
-	sub 0edh		;eb1b
-	nop			;eb1d
-	nop			;eb1e
-	nop			;eb1f
-	nop			;eb20
-	nop			;eb21
-	nop			;eb22
-	nop			;eb23
-	nop			;eb24
-	ld d,(hl)		;eb25
-	defb 0edh ;next byte illegal after ed	;eb26
-	add a,b			;eb27
-	jp pe,lee68h		;eb28
-	cpl			;eb2b
-	xor 080h		;eb2c
+	defb 07fh		;eaee
+	defb 000h		;eaef
+	defb 000h		;eaf0
+	defb 000h		;eaf1
+	defb 01ah		;eaf2
+	defb 007h		;eaf3
+	defb 04dh		;eaf4
+	defb 01eh		;eaf5
+	defb 0ffh		;eaf6
+	defb 001h		;eaf7
+	defb 040h		;eaf8
+	defb 002h		;eaf9
+	defb 00fh		;eafa
+	defb 01bh		;eafb
+	defb 04dh		;eafc
+	defb 01ah		;eafd
+	defb 07fh		;eafe
+	defb 000h		;eaff
+	defb 000h		;eb00
+	defb 000h		;eb01
+	defb 01ah		;eb02
+	defb 007h		;eb03
+	defb 04dh		;eb04
+	defb 034h		;eb05
+	defb 0ffh		;eb06
+	defb 000h		;eb07
+	defb 040h		;eb08
+	defb 001h		;eb09
+	defb 01ah		;eb0a
+	defb 00eh		;eb0b
+	defb 04dh		;eb0c
+tables_end:
+
+; BLOCK 'dph' (start 0xeb0d end 0xeb2d)
+dph_start:
+	defb 000h		;eb0d
+	defb 000h		;eb0e
+	defb 000h		;eb0f
+	defb 000h		;eb10
+	defb 000h		;eb11
+	defb 000h		;eb12
+	defb 000h		;eb13
+	defb 000h		;eb14
+	defb 056h		;eb15
+	defb 0edh		;eb16
+	defb 080h		;eb17
+	defb 0eah		;eb18
+	defb 00fh		;eb19
+	defb 0eeh		;eb1a
+	defb 0d6h		;eb1b
+	defb 0edh		;eb1c
+	defb 000h		;eb1d
+	defb 000h		;eb1e
+	defb 000h		;eb1f
+	defb 000h		;eb20
+	defb 000h		;eb21
+	defb 000h		;eb22
+	defb 000h		;eb23
+	defb 000h		;eb24
+	defb 056h		;eb25
+	defb 0edh		;eb26
+	defb 080h		;eb27
+	defb 0eah		;eb28
+	defb 068h		;eb29
+	defb 0eeh		;eb2a
+	defb 02fh		;eb2b
+	defb 0eeh		;eb2c
+dph_end:
+
+; BLOCK 'biosdata' (start 0xeb2d end 0xee9e)
+biosdata_start:
+	defb 000h		;eb2d
 leb2eh:
-	jp pe,07810h		;eb2e
+	defb 000h		;eb2e
+leb2fh:
+	defb 000h		;eb2f
+leb30h:
+	defb 000h		;eb30
 leb31h:
-	inc bc			;eb31
+	defb 000h		;eb31
 leb32h:
-	inc bc			;eb32
+	defb 000h		;eb32
 leb33h:
-	ccf			;eb33
-	jp pe,000ffh		;eb34
-	nop			;eb37
-	nop			;eb38
-	nop			;eb39
-	nop			;eb3a
-	nop			;eb3b
-	nop			;eb3c
+	defb 000h		;eb33
+	defb 000h		;eb34
+leb35h:
+	defb 000h		;eb35
+	defb 000h		;eb36
+	defb 000h		;eb37
+	defb 000h		;eb38
+	defb 000h		;eb39
+	defb 000h		;eb3a
+	defb 000h		;eb3b
+	defb 000h		;eb3c
 leb3dh:
-	nop			;eb3d
+	defb 000h		;eb3d
 leb3eh:
-	ld (bc),a		;eb3e
-	nop			;eb3f
+	defb 000h		;eb3e
+	defb 000h		;eb3f
 leb40h:
-	ex af,af'		;eb40
+	defb 000h		;eb40
 leb41h:
-	nop			;eb41
+	defb 000h		;eb41
 leb42h:
-	ld (bc),a		;eb42
-	nop			;eb43
+	defb 000h		;eb42
+	defb 000h		;eb43
 leb44h:
-	ld (bc),a		;eb44
+	defb 000h		;eb44
 leb45h:
-	nop			;eb45
+	defb 000h		;eb45
 leb46h:
-	ld (bc),a		;eb46
+	defb 000h		;eb46
 leb47h:
-	ld (bc),a		;eb47
+	defb 000h		;eb47
 leb48h:
-	ld bc,00000h		;eb48
+	defb 000h		;eb48
+leb49h:
+	defb 000h		;eb49
+leb4ah:
+	defb 000h		;eb4a
 leb4bh:
-	nop			;eb4b
+	defb 000h		;eb4b
 leb4ch:
-	nop			;eb4c
-	nop			;eb4d
+	defb 000h		;eb4c
+	defb 000h		;eb4d
 leb4eh:
-	nop			;eb4e
+	defb 000h		;eb4e
 leb4fh:
-	nop			;eb4f
+	defb 000h		;eb4f
 leb50h:
-	nop			;eb50
+	defb 000h		;eb50
 leb51h:
-	ld bc,00201h		;eb51
+	defb 000h		;eb51
+leb52h:
+	defb 000h		;eb52
+leb53h:
+	defb 000h		;eb53
 leb54h:
-	add a,b			;eb54
-	nop			;eb55
+	defb 000h		;eb54
+	defb 000h		;eb55
 leb56h:
-	push hl			;eb56
-	ld c,(hl)		;eb57
-	ld c,b			;eb58
-	ld d,b			;eb59
-	jr nz,leb7ch		;eb5a
-	jr nz,leb7eh		;eb5c
-	jr nz,lebb0h		;eb5e
-	ld b,c			;eb60
-	ld d,e			;eb61
-	nop			;eb62
-	nop			;eb63
-	nop			;eb64
-	dec b			;eb65
-	ld l,(hl)		;eb66
-	nop			;eb67
-	nop			;eb68
-	nop			;eb69
-	nop			;eb6a
-	nop			;eb6b
-	nop			;eb6c
-	nop			;eb6d
-	nop			;eb6e
-	nop			;eb6f
-	nop			;eb70
-	nop			;eb71
-	nop			;eb72
-	nop			;eb73
-	nop			;eb74
-	nop			;eb75
-	push hl			;eb76
-	ld c,(hl)		;eb77
-	ld c,b			;eb78
-	ld d,b			;eb79
-	jr nz,leb9ch		;eb7a
-leb7ch:
-	jr nz,leb9eh		;eb7c
-leb7eh:
-	jr nz,lebc3h		;eb7e
-	ld c,a			;eb80
-	ld c,l			;eb81
-	nop			;eb82
-	nop			;eb83
-	nop			;eb84
-	ld a,(0006fh)		;eb85
-	ld (hl),b		;eb88
-	nop			;eb89
-	ld (hl),c		;eb8a
-	nop			;eb8b
-	ld (hl),d		;eb8c
-	nop			;eb8d
-	nop			;eb8e
-	nop			;eb8f
-	nop			;eb90
-	nop			;eb91
-	nop			;eb92
-	nop			;eb93
-	nop			;eb94
-	nop			;eb95
-	push hl			;eb96
-	push hl			;eb97
-	push hl			;eb98
-	push hl			;eb99
-	push hl			;eb9a
-	push hl			;eb9b
-leb9ch:
-	push hl			;eb9c
-	push hl			;eb9d
-leb9eh:
-	push hl			;eb9e
-	push hl			;eb9f
-	push hl			;eba0
-	push hl			;eba1
-	push hl			;eba2
-	push hl			;eba3
-	push hl			;eba4
-	push hl			;eba5
-	push hl			;eba6
-	push hl			;eba7
-	push hl			;eba8
-	push hl			;eba9
-	push hl			;ebaa
-	push hl			;ebab
-	push hl			;ebac
-	push hl			;ebad
-	push hl			;ebae
-	push hl			;ebaf
-lebb0h:
-	push hl			;ebb0
-	push hl			;ebb1
-	push hl			;ebb2
-	push hl			;ebb3
-	push hl			;ebb4
-	push hl			;ebb5
-	push hl			;ebb6
-	push hl			;ebb7
-	push hl			;ebb8
-	push hl			;ebb9
-	push hl			;ebba
-	push hl			;ebbb
-	push hl			;ebbc
-	push hl			;ebbd
-	push hl			;ebbe
-	push hl			;ebbf
-	push hl			;ebc0
-	push hl			;ebc1
-	push hl			;ebc2
-lebc3h:
-	push hl			;ebc3
-	push hl			;ebc4
-	push hl			;ebc5
-	push hl			;ebc6
-	push hl			;ebc7
-	push hl			;ebc8
-	push hl			;ebc9
-	push hl			;ebca
-	push hl			;ebcb
-	push hl			;ebcc
-	push hl			;ebcd
-	push hl			;ebce
-	push hl			;ebcf
-	push hl			;ebd0
-	push hl			;ebd1
-	push hl			;ebd2
-	push hl			;ebd3
-	push hl			;ebd4
-	push hl			;ebd5
-	push hl			;ebd6
-	push hl			;ebd7
-	push hl			;ebd8
-	push hl			;ebd9
-	push hl			;ebda
-	push hl			;ebdb
-	push hl			;ebdc
-	push hl			;ebdd
-	push hl			;ebde
-	push hl			;ebdf
-	push hl			;ebe0
-	push hl			;ebe1
-	push hl			;ebe2
-	push hl			;ebe3
-	push hl			;ebe4
-	push hl			;ebe5
-	push hl			;ebe6
-	push hl			;ebe7
-	push hl			;ebe8
-	push hl			;ebe9
-	push hl			;ebea
-	push hl			;ebeb
-	push hl			;ebec
-	push hl			;ebed
-	push hl			;ebee
-	push hl			;ebef
-	push hl			;ebf0
-	push hl			;ebf1
-	push hl			;ebf2
-	push hl			;ebf3
-	push hl			;ebf4
-	push hl			;ebf5
-	push hl			;ebf6
-	push hl			;ebf7
-	push hl			;ebf8
-	push hl			;ebf9
-	push hl			;ebfa
-	push hl			;ebfb
-	push hl			;ebfc
-	push hl			;ebfd
-	push hl			;ebfe
-	push hl			;ebff
-	push hl			;ec00
-	push hl			;ec01
-	push hl			;ec02
-	push hl			;ec03
-	push hl			;ec04
-	push hl			;ec05
-	push hl			;ec06
-	push hl			;ec07
-	push hl			;ec08
-	push hl			;ec09
-	push hl			;ec0a
-	push hl			;ec0b
-	push hl			;ec0c
-	push hl			;ec0d
-	push hl			;ec0e
-	push hl			;ec0f
-	push hl			;ec10
-	push hl			;ec11
-	push hl			;ec12
-	push hl			;ec13
-	push hl			;ec14
-	push hl			;ec15
-	push hl			;ec16
-	push hl			;ec17
-	push hl			;ec18
-	push hl			;ec19
-	push hl			;ec1a
-	push hl			;ec1b
-	push hl			;ec1c
-	push hl			;ec1d
-	push hl			;ec1e
-	push hl			;ec1f
-	push hl			;ec20
-	push hl			;ec21
-	push hl			;ec22
-	push hl			;ec23
-	push hl			;ec24
-	push hl			;ec25
-	push hl			;ec26
-	push hl			;ec27
-	push hl			;ec28
-	push hl			;ec29
-	push hl			;ec2a
-	push hl			;ec2b
-	push hl			;ec2c
-	push hl			;ec2d
-	push hl			;ec2e
-	push hl			;ec2f
-	push hl			;ec30
-	push hl			;ec31
-	push hl			;ec32
-	push hl			;ec33
-	push hl			;ec34
-	push hl			;ec35
-	push hl			;ec36
-	push hl			;ec37
-	push hl			;ec38
-	push hl			;ec39
-	push hl			;ec3a
-	push hl			;ec3b
-	push hl			;ec3c
-	push hl			;ec3d
-	push hl			;ec3e
-	push hl			;ec3f
-	push hl			;ec40
-	push hl			;ec41
-	push hl			;ec42
-	push hl			;ec43
-	push hl			;ec44
-	push hl			;ec45
-	push hl			;ec46
-	push hl			;ec47
-	push hl			;ec48
-	push hl			;ec49
-	push hl			;ec4a
-	push hl			;ec4b
-	push hl			;ec4c
-	push hl			;ec4d
-	push hl			;ec4e
-	push hl			;ec4f
-	push hl			;ec50
-	push hl			;ec51
-	push hl			;ec52
-	push hl			;ec53
-	push hl			;ec54
-	push hl			;ec55
-	push hl			;ec56
-	push hl			;ec57
-	push hl			;ec58
-	push hl			;ec59
-	push hl			;ec5a
-	push hl			;ec5b
-	push hl			;ec5c
-	push hl			;ec5d
-	push hl			;ec5e
-	push hl			;ec5f
-	push hl			;ec60
-	push hl			;ec61
-	push hl			;ec62
-	push hl			;ec63
-	push hl			;ec64
-	push hl			;ec65
-	push hl			;ec66
-	push hl			;ec67
-	push hl			;ec68
-	push hl			;ec69
-	push hl			;ec6a
-	push hl			;ec6b
-	push hl			;ec6c
-	push hl			;ec6d
-	push hl			;ec6e
-	push hl			;ec6f
-	push hl			;ec70
-	push hl			;ec71
-	push hl			;ec72
-	push hl			;ec73
-	push hl			;ec74
-	push hl			;ec75
-	push hl			;ec76
-	push hl			;ec77
-	push hl			;ec78
-	push hl			;ec79
-	push hl			;ec7a
-	push hl			;ec7b
-	push hl			;ec7c
-	push hl			;ec7d
-	push hl			;ec7e
-	push hl			;ec7f
-	push hl			;ec80
-	push hl			;ec81
-	push hl			;ec82
-	push hl			;ec83
-	push hl			;ec84
-	push hl			;ec85
-	push hl			;ec86
-	push hl			;ec87
-	push hl			;ec88
-	push hl			;ec89
-	push hl			;ec8a
-	push hl			;ec8b
-	push hl			;ec8c
-	push hl			;ec8d
-	push hl			;ec8e
-	push hl			;ec8f
-	push hl			;ec90
-	push hl			;ec91
-	push hl			;ec92
-	push hl			;ec93
-	push hl			;ec94
-	push hl			;ec95
-	push hl			;ec96
-	push hl			;ec97
-	push hl			;ec98
-	push hl			;ec99
-	push hl			;ec9a
-	push hl			;ec9b
-	push hl			;ec9c
-	push hl			;ec9d
-	push hl			;ec9e
-	push hl			;ec9f
-	push hl			;eca0
-	push hl			;eca1
-	push hl			;eca2
-	push hl			;eca3
-	push hl			;eca4
-	push hl			;eca5
-	push hl			;eca6
-	push hl			;eca7
-	push hl			;eca8
-	push hl			;eca9
-	push hl			;ecaa
-	push hl			;ecab
-	push hl			;ecac
-	push hl			;ecad
-	push hl			;ecae
-	push hl			;ecaf
-	push hl			;ecb0
-	push hl			;ecb1
-	push hl			;ecb2
-	push hl			;ecb3
-	push hl			;ecb4
-	push hl			;ecb5
-	push hl			;ecb6
-	push hl			;ecb7
-	push hl			;ecb8
-	push hl			;ecb9
-	push hl			;ecba
-	push hl			;ecbb
-	push hl			;ecbc
-	push hl			;ecbd
-	push hl			;ecbe
-	push hl			;ecbf
-	push hl			;ecc0
-	push hl			;ecc1
-	push hl			;ecc2
-	push hl			;ecc3
-	push hl			;ecc4
-	push hl			;ecc5
-	push hl			;ecc6
-	push hl			;ecc7
-	push hl			;ecc8
-	push hl			;ecc9
-	push hl			;ecca
-	push hl			;eccb
-	push hl			;eccc
-	push hl			;eccd
-	push hl			;ecce
-	push hl			;eccf
-	push hl			;ecd0
-	push hl			;ecd1
-	push hl			;ecd2
-	push hl			;ecd3
-	push hl			;ecd4
-	push hl			;ecd5
-	push hl			;ecd6
-	push hl			;ecd7
-	push hl			;ecd8
-	push hl			;ecd9
-	push hl			;ecda
-	push hl			;ecdb
-	push hl			;ecdc
-	push hl			;ecdd
-	push hl			;ecde
-	push hl			;ecdf
-	push hl			;ece0
-	push hl			;ece1
-	push hl			;ece2
-	push hl			;ece3
-	push hl			;ece4
-	push hl			;ece5
-	push hl			;ece6
-	push hl			;ece7
-	push hl			;ece8
-	push hl			;ece9
-	push hl			;ecea
-	push hl			;eceb
-	push hl			;ecec
-	push hl			;eced
-	push hl			;ecee
-	push hl			;ecef
-	push hl			;ecf0
-	push hl			;ecf1
-	push hl			;ecf2
-	push hl			;ecf3
-	push hl			;ecf4
-	push hl			;ecf5
-	push hl			;ecf6
-	push hl			;ecf7
-	push hl			;ecf8
-	push hl			;ecf9
-	push hl			;ecfa
-	push hl			;ecfb
-	push hl			;ecfc
-	push hl			;ecfd
-	push hl			;ecfe
-	push hl			;ecff
-	push hl			;ed00
-	push hl			;ed01
-	push hl			;ed02
-	push hl			;ed03
-	push hl			;ed04
-	push hl			;ed05
-	push hl			;ed06
-	push hl			;ed07
-	push hl			;ed08
-	push hl			;ed09
-	push hl			;ed0a
-	push hl			;ed0b
-	push hl			;ed0c
-	push hl			;ed0d
-	push hl			;ed0e
-	push hl			;ed0f
-	push hl			;ed10
-	push hl			;ed11
-	push hl			;ed12
-	push hl			;ed13
-	push hl			;ed14
-	push hl			;ed15
-	push hl			;ed16
-	push hl			;ed17
-	push hl			;ed18
-	push hl			;ed19
-	push hl			;ed1a
-	push hl			;ed1b
-	push hl			;ed1c
-	push hl			;ed1d
-	push hl			;ed1e
-	push hl			;ed1f
-	push hl			;ed20
-	push hl			;ed21
-	push hl			;ed22
-	push hl			;ed23
-	push hl			;ed24
-	push hl			;ed25
-	push hl			;ed26
-	push hl			;ed27
-	push hl			;ed28
-	push hl			;ed29
-	push hl			;ed2a
-	push hl			;ed2b
-	push hl			;ed2c
-	push hl			;ed2d
-	push hl			;ed2e
-	push hl			;ed2f
-	push hl			;ed30
-	push hl			;ed31
-	push hl			;ed32
-	push hl			;ed33
-	push hl			;ed34
-	push hl			;ed35
-	push hl			;ed36
-	push hl			;ed37
-	push hl			;ed38
-	push hl			;ed39
-	push hl			;ed3a
-	push hl			;ed3b
-	push hl			;ed3c
-	push hl			;ed3d
-	push hl			;ed3e
-	push hl			;ed3f
-	push hl			;ed40
-	push hl			;ed41
-	push hl			;ed42
-	push hl			;ed43
-	push hl			;ed44
-	push hl			;ed45
-	push hl			;ed46
-	push hl			;ed47
-	push hl			;ed48
-	push hl			;ed49
-	push hl			;ed4a
-	push hl			;ed4b
-	push hl			;ed4c
-	push hl			;ed4d
-	push hl			;ed4e
-	push hl			;ed4f
-	push hl			;ed50
-	push hl			;ed51
-	push hl			;ed52
-	push hl			;ed53
-	push hl			;ed54
-	push hl			;ed55
-	push hl			;ed56
-	ld c,(hl)		;ed57
-	ld c,b			;ed58
-	ld d,b			;ed59
-	jr nz,led7ch		;ed5a
-	jr nz,led7eh		;ed5c
-	jr nz,ledb0h		;ed5e
-	ld b,c			;ed60
-	ld d,e			;ed61
-	nop			;ed62
-	nop			;ed63
-	nop			;ed64
-	dec b			;ed65
-	ld l,(hl)		;ed66
-	nop			;ed67
-	nop			;ed68
-	nop			;ed69
-	nop			;ed6a
-	nop			;ed6b
-	nop			;ed6c
-	nop			;ed6d
-	nop			;ed6e
-	nop			;ed6f
-	nop			;ed70
-	nop			;ed71
-	nop			;ed72
-	nop			;ed73
-	nop			;ed74
-	nop			;ed75
-	push hl			;ed76
-	ld c,(hl)		;ed77
-	ld c,b			;ed78
-	ld d,b			;ed79
-	jr nz,led9ch		;ed7a
-led7ch:
-	jr nz,led9eh		;ed7c
-led7eh:
-	jr nz,ledc3h		;ed7e
-	ld c,a			;ed80
-	ld c,l			;ed81
-	nop			;ed82
-	nop			;ed83
-	nop			;ed84
-	ld a,(0006fh)		;ed85
-	ld (hl),b		;ed88
-	nop			;ed89
-	ld (hl),c		;ed8a
-	nop			;ed8b
-	ld (hl),d		;ed8c
-	nop			;ed8d
-	nop			;ed8e
-	nop			;ed8f
-	nop			;ed90
-	nop			;ed91
-	nop			;ed92
-	nop			;ed93
-	nop			;ed94
-	nop			;ed95
-	push hl			;ed96
-	push hl			;ed97
-	push hl			;ed98
-	push hl			;ed99
-	push hl			;ed9a
-	push hl			;ed9b
-led9ch:
-	push hl			;ed9c
-	push hl			;ed9d
-led9eh:
-	push hl			;ed9e
-	push hl			;ed9f
-	push hl			;eda0
-	push hl			;eda1
-	push hl			;eda2
-	push hl			;eda3
-	push hl			;eda4
-	push hl			;eda5
-	push hl			;eda6
-	push hl			;eda7
-	push hl			;eda8
-	push hl			;eda9
-	push hl			;edaa
-	push hl			;edab
-	push hl			;edac
-	push hl			;edad
-	push hl			;edae
-	push hl			;edaf
-ledb0h:
-	push hl			;edb0
-	push hl			;edb1
-	push hl			;edb2
-	push hl			;edb3
-	push hl			;edb4
-	push hl			;edb5
-	push hl			;edb6
-	push hl			;edb7
-	push hl			;edb8
-	push hl			;edb9
-	push hl			;edba
-	push hl			;edbb
-	push hl			;edbc
-	push hl			;edbd
-	push hl			;edbe
-	push hl			;edbf
-	push hl			;edc0
-	push hl			;edc1
-	push hl			;edc2
-ledc3h:
-	push hl			;edc3
-	push hl			;edc4
-	push hl			;edc5
-	push hl			;edc6
-	push hl			;edc7
-	push hl			;edc8
-	push hl			;edc9
-	push hl			;edca
-	push hl			;edcb
-	push hl			;edcc
-	push hl			;edcd
-	push hl			;edce
-	push hl			;edcf
-	push hl			;edd0
-	push hl			;edd1
-	push hl			;edd2
-	push hl			;edd3
-	push hl			;edd4
-	push hl			;edd5
-	rst 38h			;edd6
-	rst 38h			;edd7
-	rst 38h			;edd8
-	rst 38h			;edd9
-	rst 38h			;edda
-	rst 38h			;eddb
-	rst 38h			;eddc
-	rst 38h			;eddd
-	rst 38h			;edde
-	rst 38h			;eddf
-	rst 38h			;ede0
-	rst 38h			;ede1
-	rst 38h			;ede2
-	call m,00000h		;ede3
-	nop			;ede6
-	nop			;ede7
-	nop			;ede8
-	nop			;ede9
-	nop			;edea
-	nop			;edeb
-	nop			;edec
-	nop			;eded
-	nop			;edee
-	nop			;edef
-	nop			;edf0
-	nop			;edf1
-	nop			;edf2
-	nop			;edf3
-	nop			;edf4
-	nop			;edf5
-	nop			;edf6
-	nop			;edf7
-	nop			;edf8
-	nop			;edf9
-	nop			;edfa
-	nop			;edfb
-	nop			;edfc
-	nop			;edfd
-	nop			;edfe
-	nop			;edff
-	nop			;ee00
-	nop			;ee01
-	nop			;ee02
-	nop			;ee03
-	nop			;ee04
-	nop			;ee05
-	nop			;ee06
-	nop			;ee07
-	nop			;ee08
-	nop			;ee09
-	nop			;ee0a
-	nop			;ee0b
-	nop			;ee0c
-	nop			;ee0d
-	nop			;ee0e
-lee0fh:
-	ld a,e			;ee0f
-	sbc a,0b3h		;ee10
-	jp nc,00a92h		;ee12
-	ld h,e			;ee15
-	rrca			;ee16
-	ld c,b			;ee17
-	add a,b			;ee18
-	add a,b			;ee19
-	add a,b			;ee1a
-	add a,b			;ee1b
-	add a,b			;ee1c
-	add a,b			;ee1d
-	add a,b			;ee1e
-	add a,b			;ee1f
-	add a,b			;ee20
-	add a,b			;ee21
-	add a,b			;ee22
-	add a,b			;ee23
-	add a,b			;ee24
-	add a,b			;ee25
-	add a,b			;ee26
-	add a,b			;ee27
-	add a,b			;ee28
-	add a,b			;ee29
-	add a,b			;ee2a
-	add a,b			;ee2b
-	add a,b			;ee2c
-	add a,b			;ee2d
-	add a,b			;ee2e
-	nop			;ee2f
-	nop			;ee30
-	nop			;ee31
-	nop			;ee32
-	nop			;ee33
-	nop			;ee34
-	nop			;ee35
-	nop			;ee36
-	nop			;ee37
-	nop			;ee38
-	nop			;ee39
-	nop			;ee3a
-	nop			;ee3b
-	nop			;ee3c
-	nop			;ee3d
-	nop			;ee3e
-	nop			;ee3f
-	nop			;ee40
-	nop			;ee41
-	nop			;ee42
-	nop			;ee43
-	nop			;ee44
-	nop			;ee45
-	nop			;ee46
-	nop			;ee47
-	nop			;ee48
-	nop			;ee49
-	nop			;ee4a
-	nop			;ee4b
-	nop			;ee4c
-	nop			;ee4d
-	nop			;ee4e
-	nop			;ee4f
-	nop			;ee50
-	nop			;ee51
-	nop			;ee52
-	nop			;ee53
-	nop			;ee54
-	nop			;ee55
-	nop			;ee56
-	nop			;ee57
-	nop			;ee58
-	nop			;ee59
-	nop			;ee5a
-	nop			;ee5b
-	nop			;ee5c
-	nop			;ee5d
-	nop			;ee5e
-	nop			;ee5f
-	nop			;ee60
-	nop			;ee61
-	nop			;ee62
-	nop			;ee63
-	nop			;ee64
-	nop			;ee65
-	nop			;ee66
-	nop			;ee67
-lee68h:
-	nop			;ee68
-	nop			;ee69
-	nop			;ee6a
-	nop			;ee6b
-	nop			;ee6c
-	nop			;ee6d
-	nop			;ee6e
-	nop			;ee6f
-	nop			;ee70
-	nop			;ee71
-	nop			;ee72
-	nop			;ee73
-	nop			;ee74
-	nop			;ee75
-	nop			;ee76
-	nop			;ee77
-	nop			;ee78
-	nop			;ee79
-	nop			;ee7a
-	nop			;ee7b
-	nop			;ee7c
-	nop			;ee7d
-	nop			;ee7e
-	nop			;ee7f
-	nop			;ee80
-	nop			;ee81
-	nop			;ee82
-	nop			;ee83
-	nop			;ee84
-	nop			;ee85
-	nop			;ee86
-	nop			;ee87
+	defb 000h		;eb56
+	defb 000h		;eb57
+	defb 000h		;eb58
+	defb 000h		;eb59
+	defb 000h		;eb5a
+	defb 000h		;eb5b
+	defb 000h		;eb5c
+	defb 000h		;eb5d
+	defb 000h		;eb5e
+	defb 000h		;eb5f
+	defb 000h		;eb60
+	defb 000h		;eb61
+	defb 000h		;eb62
+	defb 000h		;eb63
+	defb 000h		;eb64
+	defb 000h		;eb65
+	defb 000h		;eb66
+	defb 000h		;eb67
+	defb 000h		;eb68
+	defb 000h		;eb69
+	defb 000h		;eb6a
+	defb 000h		;eb6b
+	defb 000h		;eb6c
+	defb 000h		;eb6d
+	defb 000h		;eb6e
+	defb 000h		;eb6f
+	defb 000h		;eb70
+	defb 000h		;eb71
+	defb 000h		;eb72
+	defb 000h		;eb73
+	defb 000h		;eb74
+	defb 000h		;eb75
+	defb 000h		;eb76
+	defb 000h		;eb77
+	defb 000h		;eb78
+	defb 000h		;eb79
+	defb 000h		;eb7a
+	defb 000h		;eb7b
+	defb 000h		;eb7c
+	defb 000h		;eb7d
+	defb 000h		;eb7e
+	defb 000h		;eb7f
+	defb 000h		;eb80
+	defb 000h		;eb81
+	defb 000h		;eb82
+	defb 000h		;eb83
+	defb 000h		;eb84
+	defb 000h		;eb85
+	defb 000h		;eb86
+	defb 000h		;eb87
+	defb 000h		;eb88
+	defb 000h		;eb89
+	defb 000h		;eb8a
+	defb 000h		;eb8b
+	defb 000h		;eb8c
+	defb 000h		;eb8d
+	defb 000h		;eb8e
+	defb 000h		;eb8f
+	defb 000h		;eb90
+	defb 000h		;eb91
+	defb 000h		;eb92
+	defb 000h		;eb93
+	defb 000h		;eb94
+	defb 000h		;eb95
+	defb 000h		;eb96
+	defb 000h		;eb97
+	defb 000h		;eb98
+	defb 000h		;eb99
+	defb 000h		;eb9a
+	defb 000h		;eb9b
+	defb 000h		;eb9c
+	defb 000h		;eb9d
+	defb 000h		;eb9e
+	defb 000h		;eb9f
+	defb 000h		;eba0
+	defb 000h		;eba1
+	defb 000h		;eba2
+	defb 000h		;eba3
+	defb 000h		;eba4
+	defb 000h		;eba5
+	defb 000h		;eba6
+	defb 000h		;eba7
+	defb 000h		;eba8
+	defb 000h		;eba9
+	defb 000h		;ebaa
+	defb 000h		;ebab
+	defb 000h		;ebac
+	defb 000h		;ebad
+	defb 000h		;ebae
+	defb 000h		;ebaf
+	defb 000h		;ebb0
+	defb 000h		;ebb1
+	defb 000h		;ebb2
+	defb 000h		;ebb3
+	defb 000h		;ebb4
+	defb 000h		;ebb5
+	defb 000h		;ebb6
+	defb 000h		;ebb7
+	defb 000h		;ebb8
+	defb 000h		;ebb9
+	defb 000h		;ebba
+	defb 000h		;ebbb
+	defb 000h		;ebbc
+	defb 000h		;ebbd
+	defb 000h		;ebbe
+	defb 000h		;ebbf
+	defb 000h		;ebc0
+	defb 000h		;ebc1
+	defb 000h		;ebc2
+	defb 000h		;ebc3
+	defb 000h		;ebc4
+	defb 000h		;ebc5
+	defb 000h		;ebc6
+	defb 000h		;ebc7
+	defb 000h		;ebc8
+	defb 000h		;ebc9
+	defb 000h		;ebca
+	defb 000h		;ebcb
+	defb 000h		;ebcc
+	defb 000h		;ebcd
+	defb 000h		;ebce
+	defb 000h		;ebcf
+	defb 000h		;ebd0
+	defb 000h		;ebd1
+	defb 000h		;ebd2
+	defb 000h		;ebd3
+	defb 000h		;ebd4
+	defb 000h		;ebd5
+	defb 000h		;ebd6
+	defb 000h		;ebd7
+	defb 000h		;ebd8
+	defb 000h		;ebd9
+	defb 000h		;ebda
+	defb 000h		;ebdb
+	defb 000h		;ebdc
+	defb 000h		;ebdd
+	defb 000h		;ebde
+	defb 000h		;ebdf
+	defb 000h		;ebe0
+	defb 000h		;ebe1
+	defb 000h		;ebe2
+	defb 000h		;ebe3
+	defb 000h		;ebe4
+	defb 000h		;ebe5
+	defb 000h		;ebe6
+	defb 000h		;ebe7
+	defb 000h		;ebe8
+	defb 000h		;ebe9
+	defb 000h		;ebea
+	defb 000h		;ebeb
+	defb 000h		;ebec
+	defb 000h		;ebed
+	defb 000h		;ebee
+	defb 000h		;ebef
+	defb 000h		;ebf0
+	defb 000h		;ebf1
+	defb 000h		;ebf2
+	defb 000h		;ebf3
+	defb 000h		;ebf4
+	defb 000h		;ebf5
+	defb 000h		;ebf6
+	defb 000h		;ebf7
+	defb 000h		;ebf8
+	defb 000h		;ebf9
+	defb 000h		;ebfa
+	defb 000h		;ebfb
+	defb 000h		;ebfc
+	defb 000h		;ebfd
+	defb 000h		;ebfe
+	defb 000h		;ebff
+	defb 000h		;ec00
+	defb 000h		;ec01
+	defb 000h		;ec02
+	defb 000h		;ec03
+	defb 000h		;ec04
+	defb 000h		;ec05
+	defb 000h		;ec06
+	defb 000h		;ec07
+	defb 000h		;ec08
+	defb 000h		;ec09
+	defb 000h		;ec0a
+	defb 000h		;ec0b
+	defb 000h		;ec0c
+	defb 000h		;ec0d
+	defb 000h		;ec0e
+	defb 000h		;ec0f
+	defb 000h		;ec10
+	defb 000h		;ec11
+	defb 000h		;ec12
+	defb 000h		;ec13
+	defb 000h		;ec14
+	defb 000h		;ec15
+	defb 000h		;ec16
+	defb 000h		;ec17
+	defb 000h		;ec18
+	defb 000h		;ec19
+	defb 000h		;ec1a
+	defb 000h		;ec1b
+	defb 000h		;ec1c
+	defb 000h		;ec1d
+	defb 000h		;ec1e
+	defb 000h		;ec1f
+	defb 000h		;ec20
+	defb 000h		;ec21
+	defb 000h		;ec22
+	defb 000h		;ec23
+	defb 000h		;ec24
+	defb 000h		;ec25
+	defb 000h		;ec26
+	defb 000h		;ec27
+	defb 000h		;ec28
+	defb 000h		;ec29
+	defb 000h		;ec2a
+	defb 000h		;ec2b
+	defb 000h		;ec2c
+	defb 000h		;ec2d
+	defb 000h		;ec2e
+	defb 000h		;ec2f
+	defb 000h		;ec30
+	defb 000h		;ec31
+	defb 000h		;ec32
+	defb 000h		;ec33
+	defb 000h		;ec34
+	defb 000h		;ec35
+	defb 000h		;ec36
+	defb 000h		;ec37
+	defb 000h		;ec38
+	defb 000h		;ec39
+	defb 000h		;ec3a
+	defb 000h		;ec3b
+	defb 000h		;ec3c
+	defb 000h		;ec3d
+	defb 000h		;ec3e
+	defb 000h		;ec3f
+	defb 000h		;ec40
+	defb 000h		;ec41
+	defb 000h		;ec42
+	defb 000h		;ec43
+	defb 000h		;ec44
+	defb 000h		;ec45
+	defb 000h		;ec46
+	defb 000h		;ec47
+	defb 000h		;ec48
+	defb 000h		;ec49
+	defb 000h		;ec4a
+	defb 000h		;ec4b
+	defb 000h		;ec4c
+	defb 000h		;ec4d
+	defb 000h		;ec4e
+	defb 000h		;ec4f
+	defb 000h		;ec50
+	defb 000h		;ec51
+	defb 000h		;ec52
+	defb 000h		;ec53
+	defb 000h		;ec54
+	defb 000h		;ec55
+	defb 000h		;ec56
+	defb 000h		;ec57
+	defb 000h		;ec58
+	defb 000h		;ec59
+	defb 000h		;ec5a
+	defb 000h		;ec5b
+	defb 000h		;ec5c
+	defb 000h		;ec5d
+	defb 000h		;ec5e
+	defb 000h		;ec5f
+	defb 000h		;ec60
+	defb 000h		;ec61
+	defb 000h		;ec62
+	defb 000h		;ec63
+	defb 000h		;ec64
+	defb 000h		;ec65
+	defb 000h		;ec66
+	defb 000h		;ec67
+	defb 000h		;ec68
+	defb 000h		;ec69
+	defb 000h		;ec6a
+	defb 000h		;ec6b
+	defb 000h		;ec6c
+	defb 000h		;ec6d
+	defb 000h		;ec6e
+	defb 000h		;ec6f
+	defb 000h		;ec70
+	defb 000h		;ec71
+	defb 000h		;ec72
+	defb 000h		;ec73
+	defb 000h		;ec74
+	defb 000h		;ec75
+	defb 000h		;ec76
+	defb 000h		;ec77
+	defb 000h		;ec78
+	defb 000h		;ec79
+	defb 000h		;ec7a
+	defb 000h		;ec7b
+	defb 000h		;ec7c
+	defb 000h		;ec7d
+	defb 000h		;ec7e
+	defb 000h		;ec7f
+	defb 000h		;ec80
+	defb 000h		;ec81
+	defb 000h		;ec82
+	defb 000h		;ec83
+	defb 000h		;ec84
+	defb 000h		;ec85
+	defb 000h		;ec86
+	defb 000h		;ec87
+	defb 000h		;ec88
+	defb 000h		;ec89
+	defb 000h		;ec8a
+	defb 000h		;ec8b
+	defb 000h		;ec8c
+	defb 000h		;ec8d
+	defb 000h		;ec8e
+	defb 000h		;ec8f
+	defb 000h		;ec90
+	defb 000h		;ec91
+	defb 000h		;ec92
+	defb 000h		;ec93
+	defb 000h		;ec94
+	defb 000h		;ec95
+	defb 000h		;ec96
+	defb 000h		;ec97
+	defb 000h		;ec98
+	defb 000h		;ec99
+	defb 000h		;ec9a
+	defb 000h		;ec9b
+	defb 000h		;ec9c
+	defb 000h		;ec9d
+	defb 000h		;ec9e
+	defb 000h		;ec9f
+	defb 000h		;eca0
+	defb 000h		;eca1
+	defb 000h		;eca2
+	defb 000h		;eca3
+	defb 000h		;eca4
+	defb 000h		;eca5
+	defb 000h		;eca6
+	defb 000h		;eca7
+	defb 000h		;eca8
+	defb 000h		;eca9
+	defb 000h		;ecaa
+	defb 000h		;ecab
+	defb 000h		;ecac
+	defb 000h		;ecad
+	defb 000h		;ecae
+	defb 000h		;ecaf
+	defb 000h		;ecb0
+	defb 000h		;ecb1
+	defb 000h		;ecb2
+	defb 000h		;ecb3
+	defb 000h		;ecb4
+	defb 000h		;ecb5
+	defb 000h		;ecb6
+	defb 000h		;ecb7
+	defb 000h		;ecb8
+	defb 000h		;ecb9
+	defb 000h		;ecba
+	defb 000h		;ecbb
+	defb 000h		;ecbc
+	defb 000h		;ecbd
+	defb 000h		;ecbe
+	defb 000h		;ecbf
+	defb 000h		;ecc0
+	defb 000h		;ecc1
+	defb 000h		;ecc2
+	defb 000h		;ecc3
+	defb 000h		;ecc4
+	defb 000h		;ecc5
+	defb 000h		;ecc6
+	defb 000h		;ecc7
+	defb 000h		;ecc8
+	defb 000h		;ecc9
+	defb 000h		;ecca
+	defb 000h		;eccb
+	defb 000h		;eccc
+	defb 000h		;eccd
+	defb 000h		;ecce
+	defb 000h		;eccf
+	defb 000h		;ecd0
+	defb 000h		;ecd1
+	defb 000h		;ecd2
+	defb 000h		;ecd3
+	defb 000h		;ecd4
+	defb 000h		;ecd5
+	defb 000h		;ecd6
+	defb 000h		;ecd7
+	defb 000h		;ecd8
+	defb 000h		;ecd9
+	defb 000h		;ecda
+	defb 000h		;ecdb
+	defb 000h		;ecdc
+	defb 000h		;ecdd
+	defb 000h		;ecde
+	defb 000h		;ecdf
+	defb 000h		;ece0
+	defb 000h		;ece1
+	defb 000h		;ece2
+	defb 000h		;ece3
+	defb 000h		;ece4
+	defb 000h		;ece5
+	defb 000h		;ece6
+	defb 000h		;ece7
+	defb 000h		;ece8
+	defb 000h		;ece9
+	defb 000h		;ecea
+	defb 000h		;eceb
+	defb 000h		;ecec
+	defb 000h		;eced
+	defb 000h		;ecee
+	defb 000h		;ecef
+	defb 000h		;ecf0
+	defb 000h		;ecf1
+	defb 000h		;ecf2
+	defb 000h		;ecf3
+	defb 000h		;ecf4
+	defb 000h		;ecf5
+	defb 000h		;ecf6
+	defb 000h		;ecf7
+	defb 000h		;ecf8
+	defb 000h		;ecf9
+	defb 000h		;ecfa
+	defb 000h		;ecfb
+	defb 000h		;ecfc
+	defb 000h		;ecfd
+	defb 000h		;ecfe
+	defb 000h		;ecff
+	defb 000h		;ed00
+	defb 000h		;ed01
+	defb 000h		;ed02
+	defb 000h		;ed03
+	defb 000h		;ed04
+	defb 000h		;ed05
+	defb 000h		;ed06
+	defb 000h		;ed07
+	defb 000h		;ed08
+	defb 000h		;ed09
+	defb 000h		;ed0a
+	defb 000h		;ed0b
+	defb 000h		;ed0c
+	defb 000h		;ed0d
+	defb 000h		;ed0e
+	defb 000h		;ed0f
+	defb 000h		;ed10
+	defb 000h		;ed11
+	defb 000h		;ed12
+	defb 000h		;ed13
+	defb 000h		;ed14
+	defb 000h		;ed15
+	defb 000h		;ed16
+	defb 000h		;ed17
+	defb 000h		;ed18
+	defb 000h		;ed19
+	defb 000h		;ed1a
+	defb 000h		;ed1b
+	defb 000h		;ed1c
+	defb 000h		;ed1d
+	defb 000h		;ed1e
+	defb 000h		;ed1f
+	defb 000h		;ed20
+	defb 000h		;ed21
+	defb 000h		;ed22
+	defb 000h		;ed23
+	defb 000h		;ed24
+	defb 000h		;ed25
+	defb 000h		;ed26
+	defb 000h		;ed27
+	defb 000h		;ed28
+	defb 000h		;ed29
+	defb 000h		;ed2a
+	defb 000h		;ed2b
+	defb 000h		;ed2c
+	defb 000h		;ed2d
+	defb 000h		;ed2e
+	defb 000h		;ed2f
+	defb 000h		;ed30
+	defb 000h		;ed31
+	defb 000h		;ed32
+	defb 000h		;ed33
+	defb 000h		;ed34
+	defb 000h		;ed35
+	defb 000h		;ed36
+	defb 000h		;ed37
+	defb 000h		;ed38
+	defb 000h		;ed39
+	defb 000h		;ed3a
+	defb 000h		;ed3b
+	defb 000h		;ed3c
+	defb 000h		;ed3d
+	defb 000h		;ed3e
+	defb 000h		;ed3f
+	defb 000h		;ed40
+	defb 000h		;ed41
+	defb 000h		;ed42
+	defb 000h		;ed43
+	defb 000h		;ed44
+	defb 000h		;ed45
+	defb 000h		;ed46
+	defb 000h		;ed47
+	defb 000h		;ed48
+	defb 000h		;ed49
+	defb 000h		;ed4a
+	defb 000h		;ed4b
+	defb 000h		;ed4c
+	defb 000h		;ed4d
+	defb 000h		;ed4e
+	defb 000h		;ed4f
+	defb 000h		;ed50
+	defb 000h		;ed51
+	defb 000h		;ed52
+	defb 000h		;ed53
+	defb 000h		;ed54
+	defb 000h		;ed55
+	defb 000h		;ed56
+	defb 000h		;ed57
+	defb 000h		;ed58
+	defb 000h		;ed59
+	defb 000h		;ed5a
+	defb 000h		;ed5b
+	defb 000h		;ed5c
+	defb 000h		;ed5d
+	defb 000h		;ed5e
+	defb 000h		;ed5f
+	defb 000h		;ed60
+	defb 000h		;ed61
+	defb 000h		;ed62
+	defb 000h		;ed63
+	defb 000h		;ed64
+	defb 000h		;ed65
+	defb 000h		;ed66
+	defb 000h		;ed67
+	defb 000h		;ed68
+	defb 000h		;ed69
+	defb 000h		;ed6a
+	defb 000h		;ed6b
+	defb 000h		;ed6c
+	defb 000h		;ed6d
+	defb 000h		;ed6e
+	defb 000h		;ed6f
+	defb 000h		;ed70
+	defb 000h		;ed71
+	defb 000h		;ed72
+	defb 000h		;ed73
+	defb 000h		;ed74
+	defb 000h		;ed75
+	defb 000h		;ed76
+	defb 000h		;ed77
+	defb 000h		;ed78
+	defb 000h		;ed79
+	defb 000h		;ed7a
+	defb 000h		;ed7b
+	defb 000h		;ed7c
+	defb 000h		;ed7d
+	defb 000h		;ed7e
+	defb 000h		;ed7f
+	defb 000h		;ed80
+	defb 000h		;ed81
+	defb 000h		;ed82
+	defb 000h		;ed83
+	defb 000h		;ed84
+	defb 000h		;ed85
+	defb 000h		;ed86
+	defb 000h		;ed87
+	defb 000h		;ed88
+	defb 000h		;ed89
+	defb 000h		;ed8a
+	defb 000h		;ed8b
+	defb 000h		;ed8c
+	defb 000h		;ed8d
+	defb 000h		;ed8e
+	defb 000h		;ed8f
+	defb 000h		;ed90
+	defb 000h		;ed91
+	defb 000h		;ed92
+	defb 000h		;ed93
+	defb 000h		;ed94
+	defb 000h		;ed95
+	defb 000h		;ed96
+	defb 000h		;ed97
+	defb 000h		;ed98
+	defb 000h		;ed99
+	defb 000h		;ed9a
+	defb 000h		;ed9b
+	defb 000h		;ed9c
+	defb 000h		;ed9d
+	defb 000h		;ed9e
+	defb 000h		;ed9f
+	defb 000h		;eda0
+	defb 000h		;eda1
+	defb 000h		;eda2
+	defb 000h		;eda3
+	defb 000h		;eda4
+	defb 000h		;eda5
+	defb 000h		;eda6
+	defb 000h		;eda7
+	defb 000h		;eda8
+	defb 000h		;eda9
+	defb 000h		;edaa
+	defb 000h		;edab
+	defb 000h		;edac
+	defb 000h		;edad
+	defb 000h		;edae
+	defb 000h		;edaf
+	defb 000h		;edb0
+	defb 000h		;edb1
+	defb 000h		;edb2
+	defb 000h		;edb3
+	defb 000h		;edb4
+	defb 000h		;edb5
+	defb 000h		;edb6
+	defb 000h		;edb7
+	defb 000h		;edb8
+	defb 000h		;edb9
+	defb 000h		;edba
+	defb 000h		;edbb
+	defb 000h		;edbc
+	defb 000h		;edbd
+	defb 000h		;edbe
+	defb 000h		;edbf
+	defb 000h		;edc0
+	defb 000h		;edc1
+	defb 000h		;edc2
+	defb 000h		;edc3
+	defb 000h		;edc4
+	defb 000h		;edc5
+	defb 000h		;edc6
+	defb 000h		;edc7
+	defb 000h		;edc8
+	defb 000h		;edc9
+	defb 000h		;edca
+	defb 000h		;edcb
+	defb 000h		;edcc
+	defb 000h		;edcd
+	defb 000h		;edce
+	defb 000h		;edcf
+	defb 000h		;edd0
+	defb 000h		;edd1
+	defb 000h		;edd2
+	defb 000h		;edd3
+	defb 000h		;edd4
+	defb 000h		;edd5
+	defb 000h		;edd6
+	defb 000h		;edd7
+	defb 000h		;edd8
+	defb 000h		;edd9
+	defb 000h		;edda
+	defb 000h		;eddb
+	defb 000h		;eddc
+	defb 000h		;eddd
+	defb 000h		;edde
+	defb 000h		;eddf
+	defb 000h		;ede0
+	defb 000h		;ede1
+	defb 000h		;ede2
+	defb 000h		;ede3
+	defb 000h		;ede4
+	defb 000h		;ede5
+	defb 000h		;ede6
+	defb 000h		;ede7
+	defb 000h		;ede8
+	defb 000h		;ede9
+	defb 000h		;edea
+	defb 000h		;edeb
+	defb 000h		;edec
+	defb 000h		;eded
+	defb 000h		;edee
+	defb 000h		;edef
+	defb 000h		;edf0
+	defb 000h		;edf1
+	defb 000h		;edf2
+	defb 000h		;edf3
+	defb 000h		;edf4
+	defb 000h		;edf5
+	defb 000h		;edf6
+	defb 000h		;edf7
+	defb 000h		;edf8
+	defb 000h		;edf9
+	defb 000h		;edfa
+	defb 000h		;edfb
+	defb 000h		;edfc
+	defb 000h		;edfd
+	defb 000h		;edfe
+	defb 000h		;edff
+	defb 000h		;ee00
+	defb 000h		;ee01
+	defb 000h		;ee02
+	defb 000h		;ee03
+	defb 000h		;ee04
+	defb 000h		;ee05
+	defb 000h		;ee06
+	defb 000h		;ee07
+	defb 000h		;ee08
+	defb 000h		;ee09
+	defb 000h		;ee0a
+	defb 000h		;ee0b
+	defb 000h		;ee0c
+	defb 000h		;ee0d
+	defb 000h		;ee0e
+	defb 000h		;ee0f
+	defb 000h		;ee10
+	defb 000h		;ee11
+	defb 000h		;ee12
+	defb 000h		;ee13
+	defb 000h		;ee14
+	defb 000h		;ee15
+	defb 000h		;ee16
+	defb 000h		;ee17
+	defb 000h		;ee18
+	defb 000h		;ee19
+	defb 000h		;ee1a
+	defb 000h		;ee1b
+	defb 000h		;ee1c
+	defb 000h		;ee1d
+	defb 000h		;ee1e
+	defb 000h		;ee1f
+	defb 000h		;ee20
+	defb 000h		;ee21
+	defb 000h		;ee22
+	defb 000h		;ee23
+	defb 000h		;ee24
+	defb 000h		;ee25
+	defb 000h		;ee26
+	defb 000h		;ee27
+	defb 000h		;ee28
+	defb 000h		;ee29
+	defb 000h		;ee2a
+	defb 000h		;ee2b
+	defb 000h		;ee2c
+	defb 000h		;ee2d
+	defb 000h		;ee2e
+	defb 000h		;ee2f
+	defb 000h		;ee30
+	defb 000h		;ee31
+	defb 000h		;ee32
+	defb 000h		;ee33
+	defb 000h		;ee34
+	defb 000h		;ee35
+	defb 000h		;ee36
+	defb 000h		;ee37
+	defb 000h		;ee38
+	defb 000h		;ee39
+	defb 000h		;ee3a
+	defb 000h		;ee3b
+	defb 000h		;ee3c
+	defb 000h		;ee3d
+	defb 000h		;ee3e
+	defb 000h		;ee3f
+	defb 000h		;ee40
+	defb 000h		;ee41
+	defb 000h		;ee42
+	defb 000h		;ee43
+	defb 000h		;ee44
+	defb 000h		;ee45
+	defb 000h		;ee46
+	defb 000h		;ee47
+	defb 000h		;ee48
+	defb 000h		;ee49
+	defb 000h		;ee4a
+	defb 000h		;ee4b
+	defb 000h		;ee4c
+	defb 000h		;ee4d
+	defb 000h		;ee4e
+	defb 000h		;ee4f
+	defb 000h		;ee50
+	defb 000h		;ee51
+	defb 000h		;ee52
+	defb 000h		;ee53
+	defb 000h		;ee54
+	defb 000h		;ee55
+	defb 000h		;ee56
+	defb 000h		;ee57
+	defb 000h		;ee58
+	defb 000h		;ee59
+	defb 000h		;ee5a
+	defb 000h		;ee5b
+	defb 000h		;ee5c
+	defb 000h		;ee5d
+	defb 000h		;ee5e
+	defb 000h		;ee5f
+	defb 000h		;ee60
+	defb 000h		;ee61
+	defb 000h		;ee62
+	defb 000h		;ee63
+	defb 000h		;ee64
+	defb 000h		;ee65
+	defb 000h		;ee66
+	defb 000h		;ee67
+	defb 000h		;ee68
+	defb 000h		;ee69
+	defb 000h		;ee6a
+	defb 000h		;ee6b
+	defb 000h		;ee6c
+	defb 000h		;ee6d
+	defb 000h		;ee6e
+	defb 000h		;ee6f
+	defb 000h		;ee70
+	defb 000h		;ee71
+	defb 000h		;ee72
+	defb 000h		;ee73
+	defb 000h		;ee74
+	defb 000h		;ee75
+	defb 000h		;ee76
+	defb 000h		;ee77
+	defb 000h		;ee78
+	defb 000h		;ee79
+	defb 000h		;ee7a
+	defb 000h		;ee7b
+	defb 000h		;ee7c
+	defb 000h		;ee7d
+	defb 000h		;ee7e
+	defb 000h		;ee7f
+	defb 000h		;ee80
+	defb 000h		;ee81
+	defb 000h		;ee82
+	defb 000h		;ee83
+	defb 000h		;ee84
+	defb 000h		;ee85
+	defb 000h		;ee86
+	defb 000h		;ee87
 lee88h:
-	or 0eah			;ee88
+	defb 0f6h		;ee88
+	defb 0eah		;ee89
 lee8ah:
-	ex af,af'		;ee8a
+	defb 000h		;ee8a
 lee8bh:
-	rrca			;ee8b
+	defb 000h		;ee8b
 lee8ch:
-	ld bc,05600h		;ee8c
+	defb 001h		;ee8c
+lee8dh:
+	defb 000h		;ee8d
+lee8eh:
+	defb 000h		;ee8e
 lee8fh:
-	ex de,hl		;ee8f
+	defb 000h		;ee8f
 lee90h:
-	ld (bc),a		;ee90
+	defb 000h		;ee90
 lee91h:
-	add hl,bc		;ee91
+	defb 000h		;ee91
 lee92h:
-	ld a,(bc)		;ee92
+	defb 000h		;ee92
 lee93h:
-	nop			;ee93
+	defb 000h		;ee93
 lee94h:
-	nop			;ee94
-	nop			;ee95
-	ld (bc),a		;ee96
-	nop			;ee97
-	ld a,(bc)		;ee98
-	ld (bc),a		;ee99
-	nop			;ee9a
+	defb 000h		;ee94
+	defb 000h		;ee95
+	defb 000h		;ee96
+	defb 000h		;ee97
+	defb 000h		;ee98
+	defb 000h		;ee99
+	defb 000h		;ee9a
 lee9bh:
-	rst 38h			;ee9b
+	defb 0ffh		;ee9b
 lee9ch:
-	dec (hl)		;ee9c
-	rst 10h			;ee9d
-lee9eh:
+	defb 000h		;ee9c
+	defb 000h		;ee9d
+biosdata_end:
+SELDSK_ENTRY:
+
+; BLOCK 'code_disk' (start 0xee9e end 0xf339)
+code_disk_start:
 	ld hl,00000h		;ee9e
 	add hl,sp		;eea1
 	ld sp,lf680h		;eea2
@@ -2267,7 +2423,7 @@ lee9eh:
 	ld a,c			;eeb0
 	ld (leb3dh),a		;eeb1
 	ld bc,00000h		;eeb4
-	ld hl,le237h		;eeb7
+	ld hl,DISKFMT		;eeb7
 	or a			;eeba
 	jp z,leec2h		;eebb
 	inc hl			;eebe
@@ -2279,11 +2435,11 @@ leec2h:
 	jp z,leed9h		;eec7
 	push af			;eeca
 	push bc			;eecb
-	ld a,(leb48h+1)		;eecc
+	ld a,(leb49h)		;eecc
 	or a			;eecf
 	call nz,sub_f080h	;eed0
 	xor a			;eed3
-	ld (leb48h+1),a		;eed4
+	ld (leb49h),a		;eed4
 	pop bc			;eed7
 	pop af			;eed8
 leed9h:
@@ -2304,17 +2460,17 @@ leed9h:
 	ld d,000h		;eef1
 	ld hl,leaadh		;eef3
 	add hl,de		;eef6
-	ld de,0eb2dh		;eef7
+	ld de,dph_end		;eef7
 	ld bc,00010h		;eefa
 	ldir			;eefd
 	pop bc			;eeff
-	ld hl,leb0dh		;ef00
+	ld hl,tables_end	;ef00
 	add hl,bc		;ef03
 	ex de,hl		;ef04
 	ld hl,0000ah		;ef05
 	add hl,de		;ef08
 	ex de,hl		;ef09
-	ld a,(0eb2dh)		;ef0a
+	ld a,(dph_end)		;ef0a
 	ld (de),a		;ef0d
 	inc de			;ef0e
 	ld a,(leb2eh)		;ef0f
@@ -2325,40 +2481,40 @@ lef13h:
 	ld sp,hl		;ef15
 	ex de,hl		;ef16
 	ret			;ef17
-lef18h:
+SETTRK_ENTRY:
 	ld h,b			;ef18
 	ld l,c			;ef19
 	ld (leb3eh),hl		;ef1a
 	ret			;ef1d
-lef1eh:
+SETSEC_ENTRY:
 	ld a,c			;ef1e
 	ld (leb40h),a		;ef1f
 	ret			;ef22
-lef23h:
+SETDMA_ENTRY:
 	ld h,b			;ef23
 	ld l,c			;ef24
 	ld (leb54h),hl		;ef25
 	ret			;ef28
-lef29h:
+SECTRAN_ENTRY:
 	ld h,b			;ef29
 	ld l,c			;ef2a
 	ret			;ef2b
-lef2ch:
+READ_ENTRY:
 	ld a,001h		;ef2c
-	ld (leb51h+1),a		;ef2e
+	ld (leb52h),a		;ef2e
 	ld (leb51h),a		;ef31
 	ld a,002h		;ef34
-	ld (leb51h+2),a		;ef36
+	ld (leb53h),a		;ef36
 	jp lefc0h		;ef39
-lef3ch:
+WRITE_ENTRY:
 	xor a			;ef3c
-	ld (leb51h+1),a		;ef3d
+	ld (leb52h),a		;ef3d
 	ld a,c			;ef40
-	ld (leb51h+2),a		;ef41
+	ld (leb53h),a		;ef41
 	cp 002h			;ef44
 	jp nz,lef61h		;ef46
-	ld a,(leb2eh+1)		;ef49
-	ld (leb48h+2),a		;ef4c
+	ld a,(leb2fh)		;ef49
+	ld (leb4ah),a		;ef4c
 	ld a,(leb3dh)		;ef4f
 	ld (leb4bh),a		;ef52
 	ld hl,(leb3eh)		;ef55
@@ -2366,11 +2522,11 @@ lef3ch:
 	ld a,(leb40h)		;ef5b
 	ld (leb4eh),a		;ef5e
 lef61h:
-	ld a,(leb48h+2)		;ef61
+	ld a,(leb4ah)		;ef61
 	or a			;ef64
 	jp z,lefb6h		;ef65
 	dec a			;ef68
-	ld (leb48h+2),a		;ef69
+	ld (leb4ah),a		;ef69
 	ld a,(leb3dh)		;ef6c
 	ld hl,leb4bh		;ef6f
 	cp (hl)			;ef72
@@ -2384,7 +2540,7 @@ lef61h:
 	jp nz,lefb6h		;ef86
 	inc (hl)		;ef89
 	ld a,(hl)		;ef8a
-	ld hl,leb2eh+2		;ef8b
+	ld hl,leb30h		;ef8b
 	cp (hl)			;ef8e
 	jp c,lef9eh		;ef8f
 	ld hl,leb4eh		;ef92
@@ -2407,7 +2563,7 @@ lefb0h:
 	jp lefc0h		;efb3
 lefb6h:
 	xor a			;efb6
-	ld (leb48h+2),a		;efb7
+	ld (leb4ah),a		;efb7
 	ld a,(leb31h)		;efba
 	ld (leb51h),a		;efbd
 lefc0h:
@@ -2443,7 +2599,7 @@ lefd8h:
 	cp (hl)			;effe
 	jp z,lf026h		;efff
 lf002h:
-	ld a,(leb48h+1)		;f002
+	ld a,(leb49h)		;f002
 	or a			;f005
 	call nz,sub_f080h	;f006
 lf009h:
@@ -2457,7 +2613,7 @@ lf009h:
 	or a			;f01e
 	call nz,sub_f086h	;f01f
 	xor a			;f022
-	ld (leb48h+1),a		;f023
+	ld (leb49h),a		;f023
 lf026h:
 	ld a,(leb40h)		;f026
 	ld hl,leb31h		;f029
@@ -2477,15 +2633,15 @@ lf026h:
 	ld hl,(leb54h)		;f03c
 	ld bc,00080h		;f03f
 	ex de,hl		;f042
-	ld a,(leb51h+1)		;f043
+	ld a,(leb52h)		;f043
 	or a			;f046
 	jp nz,lf050h		;f047
 	ld a,001h		;f04a
-	ld (leb48h+1),a		;f04c
+	ld (leb49h),a		;f04c
 	ex de,hl		;f04f
 lf050h:
 	ldir			;f050
-	ld a,(leb51h+2)		;f052
+	ld a,(leb53h)		;f052
 	cp 001h			;f055
 	ld hl,leb50h		;f057
 	ld a,(hl)		;f05a
@@ -2494,7 +2650,7 @@ lf050h:
 	or a			;f060
 	jp nz,lf071h		;f061
 	xor a			;f064
-	ld (leb48h+1),a		;f065
+	ld (leb49h),a		;f065
 	call sub_f080h		;f068
 	ld hl,leb50h		;f06b
 	ld a,(hl)		;f06e
@@ -2521,7 +2677,7 @@ sub_f086h:
 	ld a,(leb4fh)		;f086
 	or a			;f089
 	jp nz,lf090h		;f08a
-	ld (leb48h+2),a		;f08d
+	ld (leb4ah),a		;f08d
 lf090h:
 	call sub_f096h		;f090
 	jp lf10ch		;f093
@@ -2535,13 +2691,13 @@ sub_f096h:
 	ld a,(leb41h)		;f0a0
 	jp nc,lf0b1h		;f0a3
 	or 004h			;f0a6
-	ld (lee8ch+1),a		;f0a8
+	ld (lee8dh),a		;f0a8
 	ld a,c			;f0ab
 	sub b			;f0ac
 	ld c,a			;f0ad
 	jp lf0b4h		;f0ae
 lf0b1h:
-	ld (lee8ch+1),a		;f0b1
+	ld (lee8dh),a		;f0b1
 lf0b4h:
 	ld b,000h		;f0b4
 	ld hl,(leb33h)		;f0b6
@@ -2551,7 +2707,7 @@ lf0b4h:
 	ld a,(leb42h)		;f0be
 	ld (lee90h),a		;f0c1
 	ld hl,leb56h		;f0c4
-	ld (lee8ch+2),hl	;f0c7
+	ld (lee8eh),hl		;f0c7
 	ld a,(leb41h)		;f0ca
 	ld hl,leb45h		;f0cd
 	cp (hl)			;f0d0
@@ -2567,8 +2723,8 @@ lf0dch:
 	ld (leb46h),a		;f0e5
 	call sub_f26fh		;f0e8
 	call sub_f236h		;f0eb
-	call lf276h		;f0ee
-	ld a,(lee8ch+1)		;f0f1
+	call EXTVEC1_ENTRY	;f0ee
+	ld a,(lee8dh)		;f0f1
 	and 003h		;f0f4
 	add a,020h		;f0f6
 	cp b			;f0f8
@@ -2577,9 +2733,9 @@ sub_f0fah:
 	call sub_f26fh		;f0fa
 	call sub_f1eah		;f0fd
 	push bc			;f100
-	call lf276h		;f101
+	call EXTVEC1_ENTRY	;f101
 	call sub_f236h		;f104
-	call lf276h		;f107
+	call EXTVEC1_ENTRY	;f107
 	pop bc			;f10a
 	ret			;f10b
 lf10ch:
@@ -2681,15 +2837,15 @@ lf1b6h:
 	or h			;f1ba
 	jp nz,lf1b6h		;f1bb
 	ret			;f1be
-lf1bfh:
+HOME_ENTRY:
 	ld a,(leb3dh)		;f1bf
-	ld (lee8ch+1),a		;f1c2
+	ld (lee8dh),a		;f1c2
 	ld (leb45h),a		;f1c5
 	xor a			;f1c8
 	ld (leb46h),a		;f1c9
 	call sub_f26fh		;f1cc
 	call sub_f1eah		;f1cf
-	call lf276h		;f1d2
+	call EXTVEC1_ENTRY	;f1d2
 	ret			;f1d5
 lf1d6h:
 	in a,(004h)		;f1d6
@@ -2709,7 +2865,7 @@ sub_f1eah:
 	ld a,007h		;f1f0
 	out (005h),a		;f1f2
 	call lf1d6h		;f1f4
-	ld a,(lee8ch+1)		;f1f7
+	ld a,(lee8dh)		;f1f7
 	and 003h		;f1fa
 	out (005h),a		;f1fc
 	ret			;f1fe
@@ -2717,7 +2873,7 @@ sub_f1eah:
 	ld a,004h		;f202
 	out (005h),a		;f204
 	call lf1d6h		;f206
-	ld a,(lee8ch+1)		;f209
+	ld a,(lee8dh)		;f209
 	and 003h		;f20c
 	out (005h),a		;f20e
 	call lf1e0h		;f210
@@ -2744,7 +2900,7 @@ sub_f236h:
 	ld a,00fh		;f23c
 	out (005h),a		;f23e
 	call lf1d6h		;f240
-	ld a,(lee8ch+1)		;f243
+	ld a,(lee8dh)		;f243
 	and 003h		;f246
 	out (005h),a		;f248
 	call lf1d6h		;f24a
@@ -2775,7 +2931,7 @@ sub_f26fh:
 	ld (lee9bh),a		;f271
 	ei			;f274
 	ret			;f275
-lf276h:
+EXTVEC1_ENTRY:
 	call sub_f285h		;f276
 	ld a,(lee93h)		;f279
 	ld b,a			;f27c
@@ -2796,7 +2952,7 @@ sub_f28dh:
 lf294h:
 	out (0fbh),a		;f294
 	out (0fch),a		;f296
-	ld a,(lee8ch+2)		;f298
+	ld a,(lee8eh)		;f298
 	out (0f2h),a		;f29b
 	ld a,(lee8fh)		;f29d
 	out (0f2h),a		;f2a0
@@ -2824,13 +2980,13 @@ lf2b8h:
 	add a,b			;f2c0
 	out (005h),a		;f2c1
 	call lf1d6h		;f2c3
-	ld a,(lee8ch+1)		;f2c6
+	ld a,(lee8dh)		;f2c6
 	out (005h),a		;f2c9
 	call lf1d6h		;f2cb
 	ld a,(lee90h)		;f2ce
 	out (005h),a		;f2d1
 	call lf1d6h		;f2d3
-	ld a,(lee8ch+1)		;f2d6
+	ld a,(lee8dh)		;f2d6
 	rra			;f2d9
 	rra			;f2da
 	and 003h		;f2db
@@ -2850,10 +3006,11 @@ lf2b8h:
 	ld a,(hl)		;f2f8
 	out (005h),a		;f2f9
 	call lf1d6h		;f2fb
-	ld a,(0eb35h)		;f2fe
+	ld a,(leb35h)		;f2fe
 	out (005h),a		;f301
 	ei			;f303
 	ret			;f304
+ISR_SIO_SPECIAL:
 	ld (lee9ch),sp		;f305
 	ld sp,lf620h		;f309
 	push af			;f30c
@@ -2881,247 +3038,265 @@ lf32bh:
 	ld sp,(lee9ch)		;f32f
 	ei			;f333
 	reti			;f334
+DUMITR:
 	ei			;f336
 	reti			;f337
-	nop			;f339
-	nop			;f33a
-	nop			;f33b
-	nop			;f33c
-	nop			;f33d
-	nop			;f33e
-	nop			;f33f
-	nop			;f340
-	nop			;f341
-	nop			;f342
-	nop			;f343
-	nop			;f344
-	nop			;f345
-	nop			;f346
-	nop			;f347
-	nop			;f348
-	nop			;f349
-	nop			;f34a
-	nop			;f34b
-	nop			;f34c
-	nop			;f34d
-	nop			;f34e
-	nop			;f34f
-	nop			;f350
-	nop			;f351
-	nop			;f352
-	nop			;f353
-	nop			;f354
-	nop			;f355
-	nop			;f356
-	nop			;f357
-	nop			;f358
-	nop			;f359
-	nop			;f35a
-	nop			;f35b
-	nop			;f35c
-	nop			;f35d
-	nop			;f35e
-	nop			;f35f
-	nop			;f360
-	nop			;f361
-	nop			;f362
-	nop			;f363
-	nop			;f364
-	nop			;f365
-	nop			;f366
-	nop			;f367
-	nop			;f368
-	nop			;f369
-	nop			;f36a
-	nop			;f36b
-	nop			;f36c
-	nop			;f36d
-	nop			;f36e
-	nop			;f36f
-	nop			;f370
-	nop			;f371
-	nop			;f372
-	nop			;f373
-	nop			;f374
-	nop			;f375
-	nop			;f376
-	nop			;f377
-	nop			;f378
-	nop			;f379
-	nop			;f37a
-	nop			;f37b
-	nop			;f37c
-	nop			;f37d
-	nop			;f37e
-	nop			;f37f
-	nop			;f380
-	nop			;f381
-	nop			;f382
-	nop			;f383
-	nop			;f384
-	nop			;f385
-	nop			;f386
-	nop			;f387
-	nop			;f388
-	nop			;f389
-	nop			;f38a
-	nop			;f38b
-	nop			;f38c
-	nop			;f38d
-	nop			;f38e
-	nop			;f38f
-	nop			;f390
-	nop			;f391
-	nop			;f392
-	nop			;f393
-	nop			;f394
-	nop			;f395
-	nop			;f396
-	nop			;f397
-	nop			;f398
-	nop			;f399
-	nop			;f39a
-	nop			;f39b
-	nop			;f39c
-	nop			;f39d
-	nop			;f39e
-	nop			;f39f
-	nop			;f3a0
-	nop			;f3a1
-	nop			;f3a2
-	nop			;f3a3
-	nop			;f3a4
-	nop			;f3a5
-	nop			;f3a6
-	nop			;f3a7
-	nop			;f3a8
-	nop			;f3a9
-	nop			;f3aa
-	nop			;f3ab
-	nop			;f3ac
-	nop			;f3ad
-	nop			;f3ae
-	nop			;f3af
-	nop			;f3b0
-	nop			;f3b1
-	nop			;f3b2
-	nop			;f3b3
-	nop			;f3b4
-	nop			;f3b5
-	nop			;f3b6
-	nop			;f3b7
-	nop			;f3b8
-	nop			;f3b9
-	nop			;f3ba
-	nop			;f3bb
-	nop			;f3bc
-	nop			;f3bd
-	nop			;f3be
-	nop			;f3bf
-	nop			;f3c0
-	nop			;f3c1
-	nop			;f3c2
-	nop			;f3c3
-	nop			;f3c4
-	nop			;f3c5
-	nop			;f3c6
-	nop			;f3c7
-	nop			;f3c8
-	nop			;f3c9
-	nop			;f3ca
-	nop			;f3cb
-	nop			;f3cc
-	nop			;f3cd
-	nop			;f3ce
-	nop			;f3cf
-	nop			;f3d0
-	nop			;f3d1
-	nop			;f3d2
-	nop			;f3d3
-	nop			;f3d4
-	nop			;f3d5
-	nop			;f3d6
-	nop			;f3d7
-	nop			;f3d8
-	nop			;f3d9
-	nop			;f3da
-	nop			;f3db
-	nop			;f3dc
-	nop			;f3dd
-	nop			;f3de
-	nop			;f3df
-	nop			;f3e0
-	nop			;f3e1
-	nop			;f3e2
-	nop			;f3e3
-	nop			;f3e4
-	nop			;f3e5
-	nop			;f3e6
-	nop			;f3e7
-	nop			;f3e8
-	nop			;f3e9
-	nop			;f3ea
-	nop			;f3eb
-	nop			;f3ec
-	nop			;f3ed
-	nop			;f3ee
-	nop			;f3ef
-	nop			;f3f0
-	nop			;f3f1
-	nop			;f3f2
-	nop			;f3f3
-	nop			;f3f4
-	nop			;f3f5
-	nop			;f3f6
-	nop			;f3f7
-	nop			;f3f8
-	nop			;f3f9
-	nop			;f3fa
-	nop			;f3fb
-	nop			;f3fc
-	nop			;f3fd
-	nop			;f3fe
-	nop			;f3ff
-	ld (hl),0f3h		;f400
-	ld c,0e5h		;f402
-	inc hl			;f404
-	push hl			;f405
-	ld (hl),0f3h		;f406
-	ld (hl),0f3h		;f408
-	ld (hl),0f3h		;f40a
-	sbc a,d			;f40c
-	jp (hl)			;f40d
-	dec b			;f40e
-	di			;f40f
-	inc h			;f410
-	call po,sub_e43dh	;f411
-	ld d,(hl)		;f414
-	call po,sub_e46bh	;f415
-	adc a,b			;f418
-	call po,sub_e4a1h	;f419
-	cp d			;f41c
-	call po,sub_e4d4h	;f41d
-	nop			;f420
-	call p,00000h		;f421
-	nop			;f424
-	nop			;f425
-	nop			;f426
-	nop			;f427
-	nop			;f428
-	nop			;f429
-	ld hl,(00017h)		;f42a
-	nop			;f42d
-	ld (bc),a		;f42e
-	nop			;f42f
-	ld bc,03201h		;f430
-	sub h			;f433
-	xor 0c9h		;f434
+code_disk_end:
+
+; BLOCK 'pad2' (start 0xf339 end 0xf400)
+pad2_start:
+	defb 000h		;f339
+	defb 000h		;f33a
+	defb 000h		;f33b
+	defb 000h		;f33c
+	defb 000h		;f33d
+	defb 000h		;f33e
+	defb 000h		;f33f
+	defb 000h		;f340
+	defb 000h		;f341
+	defb 000h		;f342
+	defb 000h		;f343
+	defb 000h		;f344
+	defb 000h		;f345
+	defb 000h		;f346
+	defb 000h		;f347
+	defb 000h		;f348
+	defb 000h		;f349
+	defb 000h		;f34a
+	defb 000h		;f34b
+	defb 000h		;f34c
+	defb 000h		;f34d
+	defb 000h		;f34e
+	defb 000h		;f34f
+	defb 000h		;f350
+	defb 000h		;f351
+	defb 000h		;f352
+	defb 000h		;f353
+	defb 000h		;f354
+	defb 000h		;f355
+	defb 000h		;f356
+	defb 000h		;f357
+	defb 000h		;f358
+	defb 000h		;f359
+	defb 000h		;f35a
+	defb 000h		;f35b
+	defb 000h		;f35c
+	defb 000h		;f35d
+	defb 000h		;f35e
+	defb 000h		;f35f
+	defb 000h		;f360
+	defb 000h		;f361
+	defb 000h		;f362
+	defb 000h		;f363
+	defb 000h		;f364
+	defb 000h		;f365
+	defb 000h		;f366
+	defb 000h		;f367
+	defb 000h		;f368
+	defb 000h		;f369
+	defb 000h		;f36a
+	defb 000h		;f36b
+	defb 000h		;f36c
+	defb 000h		;f36d
+	defb 000h		;f36e
+	defb 000h		;f36f
+	defb 000h		;f370
+	defb 000h		;f371
+	defb 000h		;f372
+	defb 000h		;f373
+	defb 000h		;f374
+	defb 000h		;f375
+	defb 000h		;f376
+	defb 000h		;f377
+	defb 000h		;f378
+	defb 000h		;f379
+	defb 000h		;f37a
+	defb 000h		;f37b
+	defb 000h		;f37c
+	defb 000h		;f37d
+	defb 000h		;f37e
+	defb 000h		;f37f
+	defb 000h		;f380
+	defb 000h		;f381
+	defb 000h		;f382
+	defb 000h		;f383
+	defb 000h		;f384
+	defb 000h		;f385
+	defb 000h		;f386
+	defb 000h		;f387
+	defb 000h		;f388
+	defb 000h		;f389
+	defb 000h		;f38a
+	defb 000h		;f38b
+	defb 000h		;f38c
+	defb 000h		;f38d
+	defb 000h		;f38e
+	defb 000h		;f38f
+	defb 000h		;f390
+	defb 000h		;f391
+	defb 000h		;f392
+	defb 000h		;f393
+	defb 000h		;f394
+	defb 000h		;f395
+	defb 000h		;f396
+	defb 000h		;f397
+	defb 000h		;f398
+	defb 000h		;f399
+	defb 000h		;f39a
+	defb 000h		;f39b
+	defb 000h		;f39c
+	defb 000h		;f39d
+	defb 000h		;f39e
+	defb 000h		;f39f
+	defb 000h		;f3a0
+	defb 000h		;f3a1
+	defb 000h		;f3a2
+	defb 000h		;f3a3
+	defb 000h		;f3a4
+	defb 000h		;f3a5
+	defb 000h		;f3a6
+	defb 000h		;f3a7
+	defb 000h		;f3a8
+	defb 000h		;f3a9
+	defb 000h		;f3aa
+	defb 000h		;f3ab
+	defb 000h		;f3ac
+	defb 000h		;f3ad
+	defb 000h		;f3ae
+	defb 000h		;f3af
+	defb 000h		;f3b0
+	defb 000h		;f3b1
+	defb 000h		;f3b2
+	defb 000h		;f3b3
+	defb 000h		;f3b4
+	defb 000h		;f3b5
+	defb 000h		;f3b6
+	defb 000h		;f3b7
+	defb 000h		;f3b8
+	defb 000h		;f3b9
+	defb 000h		;f3ba
+	defb 000h		;f3bb
+	defb 000h		;f3bc
+	defb 000h		;f3bd
+	defb 000h		;f3be
+	defb 000h		;f3bf
+	defb 000h		;f3c0
+	defb 000h		;f3c1
+	defb 000h		;f3c2
+	defb 000h		;f3c3
+	defb 000h		;f3c4
+	defb 000h		;f3c5
+	defb 000h		;f3c6
+	defb 000h		;f3c7
+	defb 000h		;f3c8
+	defb 000h		;f3c9
+	defb 000h		;f3ca
+	defb 000h		;f3cb
+	defb 000h		;f3cc
+	defb 000h		;f3cd
+	defb 000h		;f3ce
+	defb 000h		;f3cf
+	defb 000h		;f3d0
+	defb 000h		;f3d1
+	defb 000h		;f3d2
+	defb 000h		;f3d3
+	defb 000h		;f3d4
+	defb 000h		;f3d5
+	defb 000h		;f3d6
+	defb 000h		;f3d7
+	defb 000h		;f3d8
+	defb 000h		;f3d9
+	defb 000h		;f3da
+	defb 000h		;f3db
+	defb 000h		;f3dc
+	defb 000h		;f3dd
+	defb 000h		;f3de
+	defb 000h		;f3df
+	defb 000h		;f3e0
+	defb 000h		;f3e1
+	defb 000h		;f3e2
+	defb 000h		;f3e3
+	defb 000h		;f3e4
+	defb 000h		;f3e5
+	defb 000h		;f3e6
+	defb 000h		;f3e7
+	defb 000h		;f3e8
+	defb 000h		;f3e9
+	defb 000h		;f3ea
+	defb 000h		;f3eb
+	defb 000h		;f3ec
+	defb 000h		;f3ed
+	defb 000h		;f3ee
+	defb 000h		;f3ef
+	defb 000h		;f3f0
+	defb 000h		;f3f1
+	defb 000h		;f3f2
+	defb 000h		;f3f3
+	defb 000h		;f3f4
+	defb 000h		;f3f5
+	defb 000h		;f3f6
+	defb 000h		;f3f7
+	defb 000h		;f3f8
+	defb 000h		;f3f9
+	defb 000h		;f3fa
+	defb 000h		;f3fb
+	defb 000h		;f3fc
+	defb 000h		;f3fd
+	defb 000h		;f3fe
+	defb 000h		;f3ff
+pad2_end:
+ITRTAB:
+
+; BLOCK 'ivt' (start 0xf400 end 0xf424)
+ivt_start:
+	defw 0f336h		;f400
+	defw 0e50eh		;f402
+	defw 0e523h		;f404
+	defw 0f336h		;f406
+	defw 0f336h		;f408
+	defw 0f336h		;f40a
+	defw 0e99ah		;f40c
+	defw 0f305h		;f40e
+	defw 0e424h		;f410
+	defw 0e43dh		;f412
+	defw 0e456h		;f414
+	defw 0e46bh		;f416
+	defw 0e488h		;f418
+	defw 0e4a1h		;f41a
+	defw 0e4bah		;f41c
+	defw 0e4d4h		;f41e
+	defw 0f400h		;f420
+	defw 00000h		;f422
+ivt_end:
+
+; BLOCK 'postivt' (start 0xf424 end 0xf432)
+postivt_start:
+	defb 000h		;f424
+	defb 000h		;f425
+	defb 000h		;f426
+	defb 000h		;f427
+	defb 000h		;f428
+	defb 000h		;f429
+	defb 02ah		;f42a
+	defb 017h		;f42b
+	defb 000h		;f42c
+	defb 000h		;f42d
+	defb 002h		;f42e
+	defb 000h		;f42f
+	defb 001h		;f430
+	defb 001h		;f431
+postivt_end:
+
+; BLOCK 'code_fdc' (start 0xf432 end 0xf4fe)
+code_fdc_start:
+	ld (lee94h),a		;f432
+	ret			;f435
 	call sub_f18bh		;f436
 	call lf1d6h		;f439
 	ld a,00fh		;f43c
 	out (005h),a		;f43e
 	call lf1d6h		;f440
-	ld a,(lee8ch+1)		;f443
+	ld a,(lee8dh)		;f443
 	and 003h		;f446
 	out (005h),a		;f448
 	call lf1d6h		;f44a
@@ -3165,7 +3340,7 @@ lf32bh:
 	ld a,049h		;f492
 	out (0fbh),a		;f494
 	out (0fch),a		;f496
-	ld a,(lee8ch+2)		;f498
+	ld a,(lee8eh)		;f498
 	out (0f2h),a		;f49b
 	ld a,(lee8fh)		;f49d
 	out (0f2h),a		;f4a0
@@ -3191,13 +3366,13 @@ lf32bh:
 	add a,b			;f4c0
 	out (005h),a		;f4c1
 	call lf1d6h		;f4c3
-	ld a,(lee8ch+1)		;f4c6
+	ld a,(lee8dh)		;f4c6
 	out (005h),a		;f4c9
 	call lf1d6h		;f4cb
 	ld a,(lee90h)		;f4ce
 	out (005h),a		;f4d1
 	call lf1d6h		;f4d3
-	ld a,(lee8ch+1)		;f4d6
+	ld a,(lee8dh)		;f4d6
 	rra			;f4d9
 	rra			;f4da
 	and 003h		;f4db
@@ -3217,694 +3392,788 @@ lf32bh:
 	ld a,(hl)		;f4f8
 	out (005h),a		;f4f9
 	call lf1d6h		;f4fb
-	ld a,(00035h)		;f4fe
-	nop			;f501
-	nop			;f502
-	nop			;f503
-	nop			;f504
-	nop			;f505
-	nop			;f506
-	nop			;f507
-	nop			;f508
-	nop			;f509
+code_fdc_end:
+
+; BLOCK 'trailing' (start 0xf4fe end 0xf7ff)
+trailing_start:
+	defb 03ah		;f4fe
+	defb 035h		;f4ff
+lf500h:
+	defb 0e5h		;f500
+	defb 0e5h		;f501
+	defb 0e5h		;f502
+	defb 0e5h		;f503
+	defb 0e5h		;f504
+	defb 0e5h		;f505
+	defb 0e5h		;f506
+	defb 0e5h		;f507
+	defb 0e5h		;f508
+	defb 0e5h		;f509
 lf50ah:
-	nop			;f50a
-	nop			;f50b
-	nop			;f50c
-	nop			;f50d
-	nop			;f50e
-	nop			;f50f
-	nop			;f510
-	nop			;f511
-	nop			;f512
-	nop			;f513
-	nop			;f514
-	nop			;f515
-	nop			;f516
-	nop			;f517
-	nop			;f518
-	nop			;f519
-	nop			;f51a
-	nop			;f51b
-	nop			;f51c
-	nop			;f51d
-	nop			;f51e
-	nop			;f51f
-	nop			;f520
-	nop			;f521
-	nop			;f522
-	nop			;f523
-	nop			;f524
-	nop			;f525
-	nop			;f526
-	nop			;f527
-	nop			;f528
-	nop			;f529
-	nop			;f52a
-	nop			;f52b
-	nop			;f52c
-	nop			;f52d
-	nop			;f52e
-	nop			;f52f
-	nop			;f530
-	nop			;f531
-	nop			;f532
-	nop			;f533
-	nop			;f534
-	nop			;f535
-	nop			;f536
-	nop			;f537
-	nop			;f538
-	nop			;f539
-	nop			;f53a
-	nop			;f53b
-	nop			;f53c
-	nop			;f53d
-	nop			;f53e
-	nop			;f53f
-	nop			;f540
-	nop			;f541
-	nop			;f542
-	nop			;f543
-	nop			;f544
-	nop			;f545
-	nop			;f546
-	nop			;f547
-	nop			;f548
-	nop			;f549
-	nop			;f54a
-	nop			;f54b
-	nop			;f54c
-	nop			;f54d
-	nop			;f54e
-	nop			;f54f
-	nop			;f550
-	nop			;f551
-	nop			;f552
-	nop			;f553
-	nop			;f554
-	nop			;f555
-	nop			;f556
-	nop			;f557
-	nop			;f558
-	nop			;f559
-	nop			;f55a
-	nop			;f55b
-	nop			;f55c
-	nop			;f55d
-	nop			;f55e
-	nop			;f55f
-	nop			;f560
-	nop			;f561
-	nop			;f562
-	nop			;f563
-	nop			;f564
-	nop			;f565
-	nop			;f566
-	nop			;f567
-	nop			;f568
-	nop			;f569
-	nop			;f56a
-	nop			;f56b
-	nop			;f56c
-	nop			;f56d
-	nop			;f56e
-	nop			;f56f
-	nop			;f570
-	nop			;f571
-	nop			;f572
-	nop			;f573
-	nop			;f574
-	nop			;f575
-	nop			;f576
-	nop			;f577
-	nop			;f578
-	nop			;f579
-	nop			;f57a
-	nop			;f57b
-	nop			;f57c
-	nop			;f57d
-	nop			;f57e
-	nop			;f57f
-	nop			;f580
-	nop			;f581
-	nop			;f582
-	nop			;f583
-	nop			;f584
-	nop			;f585
-	nop			;f586
-	nop			;f587
-	nop			;f588
-	nop			;f589
-	nop			;f58a
-	nop			;f58b
-	nop			;f58c
-	nop			;f58d
-	nop			;f58e
-	nop			;f58f
-	nop			;f590
-	nop			;f591
-	nop			;f592
-	nop			;f593
-	nop			;f594
-	nop			;f595
-	nop			;f596
-	nop			;f597
-	nop			;f598
-	nop			;f599
-	nop			;f59a
-	nop			;f59b
-	nop			;f59c
-	nop			;f59d
-	nop			;f59e
-	nop			;f59f
-	nop			;f5a0
-	nop			;f5a1
-	nop			;f5a2
-	nop			;f5a3
-	nop			;f5a4
-	nop			;f5a5
-	nop			;f5a6
-	nop			;f5a7
-	nop			;f5a8
-	nop			;f5a9
-	nop			;f5aa
-	nop			;f5ab
-	nop			;f5ac
-	nop			;f5ad
-	nop			;f5ae
-	nop			;f5af
-	nop			;f5b0
-	nop			;f5b1
-	nop			;f5b2
-	nop			;f5b3
-	nop			;f5b4
-	nop			;f5b5
-	nop			;f5b6
-	nop			;f5b7
-	nop			;f5b8
-	nop			;f5b9
-	nop			;f5ba
-	nop			;f5bb
-	nop			;f5bc
-	nop			;f5bd
-	nop			;f5be
-	nop			;f5bf
-	nop			;f5c0
-	nop			;f5c1
-	nop			;f5c2
-	nop			;f5c3
-	nop			;f5c4
-	nop			;f5c5
-	nop			;f5c6
-	nop			;f5c7
-	nop			;f5c8
-	nop			;f5c9
-	nop			;f5ca
-	nop			;f5cb
-	nop			;f5cc
-	nop			;f5cd
-	nop			;f5ce
-	nop			;f5cf
-	nop			;f5d0
-	nop			;f5d1
-	nop			;f5d2
-	nop			;f5d3
-	nop			;f5d4
-	nop			;f5d5
-	nop			;f5d6
-	nop			;f5d7
-	nop			;f5d8
-	nop			;f5d9
-	nop			;f5da
-	nop			;f5db
-	nop			;f5dc
-	nop			;f5dd
-	nop			;f5de
-	nop			;f5df
-	nop			;f5e0
-	nop			;f5e1
-	nop			;f5e2
-	nop			;f5e3
-	nop			;f5e4
-	nop			;f5e5
-	nop			;f5e6
-	nop			;f5e7
-	nop			;f5e8
-	nop			;f5e9
-	nop			;f5ea
-	nop			;f5eb
-	nop			;f5ec
-	nop			;f5ed
-	nop			;f5ee
+	defb 0e5h		;f50a
+	defb 0e5h		;f50b
+	defb 0e5h		;f50c
+	defb 0e5h		;f50d
+	defb 0e5h		;f50e
+	defb 0e5h		;f50f
+	defb 0e5h		;f510
+	defb 0e5h		;f511
+	defb 0e5h		;f512
+	defb 0e5h		;f513
+	defb 0e5h		;f514
+	defb 0e5h		;f515
+	defb 0e5h		;f516
+	defb 0e5h		;f517
+	defb 0e5h		;f518
+	defb 0e5h		;f519
+	defb 0e5h		;f51a
+	defb 0e5h		;f51b
+	defb 0e5h		;f51c
+	defb 0e5h		;f51d
+	defb 0e5h		;f51e
+	defb 0e5h		;f51f
+	defb 0e5h		;f520
+	defb 0e5h		;f521
+	defb 0e5h		;f522
+	defb 0e5h		;f523
+	defb 0e5h		;f524
+	defb 0e5h		;f525
+	defb 0e5h		;f526
+	defb 0e5h		;f527
+	defb 0e5h		;f528
+	defb 0e5h		;f529
+	defb 0e5h		;f52a
+	defb 0e5h		;f52b
+	defb 0e5h		;f52c
+	defb 0e5h		;f52d
+	defb 0e5h		;f52e
+	defb 0e5h		;f52f
+	defb 0e5h		;f530
+	defb 0e5h		;f531
+	defb 0e5h		;f532
+	defb 0e5h		;f533
+	defb 0e5h		;f534
+	defb 0e5h		;f535
+	defb 0e5h		;f536
+	defb 0e5h		;f537
+	defb 0e5h		;f538
+	defb 0e5h		;f539
+	defb 0e5h		;f53a
+	defb 0e5h		;f53b
+	defb 0e5h		;f53c
+	defb 0e5h		;f53d
+	defb 0e5h		;f53e
+	defb 0e5h		;f53f
+	defb 0e5h		;f540
+	defb 0e5h		;f541
+	defb 0e5h		;f542
+	defb 0e5h		;f543
+	defb 0e5h		;f544
+	defb 0e5h		;f545
+	defb 0e5h		;f546
+	defb 0e5h		;f547
+	defb 0e5h		;f548
+	defb 0e5h		;f549
+	defb 0e5h		;f54a
+	defb 0e5h		;f54b
+	defb 0e5h		;f54c
+	defb 0e5h		;f54d
+	defb 0e5h		;f54e
+	defb 0e5h		;f54f
+	defb 0e5h		;f550
+	defb 0e5h		;f551
+	defb 0e5h		;f552
+	defb 0e5h		;f553
+	defb 0e5h		;f554
+	defb 0e5h		;f555
+	defb 0e5h		;f556
+	defb 0e5h		;f557
+	defb 0e5h		;f558
+	defb 0e5h		;f559
+	defb 0e5h		;f55a
+	defb 0e5h		;f55b
+	defb 0e5h		;f55c
+	defb 0e5h		;f55d
+	defb 0e5h		;f55e
+	defb 0e5h		;f55f
+	defb 0e5h		;f560
+	defb 0e5h		;f561
+	defb 0e5h		;f562
+	defb 0e5h		;f563
+	defb 0e5h		;f564
+	defb 0e5h		;f565
+	defb 0e5h		;f566
+	defb 0e5h		;f567
+	defb 0e5h		;f568
+	defb 0e5h		;f569
+	defb 0e5h		;f56a
+	defb 0e5h		;f56b
+	defb 0e5h		;f56c
+	defb 0e5h		;f56d
+	defb 0e5h		;f56e
+	defb 0e5h		;f56f
+	defb 0e5h		;f570
+	defb 0e5h		;f571
+	defb 0e5h		;f572
+	defb 0e5h		;f573
+	defb 0e5h		;f574
+	defb 0e5h		;f575
+	defb 0e5h		;f576
+	defb 0e5h		;f577
+	defb 0e5h		;f578
+	defb 0e5h		;f579
+	defb 0e5h		;f57a
+	defb 0e5h		;f57b
+	defb 0e5h		;f57c
+	defb 0e5h		;f57d
+	defb 0e5h		;f57e
+	defb 0e5h		;f57f
+	defb 0e5h		;f580
+	defb 0e5h		;f581
+	defb 0e5h		;f582
+	defb 0e5h		;f583
+	defb 0e5h		;f584
+	defb 0e5h		;f585
+	defb 0e5h		;f586
+	defb 0e5h		;f587
+	defb 0e5h		;f588
+	defb 0e5h		;f589
+	defb 0e5h		;f58a
+	defb 0e5h		;f58b
+	defb 0e5h		;f58c
+	defb 0e5h		;f58d
+	defb 0e5h		;f58e
+	defb 0e5h		;f58f
+	defb 0e5h		;f590
+	defb 0e5h		;f591
+	defb 0e5h		;f592
+	defb 0e5h		;f593
+	defb 0e5h		;f594
+	defb 0e5h		;f595
+	defb 0e5h		;f596
+	defb 0e5h		;f597
+	defb 0e5h		;f598
+	defb 0e5h		;f599
+	defb 0e5h		;f59a
+	defb 0e5h		;f59b
+	defb 0e5h		;f59c
+	defb 0e5h		;f59d
+	defb 0e5h		;f59e
+	defb 0e5h		;f59f
+	defb 0e5h		;f5a0
+	defb 0e5h		;f5a1
+	defb 0e5h		;f5a2
+	defb 0e5h		;f5a3
+	defb 0e5h		;f5a4
+	defb 0e5h		;f5a5
+	defb 0e5h		;f5a6
+	defb 0e5h		;f5a7
+	defb 0e5h		;f5a8
+	defb 0e5h		;f5a9
+	defb 0e5h		;f5aa
+	defb 0e5h		;f5ab
+	defb 0e5h		;f5ac
+	defb 0e5h		;f5ad
+	defb 0e5h		;f5ae
+	defb 0e5h		;f5af
+	defb 0e5h		;f5b0
+	defb 0e5h		;f5b1
+	defb 0e5h		;f5b2
+	defb 0e5h		;f5b3
+	defb 0e5h		;f5b4
+	defb 0e5h		;f5b5
+	defb 0e5h		;f5b6
+	defb 0e5h		;f5b7
+	defb 0e5h		;f5b8
+	defb 0e5h		;f5b9
+	defb 0e5h		;f5ba
+	defb 0e5h		;f5bb
+	defb 0e5h		;f5bc
+	defb 0e5h		;f5bd
+	defb 0e5h		;f5be
+	defb 0e5h		;f5bf
+	defb 0e5h		;f5c0
+	defb 0e5h		;f5c1
+	defb 0e5h		;f5c2
+	defb 0e5h		;f5c3
+	defb 0e5h		;f5c4
+	defb 0e5h		;f5c5
+	defb 0e5h		;f5c6
+	defb 0e5h		;f5c7
+	defb 0e5h		;f5c8
+	defb 0e5h		;f5c9
+	defb 0e5h		;f5ca
+	defb 0e5h		;f5cb
+	defb 0e5h		;f5cc
+	defb 0e5h		;f5cd
+	defb 0e5h		;f5ce
+	defb 0e5h		;f5cf
+	defb 0e5h		;f5d0
+	defb 0e5h		;f5d1
+	defb 0e5h		;f5d2
+	defb 0e5h		;f5d3
+	defb 0e5h		;f5d4
+	defb 0e5h		;f5d5
+	defb 0e5h		;f5d6
+	defb 0e5h		;f5d7
+	defb 0e5h		;f5d8
+	defb 0e5h		;f5d9
+	defb 0e5h		;f5da
+	defb 0e5h		;f5db
+	defb 0e5h		;f5dc
+	defb 0e5h		;f5dd
+	defb 0e5h		;f5de
+	defb 0e5h		;f5df
+	defb 0e5h		;f5e0
+	defb 0e5h		;f5e1
+	defb 0e5h		;f5e2
+	defb 0e5h		;f5e3
+	defb 0e5h		;f5e4
+	defb 0e5h		;f5e5
+	defb 0e5h		;f5e6
+	defb 0e5h		;f5e7
+	defb 0e5h		;f5e8
+	defb 0e5h		;f5e9
+	defb 0e5h		;f5ea
+	defb 0e5h		;f5eb
+	defb 0e5h		;f5ec
+	defb 0e5h		;f5ed
+	defb 0e5h		;f5ee
 lf5efh:
-	nop			;f5ef
+	defb 0e5h		;f5ef
 lf5f0h:
-	nop			;f5f0
-	nop			;f5f1
-	nop			;f5f2
-	nop			;f5f3
-	nop			;f5f4
-	nop			;f5f5
-	nop			;f5f6
-	nop			;f5f7
+	defb 0e5h		;f5f0
+	defb 0e5h		;f5f1
+	defb 0e5h		;f5f2
+	defb 0e5h		;f5f3
+	defb 0e5h		;f5f4
+	defb 0e5h		;f5f5
+	defb 0e5h		;f5f6
+	defb 0e5h		;f5f7
 lf5f8h:
-	nop			;f5f8
+	defb 0e5h		;f5f8
 lf5f9h:
-	nop			;f5f9
-	nop			;f5fa
-	push hl			;f5fb
-	push hl			;f5fc
-	push hl			;f5fd
-	push hl			;f5fe
-	push hl			;f5ff
-	push hl			;f600
-	push hl			;f601
-	push hl			;f602
-	push hl			;f603
-	push hl			;f604
-	push hl			;f605
-	push hl			;f606
-	push hl			;f607
-	push hl			;f608
-	push hl			;f609
-	push hl			;f60a
-	push hl			;f60b
-	push hl			;f60c
-	push hl			;f60d
-	push hl			;f60e
-	push hl			;f60f
-	push hl			;f610
-	push hl			;f611
-	push hl			;f612
-	push hl			;f613
-	ld e,e			;f614
-	jp p,lf32bh		;f615
-	ld c,0d7h		;f618
-	ld b,0cch		;f61a
-	ld a,a			;f61c
-	nop			;f61d
-	ld b,h			;f61e
-	nop			;f61f
+	defb 0e5h		;f5f9
+	defb 0e5h		;f5fa
+	defb 0e5h		;f5fb
+	defb 0e5h		;f5fc
+	defb 0e5h		;f5fd
+	defb 0e5h		;f5fe
+	defb 0e5h		;f5ff
+	defb 0e5h		;f600
+	defb 0e5h		;f601
+	defb 0e5h		;f602
+	defb 0e5h		;f603
+	defb 0e5h		;f604
+	defb 0e5h		;f605
+	defb 0e5h		;f606
+	defb 0e5h		;f607
+	defb 0e5h		;f608
+	defb 0e5h		;f609
+	defb 0e5h		;f60a
+	defb 0e5h		;f60b
+	defb 0e5h		;f60c
+	defb 0e5h		;f60d
+	defb 0e5h		;f60e
+	defb 0e5h		;f60f
+	defb 0e5h		;f610
+	defb 0e5h		;f611
+	defb 0e5h		;f612
+	defb 0e5h		;f613
+	defb 0e5h		;f614
+	defb 0e5h		;f615
+	defb 0e5h		;f616
+	defb 0e5h		;f617
+	defb 0e5h		;f618
+	defb 0e5h		;f619
+	defb 0e5h		;f61a
+	defb 0e5h		;f61b
+	defb 0e5h		;f61c
+	defb 0e5h		;f61d
+	defb 0e5h		;f61e
+	defb 0e5h		;f61f
 lf620h:
-	push hl			;f620
-	push hl			;f621
-	push hl			;f622
-	push hl			;f623
-	push hl			;f624
-	push hl			;f625
-	push hl			;f626
-	push hl			;f627
-	push hl			;f628
-	push hl			;f629
-	push hl			;f62a
-	push hl			;f62b
-	push hl			;f62c
-	push hl			;f62d
-	push hl			;f62e
-	push hl			;f62f
-	push hl			;f630
-	push hl			;f631
-	push hl			;f632
-	push hl			;f633
-	push hl			;f634
-	push hl			;f635
-	push hl			;f636
-	push hl			;f637
-	push hl			;f638
-	push hl			;f639
-	push hl			;f63a
-	push hl			;f63b
-	push hl			;f63c
-	push hl			;f63d
-	push hl			;f63e
-	push hl			;f63f
-	push hl			;f640
-	push hl			;f641
-	push hl			;f642
-	push hl			;f643
-	push hl			;f644
-	push hl			;f645
-	push hl			;f646
-	push hl			;f647
-	push hl			;f648
-	push hl			;f649
-	push hl			;f64a
-	push hl			;f64b
-	push hl			;f64c
-	push hl			;f64d
-	push hl			;f64e
-	push hl			;f64f
-	push hl			;f650
-	push hl			;f651
-	push hl			;f652
-	push hl			;f653
-	push hl			;f654
-	push hl			;f655
-	push hl			;f656
-	push hl			;f657
-	push hl			;f658
-	push hl			;f659
-	push hl			;f65a
-	push hl			;f65b
-	push hl			;f65c
-	push hl			;f65d
-	push hl			;f65e
-	push hl			;f65f
-	push hl			;f660
-	push hl			;f661
-	push hl			;f662
-	push hl			;f663
-	push hl			;f664
-	push hl			;f665
-	push hl			;f666
-	push hl			;f667
-	push hl			;f668
-	push hl			;f669
-	push hl			;f66a
-	push hl			;f66b
-	push hl			;f66c
-	push hl			;f66d
-	push hl			;f66e
-	push hl			;f66f
-	push hl			;f670
-	push hl			;f671
-	ld bc,03e02h		;f672
-	jp (hl)			;f675
-	sub c			;f676
-	jp (hl)			;f677
-	ld a,0d3h		;f678
-	ld a,000h		;f67a
-	ld b,h			;f67c
-	nop			;f67d
-	add hl,sp		;f67e
-	rst 10h			;f67f
+	defb 0e5h		;f620
+	defb 0e5h		;f621
+	defb 0e5h		;f622
+	defb 0e5h		;f623
+	defb 0e5h		;f624
+	defb 0e5h		;f625
+	defb 0e5h		;f626
+	defb 0e5h		;f627
+	defb 0e5h		;f628
+	defb 0e5h		;f629
+	defb 0e5h		;f62a
+	defb 0e5h		;f62b
+	defb 0e5h		;f62c
+	defb 0e5h		;f62d
+	defb 0e5h		;f62e
+	defb 0e5h		;f62f
+	defb 0e5h		;f630
+	defb 0e5h		;f631
+	defb 0e5h		;f632
+	defb 0e5h		;f633
+	defb 0e5h		;f634
+	defb 0e5h		;f635
+	defb 0e5h		;f636
+	defb 0e5h		;f637
+	defb 0e5h		;f638
+	defb 0e5h		;f639
+	defb 0e5h		;f63a
+	defb 0e5h		;f63b
+	defb 0e5h		;f63c
+	defb 0e5h		;f63d
+	defb 0e5h		;f63e
+	defb 0e5h		;f63f
+	defb 0e5h		;f640
+	defb 0e5h		;f641
+	defb 0e5h		;f642
+	defb 0e5h		;f643
+	defb 0e5h		;f644
+	defb 0e5h		;f645
+	defb 0e5h		;f646
+	defb 0e5h		;f647
+	defb 0e5h		;f648
+	defb 0e5h		;f649
+	defb 0e5h		;f64a
+	defb 0e5h		;f64b
+	defb 0e5h		;f64c
+	defb 0e5h		;f64d
+	defb 0e5h		;f64e
+	defb 0e5h		;f64f
+	defb 0e5h		;f650
+	defb 0e5h		;f651
+	defb 0e5h		;f652
+	defb 0e5h		;f653
+	defb 0e5h		;f654
+	defb 0e5h		;f655
+	defb 0e5h		;f656
+	defb 0e5h		;f657
+	defb 0e5h		;f658
+	defb 0e5h		;f659
+	defb 0e5h		;f65a
+	defb 0e5h		;f65b
+	defb 0e5h		;f65c
+	defb 0e5h		;f65d
+	defb 0e5h		;f65e
+	defb 0e5h		;f65f
+	defb 0e5h		;f660
+	defb 0e5h		;f661
+	defb 0e5h		;f662
+	defb 0e5h		;f663
+	defb 0e5h		;f664
+	defb 0e5h		;f665
+	defb 0e5h		;f666
+	defb 0e5h		;f667
+	defb 0e5h		;f668
+	defb 0e5h		;f669
+	defb 0e5h		;f66a
+	defb 0e5h		;f66b
+	defb 0e5h		;f66c
+	defb 0e5h		;f66d
+	defb 0e5h		;f66e
+	defb 0e5h		;f66f
+	defb 0e5h		;f670
+	defb 0e5h		;f671
+	defb 0e5h		;f672
+	defb 0e5h		;f673
+	defb 0e5h		;f674
+	defb 0e5h		;f675
+	defb 0e5h		;f676
+	defb 0e5h		;f677
+	defb 0e5h		;f678
+	defb 0e5h		;f679
+	defb 0e5h		;f67a
+	defb 0e5h		;f67b
+	defb 0e5h		;f67c
+	defb 0e5h		;f67d
+	defb 0e5h		;f67e
+	defb 0e5h		;f67f
 lf680h:
-	nop			;f680
-	ld bc,00302h		;f681
-	inc b			;f684
-	dec b			;f685
-	ld b,007h		;f686
-	ex af,af'		;f688
-	add hl,bc		;f689
-	ld a,(bc)		;f68a
-	dec bc			;f68b
-	inc c			;f68c
-	dec c			;f68d
-	ld c,00fh		;f68e
-	djnz $+19		;f690
-	ld (de),a		;f692
-	inc de			;f693
-	inc d			;f694
-	dec d			;f695
-	ld d,017h		;f696
-	jr $+27			;f698
-	ld a,(de)		;f69a
-	dec de			;f69b
-	inc e			;f69c
-	dec e			;f69d
-	ld e,01fh		;f69e
-	jr nz,lf6c3h		;f6a0
-	ld (02423h),hl		;f6a2
-	dec h			;f6a5
-	ld h,027h		;f6a6
-	jr z,lf6d3h		;f6a8
-	ld hl,(02c2bh)		;f6aa
-	dec l			;f6ad
-	ld l,02fh		;f6ae
-	jr nc,lf6e3h		;f6b0
-	ld (03433h),a		;f6b2
-	dec (hl)		;f6b5
-	ld (hl),037h		;f6b6
-	jr c,lf6f3h		;f6b8
-	ld a,(03c3bh)		;f6ba
-	dec a			;f6bd
-	ld a,03fh		;f6be
-	dec b			;f6c0
-	ld b,c			;f6c1
-	ld b,d			;f6c2
-lf6c3h:
-	ld b,e			;f6c3
-	ld b,h			;f6c4
-	ld b,l			;f6c5
-	ld b,(hl)		;f6c6
-	ld b,a			;f6c7
-	ld c,b			;f6c8
-	ld c,c			;f6c9
-	ld c,d			;f6ca
-	ld c,e			;f6cb
-	ld c,h			;f6cc
-	ld c,l			;f6cd
-	ld c,(hl)		;f6ce
-	ld c,a			;f6cf
-	ld d,b			;f6d0
-	ld d,c			;f6d1
-	ld d,d			;f6d2
-lf6d3h:
-	ld d,e			;f6d3
-	ld d,h			;f6d4
-	ld d,l			;f6d5
-	ld d,(hl)		;f6d6
-	ld d,a			;f6d7
-	ld e,b			;f6d8
-	ld e,c			;f6d9
-	ld e,d			;f6da
-	dec bc			;f6db
-	inc c			;f6dc
-	dec c			;f6dd
-	ld e,(hl)		;f6de
-	ld e,a			;f6df
-	ld d,061h		;f6e0
-	ld h,d			;f6e2
-lf6e3h:
-	ld h,e			;f6e3
-	ld h,h			;f6e4
-	ld h,l			;f6e5
-	ld h,(hl)		;f6e6
-	ld h,a			;f6e7
-	ld l,b			;f6e8
-	ld l,c			;f6e9
-	ld l,d			;f6ea
-	ld l,e			;f6eb
-	ld l,h			;f6ec
-	ld l,l			;f6ed
-	ld l,(hl)		;f6ee
-	ld l,a			;f6ef
-	ld (hl),b		;f6f0
-	ld (hl),c		;f6f1
-	ld (hl),d		;f6f2
-lf6f3h:
-	ld (hl),e		;f6f3
-	ld (hl),h		;f6f4
-	ld (hl),l		;f6f5
-	halt			;f6f6
-	ld (hl),a		;f6f7
-	ld a,b			;f6f8
-	ld a,c			;f6f9
-	ld a,d			;f6fa
-	dec de			;f6fb
-	inc e			;f6fc
-	dec e			;f6fd
-	rrca			;f6fe
-	ld a,a			;f6ff
+	defb 0e5h		;f680
+	defb 0e5h		;f681
+	defb 0e5h		;f682
+	defb 0e5h		;f683
+	defb 0e5h		;f684
+	defb 0e5h		;f685
+	defb 0e5h		;f686
+	defb 0e5h		;f687
+	defb 0e5h		;f688
+	defb 0e5h		;f689
+	defb 0e5h		;f68a
+	defb 0e5h		;f68b
+	defb 0e5h		;f68c
+	defb 0e5h		;f68d
+	defb 0e5h		;f68e
+	defb 0e5h		;f68f
+	defb 0e5h		;f690
+	defb 0e5h		;f691
+	defb 0e5h		;f692
+	defb 0e5h		;f693
+	defb 0e5h		;f694
+	defb 0e5h		;f695
+	defb 0e5h		;f696
+	defb 0e5h		;f697
+	defb 0e5h		;f698
+	defb 0e5h		;f699
+	defb 0e5h		;f69a
+	defb 0e5h		;f69b
+	defb 0e5h		;f69c
+	defb 0e5h		;f69d
+	defb 0e5h		;f69e
+	defb 0e5h		;f69f
+	defb 0e5h		;f6a0
+	defb 0e5h		;f6a1
+	defb 0e5h		;f6a2
+	defb 0e5h		;f6a3
+	defb 0e5h		;f6a4
+	defb 0e5h		;f6a5
+	defb 0e5h		;f6a6
+	defb 0e5h		;f6a7
+	defb 0e5h		;f6a8
+	defb 0e5h		;f6a9
+	defb 0e5h		;f6aa
+	defb 0e5h		;f6ab
+	defb 0e5h		;f6ac
+	defb 0e5h		;f6ad
+	defb 0e5h		;f6ae
+	defb 0e5h		;f6af
+	defb 0e5h		;f6b0
+	defb 0e5h		;f6b1
+	defb 0e5h		;f6b2
+	defb 0e5h		;f6b3
+	defb 0e5h		;f6b4
+	defb 0e5h		;f6b5
+	defb 0e5h		;f6b6
+	defb 0e5h		;f6b7
+	defb 0e5h		;f6b8
+	defb 0e5h		;f6b9
+	defb 0e5h		;f6ba
+	defb 0e5h		;f6bb
+	defb 0e5h		;f6bc
+	defb 0e5h		;f6bd
+	defb 0e5h		;f6be
+	defb 0e5h		;f6bf
+	defb 0e5h		;f6c0
+	defb 0e5h		;f6c1
+	defb 0e5h		;f6c2
+	defb 0e5h		;f6c3
+	defb 0e5h		;f6c4
+	defb 0e5h		;f6c5
+	defb 0e5h		;f6c6
+	defb 0e5h		;f6c7
+	defb 0e5h		;f6c8
+	defb 0e5h		;f6c9
+	defb 0e5h		;f6ca
+	defb 0e5h		;f6cb
+	defb 0e5h		;f6cc
+	defb 0e5h		;f6cd
+	defb 0e5h		;f6ce
+	defb 0e5h		;f6cf
+	defb 0e5h		;f6d0
+	defb 0e5h		;f6d1
+	defb 0e5h		;f6d2
+	defb 0e5h		;f6d3
+	defb 0e5h		;f6d4
+	defb 0e5h		;f6d5
+	defb 0e5h		;f6d6
+	defb 0e5h		;f6d7
+	defb 0e5h		;f6d8
+	defb 0e5h		;f6d9
+	defb 0e5h		;f6da
+	defb 0e5h		;f6db
+	defb 0e5h		;f6dc
+	defb 0e5h		;f6dd
+	defb 0e5h		;f6de
+	defb 0e5h		;f6df
+	defb 0e5h		;f6e0
+	defb 0e5h		;f6e1
+	defb 0e5h		;f6e2
+	defb 0e5h		;f6e3
+	defb 0e5h		;f6e4
+	defb 0e5h		;f6e5
+	defb 0e5h		;f6e6
+	defb 0e5h		;f6e7
+	defb 0e5h		;f6e8
+	defb 0e5h		;f6e9
+	defb 0e5h		;f6ea
+	defb 0e5h		;f6eb
+	defb 0e5h		;f6ec
+	defb 0e5h		;f6ed
+	defb 0e5h		;f6ee
+	defb 0e5h		;f6ef
+	defb 0e5h		;f6f0
+	defb 0e5h		;f6f1
+	defb 0e5h		;f6f2
+	defb 0e5h		;f6f3
+	defb 0e5h		;f6f4
+	defb 0e5h		;f6f5
+	defb 0e5h		;f6f6
+	defb 0e5h		;f6f7
+	defb 0e5h		;f6f8
+	defb 0e5h		;f6f9
+	defb 0e5h		;f6fa
+	defb 0e5h		;f6fb
+	defb 0e5h		;f6fc
+	defb 0e5h		;f6fd
+	defb 0e5h		;f6fe
+	defb 0e5h		;f6ff
 lf700h:
-	nop			;f700
-	ld bc,00302h		;f701
-	inc b			;f704
-	dec b			;f705
-	ld b,007h		;f706
-	ex af,af'		;f708
-	add hl,bc		;f709
-	ld a,(bc)		;f70a
-	dec bc			;f70b
-	inc c			;f70c
-	dec c			;f70d
-	ld c,00fh		;f70e
-	djnz $+19		;f710
-	ld (de),a		;f712
-	inc de			;f713
-	inc d			;f714
-	dec d			;f715
-	ld d,017h		;f716
-	jr $+27			;f718
-	ld a,(de)		;f71a
-	dec de			;f71b
-	inc e			;f71c
-	dec e			;f71d
-	ld e,01fh		;f71e
-	jr nz,lf743h		;f720
-	ld (02423h),hl		;f722
-	dec h			;f725
-	ld h,027h		;f726
-	jr z,lf753h		;f728
-	ld hl,(02c2bh)		;f72a
-	dec l			;f72d
-	ld l,02fh		;f72e
-	jr nc,lf763h		;f730
-	ld (03433h),a		;f732
-	dec (hl)		;f735
-	ld (hl),037h		;f736
-	jr c,lf773h		;f738
-	ld a,(03c3bh)		;f73a
-	dec a			;f73d
-	ld a,03fh		;f73e
-	ld b,b			;f740
-	ld b,c			;f741
-	ld b,d			;f742
-lf743h:
-	ld b,e			;f743
-	ld b,h			;f744
-	ld b,l			;f745
-	ld b,(hl)		;f746
-	ld b,a			;f747
-	ld c,b			;f748
-	ld c,c			;f749
-	ld c,d			;f74a
-	ld c,e			;f74b
-	ld c,h			;f74c
-	ld c,l			;f74d
-	ld c,(hl)		;f74e
-	ld c,a			;f74f
-	ld d,b			;f750
-	ld d,c			;f751
-	ld d,d			;f752
-lf753h:
-	ld d,e			;f753
-	ld d,h			;f754
-	ld d,l			;f755
-	ld d,(hl)		;f756
-	ld d,a			;f757
-	ld e,b			;f758
-	ld e,c			;f759
-	ld e,d			;f75a
-	ld e,e			;f75b
-	ld e,h			;f75c
-	ld e,l			;f75d
-	ld e,(hl)		;f75e
-	ld e,a			;f75f
-	ld h,b			;f760
-	ld h,c			;f761
-	ld h,d			;f762
-lf763h:
-	ld h,e			;f763
-	ld h,h			;f764
-	ld h,l			;f765
-	ld h,(hl)		;f766
-	ld h,a			;f767
-	ld l,b			;f768
-	ld l,c			;f769
-	ld l,d			;f76a
-	ld l,e			;f76b
-	ld l,h			;f76c
-	ld l,l			;f76d
-	ld l,(hl)		;f76e
-	ld l,a			;f76f
-	ld (hl),b		;f770
-	ld (hl),c		;f771
-	ld (hl),d		;f772
-lf773h:
-	ld (hl),e		;f773
-	ld (hl),h		;f774
-	ld (hl),l		;f775
-	halt			;f776
-	ld (hl),a		;f777
-	ld a,b			;f778
-	ld a,c			;f779
-	ld a,d			;f77a
-	ld a,e			;f77b
-	ld a,h			;f77c
-	ld a,l			;f77d
-	ld a,(hl)		;f77e
-	ld a,a			;f77f
-	add a,b			;f780
-	ld bc,00382h		;f781
-	inc b			;f784
-	dec b			;f785
-	add a,(hl)		;f786
-	add a,a			;f787
-	ex af,af'		;f788
-	add hl,bc		;f789
-	ld a,(bc)		;f78a
-	dec bc			;f78b
-	inc c			;f78c
-	dec c			;f78d
-	ld c,08fh		;f78e
-	djnz $-109		;f790
-	sub d			;f792
-	sub e			;f793
-	inc d			;f794
-	dec d			;f795
-	sub (hl)		;f796
-	sub a			;f797
-	jr $+27			;f798
-	ld a,(de)		;f79a
-	dec de			;f79b
-	inc e			;f79c
-	sbc a,l			;f79d
-	ld e,09fh		;f79e
-	jr nz,lf7d3h		;f7a0
-	ld (03433h),a		;f7a2
-	dec (hl)		;f7a5
-	ld (hl),037h		;f7a6
-	jr c,$+59		;f7a8
-	xor d			;f7aa
-	jr nc,lf7dah		;f7ab
-	xor l			;f7ad
-	ld l,08bh		;f7ae
-	jr nc,$+51		;f7b0
-	ld (03433h),a		;f7b2
-	dec (hl)		;f7b5
-	ld (hl),037h		;f7b6
-	jr c,lf7f3h		;f7b8
-	cp d			;f7ba
-	jr nc,lf7eah		;f7bb
-	cp l			;f7bd
-	ld l,083h		;f7be
-	ld (de),a		;f7c0
-	add a,(hl)		;f7c1
-	jp nz,0c4c3h		;f7c2
-	push bc			;f7c5
-	add a,d			;f7c6
-	rst 0			;f7c7
-	ex af,af'		;f7c8
-	add hl,bc		;f7c9
-	ld a,(bc)		;f7ca
-	add a,h			;f7cb
-	add a,l			;f7cc
-	call 0cfceh		;f7cd
-	add a,c			;f7d0
-	pop de			;f7d1
-	add a,a			;f7d2
-lf7d3h:
-	out (0d4h),a		;f7d3
-	push de			;f7d5
-	add a,b			;f7d6
-	rst 10h			;f7d7
-	jr $-37			;f7d8
-lf7dah:
-	ld a,(de)		;f7da
-	in a,(0dch)		;f7db
-	defb 0ddh,0deh,030h ;illegal sequence	;f7dd
-	ret po			;f7e0
-	adc a,(hl)		;f7e1
-	jp po,0e4e3h		;f7e2
-	push hl			;f7e5
-	adc a,d			;f7e6
-	rst 20h			;f7e7
-	ret pe			;f7e8
-	jp (hl)			;f7e9
-lf7eah:
-	jp pe,08d8ch		;f7ea
-	defb 0edh ;next byte illegal after ed	;f7ed
-	xor 0efh		;f7ee
-	adc a,c			;f7f0
-	pop af			;f7f1
-	adc a,a			;f7f2
-lf7f3h:
-	di			;f7f3
-	call p,088f5h		;f7f4
-	rst 30h			;f7f7
-	ret m			;f7f8
-	ld sp,hl		;f7f9
-	jp m,0fcfbh		;f7fa
-	defb 0fdh,0feh,07fh	;f7fd
+	defb 0e5h		;f700
+	defb 0e5h		;f701
+	defb 0e5h		;f702
+	defb 0e5h		;f703
+	defb 0e5h		;f704
+	defb 0e5h		;f705
+	defb 0e5h		;f706
+	defb 0e5h		;f707
+	defb 0e5h		;f708
+	defb 0e5h		;f709
+	defb 0e5h		;f70a
+	defb 0e5h		;f70b
+	defb 0e5h		;f70c
+	defb 0e5h		;f70d
+	defb 0e5h		;f70e
+	defb 0e5h		;f70f
+	defb 0e5h		;f710
+	defb 0e5h		;f711
+	defb 0e5h		;f712
+	defb 0e5h		;f713
+	defb 0e5h		;f714
+	defb 0e5h		;f715
+	defb 0e5h		;f716
+	defb 0e5h		;f717
+	defb 0e5h		;f718
+	defb 0e5h		;f719
+	defb 0e5h		;f71a
+	defb 0e5h		;f71b
+	defb 0e5h		;f71c
+	defb 0e5h		;f71d
+	defb 0e5h		;f71e
+	defb 0e5h		;f71f
+	defb 0e5h		;f720
+	defb 0e5h		;f721
+	defb 0e5h		;f722
+	defb 0e5h		;f723
+	defb 0e5h		;f724
+	defb 0e5h		;f725
+	defb 0e5h		;f726
+	defb 0e5h		;f727
+	defb 0e5h		;f728
+	defb 0e5h		;f729
+	defb 0e5h		;f72a
+	defb 0e5h		;f72b
+	defb 0e5h		;f72c
+	defb 0e5h		;f72d
+	defb 0e5h		;f72e
+	defb 0e5h		;f72f
+	defb 0e5h		;f730
+	defb 0e5h		;f731
+	defb 0e5h		;f732
+	defb 0e5h		;f733
+	defb 0e5h		;f734
+	defb 0e5h		;f735
+	defb 0e5h		;f736
+	defb 0e5h		;f737
+	defb 0e5h		;f738
+	defb 0e5h		;f739
+	defb 0e5h		;f73a
+	defb 0e5h		;f73b
+	defb 0e5h		;f73c
+	defb 0e5h		;f73d
+	defb 0e5h		;f73e
+	defb 0e5h		;f73f
+	defb 0e5h		;f740
+	defb 0e5h		;f741
+	defb 0e5h		;f742
+	defb 0e5h		;f743
+	defb 0e5h		;f744
+	defb 0e5h		;f745
+	defb 0e5h		;f746
+	defb 0e5h		;f747
+	defb 0e5h		;f748
+	defb 0e5h		;f749
+	defb 0e5h		;f74a
+	defb 0e5h		;f74b
+	defb 0e5h		;f74c
+	defb 0e5h		;f74d
+	defb 0e5h		;f74e
+	defb 0e5h		;f74f
+	defb 0e5h		;f750
+	defb 0e5h		;f751
+	defb 0e5h		;f752
+	defb 0e5h		;f753
+	defb 0e5h		;f754
+	defb 0e5h		;f755
+	defb 0e5h		;f756
+	defb 0e5h		;f757
+	defb 0e5h		;f758
+	defb 0e5h		;f759
+	defb 0e5h		;f75a
+	defb 0e5h		;f75b
+	defb 0e5h		;f75c
+	defb 0e5h		;f75d
+	defb 0e5h		;f75e
+	defb 0e5h		;f75f
+	defb 0e5h		;f760
+	defb 0e5h		;f761
+	defb 0e5h		;f762
+	defb 0e5h		;f763
+	defb 0e5h		;f764
+	defb 0e5h		;f765
+	defb 0e5h		;f766
+	defb 0e5h		;f767
+	defb 0e5h		;f768
+	defb 0e5h		;f769
+	defb 0e5h		;f76a
+	defb 0e5h		;f76b
+	defb 0e5h		;f76c
+	defb 0e5h		;f76d
+	defb 0e5h		;f76e
+	defb 0e5h		;f76f
+	defb 0e5h		;f770
+	defb 0e5h		;f771
+	defb 0e5h		;f772
+	defb 0e5h		;f773
+	defb 0e5h		;f774
+	defb 0e5h		;f775
+	defb 0e5h		;f776
+	defb 0e5h		;f777
+	defb 0e5h		;f778
+	defb 0e5h		;f779
+	defb 0e5h		;f77a
+	defb 0e5h		;f77b
+	defb 0e5h		;f77c
+	defb 0e5h		;f77d
+	defb 0e5h		;f77e
+	defb 0e5h		;f77f
+	defb 0e5h		;f780
+	defb 0e5h		;f781
+	defb 0e5h		;f782
+	defb 0e5h		;f783
+	defb 0e5h		;f784
+	defb 0e5h		;f785
+	defb 0e5h		;f786
+	defb 0e5h		;f787
+	defb 0e5h		;f788
+	defb 0e5h		;f789
+	defb 0e5h		;f78a
+	defb 0e5h		;f78b
+	defb 0e5h		;f78c
+	defb 0e5h		;f78d
+	defb 0e5h		;f78e
+	defb 0e5h		;f78f
+	defb 0e5h		;f790
+	defb 0e5h		;f791
+	defb 0e5h		;f792
+	defb 0e5h		;f793
+	defb 0e5h		;f794
+	defb 0e5h		;f795
+	defb 0e5h		;f796
+	defb 0e5h		;f797
+	defb 0e5h		;f798
+	defb 0e5h		;f799
+	defb 0e5h		;f79a
+	defb 0e5h		;f79b
+	defb 0e5h		;f79c
+	defb 0e5h		;f79d
+	defb 0e5h		;f79e
+	defb 0e5h		;f79f
+	defb 0e5h		;f7a0
+	defb 0e5h		;f7a1
+	defb 0e5h		;f7a2
+	defb 0e5h		;f7a3
+	defb 0e5h		;f7a4
+	defb 0e5h		;f7a5
+	defb 0e5h		;f7a6
+	defb 0e5h		;f7a7
+	defb 0e5h		;f7a8
+	defb 0e5h		;f7a9
+	defb 0e5h		;f7aa
+	defb 0e5h		;f7ab
+	defb 0e5h		;f7ac
+	defb 0e5h		;f7ad
+	defb 0e5h		;f7ae
+	defb 0e5h		;f7af
+	defb 0e5h		;f7b0
+	defb 0e5h		;f7b1
+	defb 0e5h		;f7b2
+	defb 0e5h		;f7b3
+	defb 0e5h		;f7b4
+	defb 0e5h		;f7b5
+	defb 0e5h		;f7b6
+	defb 0e5h		;f7b7
+	defb 0e5h		;f7b8
+	defb 0e5h		;f7b9
+	defb 0e5h		;f7ba
+	defb 0e5h		;f7bb
+	defb 0e5h		;f7bc
+	defb 0e5h		;f7bd
+	defb 0e5h		;f7be
+	defb 0e5h		;f7bf
+	defb 0e5h		;f7c0
+	defb 0e5h		;f7c1
+	defb 0e5h		;f7c2
+	defb 0e5h		;f7c3
+	defb 0e5h		;f7c4
+	defb 0e5h		;f7c5
+	defb 0e5h		;f7c6
+	defb 0e5h		;f7c7
+	defb 0e5h		;f7c8
+	defb 0e5h		;f7c9
+	defb 0e5h		;f7ca
+	defb 0e5h		;f7cb
+	defb 0e5h		;f7cc
+	defb 0e5h		;f7cd
+	defb 0e5h		;f7ce
+	defb 0e5h		;f7cf
+	defb 0e5h		;f7d0
+	defb 0e5h		;f7d1
+	defb 0e5h		;f7d2
+	defb 0e5h		;f7d3
+	defb 0e5h		;f7d4
+	defb 0e5h		;f7d5
+	defb 0e5h		;f7d6
+	defb 0e5h		;f7d7
+	defb 0e5h		;f7d8
+	defb 0e5h		;f7d9
+	defb 0e5h		;f7da
+	defb 0e5h		;f7db
+	defb 0e5h		;f7dc
+	defb 0e5h		;f7dd
+	defb 0e5h		;f7de
+	defb 0e5h		;f7df
+	defb 0e5h		;f7e0
+	defb 0e5h		;f7e1
+	defb 0e5h		;f7e2
+	defb 0e5h		;f7e3
+	defb 0e5h		;f7e4
+	defb 0e5h		;f7e5
+	defb 0e5h		;f7e6
+	defb 0e5h		;f7e7
+	defb 0e5h		;f7e8
+	defb 0e5h		;f7e9
+	defb 0e5h		;f7ea
+	defb 0e5h		;f7eb
+	defb 0e5h		;f7ec
+	defb 0e5h		;f7ed
+	defb 0e5h		;f7ee
+	defb 0e5h		;f7ef
+	defb 0e5h		;f7f0
+	defb 0e5h		;f7f1
+	defb 0e5h		;f7f2
+	defb 0e5h		;f7f3
+	defb 0e5h		;f7f4
+	defb 0e5h		;f7f5
+	defb 0e5h		;f7f6
+	defb 0e5h		;f7f7
+	defb 0e5h		;f7f8
+	defb 0e5h		;f7f9
+	defb 0e5h		;f7fa
+	defb 0e5h		;f7fb
+	defb 0e5h		;f7fc
+	defb 0e5h		;f7fd
+	defb 0e5h		;f7fe
+trailing_end:
+	push hl			;f7ff
+DSPSTR:
