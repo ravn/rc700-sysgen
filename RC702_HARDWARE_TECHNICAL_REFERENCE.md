@@ -3,9 +3,9 @@
 
 This document provides comprehensive technical information about the RC702 hardware architecture, specifically focused on aspects relevant to the SYSGEN utility and ROA375 autoload ROM development.
 
-**Document Version:** 1.0
-**Date:** 2026-02-07
-**Sources:** Analysis of jbox.dk RC702 documentation, ROB358.MAC, and SYSGEN.ASM
+**Document Version:** 1.1
+**Date:** 2026-02-20
+**Sources:** Analysis of jbox.dk RC702 documentation, ROB358.MAC, SYSGEN.ASM, and CP/M for RC702 User's Guide (RCSL No 42-i2190)
 
 ---
 
@@ -17,6 +17,9 @@ This document provides comprehensive technical information about the RC702 hardw
 4. [Floppy Disk Format Specifications](#floppy-disk-format-specifications)
 5. [Boot and Initialization Sequence](#boot-and-initialization-sequence)
 6. [Hardware Controllers](#hardware-controllers)
+   - [Display Control Character Protocol](#display-control-character-protocol)
+   - [Keyboard](#keyboard)
+   - [Peripheral Handshake](#peripheral-handshake)
 7. [Multi-Density Disk Support](#multi-density-disk-support)
 
 ---
@@ -238,10 +241,35 @@ This is the primary format used for CP/M operation on the RC702 system with maxi
 
 ### CP/M Logical Structure
 
-- **Block size:** 2,048 bytes (2KB) = 4 sectors of 512 bytes
-- **Directory location:** First two blocks on Track 2
-- **Reserved tracks:** Track 0 and Track 1 (boot and system)
-- **Data area:** Tracks 2-34
+From CP/M for RC702 User's Guide, Appendix E:
+
+**5.25" Mini System Diskette:**
+- **Block size:** 2,048 bytes (2 KB)
+- **Directory entries:** 128
+- **Reserved cylinders:** 2 (Track 0 + Track 1)
+- **Drive capacity:** 270 KB in 2 KB blocks
+- **Sector interleave:** 2:1, zero track-to-track skew
+- **Recommended media:** Verbatim MD550-01-1818E
+
+**8" Maxi System Diskette:**
+- **Block size:** 2,048 bytes (2 KB)
+- **Directory entries:** 128
+- **Reserved cylinders:** 2
+- **Drive capacity:** 900 KB in 2 KB blocks
+- **Sector interleave:** 4:1, zero track-to-track skew
+- **Recommended media:** 3M 743-0-512
+
+**8" Data Diskette (Standard Exchange Format):**
+- SS/SD, 128 bytes/sector, 26 sectors/track, 77 cylinders
+- **Block size:** 1 KB
+- **Directory entries:** 64
+- **Reserved tracks:** 2
+- **Drive capacity:** 241 KB
+- **Sector interleave:** 6:1, zero track-to-track skew
+- **Recommended media:** 3M-740/2-0
+
+The data diskette exchange format uses single-sided single-density for
+maximum compatibility with other CP/M systems.
 
 ### 8" Floppy Disk Formats
 
@@ -588,6 +616,96 @@ The 8275 is a single-chip CRT controller that manages raster scan displays.
 5. Configure DMA parameters
 6. Start display
 
+### Display Control Character Protocol
+
+The BIOS display driver (CONOUT) interprets control characters before sending
+data to the 8275 CRT controller.  Documented in CP/M for RC702 User's Guide,
+Appendix B.
+
+#### Control Characters
+
+| Code | Dec | Function |
+|------|-----|----------|
+| 0x01 | 1 | Insert line at cursor, scroll remainder down |
+| 0x02 | 2 | Delete line at cursor, scroll remainder up |
+| 0x05 | 5 | Cursor left (backspace) |
+| 0x06 | 6 | XY addressing: followed by H+0x20, V+0x20 |
+| 0x08 | 8 | Cursor left (backspace, same as 0x05) |
+| 0x09 | 9 | Cursor 4 positions forward (tab) |
+| 0x0A | 10 | Cursor down (line feed) |
+| 0x0C | 12 | Clear screen, reset attributes, cursor to (0,0) |
+| 0x0D | 13 | Cursor to column 0 on current line (carriage return) |
+| 0x14 | 20 | Mark subsequent characters as background |
+| 0x15 | 21 | Mark subsequent characters as foreground |
+| 0x17 | 23 | Delete foreground characters without affecting background |
+| 0x18 | 24 | Cursor right (forward-space) |
+| 0x1A | 26 | Cursor up |
+| 0x1D | 29 | Cursor to (0,0) home position |
+| 0x1E | 30 | Erase from cursor to end of line |
+| 0x1F | 31 | Erase from cursor to end of screen |
+
+#### XY Cursor Addressing
+
+Control character 6 followed by two position bytes:
+- Byte 1: horizontal position + 0x20 (column 0 → 0x20, column 79 → 0x6F)
+- Byte 2: vertical position + 0x20 (row 0 → 0x20, row 24 → 0x38)
+
+Screen coordinates: (0,0) = upper left, (79,24) = lower right.  The 80×25
+display area is confirmed.  Cursor addressing order (H,V vs V,H) is
+configurable via CONFI.COM (stored in BIOS ADRMOD byte at BIOS+0x33).
+
+#### Display Attributes
+
+Each character position has an attribute byte.  Attribute value = 128 + sum
+of active attributes:
+
+| Value | Hex | Effect |
+|-------|-----|--------|
+| 2 | 0x02 | Blinking |
+| 4 | 0x04 | Semigraphic (alternate character generator ROM ROA327) |
+| 16 | 0x10 | Inverse video |
+| 32 | 0x20 | Underscore |
+
+Attributes combine additively: e.g., blinking inverse = 128 + 2 + 16 = 146.
+"Set attribute" sends 128 + value; "reset attribute" sends 128 (no attributes).
+
+### Keyboard
+
+The RC702 keyboard is a smart peripheral that provides ready-to-use 8-bit
+character codes via PIO Port A (0x10).  No scan code processing is needed on
+the host side.
+
+Two keyboard layouts were produced:
+- **RC721**: early production
+- **RC722**: later production
+
+The keyboard conversion table translates raw key codes to application
+characters.  The table base address depends on disk format:
+- Mini (5.25") diskette systems: **0x2E80**
+- Maxi (8") diskette systems: **0x4680**
+
+The conversion table is part of the CP/M system image loaded from Track 0
+and can be switched between 7 language variants via CONFI.COM (Danish,
+Swedish, German, UK ASCII, US ASCII, French, Library).
+
+### Peripheral Handshake
+
+#### Printer Port (SIO Channel A)
+
+Serial interface with RTS/CTS busy handshake:
+1. DTR is asserted
+2. RTS is asserted
+3. CTS from the printer gates TXD (transmission)
+
+When CTS is deasserted (printer busy), the SIO holds transmission until
+CTS is reasserted.  The SIO "Auto Enables" feature (WR3 bit 5) handles
+this automatically.
+
+#### Terminal Port (SIO Channel B)
+
+- **Transmitter**: same RTS/CTS handshake as printer port
+- **Receiver**: uses DCD (Data Carrier Detect) signal to enable receiving
+
 ---
 
 ## Multi-Density Disk Support
@@ -775,6 +893,7 @@ When developing or modifying the ROA375 autoload ROM:
 
 ### Primary Sources
 
+- **CP/M for RC702 User's Guide:** RCSL No 42-i2190, January 1983, A/S Regnecentralen — [Datamuseum.dk](https://datamuseum.dk/wiki/Bits:30009385) (display protocol, CONFI.COM parameters, disk formats, extended BIOS functions)
 - **RC702 Boot Process:** [http://www.jbox.dk/rc702/boot.shtm](http://www.jbox.dk/rc702/boot.shtm)
 - **RC702 Emulator Hardware Specs:** [http://www.jbox.dk/rc702/emulator.shtm](http://www.jbox.dk/rc702/emulator.shtm)
 - **RC700 CP/M BIOS:** [http://www.jbox.dk/rc702/rcbios.shtm](http://www.jbox.dk/rc702/rcbios.shtm)
@@ -817,6 +936,7 @@ When developing or modifying the ROA375 autoload ROM:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-02-07 | Analysis | Initial document creation from jbox.dk sources and source code analysis |
+| 1.1 | 2026-02-20 | Analysis | Added display control chars, keyboard, peripheral handshake, CP/M disk params from User's Guide |
 
 ---
 

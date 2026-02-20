@@ -800,6 +800,68 @@ At BIOS+0x33, configuration bytes and additional JP vectors:
 
 In the 56K rel.2.1 BIOS, FD0=0x20 (mini format), FD1-FD14=0xFF (not present).
 
+### Extended BIOS Function Calling Conventions
+
+The extended BIOS functions are called directly via `CALL` to absolute addresses
+(not through BDOS).  Register conventions documented in the CP/M for RC702
+User's Guide (RCSL No 42-i2190, Appendix A / Section 4.4).
+
+#### CLOCK — Real-Time Clock (BIOS+56h / JP at +0x56)
+
+32-bit real-time clock, incremented in steps of 20 ms by the display refresh ISR.
+
+```
+SET CLOCK:  A=0, DE=2 least significant bytes, HL=2 most significant bytes
+GET CLOCK:  A=1, returns DE=2 LSB, HL=2 MSB
+```
+
+For 56K CP/M: `CALL 0DA56H`.  The clock value is stored at RTC0 (0xFFFC, 4 bytes).
+
+#### EXIT — Periodic Callback (BIOS+53h / JP at +0x53)
+
+Defines a routine to be called periodically from the display refresh ISR.
+
+```
+Entry:  HL = address of user routine
+        DE = interval count (in 20 ms units)
+```
+
+After `count × 20 ms`, the routine at (HL) is called as an interrupt service
+routine — it must not enable interrupts and should keep processing minimal.
+The BIOS supports two independent EXIT routines (EXCNT0/EXCNT1).
+
+#### LINSEL — Line Selector Control (BIOS+50h / JP at +0x50)
+
+Controls the RC791 Line Selector (Linieselektor) for serial port multiplexing.
+
+```
+Entry:  A = port (0 = terminal/SIO Ch.A, 1 = printer/SIO Ch.B)
+        B = function (0 = release line, 1 = select Line A, 2 = select Line B)
+        C = irrelevant
+Return: A = 0xFF if selection OK, 0x00 if line busy
+```
+
+Selection is automatically preceded by a release.  The line should be released
+after use.  Uses SIO WR5 DTR/RTS signals for the handshake protocol.
+
+#### READS — Reader Status (BIOS+4Dh / JP at +0x4D)
+
+Tests reader (serial input) status, analogous to CP/M BDOS function 11
+(console status).
+
+```
+Return: A = 0xFF if character available, 0x00 if none
+```
+
+#### WFITR — Wait for Floppy Interrupt (BIOS+4Ah / JP at +0x4A)
+
+Entry point used by the FORMAT utility to wait for floppy controller interrupt
+completion.
+
+#### HRDFMT — Hard Disk Format (BIOS+59h / JP at +0x59)
+
+Entry point for hard disk track formatting.
+
 ---
 
 ## Interrupt Vector Table (page 0xEC for 56K)
@@ -922,19 +984,132 @@ images** — it may have been on a separate utility disk.
 **CONFIX.COM** found on the rel.2.2 disk image only.  May be an extended
 version of CONFI.COM, or may belong to a different utility suite.
 
-Known CONFI.COM-configurable parameters:
+### Official CONFI.COM Parameter Menu
+
+The complete parameter set is documented in the CP/M for RC702 User's Guide
+(RCSL No 42-i2190, Appendix G).  Default values marked with *.
+
+#### G.1 Printer Port (SIO Channel A)
+
+| Parameter | Options | Config location |
+|-----------|---------|-----------------|
+| G.1.1 Stop bits | 1=1 bit*, 2=1.5 bits, 3=2 bits | SIO-A WR4 (config +0x0A) |
+| G.1.2 Parity | 1=even*, 2=none, 3=odd | SIO-A WR4 (config +0x0A) |
+| G.1.3 Baud rate | 1=50, 2=75, 3=110, 4=150, 5=300, 6=600, 7=1200*, 8=2400, 9=4800, 10=9600, 11=19200 | CTC Ch.0 (config +0x00) + SIO-A WR4 |
+| G.1.4 Bits/char | 1=5, 2=6, 3=7*, 4=8 | SIO-A WR3/WR5 (config +0x0C/+0x0E) |
+
+#### G.2 Terminal Port (SIO Channel B)
+
+| Parameter | Options | Config location |
+|-----------|---------|-----------------|
+| G.2.1 Stop bits | Same as G.1.1 (default: 1 bit) | SIO-B WR4 (config +0x15) |
+| G.2.2 Parity | Same as G.1.2 (default: even) | SIO-B WR4 (config +0x15) |
+| G.2.3 Baud rate | Same as G.1.3 (default: 1200) | CTC Ch.1 (config +0x02) + SIO-B WR4 |
+| G.2.4 Bits/char Tx | Same as G.1.4 (default: 7) | SIO-B WR5 (config +0x18) |
+| G.2.5 Bits/char Rx | Same as G.1.4 (default: 7) | SIO-B WR3 (config +0x16) |
+
+The terminal port has separate Tx and Rx character width settings.
+
+#### G.3 Conversion Tables
+
+| Option | Language |
+|--------|----------|
+| 1 | Danish |
+| 2 | Swedish |
+| 3 | German |
+| 4 | UK ASCII |
+| 5 | US ASCII* |
+| 6 | French |
+| 7 | Library |
+
+Changes the output and input character conversion tables (config sectors 3-4,
+disk offsets 0x0100-0x01FF).
+
+#### G.4 Cursor Presentation
+
+| Parameter | Options |
+|-----------|---------|
+| G.4.1 Format | 1=blinking reverse video*, 2=blinking underline, 3=reverse video, 4=underline |
+| G.4.2 Addressing | 1=H,V (horizontal,vertical)*, 2=V,H (vertical,horizontal) |
+
+Cursor format modifies 8275 PAR4 byte (config +0x23).  Addressing order
+modifies ADRMOD byte (BIOS+0x33).
+
+#### G.5 Mini Motor Stop Timer
+
+Range: 5–1200 seconds.  Default: 5 seconds.  Controls how long the 5.25"
+floppy motor runs after the last disk access before being powered down.
+
+### Config Block ↔ CONFI.COM Mapping
+
+Summary of which config block fields each CONFI.COM parameter modifies:
+
 - **Baud rates**: CTC time constants (config +0x00/+0x02) **and** SIO WR4
   clock divisor (config +0x0A/+0x15) — both must change together when
   crossing the 300/600 baud boundary (×64 below, ×16 above)
 - **CRT display**: character height (lines/char), cursor shape (line/block),
   cursor blink (on/off) — via 8275 PAR4 byte (config +0x23)
-- **Character mapping**: Danish/Norwegian vs ASCII output conversion table
-  (config sector 3, disk offset 0x0100)
+- **Character mapping**: output and input conversion tables
+  (config sectors 3-4, disk offsets 0x0100-0x01FF)
 - **FDC timing**: step rate, head load time, head unload time (config +0x28)
 - **Drive configuration**: mini/maxi format, drive presence table (config +0x2F)
 
-Future work: disassemble CONFIX.COM to determine exact field layout and
-user interface for configuration changes.
+**CONFIX.COM** found on the rel.2.2 disk image only.  May be an extended
+version of CONFI.COM, or may belong to a different utility suite.  Not yet
+disassembled.
+
+---
+
+## Hard Disk Configurations (RC763)
+
+From CP/M for RC702 User's Guide, Appendix H.  The RC763 hard disk is
+configurable via the HDINST command into 4 partition layouts.  These
+correspond to the drive format entries FD5-FD9 in CPMBOOT.MAC (Winchester
+disk types at format codes 32, 40, 48, 56, 64).
+
+### Partition Layouts
+
+| Config | Drive C (floppy) | Drive D | Drive E | Drive F | Drive G |
+|--------|-----------------|---------|---------|---------|---------|
+| 1 | 0.270 / 0.900 MB | 7.920 MB | — | — | — |
+| 2 | 0.270 / 0.900 MB | 3.936 MB | 3.936 MB | — | — |
+| 3 | 0.270 / 0.900 MB | 1.968 MB | 1.968 MB | 3.936 MB | — |
+| 4 | 0.270 / 0.900 MB | 1.968 MB | 1.968 MB | 1.968 MB | 1.968 MB |
+
+Drive C is always floppy (0.270 MB for mini, 0.900 MB for maxi).
+
+### Disk Size → CP/M Parameters
+
+| Capacity (MB) | Block size | Directory entries | DISKTAB.MAC format |
+|----------------|-----------|-------------------|-------------------|
+| 0.270 | 2 KB | 128 | Mini floppy DPB |
+| 0.900 | 2 KB | 128 | Maxi floppy DPB |
+| 1.968 | 4 KB | 512 | FD7 (code 48) |
+| 3.936 | 8 KB | 512 | FD8 (code 56) |
+| 7.920 | 16 KB | 512 | FD9 (code 64) |
+
+The rel.2.2 DISKTAB.MAC TRKOFF change (drive D offset from 27 to 255) may
+relate to partition reconfiguration.
+
+---
+
+## System Diskette Generation
+
+From CP/M for RC702 User's Guide, Appendix C.  After patching BIOS/BDOS/CCP
+as desired, the system is written to disk using SYSGEN:
+
+1. Format diskette with FORMAT
+2. Copy existing system using BACKUP, delete unwanted files with ERA
+3. Write BIOS+BDOS+CCP using SYSGEN
+
+**SYSGEN SAVE page counts** (256 bytes per page):
+- Mini (5.25"): **68 pages** = 17,408 bytes
+- Maxi (8"): **107 pages** = 27,392 bytes
+
+These sizes represent the combined CCP + BDOS + BIOS image.  For 56K systems:
+CCP starts at 0xC400, BIOS ends near 0xF500, giving ~12,544 bytes for the
+56K resident code.  The difference between resident size and SAVE size accounts
+for Track 0 config blocks and INIT code that are overwritten after boot.
 
 ---
 
