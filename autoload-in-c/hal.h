@@ -128,9 +128,8 @@ __sfr __at 0xFC _port_dma_clbp;
 #define hal_crt_command(d)          (_port_crt_cmd = (d))
 #define hal_crt_status()            (_port_crt_cmd)
 
-/* Implemented in crt0.asm — avoids sccz80 inline asm compatibility issues */
-void hal_ei(void);
-void hal_di(void);
+#define hal_ei()  __asm ei __endasm
+#define hal_di()  __asm di __endasm
 
 /* CTC channel writes — direct port I/O, no switch overhead */
 #define hal_ctc_write(ch, d) do { \

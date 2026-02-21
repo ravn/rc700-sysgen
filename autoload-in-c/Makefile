@@ -43,11 +43,12 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -pragma-define:CRT_ORG_BSS=0x8000 \
          -m --list -create-app
 
-rom: crt0.asm rom_all.c boot_entry.c boot.c fdc.c fmt.c isr.c peephole.def
+rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
-	$(ZCC) $(ZFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg NMI"  -c nmi.c       -o nmi.o && \
+	$(ZCC) $(ZFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o nmi.o
 	@ls -la roa375_BOOT.bin roa375_NMI.bin roa375_CODE.bin 2>/dev/null
 	@BOOT=$$(wc -c < roa375_BOOT.bin); \
 	 NMI=$$(wc -c < roa375_NMI.bin); \

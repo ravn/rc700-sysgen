@@ -119,18 +119,12 @@ void errdsp(uint8_t code) {
  * HL+2 = 0x0008.  This C translation makes the offsets explicit.
  *
  * b7_cmp6/b7_chksys are C (pointer-increment avoids IX frame).
- * The "SYSM"/"SYSC" strings live in the crt0.asm alignment gap.
  *
  * Uses one file-scope global (b7_dir) to avoid IX frame pointer.
  * Uses goto for shared error paths to avoid duplicate halt_msg calls.
  */
-#ifdef HOST_TEST
 static const char b7_sysm[] = "SYSM";
 static const char b7_sysc[] = "SYSC";
-#else
-extern const char b7_sysm[];  /* in crt0.asm alignment gap */
-extern const char b7_sysc[];
-#endif
 
 static uint8_t *b7_dir;
 
