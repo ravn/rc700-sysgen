@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Extract BIOS regions from RC702 RAM dumps."""
+"""Extract BIOS regions from RC702 RAM dumps.
 
-import struct
+Usage: python3 extract_bios.py [output_dir]
+"""
+
+import os
+import sys
 
 DUMPS = [
     ('rccpm22_ram.bin',     'rccpm22_bios.bin',     0xDA00),
@@ -10,6 +14,8 @@ DUMPS = [
 ]
 
 DISPLAY_BUFFER = 0xF800
+
+out_dir = sys.argv[1] if len(sys.argv) > 1 else ''
 
 for ram_file, bios_file, base in DUMPS:
     try:
@@ -24,5 +30,6 @@ for ram_file, bios_file, base in DUMPS:
         end -= 1
 
     bios = d[base:end]
-    open(bios_file, 'wb').write(bios)
-    print(f"  {bios_file}: {len(bios)} bytes (0x{base:04X}-0x{end - 1:04X})")
+    out_path = os.path.join(out_dir, bios_file)
+    open(out_path, 'wb').write(bios)
+    print(f"  {out_path}: {len(bios)} bytes (0x{base:04X}-0x{end - 1:04X})")

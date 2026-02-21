@@ -34,7 +34,7 @@ IMG_SW1711  = $(HOME)/Downloads/SW1711-I8.imd
 DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 
 # BIOS binaries and disassemblies
-BIOS_BINS = rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin
+BIOS_BINS = ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
 .PHONY: all rel21-mini rel22-mini rel23-maxi rel14-maxi verify dumps bios disasm clean emu patch-test
@@ -67,13 +67,13 @@ rel14-maxi: src/BIOS.MAC
 verify: verify-rel21-mini verify-rel22-mini verify-rel23-maxi verify-rel14-maxi
 
 verify-rel21-mini: rel21-mini
-	python3 verify_bios.py zout/BIOS.hex rccpm22_bios.bin $(BIOS_OFFSET_56K)
+	python3 verify_bios.py zout/BIOS.hex ref/rccpm22_bios.bin $(BIOS_OFFSET_56K)
 
 verify-rel22-mini: rel22-mini
-	python3 verify_bios.py zout/BIOS.hex cpm22_rel22_bios.bin $(BIOS_OFFSET_56K)
+	python3 verify_bios.py zout/BIOS.hex ref/cpm22_rel22_bios.bin $(BIOS_OFFSET_56K)
 
 verify-rel23-maxi: rel23-maxi
-	python3 verify_bios.py zout/BIOS.hex sw1711_rel23_bios.bin $(BIOS_OFFSET_56K)
+	python3 verify_bios.py zout/BIOS.hex ref/sw1711_rel23_bios.bin $(BIOS_OFFSET_56K)
 
 # The rel.1.4 build is functionally equivalent but NOT byte-identical
 # to the original disk image, which was an independently written codebase.
@@ -115,26 +115,26 @@ compas_ram.bin: $(EMU) $(IMG_COMPAS)
 # Extract BIOS binaries from RAM dumps
 bios: $(BIOS_BINS)
 
-rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin: extract_bios.py $(DUMPS)
-	python3 extract_bios.py
+ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin: extract_bios.py $(DUMPS)
+	python3 extract_bios.py ref/
 
 # Extract rel.1.4 BIOS from disk image (Track 0)
-rel14_bios_disk.bin: imd2raw.py $(IMG_COMPAS)
-	python3 imd2raw.py $(IMG_COMPAS) compas_disk_t0.bin
-	python3 -c "d=open('compas_disk_t0.bin','rb').read(); open('$@','wb').write(d[0x500:0x500+5632])"
+ref/rel14_bios_disk.bin: imd2raw.py $(IMG_COMPAS)
+	python3 imd2raw.py $(IMG_COMPAS) ref/compas_disk_t0.bin
+	python3 -c "d=open('ref/compas_disk_t0.bin','rb').read(); open('$@','wb').write(d[0x500:0x500+5632])"
 
 # Disassemble
 disasm: $(BIOS_ASMS)
 
-rccpm22_bios.asm: rccpm22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
+rccpm22_bios.asm: ref/rccpm22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
 	z80dasm -a -l -g 0xDA00 -S syms_56k_z80dasm.sym -b blocks_56k.def \
 		-o $@ $< 2>/dev/null
 
-cpm22_rel22_bios.asm: cpm22_rel22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
+cpm22_rel22_bios.asm: ref/cpm22_rel22_bios.bin syms_56k_z80dasm.sym blocks_56k.def
 	z80dasm -a -l -g 0xDA00 -S syms_56k_z80dasm.sym -b blocks_56k.def \
 		-o $@ $< 2>/dev/null
 
-rel14_bios.asm: rel14_bios_disk.bin syms_rel14_z80dasm.sym blocks_rel14.def
+rel14_bios.asm: ref/rel14_bios_disk.bin syms_rel14_z80dasm.sym blocks_rel14.def
 	z80dasm -a -l -g 0xE200 -S syms_rel14_z80dasm.sym -b blocks_rel14.def \
 		-o $@ $< 2>/dev/null
 	sed -i '' '/^trailing_end:.*equ/d' $@
