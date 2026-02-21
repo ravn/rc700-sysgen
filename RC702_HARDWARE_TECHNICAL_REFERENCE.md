@@ -3,8 +3,8 @@
 
 This document provides comprehensive technical information about the RC702 hardware architecture, specifically focused on aspects relevant to the SYSGEN utility and ROA375 autoload ROM development.
 
-**Document Version:** 1.1
-**Date:** 2026-02-20
+**Document Version:** 1.3
+**Date:** 2026-02-21
 **Sources:** Analysis of jbox.dk RC702 documentation, ROB358.MAC, SYSGEN.ASM, and CP/M for RC702 User's Guide (RCSL No 42-i2190)
 
 ---
@@ -26,6 +26,7 @@ This document provides comprehensive technical information about the RC702 hardw
 9. [RC763 Hard Disk System](#rc763-hard-disk-system)
 10. [System Diskette Generation](#system-diskette-generation-appendix-c)
 11. [Line Editing and Boot Keys](#line-editing-and-boot-keys)
+12. [RC700 Emulator](#rc700-emulator)
 
 ---
 
@@ -1366,6 +1367,215 @@ abort and reboot (^C).
 
 ---
 
+## RC700 Emulator
+
+Michael Ringgaard's RC700 emulator ([jbox.dk](http://www.jbox.dk/rc702/emulator.shtm))
+provides cycle-accurate Z80 emulation with SDL2 display, floppy and hard disk
+support, and a built-in ICE-type debugger/monitor.
+
+Source: `../rc700/` relative to this repository.
+
+### Command-Line Options
+
+| Option | Description |
+|--------|-------------|
+| `image.imd` | Boot from floppy disk image (IMD format). Two images = drives A: and B:. |
+| `-maxi` | Select 8" floppy mode (default is 5.25" mini) |
+| `-hd HD.IMG` | Mount a hard disk image |
+| `-monitor` | Enable monitor mode (F10 enters debugger instead of quitting) |
+| `-speed N` | Emulation speed: 100=normal, 50=half, 1000=10x |
+| `-memdump FILE` | Dump 64K RAM to FILE on exit (added for BIOS extraction) |
+
+### Keyboard
+
+| Key | Function |
+|-----|----------|
+| F10 | Exit emulator (or enter monitor if `-monitor` is active) |
+
+### Built-in Monitor
+
+The monitor is an ICE-type Z80 debugger (from Z80SIM by Udo Munk, modified
+by Michael Ringgaard).  Activated by pressing F10 when launched with
+`-monitor`.  The monitor prompt is `>>>`.  All numeric values are
+**hexadecimal** (no `0x` prefix needed).
+
+Source: `../rc700/monitor.c`
+
+#### Memory Commands
+
+| Command | Description |
+|---------|-------------|
+| `d [addr]` | Dump 256 bytes (16x16) as hex + ASCII. Continues from last address if addr omitted. |
+| `l [addr]` | Disassemble 10 instructions from addr. Continues if addr omitted. |
+| `m [addr]` | Modify memory interactively. Shows `addr = val :`, enter new hex value or ENTER to advance. Non-hex input exits. |
+| `f addr,count,value` | Fill `count` bytes starting at `addr` with `value`. |
+| `v from,to,count` | Copy `count` bytes from `from` to `to`. |
+
+#### File Loading
+
+| Command | Description |
+|---------|-------------|
+| `r file,addr` | Load file at specified address (raw binary). |
+| `r file` | Auto-detect format and load. |
+
+File format is auto-detected from the first byte:
+- **`0xFF`**: Mostek format (bytes 1-2 = load address little-endian, data follows). Sets PC to load address.
+- **`:`**: Intel hex format (standard `:llaaaattddcc` records). Sets PC from EOF record.
+- **Otherwise**: Raw binary. Loads at specified address, or 0x0100 (CP/M TPA) if no address given.
+
+All three formats print load statistics (start address, end address, byte count).
+
+#### Execution Control
+
+| Command | Description |
+|---------|-------------|
+| `g [addr]` | Run from addr (or current PC). Runs until breakpoint, HALT, or error. |
+| `t [count]` | Trace `count` instructions (default 20) with full register output per step. |
+| *(empty line)* | Single step one instruction. Shows registers and next instruction. |
+
+#### Register Commands
+
+| Command | Description |
+|---------|-------------|
+| `x` | Display all registers: PC, A, flags, I, IFF, BC, DE, HL, alternate set, IX, IY, SP. |
+| `x reg` | Modify a register interactively. Shows current value, prompts for new. |
+
+Register names: `a`, `f`, `b`, `c`, `d`, `e`, `h`, `l`, `i`,
+`bc`, `de`, `hl`, `ix`, `iy`, `sp`, `pc`.
+Alternate registers: `a'`, `f'`, `b'`, `c'`, `d'`, `e'`, `h'`, `l'`,
+`bc'`, `de'`, `hl'`.
+Individual flags: `fs` (sign), `fz` (zero), `fh` (half-carry),
+`fp` (parity/overflow), `fn` (subtract), `fc` (carry).
+
+#### I/O Port Access
+
+| Command | Description |
+|---------|-------------|
+| `p addr` | Read port via `cpu_in(addr)`, optionally write new value via `cpu_out(addr, val)`. |
+
+Useful for inspecting RC702 hardware state (e.g., `p 4` reads FDC main status register).
+
+#### Breakpoints
+
+Software breakpoints (replace opcode with HALT). Requires compile-time `SBSIZE` define.
+
+| Command | Description |
+|---------|-------------|
+| `b` | List all breakpoints (number, address, pass count, current counter). |
+| `b addr[,pass]` | Set breakpoint at addr. Triggers after `pass` hits (default 1). Auto-assigns number. |
+| `b0 addr` | Set breakpoint #0 explicitly. |
+| `b0 c` | Clear breakpoint #0 (restores original opcode). |
+
+#### Execution History
+
+Requires compile-time `HISIZE` define. Records PC + all register values per instruction.
+
+| Command | Description |
+|---------|-------------|
+| `h` | Show full history (pages at 20 lines, `q` to quit). |
+| `h addr` | Show history starting from first entry >= addr. |
+| `h c` | Clear history buffer. |
+
+#### T-State Counting
+
+Requires compile-time `ENABLE_TIM` define.
+
+| Command | Description |
+|---------|-------------|
+| `z start,stop` | Count T-states while PC is between `start` and `stop`. |
+| `z` | Show current T-state count, trigger addresses, and status. |
+
+#### Disk Operations
+
+| Command | Description |
+|---------|-------------|
+| `M file[,drive]` | Mount disk image on drive (0-3, default 0). Hot-swap while running. |
+| `S` | Swap drives 0 and 1. |
+
+#### Other Commands
+
+| Command | Description |
+|---------|-------------|
+| `n` | Dump CRT screen buffer contents. |
+| `c` | Measure emulated CPU clock frequency (runs tight loop for 3 seconds). |
+| `s` | Show compile-time settings (history size, breakpoint count, T-state support). |
+| `?` | Show command summary. |
+| `q` | Quit emulator. |
+
+#### CPU Error Codes
+
+The monitor reports these when execution stops:
+
+| Error | Meaning |
+|-------|---------|
+| OPHALT | HALT opcode reached (not a breakpoint) |
+| IOTRAP | I/O trap (unhandled port access) |
+| OPTRAP1/2/4 | Unimplemented opcode (1, 2, or 4 bytes) |
+| USERINT | User interrupt (Ctrl+C or timer) |
+
+### Workflow: Writing an Assembled BIOS to Disk
+
+The monitor can patch a newly assembled BIOS into the system image in
+memory, then SYSGEN writes it to disk with correct multi-density formatting.
+
+**Background:** SYSGEN reads and writes the *complete* CP/M system — CCP,
+BDOS, configuration sectors, INIT code, and BIOS — across all system
+tracks.  The system image is buffered at `LOADP EQU 0x0900` (from
+`sysgen/SYSGEN.ASM`).  Mini systems use 68 pages (17,408 bytes), maxi
+systems use 107 pages (27,392 bytes).  The assembled BIOS `.cim` file
+contains only the INIT+BIOS portion (starting at disk offset 0), not the
+CCP or BDOS which reside on later tracks.
+
+**Procedure:**
+
+1. Build the BIOS variant:
+   ```
+   cd rcbios && make rel23-maxi
+   ```
+   This produces `zout/BIOS.cim` (raw binary, offset 0 = address START).
+
+2. Launch the emulator with monitor enabled:
+   ```
+   rc700-sdl2 -monitor -maxi image.imd
+   ```
+
+3. After CP/M boots to `A>`, run SYSGEN and read the full system from
+   the source disk:
+   ```
+   A>SYSGEN
+   SOURCE DRIVE NAME (OR RETURN TO SKIP) A
+   SOURCE ON A, THEN TYPE RETURN
+   ```
+   Press RETURN.  SYSGEN reads all system tracks (CCP + BDOS + config +
+   INIT + BIOS) into memory at 0x0900.  It prints `FUNCTION COMPLETE`.
+
+4. Before answering the destination prompt, press **F10** to enter the
+   monitor.
+
+5. Overwrite the INIT+BIOS portion with the new assembled code:
+   ```
+   >>> r /path/to/zout/BIOS.cim,900
+   ```
+   This patches the config+INIT+BIOS at the start of the buffer (offset
+   0x0900) while leaving CCP and BDOS intact at higher offsets.
+
+6. Resume CP/M:
+   ```
+   >>> g
+   ```
+
+7. Specify the destination drive when prompted.  SYSGEN writes the
+   patched system image to disk with correct multi-density formatting.
+
+**Peeking at memory while CP/M is running:**
+
+Press F10 at any time to freeze execution and inspect Z80 memory. Use `d`
+to dump memory, `l` to disassemble, `x` to check registers. Press `g` to
+resume. This is useful for verifying that BIOS data was loaded correctly
+before running SYSGEN.
+
+---
+
 ## References and Sources
 
 ### Primary Sources
@@ -1415,6 +1625,7 @@ abort and reboot (^C).
 | 1.0 | 2026-02-07 | Analysis | Initial document creation from jbox.dk sources and source code analysis |
 | 1.1 | 2026-02-20 | Analysis | Added display control chars, keyboard, peripheral handshake, CP/M disk params from User's Guide |
 | 1.2 | 2026-02-21 | Analysis | Added RC-specific utilities (FORMAT, BACKUP, ASSIGN, VERIFY, STORE, RESTORE, CONFI, SELECT, AUTOEXEC, CAT, TRANSFER, FILEX, HDINST, XSUB), CONFI parameter tables, FILEX protocol, serial port assignments, keyboard code map, HD boot/partition details, system diskette generation, line editing, error messages |
+| 1.3 | 2026-02-21 | Analysis | Added RC700 Emulator section: command-line options, built-in monitor command reference (derived from monitor.c source), BIOS-to-disk workflow using monitor + SYSGEN |
 
 ---
 

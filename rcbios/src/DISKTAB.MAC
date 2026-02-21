@@ -105,7 +105,7 @@ DPB8:	DW	120		; TOTAL NUMBER OF SECTORS PR. TRACK
 	DB	4		; BSH
 	DB	15		; BLM
 	DB	0		; EXM
-	DW	561		; DSM
+	DW	449		; DSM
 	DW	127		; DRM
 	DB	192,0		; AL0,AL1
 	DW	32		; CKS
@@ -127,14 +127,14 @@ DPB24:	DW	104		; TOTAL NUMBER OF SECTORS PR. TRACK
 	DB	4		; BSH
 	DB	15		; BLM
 	DB	0		; EXM
-	DW	486		; DSM
+	DW	471		; DSM
 	DW	127		; DRM
 	DB	192,0		; AL0,AL1
 	DW	32		; CKS
 	DW	0		; OFF
 
 	ENDIF
-	PAGE  
+	PAGE
 
 	IFDEF	HARDDISK
 ;=============================================================================
@@ -209,7 +209,7 @@ TRKOFF: DW	2		; FLOPPY DISK A OFFSET
 	IFDEF	REL21
 	DW	27		;   -   -     D   -
 	ENDIF
-	IFDEF	REL22
+	IFDEF	REL22PLUS
 	DW	255		;   -   -     D   - (NOT CONFIGURED IN REL22)
 	ENDIF
 	DW	0		;   -   -     E OFFSET IS FILLED DURING INIT

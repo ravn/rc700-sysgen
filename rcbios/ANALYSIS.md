@@ -1234,10 +1234,216 @@ for Track 0 config blocks and INIT code that are overwritten after boot.
 | CPM_med_COMAL80.imd | 5.25" | 0x0280 | 0xDA00 | 0xD480 | rel.2.1 | 21 |
 | CPM_v.2.2_rel.2.2.bin | 5.25" | 0x0280 | 0xDA00 | 0xD480 | rel. 2.2 | 41 |
 | Compas_v.2.13DK.imd | 8" | **0x0380** | **0xE200** | **0xDD00** | 58K CP/M VERS 2.2 | 21 |
+| RC703_CPM_v2.2_r1.2.bin | 5.25" | 0x0280 | 0xDA00 | 0xD480 | RC703 rel. 1.2 | — |
 
 The Compas disk was originally a rel. 1.4 system diskette (per IMD metadata) with
 Compas Pascal v2.13 (Danish) files added.  Compas Pascal v2.x was later renamed
 PolyPascal v3.x (both by PolyData/Regnecentralen).
+
+The RC703 rel.1.2 is a raw disk image (819200 bytes, contiguous multi-density layout)
+containing an RC703-specific BIOS.  See "RC703 BIOS (rel. 1.2)" section below.
+
+---
+
+## RC703 BIOS (rel. 1.2)
+
+Source: `RC703_CPM_v2.2_r1.2.bin` (819200 bytes).  Raw disk image in contiguous
+multi-density layout (same byte ordering as a .cim file), NOT a flat 512B sector
+dump despite the file size matching 80 × 2 × 10 × 512B = 1600 sectors.
+
+Signon: `RC703  56k CP/M vers. 2.2  rel. 1.2`
+
+### Key Differences from RC702 BIOS
+
+This is an **RC703** BIOS (MIC705 board), distinct from all known RC702 variants:
+
+| Aspect | RC702 (rel.2.1/2.2/2.3) | RC703 (rel.1.2) |
+|--------|------------------------|-----------------|
+| Boot signature | " RC700" at 0x0008 | **" RC703 "** at 0x0008 |
+| Signon prefix | "RC700" | **"RC703"** |
+| Jump table entries | 17 standard + 6 extended | **17 standard only** |
+| Extended BIOS entries | WFITR, READS, LINSEL, EXIT, CLOCK, HRDFMT | **None** (zeros after SECTRAN) |
+| BIOS size | 4717 bytes (code only) | **7681 bytes** |
+| DPBASE | On-disk (initialized) | **Runtime-initialized** (all 0xFF on disk) |
+| Mini floppy geometry | 9 sectors × 35 tracks | **10 sectors × 80 tracks** |
+| Embedded utilities | None | **VERIFY/BLOCKS.BAD** (~700 bytes) |
+| I/O ports | 0x00-0x14, 0x44-0x47, 0xF0-0xFF | **0x60-0x67, 0xF0-0xFF** (different hardware) |
+| HD config table | Binary-only DPBs | **ASCII source comments embedded** |
+
+### Relocation
+
+Same parameters as RC702 56K:
+
+```
+CODEDESTINAT = 0xD480
+CODELENGTH   = 0x2381 (9089 bytes)
+Entry word   = 0x0280
+BIOS base    = 0xDA00
+End          = 0xF800 (display buffer boundary)
+```
+
+### Disk Parameter Blocks
+
+Eight DPBs at 0xEA03-0xEA7A — four floppy, four hard disk:
+
+| DPB | SPT | BSH | DSM | DRM | CKS | OFF | Format |
+|-----|-----|-----|-----|-----|-----|-----|--------|
+| DPB1 (0xEA03) | 40 | 3 | 389 | 63 | 16 | 2 | MINI SS 390K |
+| DPB2 (0xEA12) | 80 | 4 | 389 | 255 | 64 | 2 | MINI DS 780K |
+| DPB3 (0xEA21) | 80 | 4 | 389 | 255 | 64 | 2 | MINI DS 780K (dup) |
+| DPB4 (0xEA30) | 120 | 4 | 561 | 127 | 32 | 2 | MAXI DS 1124K |
+| DPB5 (0xEA3F) | 384 | 4 | 561 | 127 | 0 | 3 | HD 1.1MB (2K blocks) |
+| DPB6 (0xEA4E) | 384 | 4 | 389 | 255 | 0 | 3 | HD 780K (2K blocks) |
+| DPB7 (0xEA5D) | 384 | 5 | 491 | 511 | 0 | 27 | HD 1.97MB (4K blocks) |
+| DPB8 (0xEA6C) | 384 | 6 | 491 | 511 | 0 | 27 | HD 3.94MB (8K blocks) |
+
+RC703 mini floppy format: **10 sectors × 512B × 80 tracks** per side.
+- Single-sided: SPT=40 (10×512/128), 390K, 1K blocks, 64 dir entries
+- Double-sided: SPT=80 (2×10×512/128), 780K, 2K blocks, 256 dir entries
+- MAXI DSM=561 matches the jbox.dk full-capacity value (77 tracks × 15 sectors)
+
+HD partitions match the RC702 User's Guide (Appendix H):
+- DPB7 = 1.968 MB partition, DPB8 = 3.936 MB partition
+- SPT=384 = 3 × 128B sectors per physical WDC sector (256B mode)
+- CKS=0 for all HD DPBs (fixed disk, no directory checksumming)
+
+### Jump Table
+
+Only 17 standard CP/M entries (BOOT through SECTRAN).  No extended entries.
+After SECTRAN at BIOS+0x33, there are data bytes (00 00 00 03) followed by
+0xFF fill — the DPBASE variable area.  DPBASE is at 0xDA37 (4 bytes after the
+standard entries), runtime-initialized by BOOT code.
+
+| Entry | Address | RC702 r2.1 | Offset diff |
+|-------|---------|------------|-------------|
+| BOOT | 0xDB9F | 0xDB78 | +39 |
+| WBOOT | 0xDBE7 | 0xDBC1 | +38 |
+| CONST | 0xEC2B | 0xEC28 | +3 |
+| CONIN | 0xEC2F | 0xEC2C | +3 |
+| CONOUT | 0xE208 | 0xE209 | -1 |
+| SELDSK | 0xE2C2 | 0xE2CD | -11 |
+| HOME | 0xE64D | 0xE658 | -11 |
+| READ | 0xE380 | 0xE38B | -11 |
+| WRITE | 0xE394 | 0xE39F | -11 |
+
+The inconsistent offsets (+39, +3, -1, -11) confirm this is a separately-written
+codebase, not a conditional build of the same sources.
+
+### Embedded Hard Disk Configuration Table
+
+Approximately 1500 bytes (0xEC7F-0xF37A) contain ASCII assembly source comments
+inline with DPB data — a hard disk identification/configuration table for
+Rodime RO103 and RO202 drives.  Strings found include:
+
+- `"; disk type (0=floppy, FF=hard)"`
+- `"; tracks occupied by unit"`
+- `"; step rate"`
+- `"HDTYPE:"`, `"; hard disk type (0=ro103, 1=ro202)"`
+- `"LSTSEC:"`, `"LSTTRK:"`, `"LSTHEAD:"`
+- `"CHECK_SUM:"`, `"C_CHECK_SUM:"`
+- `"TAB202:"`, full DPB field comments (SPT, BSH, BLM, EXM, DSM, DRM, etc.)
+
+This appears to be a compiled configuration structure where the source comments
+were preserved as string data — possibly an assembler artifact or intentional
+documentation embedded in the binary for the HDINST utility to reference.
+
+### Embedded VERIFY/BLOCKS.BAD Utility
+
+The BIOS contains ~700 bytes (0xF489-0xF7FF) of disk verification and bad-block
+management code with diagnostic strings:
+
+- `"!  CREATED DUMMY FILE 'BLOCKS.BAD'"`
+- `" KBYTES USED"`
+- `"  DISKETTE READ ERROR"`
+- `"&  VERIFY CHECK READING ABORTED BY USER"`
+- `" BLOCKS FOUND WITH BAD SECTORS"`
+- `",  VERIFY DUMMY FILE CREATION STOPPED BY USER"`
+- `"%  INSERT FORMATTED DISKETTE IN DRIVE "`
+- `"  CHECK READING CP/M BLOCK No. "`
+
+This is a VERIFY utility built into the BIOS itself, capable of scanning a disk
+for bad sectors and creating a BLOCKS.BAD dummy file to mark them.  Later RC702
+BIOS versions (rel.2.1+) moved this functionality to a separate VERIFY.COM utility.
+
+### I/O Port Differences
+
+The RC703 r1.2 BIOS uses I/O ports not seen in RC702 BIOS versions:
+
+| Port range | RC702 | RC703 r1.2 | Notes |
+|------------|-------|-----------|-------|
+| 0x00-0x01 | CRT (8275) | CRT (8275) | Same |
+| 0x04-0x05 | FDC (µPD765) | FDC (µPD765) | Same |
+| 0x08-0x0B | SIO | SIO | Same |
+| 0x0C-0x0F | CTC | CTC | Same |
+| 0x10 | PIO keyboard | PIO keyboard | Same |
+| 0x14 | SW1/motor | SW1/motor | Same |
+| 0x44-0x47 | CTC2 (HD ext.) | CTC2 (INIT only) | INIT programs it but BIOS doesn't use it |
+| 0x60-0x67 | — | **WD1000/WD1010 WDC** | Hard disk controller on MIC705 |
+| 0xF0-0xFF | DMA (Am9517) | DMA (Am9517) | Same |
+
+Ports 0x60-0x67 are a **WD1000/WD1010 Winchester Disk Controller** mapped
+directly on the MIC705 board (vs external CTC2 interrupt on RC702):
+
+| Port | Register | Function |
+|------|----------|----------|
+| 0x60 | Data | 16-bit data register |
+| 0x61 | Error/WPC | Read: error code, Write: write precomp |
+| 0x62 | Sector count | Number of sectors to transfer |
+| 0x63 | Sector number | Starting sector |
+| 0x64 | Cylinder low | Cylinder address low byte |
+| 0x65 | Cylinder high | Cylinder address high bits |
+| 0x66 | SDH | Size/Drive/Head select |
+| 0x67 | Status/Command | Read: status, Write: command |
+
+HD commands issued in the BIOS code:
+- 0x10: RESTORE (recalibrate to track 0)
+- 0x28: READ SECTOR (with retry)
+- 0x30: WRITE SECTOR
+- 0x50: WRITE FORMAT (format track)
+- 0x70: SEEK (position heads)
+
+### Interrupt Vector Table
+
+Same layout and IVT page (0xEC) as RC702.  DUMITR handler at 0xEC26
+(vs 0xEBE8 in rel.2.1).  All active ISRs start with `LD (saved_sp),SP`
+(`ED 73 xx xx`), same pattern as RC702.
+
+| Vector | Handler | Purpose |
+|--------|---------|---------|
+| +0x00 | 0xEC26 (DUMITR) | CTC Ch.0 — baud rate (no ISR) |
+| +0x02 | 0xEC26 (DUMITR) | CTC Ch.1 — baud rate |
+| +0x04 | 0xE23D | CTC Ch.2 — display refresh |
+| +0x06 | 0xE7D8 | CTC Ch.3 — floppy completion |
+| +0x08 | 0xE980 | CTC2 Ch.0 — hard disk completion |
+| +0x10 | 0xDD32 | SIO B TX |
+| +0x18 | 0xDD96 | SIO A TX |
+| +0x20 | 0xEC46 | PIO A — keyboard |
+
+### Config Block
+
+The hardware config block at 0x0080 is in the same layout as RC702.  Notable
+differences in default values:
+
+| Field | RC702 r2.1 | RC703 r1.2 | Notes |
+|-------|-----------|-----------|-------|
+| CTC Ch.0 count | 0x20 (1200 baud) | **0x02 (19200 baud)** | Same as rel.2.2 |
+| FDC config +0x2A | 0x06 | **0x0A** | Same as rel.2.2 |
+| Config +0x40 area | zeros | **code data** | Same as rel.2.2 (62/64 bytes match) |
+
+The +0x40 area (62/64 bytes matching rel.2.2) suggests r1.2 and rel.2.2 share
+the same extended initialization code, potentially for HD boot support.
+
+### Size Breakdown
+
+Total BIOS: **7681 bytes** (0xDA00-0xF800), 63% larger than RC702 rel.2.1 (4717 bytes).
+
+| Component | Size | Notes |
+|-----------|------|-------|
+| Standard BIOS code | ~4700 bytes | SIO, display, floppy, PIO, boot — similar to RC702 |
+| WDC HD driver | ~500 bytes | Ports 0x60-0x67, replaces CTC2-based RC702 approach |
+| HD DPBs (4) | 60 bytes | DPB5-DPB8 for partition configurations |
+| HD config table (ASCII) | ~1500 bytes | HDINST template with embedded source comments |
+| VERIFY/BLOCKS.BAD utility | 888 bytes | Disk verify + bad block management |
 
 ---
 

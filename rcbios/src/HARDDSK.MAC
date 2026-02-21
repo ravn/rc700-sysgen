@@ -91,7 +91,7 @@ STSK10:	AND	A		;
 	INC	A		; HL:=SECTOR:=HOST_SECTOR-HEAD_NO*END_OF_PAGE
 	JP	STSK10		;
 STSK20:	ADD	HL,BC		;
-	IFDEF	REL22
+	IFDEF	REL22PLUS
 	LD	C,A		; SAVE HEAD NO. IN C
 	LD	A,L		;
 	OUT	(HSECNO),A	;
@@ -167,7 +167,7 @@ HDSEEK:	LD	HL,(FORM)	; 	GET CURRENT FORMAT TABLE ADR.
 	SCF			; 	SET CARRY FLAG
 	RET			; END.
 
-	IFDEF	REL22
+	IFDEF	REL22PLUS
 ;=============================================================================
 ;=	WAIT FOR HD, READ/CLEAR ERROR FLAG, RETURN STATUS                    =
 ;=============================================================================

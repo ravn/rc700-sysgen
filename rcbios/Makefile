@@ -29,6 +29,7 @@ IMG_COMAL80 = $(HOME)/Downloads/CPM_med_COMAL80.imd
 IMG_REL22   = $(HOME)/Downloads/CPM_v.2.2_rel.2.2.bin
 IMG_COMPAS  = $(HOME)/Downloads/Compas_v.2.13DK.imd
 IMG_SW1711  = $(HOME)/Downloads/SW1711-I8.imd
+IMG_RC703R12 = $(HOME)/Downloads/RC703_CPM_v2.2_r1.2.bin
 
 # RAM dumps
 DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
@@ -122,6 +123,11 @@ ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin: extract_bios.
 ref/rel14_bios_disk.bin: imd2raw.py $(IMG_COMPAS)
 	python3 imd2raw.py $(IMG_COMPAS) ref/compas_disk_t0.bin
 	python3 -c "d=open('ref/compas_disk_t0.bin','rb').read(); open('$@','wb').write(d[0x500:0x500+5632])"
+
+# Extract rel.1.2 RC703 BIOS from raw disk image (contiguous multi-density layout)
+ref/rc703_rel12_bios.bin ref/rc703_rel12_t0.bin: $(IMG_RC703R12)
+	python3 -c "d=open('$(IMG_RC703R12)','rb').read(); open('ref/rc703_rel12_t0.bin','wb').write(d[:6144])"
+	python3 -c "d=open('$(IMG_RC703R12)','rb').read(); b=d[0x580:0x2381]; open('ref/rc703_rel12_bios.bin','wb').write(b)"
 
 # Disassemble
 disasm: $(BIOS_ASMS)
