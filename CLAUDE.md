@@ -68,6 +68,7 @@ CP/M BIOS source reconstruction and tools:
 - `src/` - Modular BIOS source (BIOS.MAC, CPMBOOT.MAC, INIT.MAC, SIO.MAC, etc.)
 - `verify_bios.py` - Verify assembled BIOS against reference binaries
 - `patch_bios.py` - Patch assembled BIOS onto IMD disk images for emulator testing
+- `imdinfo.py` - Show disk image summary: format (MINI/MAXI), geometry, boot status
 - `imd2raw.py` - Extract raw Track 0 data from IMD disk images
 - `bin2imd.py` - Convert raw disk images to IMD format
 
