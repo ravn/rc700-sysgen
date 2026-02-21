@@ -6,6 +6,9 @@
 #   make rel14-maxi  - Build rel.1.4 BIOS (8" maxi, 58K)
 #   make verify      - Build all and verify against reference binaries
 #
+# Patch and test:
+#   make patch-test  - Patch BIOS onto disk images and boot-test in emulator
+#
 # Disassembly targets:
 #   make rel14_bios.asm  - Regenerate annotated rel.1.4 disassembly
 #
@@ -17,7 +20,7 @@
 ZMAC = ../zmac/bin/zmac
 ZMFLAGS = -z --dri -I src
 
-RC700 = ../../../rc700
+RC700 = $(HOME)/git/rc700
 EMU = $(RC700)/rc700-vt100
 
 # Disk image locations
@@ -25,6 +28,7 @@ IMG_RCCPM22 = $(RC700)/rccpm22.imd
 IMG_COMAL80 = $(HOME)/Downloads/CPM_med_COMAL80.imd
 IMG_REL22   = $(HOME)/Downloads/CPM_v.2.2_rel.2.2.bin
 IMG_COMPAS  = $(HOME)/Downloads/Compas_v.2.13DK.imd
+IMG_SW1711  = $(HOME)/Downloads/SW1711-I8.imd
 
 # RAM dumps
 DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
@@ -33,7 +37,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = rccpm22_bios.bin cpm22_rel22_bios.bin compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
-.PHONY: all rel21-mini rel22-mini rel14-maxi verify dumps bios disasm clean emu
+.PHONY: all rel21-mini rel22-mini rel23-maxi rel14-maxi verify dumps bios disasm clean emu patch-test
 
 all: verify
 
@@ -53,17 +57,23 @@ rel21-mini: src/BIOS.MAC
 rel22-mini: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL22 -DMINI src/BIOS.MAC
 
+rel23-maxi: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL23 -DMAXI src/BIOS.MAC
+
 rel14-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL14 -DMAXI src/BIOS.MAC
 
 # Verify all variants against reference binaries
-verify: verify-rel21-mini verify-rel22-mini verify-rel14-maxi
+verify: verify-rel21-mini verify-rel22-mini verify-rel23-maxi verify-rel14-maxi
 
 verify-rel21-mini: rel21-mini
 	python3 verify_bios.py zout/BIOS.hex rccpm22_bios.bin $(BIOS_OFFSET_56K)
 
 verify-rel22-mini: rel22-mini
 	python3 verify_bios.py zout/BIOS.hex cpm22_rel22_bios.bin $(BIOS_OFFSET_56K)
+
+verify-rel23-maxi: rel23-maxi
+	python3 verify_bios.py zout/BIOS.hex sw1711_rel23_bios.bin $(BIOS_OFFSET_56K)
 
 # The rel.1.4 build is functionally equivalent but NOT byte-identical
 # to the original disk image, which was an independently written codebase.
@@ -130,6 +140,24 @@ rel14_bios.asm: rel14_bios_disk.bin syms_rel14_z80dasm.sym blocks_rel14.def
 	sed -i '' '/^trailing_end:.*equ/d' $@
 	python3 defb2str.py $@
 	python3 portnames.py $@
+
+# ============================================================
+# Patch test: build BIOS, patch onto disk image, boot in emulator
+# ============================================================
+
+# Patch rel.2.2 BIOS onto rel.2.1 mini image — signon should change
+# Patch rel.2.3 BIOS onto SW1711 maxi image — should boot identically
+patch-test: rel22-mini
+	cp zout/BIOS.cim /tmp/rel22_mini.cim
+	$(MAKE) rel23-maxi
+	cp zout/BIOS.cim /tmp/rel23_maxi.cim
+	python3 patch_bios.py $(IMG_RCCPM22) /tmp/rel22_mini.cim -o /tmp/patched_mini.imd
+	python3 patch_bios.py $(IMG_SW1711) /tmp/rel23_maxi.cim -o /tmp/patched_maxi.imd
+	$(EMU) -memdump /tmp/patched_mini_ram.bin /tmp/patched_mini.imd > /dev/null 2>/tmp/patched_mini.log
+	grep -q 'rel\. 2\.2' /tmp/patched_mini.log && echo "MINI: rel. 2.2 signon OK" || (echo "MINI: FAILED"; exit 1)
+	$(EMU) -maxi -memdump /tmp/patched_maxi_ram.bin /tmp/patched_maxi.imd > /dev/null 2>/tmp/patched_maxi.log
+	grep -q 'rel\. 2\.3' /tmp/patched_maxi.log && echo "MAXI: rel. 2.3 signon OK" || (echo "MAXI: FAILED"; exit 1)
+	@echo "patch-test: PASS"
 
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd

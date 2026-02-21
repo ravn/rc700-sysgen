@@ -63,6 +63,35 @@ BOOT and NMI sections are in ROM, accessible until `hal_prom_disable()`.
 CODE payload is copied to RAM at 0x7000 by `relocate()` using linker
 symbols `__NMI_tail` (source), `__CODE_head`/`__tail` (length).
 
+### rcbios/
+CP/M BIOS source reconstruction and tools:
+- `src/` - Modular BIOS source (BIOS.MAC, CPMBOOT.MAC, INIT.MAC, SIO.MAC, etc.)
+- `verify_bios.py` - Verify assembled BIOS against reference binaries
+- `patch_bios.py` - Patch assembled BIOS onto IMD disk images for emulator testing
+- `imd2raw.py` - Extract raw Track 0 data from IMD disk images
+- `bin2imd.py` - Convert raw disk images to IMD format
+
+#### BIOS Variants
+Built with conditional assembly flags:
+- `make rel21-mini` — rel.2.1, 5.25" mini, 56K (verified)
+- `make rel22-mini` — rel.2.2, 5.25" mini, 56K (verified)
+- `make rel23-maxi` — rel.2.3, 8" maxi, 56K (verified)
+- `make rel14-maxi` — rel.1.4, 8" maxi, 58K (assembles OK, different codebase)
+- `make verify` — build all and verify against reference binaries
+
+#### Patching BIOS onto Disk Images
+```bash
+cd rcbios
+make rel22-mini
+python3 patch_bios.py image.imd zout/BIOS.cim -o patched.imd   # create copy
+python3 patch_bios.py image.imd zout/BIOS.cim                   # patch in place
+python3 patch_bios.py image.imd --info                          # show Track 0 layout
+```
+
+The tool maps `.cim` bytes sequentially onto Track 0 sectors (sorted by sector number), first Side 0 then Side 1. Supports both MINI and MAXI formats.
+
+`make patch-test` automates the full cycle: build, patch, boot in emulator, verify signon.
+
 ### zmac/
 Z80 macro assembler toolchain:
 - `bin/zmac` - Compiled assembler binary for macOS
