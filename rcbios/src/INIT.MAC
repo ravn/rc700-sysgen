@@ -1,4 +1,4 @@
-	SUBTTL	HARDWARE INITIALIZATION CODE
+; SUBTTL	HARDWARE INITIALIZATION CODE
 
 	PAGE
 
@@ -26,10 +26,18 @@
 ;= PORT B USED FOR PARALLEL OUTPUT                      =
 ;========================================================
 
+	IFDEF	REL14
+INIT:	LD	A,18H		; SET PORT A INTERRUPT VECTOR (NO CTC2 GAP)
+	OUT	(PIOAC),A	;
+	LD	A,1AH		; SET PORT B INTERRUPT VECTOR
+	OUT	(PIOBC),A	;
+	ENDIF
+	IFDEF	HARDDISK
 INIT:	LD	A,20H		; SET PORT A INTERRUPT VECTOR
 	OUT	(PIOAC),A	;
 	LD	A,22H		; SET PORT B INTERRUPT VECTOR
 	OUT	(PIOBC),A	;
+	ENDIF
 	LD	A,4FH		; SET PORT A MODE (INPUT)
 	OUT	(PIOAC),A	;
 	LD	A,0FH		; SET PORT B MODE (OUTPUT)
@@ -73,6 +81,7 @@ INIT:	LD	A,20H		; SET PORT A INTERRUPT VECTOR
 
 	PAGE
 
+	IFDEF	HARDDISK
 ;==============================================================
 ;= INITIALIZE Z80 CTC 2                                       =
 ;= CHANNEL 0 USED AS INTERRUPT GENERATOR FOR WD1000           =
@@ -97,6 +106,7 @@ INIT:	LD	A,20H		; SET PORT A INTERRUPT VECTOR
 
 	LD	A,(MODE5)	; SET OPERATING MODE FOR CHANNEL 3
 	OUT	(CTC2C3),A	; MODE:= CHANNEL RESET
+	ENDIF
 
 	PAGE
 
@@ -143,8 +153,10 @@ INIT:	LD	A,20H		; SET PORT A INTERRUPT VECTOR
 	LD	A,20H		;
 	OUT	(DMAC),A	; ENTER COMMAND MODE
 
+	IFDEF	HARDDISK
 	LD	A,(DMODE0)	;
-	OUT	(DMAMOD),A	; SET CHANNEL 0 MODE
+	OUT	(DMAMOD),A	; SET CHANNEL 0 MODE (WD1000)
+	ENDIF
 
 	LD	A,(DMODE2)	;
 	OUT	(DMAMOD),A	; SET CHANNEL 2 MODE
@@ -281,6 +293,11 @@ IFD2:	IN	A,(FDC)		;
 	LD	(FL_FLG),A	; FLOPPY_BUSY:=FALSE
 
 	CALL	IDT		; initilize disk tables
+
+	IFDEF	REL14
+	JP	BIOS		; NO HARD DISK — JUMP DIRECTLY TO BIOS
+	ENDIF
+	IFDEF	HARDDISK
 
 	PAGE
 
@@ -421,8 +438,11 @@ INI63:	LD	A,(HL)		;
 	CP	0FFH		;
 	JR	NZ,INI63	;
 	JP	BIOS		;
+	ENDIF
 
+	IFDEF	HARDDISK
 BOOTDPB:DW	0
+	ENDIF
 
 ;==============================================================================
 ;= 	INITIALIZE DISK TABLES                                                =
@@ -445,7 +465,7 @@ IDT1:	LD	A,(HL)		;
 IDT2:	LD	A,C		;
 	DEC	A		;
 	LD	(DRNO),A	;
-	IFNDEF	REL22
+	IFDEF	REL21
 	LD	A,2		;
 	LD	(UNK1),A	;
 	LD	HL,NDT1		;
@@ -455,6 +475,7 @@ IDT2:	LD	A,C		;
 	ENDIF
 	RET			;
 
+	IFDEF	HARDDISK
 ;==============================================================================
 ;=	????                                                                  =
 ;==============================================================================
@@ -493,4 +514,5 @@ INI70:	ADD	HL,BC		;
 	LD	B,H		;
 	LD	C,L		;
 	RET			;
+	ENDIF
 

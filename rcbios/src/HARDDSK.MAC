@@ -1,4 +1,4 @@
-	SUBTTL WINCHESTER DISK DRIVER
+; SUBTTL WINCHESTER DISK DRIVER
 ;=============================================================================
 ;=      HARD DISK PHYSICAL WRITE (MEMORY => DISK)                            =
 ;=============================================================================
@@ -104,7 +104,8 @@ STSK20:	ADD	HL,BC		;
 	JR	Z,STSK40	; SKIP IF NOT SET
 	SET	7,C		; SET HEAD BIT
 STSK40:	LD	A,C		; RESTORE HEAD NO.
-	ELSE
+	ENDIF
+	IFDEF	REL21
 	PUSH	AF		;
 	LD	A,L		;
 	OUT	(HSECNO),A	;

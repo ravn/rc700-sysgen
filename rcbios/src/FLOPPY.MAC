@@ -1,4 +1,4 @@
-	SUBTTL FLOPPY DISK DRIVER
+; SUBTTL FLOPPY DISK DRIVER
 
 ;========================================================
 ;= FLOPPY DISK DRIVER                                   =
@@ -425,9 +425,12 @@ TRKCMP:	EX	DE,HL		;
 ;==========================================================
 ;= WRITEHOST performs the physical write to the host disk.=
 ;==========================================================
-WRTHST:	LD	A,(DSKTYP)	;   IF: DISK TYPE := HARD
+WRTHST:
+	IFDEF	HARDDISK
+	LD	A,(DSKTYP)	;   IF: DISK TYPE := HARD
 	OR	A		; THEN: GOTO HARD WRITE HOST
 	JP	NZ,HWRHST	; ELSE:
+	ENDIF
 	CALL	CHKTRK		;
 	JP	SECWR		;
 
@@ -438,9 +441,12 @@ RDHST:	LD	A,(UNAMSK)	;
 	OR	A		;
 	JP	NZ,RCHECK	; IF UNAMSK THEN FORCE PRE_READ;
 	LD	(UNACNT),A	;
-RCHECK:	LD	A,(DSKTYP)	;   IF: DISK TYPE := HARD
+RCHECK:
+	IFDEF	HARDDISK
+	LD	A,(DSKTYP)	;   IF: DISK TYPE := HARD
 	OR	A		; THEN: GOTO HARD READ HOST
 	JP	NZ,HRDHST	; ELSE:
+	ENDIF
 	CALL	CHKTRK		;
 	JP	SECRD		;
 
@@ -611,7 +617,9 @@ XHOME:	LD	A,(HSTWRT)	;PATCH FROM DIG. CHECK FOR PENDING WRITE
 	JR	NZ,XHOM01	;
 	LD	(HSTACT),A	;CLEAR HOST ACTIVE FLAG
 				;END PATCH FROM DIGITAL.
-XHOM01:	LD	A,(DSKTYP)	;   IF: DISK TYPE := HARD
+XHOM01:
+	IFDEF	HARDDISK
+	LD	A,(DSKTYP)	;   IF: DISK TYPE := HARD
 	AND	A		; THEN:
 	JP	Z,XHOM20	;
 	LD	A,(SEKDSK)	;
@@ -631,6 +639,7 @@ XHOM10:	IN	A,(HDSTRG)	;       ELSE:
 	AND	10H		;       AWAIT HARD DISK INTERRUPT
 	JP	Z,XHOM10	;       AWAIT SEEK COMPLETE
 	RET			;       END.
+	ENDIF
 XHOM20:	CALL	FDSTAR		; ELSE:
 	LD	A,(SEKDSK)	;
 	LD	(DSKNO),A	;

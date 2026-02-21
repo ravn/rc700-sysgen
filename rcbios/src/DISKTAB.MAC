@@ -1,4 +1,4 @@
-	SUBTTL	DISK DEFINITION TABLES
+; SUBTTL	DISK DEFINITION TABLES
 	page
 
 ;===============================================
@@ -32,7 +32,7 @@ TRAN24:	DB	1,2,3,4		; 8" DD 255 B/S
 
 	page
 
-	IFDEF	MINI		; IF MINI SYSTEM THEN
+	IFDEF	MINI
 ;================================================
 ;= DISK PARAMETER BLOCKS FOR 5.25" FLOPPY DISKS =
 ;================================================
@@ -82,9 +82,9 @@ DPB24:	DW	120		; SECTORS
 	DW	2		; OFF
 
 	page
-	ELSE			; ELSE
+	ENDIF
+	IFDEF	MAXI
 	page
-				; MAXI
 ;========================================================
 ;= DISK PARAMETER BLOCKS FOR 8" FLORPY DISKS            =
 ;========================================================
@@ -133,9 +133,10 @@ DPB24:	DW	104		; TOTAL NUMBER OF SECTORS PR. TRACK
 	DW	32		; CKS
 	DW	0		; OFF
 
-	ENDIF			; END IF MINI ELSE MAXI
+	ENDIF
 	PAGE  
 
+	IFDEF	HARDDISK
 ;=============================================================================
 ;= DISK PARAMETER BLOCKS FOR HARD DISK TYPE                                  =
 ;=============================================================================
@@ -194,6 +195,7 @@ DPB64:	DW	384		; SECTS/TRACK
 	DB	10000000B,0	; AL0,AL1
 	DW	0		; CKS
 	DW	27		; OFF   ( FIXED AT 27 )
+	ENDIF
 
 ;=============================================================================
 ;=	TRACK OFFSET TABLE                                                   =
@@ -202,20 +204,23 @@ DPB64:	DW	384		; SECTS/TRACK
 
 TRKOFF: DW	2		; FLOPPY DISK A OFFSET
 	DW	2		;   -     -   B   -
+	IFDEF	HARDDISK
 	DW	3		; HARD DISK   C   -
+	IFDEF	REL21
+	DW	27		;   -   -     D   -
+	ENDIF
 	IFDEF	REL22
 	DW	255		;   -   -     D   - (NOT CONFIGURED IN REL22)
-	ELSE
-	DW	27		;   -   -     D   -
 	ENDIF
 	DW	0		;   -   -     E OFFSET IS FILLED DURING INIT
 	DW	0		;   -   -     F DO.
 	DW	0		;   -   -     G DO.
 	DW	0		;   FILLS ONE TO MUCH
+	ENDIF
 
 	page
 
-	IFDEF	MINI		; IF MINI VERSION THEN
+	IFDEF	MINI
 
 ;================================================
 ;= FLOPPY SYSTEM PARAMETERS FOR 5,25" FLOPPY    =
@@ -266,10 +271,10 @@ FSPA24:	DW	DPB24		; DISK PARAMETER BLOCK
 	DS	5		; FILLER TO OBTAIN 16 BYTE LENGTH
 
 	page
-	ELSE			; ELSE
-				;   MAXI VERSION
+	ENDIF
+	IFDEF	MAXI
 	PAGE
-  
+
 ;========================================================
 ;= FLOPPY SYSTEM PARAMETERS                             =
 ;========================================================
@@ -319,9 +324,10 @@ FSPA24:	DW	DPB24		; DISK PARAM BLOCK
 	DB	00H		; DISK TYPE (0:=FLP, FF:=HARD)
 	DS	5		; FILLER TO OBTAIN 16 BYTE LENGTH
 
-	ENDIF			; END IF MINI ELSE MAXI VERSION;
+	ENDIF
 	page
 
+	IFDEF	HARDDISK
 ;=============================================================================
 ;= DISK SYSTEM PARAMETERS FOR HARD DISK                                      =
 ;=============================================================================
@@ -374,16 +380,17 @@ FSPA56:	DW	DPB56		; DISK PARAM BLOCK
 PSPA64:	DW	DPB64		; DISK PARAM BLOCK
 	DB	128		; CP/M RECORDS PER BLOCK
 	DW	384		; CP/M SECTORS PER TRACK
-	DB	3		; SECTOR MASK  
+	DB	3		; SECTOR MASK
 	DB	3		; SECTOR SHIFT COUNT
 	DW	0		; SECTOR TRANSLATION TABEL
 	DB	0		; DATA LENGTH (NOT USED)
 	DB	0FFH		; DISK TYPE (0:=FLP, FF:=HARD DSK)
 	DS	5		; FILLER TO OBTAIN 16 BYTE LENGTH
+	ENDIF
 
 	page
 
-	IFDEF	MINI		; IF MINI VERSION THEN
+	IFDEF	MINI
 ;================================================
 ;= FLOPPY FORMAT PARAMETERS FOR 5,25" FLOPPY    =
 ;================================================
@@ -425,9 +432,8 @@ FDF4:	DW	511		; DMA COUNT
 	DB	77		; TRACKS
 
 	page
-
-	ELSE			; ELSE
-				; MAXI VERSION
+	ENDIF
+	IFDEF	MAXI
 	PAGE
 ;=============================================================================
 ;= FLOPPY DISK FORMAT TABLES                                                 =
@@ -469,8 +475,9 @@ FDF4:	DW	255		; DMA COUNT
 	DB	14		; GAP LENGTH
 	DB	77		; TRACKS
 
-	ENDIF			; END IF MINI ELSE MAXI VERSION;
+	ENDIF
 
+	IFDEF	HARDDISK
 ;=============================================================================
 ;= DISK FORMAT TABLES FOR HARD DISK                                          =
 ;=============================================================================
@@ -482,7 +489,7 @@ FDF5:	DW	511		; DMA TRANSFER COUNT
 	DB	00H		; STEP RATE
 	DB	20H		; SECTOR SIZE (00H:=256,20H:=512,60H:=128)
 	DB	00H		; WRITE PRECOMPRESSED
-  
+
 ;*** O,3 MB LOGICAL HARD DISK UNIT ***
 	DB	16		; SECTORS PER DISK PAGE
 FDF6:	DW	511		; DMA TRANSFER COUNT
@@ -514,6 +521,7 @@ FDF9:	DW	511		; DMA TRANSFER COUNT
 	DB	00H		; STEP RATE
 	DB	20H		; SECTOR SIZE (512 BYTES)
 	DB	00H		; WRITE PRECOMPRESSED
+	ENDIF
 
 	PAGE
 
@@ -541,6 +549,7 @@ DPBASE:	DW	0		; TRANSLATION TABLE
 	DW	CHK1		; AREA USED TO CHECK FOR DISK CHANGE
 	DW	ALL1		; BDOS DISK STORAGE ALLOCATION INFORMATION
 
+	IFDEF	HARDDISK
 ;*** DRIVE 2 HARD DISK (FLOPPY) DRIVE
 	DW	0		; TRANS
 	DW	0		; SCRATCH
@@ -590,6 +599,7 @@ DPBASE:	DW	0		; TRANSLATION TABLE
 	DW	DPB48		; DPB (INIT = 2 MB UNIT)
 	DW	0		; CHK
 	DW	ALVHD+71+63+63+63 ; HDU1+HDU2+HDU3+HDU4
+	ENDIF
 
 	page
 
