@@ -27,6 +27,7 @@ This document provides comprehensive technical information about the RC702 hardw
 10. [System Diskette Generation](#system-diskette-generation-appendix-c)
 11. [Line Editing and Boot Keys](#line-editing-and-boot-keys)
 12. [RC700 Emulator](#rc700-emulator)
+13. [RC702E Variant — Memory Disk and SEM702 Character Generator](#rc702e-variant--memory-disk-and-sem702-character-generator)
 
 ---
 
@@ -203,6 +204,25 @@ The RC703 (later model) likely refines this; rob358.mac uses 0x19 for RAMEN.
 0x18-0x1B  RAMEN  - PROM disable: any write disables PROM0+PROM1 mappings, enables full RAM
 0x1C-0x1F  BIB    - Beeper/speaker output (any write triggers beep)
 ```
+
+### SEM702 Character Generator (RC702E variant only)
+
+```
+0xD1  CHARLN   - Character number (0-127)
+0xD2  DOTLN    - Dot line number (0-15)
+0xD3  CHARDA   - Character RAM data (8 bits per dot line)
+```
+
+Source: PHE358A.MAC. See [RC702E Variant](#rc702e-variant--memory-disk-and-sem702-character-generator).
+
+### Memory Disk (RC702E variant only)
+
+```
+0xEE  MDTRK/MDST - Write: track register. Read: status register
+0xEF  MDSEC      - Write: sector register (starts DMA transfer)
+```
+
+Source: PHE358A.MAC. See [RC702E Variant](#rc702e-variant--memory-disk-and-sem702-character-generator).
 
 ---
 
@@ -1697,6 +1717,45 @@ before running SYSGEN.
 | 0x12 | 0xA012 | DUMINT | CTC Channel 1 |
 | 0x14 | 0xA014 | DISINT | CTC Channel 2 Display |
 | 0x16 | 0xA016 | FLPINT | CTC Channel 3 Floppy |
+
+---
+
+## RC702E Variant — Memory Disk and SEM702 Character Generator
+
+Source: `roa375/PHE358A.MAC` — a modified autoload PROM by Stig Christensen (24 Oct 1987) for an RC702 variant designated "RC702E". Replaces hard disk (WD1000) boot with memory disk boot and adds character generator loading. See `roa375/PHE358A_ANALYSIS.md` for the full analysis.
+
+### Memory Disk (RAM Disk)
+
+An external RAM disk peripheral accessed via DMA Channel 0 (replacing the WD1000 hard disk).
+
+**I/O Ports:**
+
+```
+0xEE  MDTRK (W)  - Track register; writing also clears pending errors
+0xEE  MDST  (R)  - Status register
+0xEF  MDSEC (W)  - Sector register; writing starts the DMA transfer
+```
+
+**Status Register (port 0xEE, read):**
+- Bit 0: Parity error
+- Bit 1: Busy (transfer in progress)
+- Bits 7–2: Number of tracks (value after `AND 0xFC`)
+
+**Disk Geometry:** 1024-byte sectors, 16 sectors per track, variable number of tracks (read from status register). Boot image at track 0, sector 128.
+
+### SEM702 Character Generator
+
+A programmable character generator RAM for the CRT display, loaded at boot from a font PROM at address 0x2000.
+
+**I/O Ports:**
+
+```
+0xD1  CHARLN  - Character number (0–127)
+0xD2  DOTLN   - Dot line number (0–15)
+0xD3  CHARDA  - Character pixel data (8 bits per dot line)
+```
+
+**Character Format:** 128 characters × 16 dot lines × 8 pixels = 2048 bytes of font data. Each byte is bit-reversed (MSB↔LSB) during loading, suggesting opposite pixel endianness between the font PROM and the SEM702 hardware.
 
 ---
 
