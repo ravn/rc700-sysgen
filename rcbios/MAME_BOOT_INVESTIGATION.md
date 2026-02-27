@@ -1,16 +1,28 @@
 # MAME RC702 Boot Investigation
 
-Investigation into why the MAME rc702 and rc702m driver variants fail to boot CP/M,
-while the rc703 variant boots successfully.
+Investigation into why the MAME rc702 driver variants originally failed to boot CP/M,
+and the fixes applied to make all three variants work.
 
-## Status
+## Status: ALL VARIANTS BOOT CP/M
 
-**rc703**: Boots to CP/M prompt (`-bios 1` with rob357 PROM, uniform MFM disk images).
+All three machine variants boot CP/M and pass the DIR test (files listed at A> prompt):
 
-**rc702m** (5.25" mini): Crashes immediately after EI instruction in INIT.
-Execution falls to address 0x0000 (configuration data area).
+| Variant | Disk Image | Signon | Files |
+|---------|-----------|--------|-------|
+| `rc702` (8" maxi) | SW1711-I8.imd | `RC700   56k CP/M vers.2.2   rel. 2.3` | 21 |
+| `rc702mini` (5.25" DD) | CPM_med_COMAL80.imd | `RC700   56k CP/M vers.2.2   rel.2.1` | 21 |
+| `rc703` (5.25" QD) | RC703_CPM_v2.2_r1.2.imd | `RC703  56k CP/M vers. 2.2  rel. 1.2` | 35 |
 
-**rc702** (8" maxi): Same crash behavior as rc702m.
+`MACHINE_NOT_WORKING` flag removed from all three COMP entries.
+
+## Original Problem
+
+**rc703**: Booted to CP/M prompt (`-bios 1` with rob357 PROM, uniform MFM disk images).
+
+**rc702mini** (5.25" mini): Crashed immediately after EI instruction in INIT.
+Execution fell to address 0x0000 (configuration data area).
+
+**rc702** (8" maxi): Same crash behavior as rc702mini.
 
 ## Root Cause (Confirmed)
 
@@ -334,6 +346,26 @@ motor via `mon_w()`.
 
 This fix was necessary but not sufficient — the boot still crashes at EI.
 
+### FDC data rate for 8" maxi (rc702 variant)
+
+MAME's UPD765 defaults `cur_rate` to 250000 (250 kbps) on reset. This is
+correct for 5.25" DD drives (rc702m, rc703) but wrong for 8" drives which
+use 500 kbps.
+
+Without the correct data rate, the FDC PLL cannot lock onto the disk data
+and Read ID returns ST0=0x40/0x44 (abnormal termination) with ST1=0x05
+(ND+MA = No Data + Missing Address Mark) on every attempt. DSKAUTO fails
+on all heads.
+
+Fix: Call `m_fdc->set_rate()` in `machine_reset()` based on DIP switch S08:
+```cpp
+m_fdc->set_rate(BIT(ioport("DSW")->read(), 7) ? 250000 : 500000);
+```
+S08 bit 7: clear = maxi (8", 500 kbps), set = mini (5.25", 250 kbps).
+
+This follows the same pattern as `imds2ioc_device::device_reset()` which
+calls `set_rate(500000)` for its 8" IMD images.
+
 ## Next Steps
 
 1. ~~Run MAME debug trace~~ — **DONE**: confirmed I=0x00, Side 1 MFM all zeros.
@@ -350,15 +382,22 @@ This fix was necessary but not sufficient — the boot still crashes at EI.
    - **rc702m**: BOOTS! DSKAUTO succeeds on both heads, DISKBITS=0x87 (dual-sided),
      I=0xEC, EI succeeds, HD probe runs, CP/M loads.
    - **rc703**: Still boots (unaffected, uses uniform MFM, no multi-density).
-   - **rc702 (8" maxi)**: Still fails — DSKFAIL on both heads. This is a separate
-     issue (likely FDC data rate or 8" format handling). Needs further investigation.
+   - **rc702 (8" maxi)**: Initially still failed — separate issue (FDC data rate).
+     Fixed with `set_rate()` — see item 6.
 
-5. **Report upstream**: File a MAME issue or PR documenting the regression and
-   fix, with evidence from real hardware (PROM works on physical RC702).
+5. **Report upstream**: PR draft prepared at `rcbios/MAME_UPD765_PR_DRAFT.md`.
+   Not yet filed — needs regression testing on other UPD765 machines (cpc6128,
+   qx10, specpl3e) before submission.
 
-6. **Investigate rc702 8" maxi failure**: DSKAUTO fails on both heads even after
-   the ST0 fix. The seek succeeds but Read ID fails. May be a data rate issue
-   (8" drives use 500 kbps vs 250 kbps for 5.25") or FM sector format mismatch.
+6. ~~Investigate rc702 8" maxi failure~~ — **DONE**: Root cause was missing
+   `set_rate()` call. MAME's UPD765 defaults to 250 kbps, but 8" drives use
+   500 kbps. Fix: call `m_fdc->set_rate()` in `machine_reset()` based on DIP
+   switch S08 (bit 7: clear=maxi/500k, set=mini/250k). All three variants now
+   boot successfully.
+
+7. ~~Remove MACHINE_NOT_WORKING~~ — **DONE**: All three variants verified booting
+   CP/M with DIR command listing files. MACHINE_NOT_WORKING removed from all
+   COMP entries.
 
 ## Key Source Files
 
