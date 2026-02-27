@@ -1,89 +1,75 @@
-# Extracted BIOS Track 0 images
+# Extracted BIOS binaries
 
-Raw Track 0 data (Side 0 + Side 1) extracted from RC702/RC703 disk images
-using `imd2raw.py`. Each file contains the complete system track that the
-boot PROM (roa375) loads into memory at address 0x0000 before jumping to
-the BIOS entry point.
+BIOS code extracted from RC702/RC703 disk images. Each file contains the
+BIOS portion of Track 0, starting from the boot entry address stored as
+a 16-bit word at offset 0x0000 (0x0280 for 56K, 0x0380 for 58K).
 
-## Files (10 unique BIOSes from 12 disk images)
+## Files (14 unique BIOSes from 20 disk images)
 
-| File | Size | Signon | Source image(s) |
-|------|------|--------|----------------|
-| `comal80_v1.07_mini.bin` | 6144 | `RC700 comal80  rev. 1.07` | COMAL_v1.07_SYSTEM_RC702.imd |
-| `cpm22_58k_rel1.4_maxi.bin` | 9984 | `58K CP/M VERS 2.2` | Compas_v.2.13DK.imd |
-| `cpm22_58k_rel1.4_mini.bin` | 6144 | `58K CP/M VERS 2.2` | SW1711-I5_CPM2.2_r1.4.imd |
-| `cpm22_56k_rel1.0_rc703_maxi.bin` | 9984 | `RC703   56k CP/M vers.2.2   rel. 1.0` | SW1311-I8.imd |
-| `cpm22_56k_rel1.2_rc703.bin` | 10240 | `RC703  56k CP/M vers. 2.2  rel. 1.2` | RC703_CPM_v2.2_r1.2.imd |
-| `cpm22_56k_rel2.0_mini.bin` | 6144 | `RC700   56k CP/M vers.2.2   rel.2.0` | SW1711-I5_CPM2.2_r2.0.imd |
-| `cpm22_56k_rel2.1_mini.bin` | 6144 | `RC700   56k CP/M vers.2.2   rel.2.1` | CPM_med_COMAL80.imd, SW1711-I5_CPM2.2_r2.1.imd |
-| `cpm22_56k_rel2.2_mini.bin` | 6144 | `RC700   56k CP/M vers.2.2   rel. 2.2` | SW1711-I5_CPM2.2_r2.2.imd |
-| `cpm22_56k_rel2.3_mini.bin` | 6144 | `RC700   56k CP/M vers.2.2   rel. 2.3` | SW1711-I5_RC702_CPM_v2.3.imd |
-| `cpm22_56k_rel2.3_maxi.bin` | 9984 | `RC700   56k CP/M vers.2.2   rel. 2.3` | SW1711-I8.imd |
+| File | Size | Boot | Signon | Source image(s) |
+|------|------|------|--------|-----------------|
+| `comal80_v1.07_mini.bin` | 5248 | 0x0380 | `RC700 comal80  rev. 1.07` | COMAL_v1.07_SYSTEM_RC702.imd |
+| `cpm22_58k_rel1.3_mini.bin` | 5248 | 0x0380 | `58K CP/M VERS 2.2` | SW7503-2.imd |
+| `cpm22_58k_rel1.4_mini.bin` | 5248 | 0x0380 | `58K CP/M VERS 2.2` | SW1711-I5_CPM2.2_r1.4.imd |
+| `cpm22_58k_rel1.4_maxi.bin` | 9088 | 0x0380 | `58K CP/M VERS 2.2` | Compas_v.2.13DK.imd |
+| `cpm22_56k_rel2.0_mini.bin` | 5504 | 0x0280 | `RC700   56k CP/M vers.2.2   rel.2.0` | SW1711-I5_CPM2.2_r2.0.imd |
+| `cpm22_56k_rel2.1_mini.bin` | 5504 | 0x0280 | `RC700   56k CP/M vers.2.2   rel.2.1` | CPM_med_COMAL80.imd, CPM_v.2.2_rel.2.1.imd, SW1711-15.imd, SW1711-I5_r2.1.imd |
+| `cpm22_56k_rel2.2_mini.bin` | 5504 | 0x0280 | `RC700   56k CP/M vers.2.2   rel. 2.2` | CPM_v.2.2_rel.2.2.imd, SW1711-I5_r2.2.imd |
+| `cpm22_56k_rel2.3_mini.bin` | 5504 | 0x0280 | `RC700   56k CP/M vers.2.2   rel. 2.3` | SW1711-I5_RC702_CPM_v2.3.imd |
+| `cpm22_56k_rel2.3_maxi.bin` | 9344 | 0x0280 | `RC700   56k CP/M vers.2.2   rel. 2.3` | SW1711-I8.imd, PolyPascal_3.10.imd |
+| `cpm22_56k_rc702e_rel2.01_mini.bin` | 5504 | 0x0280 | `RC702E 56k CP/M Ver 2.2 Rel 2.01` | PolyPascal_v3.10.imd |
+| `cpm22_56k_rc702e_rel2.20_rc703.bin` | 9600 | 0x0280 | `RC702E 56k CP/M Ver 2.2 Rel 2.20` | RC703_BDS_C_v1.50_workdisk.imd |
+| `cpm22_56k_rel1.0_rc703_maxi.bin` | 9344 | 0x0280 | `RC703   56k CP/M vers.2.2   rel. 1.0` | SW1311-I8.imd |
+| `cpm22_56k_rel1.2_rc703.bin` | 9600 | 0x0280 | `RC703  56k CP/M vers. 2.2  rel. 1.2` | RC703_CPM_v2.2_r1.2.imd, SW1311_cpm_v.2.2.imd |
+| `cpm22_56k_relTFj_rc703.bin` | 9600 | 0x0280 | `RC703  56k CP/M vers. 2.2  rel. TFj` | RC703_Div_BIOS_typer.imd |
 
-### Duplicates removed
+### Duplicates (same BIOS byte-for-byte)
 
-- **SW1711-I5_CPM2.2_r2.1.imd**: BIOS code identical to CPM_med_COMAL80.imd (both rel.2.1 mini)
+- rel.2.1 mini: CPM_med_COMAL80 = CPM_v.2.2_rel.2.1 = SW1711-15 = SW1711-I5_r2.1
+- rel.2.2 mini: CPM_v.2.2_rel.2.2 = SW1711-I5_r2.2
+- rel.2.3 maxi: SW1711-I8 = PolyPascal_3.10
+- rel.1.2 rc703: RC703_CPM_v2.2_r1.2 = SW1311_cpm_v.2.2
 
-### Non-bootable image skipped
+### Non-bootable images skipped
 
+- **RC703_DIV_ROA.imd**: Data-only disk, no system tracks
 - **SW1329-d8.imd**: Data-only disk (Compas Pascal 2.20), no system tracks
-
-### Does not boot in MAME
-
-- **SW1311-I8.imd** (`cpm22_56k_rel1.0_rc703_maxi.bin`): RC703 BIOS on 8" maxi
-  format — no matching MAME machine variant. The `rc702` variant reads the disk
-  but the RC703 BIOS expects different hardware. A future `rc703maxi` variant
-  would be needed.
-
-## MAME boot test results
-
-| Image | MAME variant | Signon | DIR |
-|-------|-------------|--------|-----|
-| COMAL_v1.07_SYSTEM_RC702.imd | rc702mini -bios 0 | `RC700 comal80  rev. 1.07` | `SYSTEM`, `convtab` |
-| Compas_v.2.13DK.imd | rc702 -bios 0 | `58K CP/M VERS 2.2` | 21 files |
-| CPM_med_COMAL80.imd | rc702mini -bios 0 | `RC700   56k CP/M vers.2.2   rel.2.1` | 21 files |
-| RC703_CPM_v2.2_r1.2.imd | rc703 -bios 1 | `RC703  56k CP/M vers. 2.2  rel. 1.2` | 35 files |
-| SW1711-I5_CPM2.2_r1.4.imd | rc702mini -bios 0 | `58K CP/M VERS 2.2` | 17 files |
-| SW1711-I5_CPM2.2_r2.0.imd | rc702mini -bios 0 | `RC700   56k CP/M vers.2.2   rel.2.0` | 22 files |
-| SW1711-I5_CPM2.2_r2.1.imd | rc702mini -bios 0 | `RC700   56k CP/M vers.2.2   rel.2.1` | 21 files |
-| SW1711-I5_CPM2.2_r2.2.imd | rc702mini -bios 0 | `RC700   56k CP/M vers.2.2   rel. 2.2` | 22 files |
-| SW1711-I5_RC702_CPM_v2.3.imd | rc702mini -bios 0 | `RC700   56k CP/M vers.2.2   rel. 2.3` | 22 files |
-| SW1711-I8.imd | rc702 -bios 0 | `RC700   56k CP/M vers.2.2   rel. 2.3` | 21 files |
-| SW1311-I8.imd | rc702 -bios 0 | *(does not boot)* | — |
-| SW1329-d8.imd | — | *(no system tracks)* | — |
+- **Metanic_COMAL-80D_v1.8.imd**: Non-standard format (uniform MFM, no FM T0)
 
 ## BIOS families
 
-**58K BIOS** (rel.1.4): Older, smaller BIOS (5632 bytes code). No hard disk
-support, no CONFI.COM language tables. Signon: `58K CP/M VERS 2.2` (no release
-number). Two format variants (maxi and mini) with identical code but different
-disk parameter blocks.
+**58K BIOS** (rel.1.3, rel.1.4): Older, smaller BIOS (5248 bytes from boot entry).
+No hard disk support, no CONFI.COM language tables. Signon: `58K CP/M VERS 2.2`
+(no release number in signon). rel.1.3 and rel.1.4 differ in code. Mini and maxi
+variants have identical code but different disk parameter blocks.
 
-**56K BIOS** (rel.2.0–2.3): Larger BIOS (7680 bytes code) with hard disk
-support, CONFI.COM configuration, and RC791 line selector. The extra features
-reduce TPA from 58K to 56K. rel.2.2/2.3 share code; only signon string and
-DISKTAB differ.
+**56K BIOS** (rel.2.0-2.3): Larger BIOS (5504 bytes mini, 9344 bytes maxi) with
+hard disk support, CONFI.COM configuration, and RC791 line selector. The extra
+features reduce TPA from 58K to 56K. rel.2.2/2.3 share code; only signon string
+and DISKTAB differ.
 
-**RC703 BIOS** (rel.1.0, rel.1.2): RC703-specific. No extended BIOS entries.
-Runtime-initialized DPBASE. rel.1.0 is 8" maxi format; rel.1.2 is uniform
-MFM QD format.
+**RC702E BIOS** (rel.2.01, rel.2.20): Variant for RC702E hardware. rel.2.01 is
+mini format, rel.2.20 is on RC703-format disk. Different signon format from
+standard RC700 BIOS.
 
-**COMAL-80** (rev.1.07): Standalone operating system with own filesystem.
-Not CP/M.
+**RC703 BIOS** (rel.1.0, rel.1.2, rel.TFj): RC703-specific. No extended BIOS
+entries. Runtime-initialized DPBASE. rel.1.0 is 8" maxi format; rel.1.2 and
+rel.TFj are uniform MFM QD format.
 
-## Track 0 layout
-
-| Format | Side 0 (FM) | Side 1 (MFM) | Total |
-|--------|-------------|--------------|-------|
-| 5.25" mini | 16 × 128B = 2048 | 16 × 256B = 4096 | 6144 |
-| 8" maxi | 26 × 128B = 3328 | 26 × 256B = 6656 | 9984 |
-| RC703 QD | 10 × 512B = 5120 | 10 × 512B = 5120 | 10240 |
-
-The first 640 bytes (5 × 128B sectors) are the CONFI.COM configuration block.
-BIOS code starts at offset 0x280.
+**COMAL-80** (rev.1.07): Standalone operating system with own filesystem. Not CP/M.
 
 ## Extraction
 
+The boot entry address is stored as a 16-bit little-endian word at offset 0x0000
+of Track 0. The BIOS binary is the data from that offset to the end of Track 0.
+
 ```sh
-python3 rcbios/imd2raw.py image.imd output.bin
+python3 rcbios/imd2raw.py image.imd /tmp/t0.bin    # extract raw Track 0
+python3 -c "
+import struct
+t0 = open('/tmp/t0.bin','rb').read()
+boot = struct.unpack_from('<H', t0, 0)[0]
+open('bios.bin','wb').write(t0[boot:])
+print(f'Boot entry: 0x{boot:04X}, BIOS size: {len(t0)-boot}')
+"
 ```
