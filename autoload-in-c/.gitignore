@@ -9,6 +9,7 @@ roa375_*.bin
 *.lis
 *.def
 *.rom
+*.ic66
 zcc_opt.def
 rom_all.asm
 rom_all.c.asm
