@@ -121,6 +121,15 @@ def convert(binpath, imdpath):
         convert_rc702_mini(data, imdpath)
         return
 
+    # RC702 mini with incomplete last track: truncate trailing 0xE5 to track boundary
+    if remaining > 0:
+        excess = remaining % rc702_track_size
+        if excess > 0 and all(b == 0xE5 for b in data[-excess:]):
+            print(f"Note: truncating {excess} trailing 0xE5 bytes to track boundary")
+            data = data[:-excess]
+            convert_rc702_mini(data, imdpath)
+            return
+
     print(f"ERROR: file size {len(data)} doesn't match any known disk geometry", file=sys.stderr)
     sys.exit(1)
 

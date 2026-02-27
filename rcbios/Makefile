@@ -38,7 +38,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
-.PHONY: all rel21-mini rel22-mini rel23-maxi rel14-maxi verify dumps bios disasm clean emu patch-test
+.PHONY: all rel21-mini rel22-mini rel23-maxi rel14-maxi verify dumps bios disasm clean emu patch-test mame-test
 
 all: verify
 
@@ -164,6 +164,13 @@ patch-test: rel22-mini
 	$(EMU) -maxi -memdump /tmp/patched_maxi_ram.bin /tmp/patched_maxi.imd > /dev/null 2>/tmp/patched_maxi.log
 	grep -q 'rel\. 2\.3' /tmp/patched_maxi.log && echo "MAXI: rel. 2.3 signon OK" || (echo "MAXI: FAILED"; exit 1)
 	@echo "patch-test: PASS"
+
+# ============================================================
+# MAME boot test: boot all disk images and verify signon
+# ============================================================
+
+mame-test:
+	bash mame_boot_test.sh
 
 clean:
 	rm -f $(DUMPS) $(BIOS_BINS) $(BIOS_ASMS) *.log /tmp/cpm22_rel22.imd
