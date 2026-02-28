@@ -1,4 +1,4 @@
-# MAME Upstream PR Draft: UPD765 ST0 HD bit fix
+# MAME Upstream PR Draft: UPD765 ST0 HD bit fix (PR #15032)
 
 ## PR title
 

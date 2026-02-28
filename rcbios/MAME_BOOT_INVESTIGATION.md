@@ -399,6 +399,14 @@ calls `set_rate(500000)` for its 8" IMD images.
    CP/M with DIR command listing files. MACHINE_NOT_WORKING removed from all
    COMP entries.
 
+## Related: Read Track ST1_ND Bug (PR #15031)
+
+A separate UPD765 bug was found for the RC703 path: `read_track_continue()`
+incorrectly toggled ST1_ND per sector during Read Track commands. See
+`MAME_UPD765_READ_TRACK_ANALYSIS.md` for full datasheet analysis, including
+a correction to the inaccurate claim in the PR description about sector ID
+comparison.
+
 ## Key Source Files
 
 | File | Description |
