@@ -23,3 +23,13 @@ narrower condition.
    approach — acknowledge the error, present the correct evidence
 
 **Files**: `rcbios/MAME_UPD765_READ_TRACK_ANALYSIS.md` has the full analysis.
+
+## 2026-02-28: Always clearly identify AI authorship in PR comments
+
+**Context**: When posting review replies on MAME PRs #15031 and #15032, the
+comments must clearly state they were written by Claude Code on behalf of the
+user, not claim to be the user. Use a closing line like
+"(Analysis by Claude Code on behalf of Thorbjørn Ravn Andersen)".
+
+**Lesson**: Never claim to be the user. Always state clearly what was written
+and by whom. This is both honest and required by the user.

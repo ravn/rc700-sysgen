@@ -141,3 +141,28 @@ The change is low risk because:
   unusual in doing a strict equality check
 - Read/Write operations set ST0 from `command[1] & 7` in their own start functions
   (read_data_start, write_data_start), so data transfer ST0 is unaffected
+
+## PR Review Discussion (2026-02-28)
+
+### galibert (UPD765 emulation author) asked for details
+
+On the `& 7` → `& 3` change at line 1696. Reply posted with:
+
+1. **Mechanism**: `command[1]=0x04` (head=1, drive=0) → `fi.st0=0x04` → after
+   `SEEK_WAIT_DONE` OR with `ST0_SE | fi.id` → `0x24`. Sense Interrupt Status
+   returns `0x24` instead of expected `0x20`.
+
+2. **Datasheet evidence** (NEC µPD765A, http://dunfield.classiccmp.org/r/765.pdf):
+   - Seek description (p. 15): only mentions SE flag being set at completion
+   - Table 5 (p. 16): Seek End interrupt defined as bits 5-7 + unit select (0-1);
+     bit 2 (HD) not specified for Seek/Recalibrate
+   - ST0 HD (p. 17): "the state of the head at Interrupt" — not further defined
+     for non-data-transfer commands
+
+3. **Other emulators**: floooh/chips uses `fifo[1] & 3` (excludes HD).
+   Pre-regression MAME used `fi.st0 = 0`.
+
+4. **Real hardware**: RC702 PROM works on physical NEC µPD765A with this ST0
+   check. If real hardware set HD after Seek, the PROM would fail.
+
+5. **Consistency**: `get_ready()` on the adjacent line already uses `& 3`.
