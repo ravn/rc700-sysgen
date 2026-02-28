@@ -38,25 +38,110 @@ a 16-bit word at offset 0x0000 (0x0280 for 56K, 0x0380 for 58K).
 
 ## BIOS families
 
-**58K BIOS** (rel.1.3, rel.1.4): Older, smaller BIOS (5248 bytes from boot entry).
-No hard disk support, no CONFI.COM language tables. Signon: `58K CP/M VERS 2.2`
-(no release number in signon). rel.1.3 and rel.1.4 differ in code. Mini and maxi
-variants have identical code but different disk parameter blocks.
+All 13 CP/M BIOSes have exactly 17 standard CP/M 2.2 jump table entries
+(BOOT through SECTRAN). None have extended entries in the JT itself; the 56K
+BIOSes provide extended functions (CLOCK, EXIT, LINSEL, etc.) at separate
+call addresses documented in the CP/M User's Guide.
 
-**56K BIOS** (rel.2.0-2.3): Larger BIOS (5504 bytes mini, 9344 bytes maxi) with
-hard disk support, CONFI.COM configuration, and RC791 line selector. The extra
-features reduce TPA from 58K to 56K. rel.2.2/2.3 share code; only signon string
-and DISKTAB differ.
+| Family | Releases | BIOS code | TPA | JT base | Reloc dest |
+|--------|----------|-----------|-----|---------|------------|
+| 58K | rel.1.3, rel.1.4 | 4864B | 58K | 0xE200 | 0xDD00 |
+| 56K RC700 | rel.2.0, 2.1, 2.2, 2.3 | 4736B mini / 8576B maxi | 56K | 0xDA00 | 0xD480 |
+| RC702E | rel.2.01, rel.2.20 | 4736B / 8832B | 56K | 0xDA00 | 0xD480 |
+| RC703 | rel.1.0, 1.2, TFj | 8576-8832B | 56K | 0xDA00 | 0xD480 |
 
-**RC702E BIOS** (rel.2.01, rel.2.20): Variant for RC702E hardware. rel.2.01 is
-mini format, rel.2.20 is on RC703-format disk. Different signon format from
-standard RC700 BIOS.
+### 58K BIOS (oldest)
 
-**RC703 BIOS** (rel.1.0, rel.1.2, rel.TFj): RC703-specific. No extended BIOS
-entries. Runtime-initialized DPBASE. rel.1.0 is 8" maxi format; rel.1.2 and
-rel.TFj are uniform MFM QD format.
+Smallest, simplest BIOS. Signon: `58K CP/M VERS 2.2` (no release number).
+No hard disk support, no CONFI.COM language tables, no RC791 line selector.
+The smaller BIOS leaves the most TPA (58K).
+
+- **rel.1.3 vs rel.1.4**: 76% sequence match — significant rework (~24% changed),
+  including keyboard handler changes.
+- **rel.1.4 mini vs maxi**: Byte-identical code. Maxi appends 3840B of DISKTAB
+  for 8" disk format.
+
+### 56K RC700 BIOS (main line)
+
+Added hard disk support, CONFI.COM configuration, and RC791 line selector.
+The extra features grew the BIOS by ~2K, reducing TPA from 58K to 56K.
+BIOS source at jbox.dk (BIOS.MAC) corresponds to rel.2.1.
+
+- **rel.2.0 → rel.2.1**: 80% sequence match. Functions were rearranged to
+  different offsets within the BIOS (e.g. CONST moved from base+0x039D to
+  base+0x1228) but the code is structurally identical — same polling pattern,
+  just relocated.
+- **rel.2.1 → rel.2.2**: 83% sequence match. Known changes: +1 byte signon
+  string (`"rel.2.1"` → `"rel. 2.2"`), +6 bytes LINSEL delay, simplified
+  STSKFL head selection (-27B), new HDSYNC function (+16B). The remaining
+  "diffs" in positional comparison are byte-shifts from these insertions.
+- **rel.2.2 → rel.2.3**: **1 byte** — signon version character `2` → `3`.
+  Identical code.
+- **rel.2.3 mini vs maxi**: Identical code. 59 bytes differ in DISKTAB
+  (DPB parameters for 8" format). Maxi adds 3840B of extra disk tables.
+
+### RC702E BIOS (RAM disk fork)
+
+Fork of the 56K RC700 BIOS for RC702E hardware with RAM disk and clock
+support. PROM source: PHE358A.MAC (proven original).
+
+- **rel.2.01** (mini format): 44% match vs 56K RC700 rel.2.2. The INIT
+  area (before JT) contains unique boot strings: `USE RAM-DISK`,
+  `NOT INSTALLED.`, `RC702E Waiting.`, `AS BOOTDISK?(Y/N)`,
+  `Kl.00.00.00`, `TIME NOT INITIALIZED.` — the boot sequence prompts for
+  RAM disk boot and displays a clock.
+- **rel.2.20** (on RC703-format disk): 44% match vs rel.2.01. Much larger
+  (8832B), contains embedded VERIFY/BLOCKS.BAD disk utility with strings
+  like `CHECK READING CP/M BLOCK No.`, `BAD SECTOR ENCOUNTERED`,
+  `CREATE DUMMY FILE (Y/N):`.
+
+### RC703 BIOS
+
+Substantially new codebase for RC703 hardware. No extended BIOS entries.
+Runtime-initialized DPBASE. PROM source: ROB358.MAC (proven original).
+
+- **rel.1.0** (8" maxi only): The DISKTAB area contains leftover Danish
+  COMAL error messages (`RANDOMIZE`, `PRINT USING`, `syntaks fejl`,
+  `ulovligt tegn`, `linie for lang`) — residual data from a previously
+  formatted disk, not part of the BIOS code.
+- **rel.1.0 → rel.1.2**: 47% sequence match — substantially different.
+  Different disk formats (8" maxi vs 5.25" QD) account for part of this.
+- **rel.1.2 → rel.TFj**: 55% sequence match, same size (8832B). Both
+  contain embedded hard disk config tables with ASCII assembly source
+  comments (e.g. `; disk type (0=floppy, FF=hard)`,
+  `; hard disk type (0=ro103, 1=ro202)`) and the VERIFY/BLOCKS.BAD
+  disk utility.
+
+### Cross-family relationships
+
+| Comparison | Match | Notes |
+|-----------|-------|-------|
+| 58K vs 56K RC700 | 36% | Different codebases. 56K grew from 58K but was substantially rewritten. |
+| 56K RC700 vs RC703 | 43% | Significant shared ancestry, different hardware drivers. |
+| 56K RC700 vs RC702E | 44% | Fork — RC702E diverged to add RAM disk and clock. |
+| RC702E vs RC703 | 24% | Most distant. RC702E forked from RC700; RC703 more independent. |
+
+### Evolutionary timeline
+
+```
+58K rel.1.3 (oldest, simplest, no HD)
+  └── 58K rel.1.4 (keyboard rework, 76% match)
+        └── 56K rel.2.0 (HD support added, TPA shrunk to 56K)
+              └── 56K rel.2.1 (code rearranged, jbox.dk BIOS.MAC source)
+                    ├── 56K rel.2.2 (LINSEL fix, HD simplification)
+                    │     └── 56K rel.2.3 (signon only, 1 byte)
+                    └── RC702E rel.2.01 (RAM disk fork)
+                          └── RC702E rel.2.20 (+ VERIFY utility)
+
+RC703 rel.1.0 (new codebase for RC703 hardware)
+  └── RC703 rel.1.2 (+ config comments, VERIFY utility)
+        └── RC703 rel.TFj (modified, 55% match to 1.2)
+```
+
+### COMAL-80 (not CP/M)
 
 **COMAL-80** (rev.1.07): Standalone operating system with own filesystem. Not CP/M.
+Not considered for BIOS comparison or refactoring.
 
 ## Extraction
 

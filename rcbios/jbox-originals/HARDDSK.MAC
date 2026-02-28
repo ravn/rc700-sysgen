@@ -1,4 +1,4 @@
-; SUBTTL WINCHESTER DISK DRIVER
+	SUBTTL WINCHESTER DISK DRIVER
 ;=============================================================================
 ;=      HARD DISK PHYSICAL WRITE (MEMORY => DISK)                            =
 ;=============================================================================
@@ -91,21 +91,6 @@ STSK10:	AND	A		;
 	INC	A		; HL:=SECTOR:=HOST_SECTOR-HEAD_NO*END_OF_PAGE
 	JP	STSK10		;
 STSK20:	ADD	HL,BC		;
-	IFDEF	REL22PLUS
-	LD	C,A		; SAVE HEAD NO. IN C
-	LD	A,L		;
-	OUT	(HSECNO),A	;
-	LD	HL,(LSTTRK)	; CHECK TRACK NUMBER
-	LD	A,H		;
-	OR	L		;
-	JR	Z,STSK40	; SKIP IF TRACK 0
-	LD	A,(HDHFLG)	; CHECK HD HEAD SELECT FLAG
-	OR	A		;
-	JR	Z,STSK40	; SKIP IF NOT SET
-	SET	7,C		; SET HEAD BIT
-STSK40:	LD	A,C		; RESTORE HEAD NO.
-	ENDIF
-	IFDEF	REL20
 	PUSH	AF		;
 	LD	A,L		;
 	OUT	(HSECNO),A	;
@@ -132,38 +117,7 @@ STSK30:	SLA	C		;
 	SLA	C		;
 	POP	AF		;
 	OR	C		;
-STSK40:
-	ENDIF
-	IFDEF	REL21
-	PUSH	AF		;
-	LD	A,L		;
-	OUT	(HSECNO),A	;
-	LD	A,(LSTDSK)	;
-	LD	C,0		;
-	LD	HL,UNK1		;
-	SUB	(HL)		;
-	LD	HL,UNK2		;
-	CP	(HL)		;
-	JP	C,STSK30	;
-	SUB	(HL)		;
-	INC	C		;
-	LD	HL,UNK3		;
-	CP	(HL)		;
-	JP	C,STSK30	;
-	SUB	(HL)		;
-	INC	C		;
-	LD	HL,UNK4		;
-	CP	(HL)		;
-	JP	C,STSK30	;
-	INC	C		;
-STSK30:	SLA	C		;
-	SLA	C		;
-	SLA	C		;
-	POP	AF		;
-	OR	C		;
-STSK40:
-	ENDIF
-	LD	HL,5		;
+STSK40:	LD	HL,5		;
 	ADD	HL,DE		; GET ADR. OF SECTOR SIZE IN FORMAT TABLE
 	OR	(HL)		; LOGICAL OR SECTOR SIZE ON
 	OUT	(HSZDHD),A	; INIT. SIZE, DISK AND HEAD NO. IN TASK FILE
@@ -195,21 +149,6 @@ HDSEEK:	LD	HL,(FORM)	; 	GET CURRENT FORMAT TABLE ADR.
 	OUT	(HCMDRG),A	; ELSE: ISSUE SEEK COMMAND
 	SCF			; 	SET CARRY FLAG
 	RET			; END.
-
-	IFDEF	REL22PLUS
-;=============================================================================
-;=	WAIT FOR HD, READ/CLEAR ERROR FLAG, RETURN STATUS                    =
-;=============================================================================
-;
-HDSYNC:	CALL	WAITHD		; WAIT FOR HD OPERATION
-	PUSH	HL		;
-	LD	HL,ERFLAG	; READ AND CLEAR ERROR FLAG
-	LD	A,(HL)		;
-	LD	(HL),0		;
-	POP	HL		;
-	LD	BC,(MHDTSR)	; BC = STATUS MIRRORS
-	RET			;
-	ENDIF
 
 ;=============================================================================
 ;=	AWAIT COMPLETION OF HARD DISK OPERATION                              =

@@ -120,13 +120,18 @@ def find_dpbase_offset(bios, bios_base):
     return None, None
 
 
-def compare_bios(hexfile, reffile, bios_offset, verbose=False):
+def compare_bios(hexfile, reffile, bios_offset, ref_offset=0, verbose=False):
     """Compare assembled BIOS from HEX file against reference binary.
+
+    bios_offset: offset within assembled output where BIOS starts
+    ref_offset: offset within reference file where BIOS starts
+                (0 for RAM dump refs, 0x300 for 56K extracted_bios, etc.)
 
     Returns True if all code bytes match (ignoring runtime areas).
     """
     binary, start = hex_to_bin(hexfile)
-    ref = open(reffile, 'rb').read()
+    ref_full = open(reffile, 'rb').read()
+    ref = ref_full[ref_offset:]
     bios = binary[bios_offset:]
     compare_len = min(len(bios), len(ref))
 
@@ -214,13 +219,15 @@ def compare_bios(hexfile, reffile, bios_offset, verbose=False):
 
 def main():
     if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <hex_file> <ref_binary> <bios_offset_hex>")
-        print(f"  e.g.: {sys.argv[0]} zout/BIOS.hex rccpm22_bios.bin 0x580")
+        print(f"Usage: {sys.argv[0]} <hex_file> <ref_binary> <bios_offset_hex> [ref_offset_hex]")
+        print(f"  e.g.: {sys.argv[0]} zout/BIOS.hex ref/rccpm22_bios.bin 0x580")
+        print(f"  e.g.: {sys.argv[0]} zout/BIOS.hex extracted_bios/xxx.bin 0x580 0x300")
         sys.exit(1)
 
     hexfile = sys.argv[1]
     reffile = sys.argv[2]
     bios_offset = int(sys.argv[3], 0)
+    ref_offset = int(sys.argv[4], 0) if len(sys.argv) > 4 else 0
 
     if not os.path.exists(hexfile):
         print(f"Error: {hexfile} not found")
@@ -229,7 +236,7 @@ def main():
         print(f"Error: {reffile} not found")
         sys.exit(1)
 
-    ok = compare_bios(hexfile, reffile, bios_offset, verbose=True)
+    ok = compare_bios(hexfile, reffile, bios_offset, ref_offset, verbose=True)
     sys.exit(0 if ok else 1)
 
 

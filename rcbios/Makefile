@@ -38,7 +38,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
-.PHONY: all rel21-mini rel22-mini rel23-maxi rel14-maxi verify dumps bios disasm clean emu patch-test mame-test
+.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel14-mini rel14-maxi verify verify-all dumps bios disasm clean emu patch-test mame-test
 
 all: verify
 
@@ -52,33 +52,57 @@ all: verify
 BIOS_OFFSET_56K = 0x580
 BIOS_OFFSET_58K = 0x500
 
+# Reference offset within extracted_bios/ files (BIOS offset - boot entry offset)
+# 56K: 0x580 - 0x280 = 0x300
+# 58K: 0x500 - 0x380 = 0x180
+EXTREF_OFFSET_56K = 0x300
+EXTREF_OFFSET_58K = 0x180
+
+rel20-mini: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL20 -DMINI src/BIOS.MAC
+
 rel21-mini: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL21 -DMINI src/BIOS.MAC
 
 rel22-mini: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL22 -DMINI src/BIOS.MAC
 
+rel23-mini: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL23 -DMINI src/BIOS.MAC
+
 rel23-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL23 -DMAXI src/BIOS.MAC
+
+rel14-mini: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL14 -DMINI src/BIOS.MAC
 
 rel14-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL14 -DMAXI src/BIOS.MAC
 
 # Verify all variants against reference binaries
-verify: verify-rel21-mini verify-rel22-mini verify-rel23-maxi verify-rel14-maxi
+verify: verify-rel20-mini verify-rel21-mini verify-rel22-mini verify-rel23-mini verify-rel23-maxi verify-rel14-mini verify-rel14-maxi
+
+verify-rel20-mini: rel20-mini
+	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.0_mini.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
 
 verify-rel21-mini: rel21-mini
-	python3 verify_bios.py zout/BIOS.hex ref/rccpm22_bios.bin $(BIOS_OFFSET_56K)
+	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.1_mini.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
 
 verify-rel22-mini: rel22-mini
-	python3 verify_bios.py zout/BIOS.hex ref/cpm22_rel22_bios.bin $(BIOS_OFFSET_56K)
+	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.2_mini.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
+
+verify-rel23-mini: rel23-mini
+	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.3_mini.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
 
 verify-rel23-maxi: rel23-maxi
-	python3 verify_bios.py zout/BIOS.hex ref/sw1711_rel23_bios.bin $(BIOS_OFFSET_56K)
+	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.3_maxi.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
 
-# The rel.1.4 build is functionally equivalent but NOT byte-identical
-# to the original disk image, which was an independently written codebase.
-# Verify only that it assembles without errors.
+# The rel.1.4 builds are functionally equivalent but NOT byte-identical
+# to the original disk images, which were an independently written codebase.
+# Verify only that they assemble without errors.
+verify-rel14-mini: rel14-mini
+	@echo "rel14-mini: assembled OK (no byte-level verification — different codebase)"
+
 verify-rel14-maxi: rel14-maxi
 	@echo "rel14-maxi: assembled OK (no byte-level verification — different codebase)"
 
