@@ -263,12 +263,78 @@ to convert back to binary.
 |--------|--------|
 | 9600 8-N-1, 60 bytes, `pip con:=rdr:` | 3 lines displayed correctly |
 | 9600 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All 100 lines received, no data loss |
+| 9600 8-N-1, 1141 bytes (20 lines), ring buffer dump | Both ring buffers verified (see below) |
 | Socket connection via `socket.localhost:PORT` | Works — non-blocking reads via POSIX `select()` |
 
 Note: `pip con:=rdr:` does not write to disk, so DI periods from FDC
 are not exercised. A full stress test with `pip file.hex=rdr:` at 38400
 with matching null_modem config is needed to verify ring buffer survival
 during disk writes.
+
+### Ring buffer verification (memory dump)
+
+MAME debugger breakpoints on RCA ISR (DDB8) saved memory at F370-F56F
+during and after a 20-line (1141-byte) serial transfer at 9600 8-N-1.
+
+**SIO ring buffer (RXBUF F400-F4FF):**
+- Mid-transfer: RXHEAD=RXTAIL=0x74 — buffer momentarily empty, READER
+  consuming data as fast as it arrives. Buffer contains residual data from
+  previous writes (lines 0016-0019), confirming the ring wrapped multiple
+  times through the 256-byte buffer.
+- Near-end: RXHEAD=0x75, RXTAIL=0x74 — exactly 1 byte pending (0x1A =
+  Ctrl-Z EOF). All 20 lines were received and consumed correctly.
+
+**Keyboard ring buffer (KBBUF F37F-F38E):**
+- KBHEAD=KBTAIL=0x0E (14) — buffer empty, all keystrokes consumed.
+- Buffer contains `pip con:=rdr:\r` (14 chars from autoboot command),
+  confirming keyboard ring buffer correctly stores and delivers keystrokes.
+
+### Inspecting ring buffers with MAME debugger
+
+After serial transfer, break into the MAME debugger (tilde key or `-debug`)
+and dump the ring buffer memory region:
+
+```
+save /tmp/ringbuf.bin,F370,200
+```
+
+This saves F370-F56F (512 bytes) covering pointers + KBBUF + gap + RXBUF.
+
+Ring buffer addresses (from BIOS.lst rel.3.0):
+```
+F37B  RXHEAD    SIO ring buffer write position (0-255)
+F37C  RXTAIL    SIO ring buffer read position (0-255)
+F37D  KBHEAD    Keyboard ring buffer write position (0-15)
+F37E  KBTAIL    Keyboard ring buffer read position (0-15)
+F37F  KBBUF     16-byte keyboard ring buffer (F37F-F38E)
+F400  RXBUF     256-byte SIO ring buffer (F400-F4FF, page-aligned)
+```
+
+Analyze the dump with `/tmp/dump_ringbuf.py`:
+```bash
+python3 /tmp/dump_ringbuf.py /tmp/ringbuf.bin
+```
+
+When PIP has consumed all received data, RXHEAD == RXTAIL (buffer empty).
+To catch data mid-flight, set a breakpoint on READER (DCF0):
+```
+bp DCF0,1,{save /tmp/ringbuf.bin,F370,200; g}
+```
+
+### CP/M batch commands via $$$.SUB
+
+CP/M supports batch command execution via a file named `A:$$$.SUB` on disk.
+The file contains 128-byte records, each holding a length byte followed by a
+command string, padded with zeros. Commands are stored in **reverse order**
+(last command first). SUBMIT.COM creates this file; CCP checks for it at
+each command prompt.
+
+This could automate multi-step serial transfers:
+```
+; $$$.SUB contents (reverse order):
+; Record 0: "TYPE TEST.TXT"    (executed last)
+; Record 1: "PIP TEST.TXT=RDR:" (executed first)
+```
 
 ## RC702 SIO Hardware Notes
 
