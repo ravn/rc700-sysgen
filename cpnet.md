@@ -138,6 +138,29 @@ Mitigations:
 - MAME-side buffering between host connection and emulated SIO
 - Accept the limitation (real hardware had the same problem)
 
+### Future: automatic RTS flow control
+
+To prevent data loss during DI periods, the BIOS could de-assert RTS before
+entering DI (FDC operations) and re-assert it after EI. The SIO's WR5 controls
+RTS (bit 1). The MAME null_modem device honours CTS, so dropping RTS would
+cause the remote side's CTS to drop, pausing transmission.
+
+Implementation sketch (in FLOPPY.MAC, around FDC read/write):
+```z80
+; Before DI:
+    LD   A,05H
+    OUT  (SIOAC),A      ; select WR5
+    LD   A,(WR5A)
+    ADD  A,88H          ; DTR=on, RTS=OFF, TX enable
+    OUT  (SIOAC),A      ; drop RTS → sender pauses
+    DI
+    ... FDC operation ...
+    EI
+    CALL READI           ; re-arms RTS, DTR, RX interrupts
+```
+
+Not yet implemented — deferred until basic serial transfer is tested.
+
 ### Other REL30 changes
 - RCB ISR (Channel B receive) removed — dead code, Ch.B receiver is never enabled
   (printer port is output-only). IVT entry points to DUMITR.
@@ -154,10 +177,98 @@ SIO Channel B ("rs232b") — BIOS LIST — printer output
 ```
 
 Each channel has TXD/RTS/DTR output callbacks and RXD/CTS input handlers.
-Usage example:
+
+### MAME serial testing procedure
+
+The null_modem device with a TCP socket bitbanger is the practical way to
+test serial I/O. MAME connects as a TCP client; a host-side Python script
+acts as the server.
+
+**Step 1: Configure null_modem baud rate**
+
+The null_modem defaults to 9600 8-N-1. The BIOS rel. 3.0 SIO defaults to
+38400 7-E-1 (INIPARMS.MAC: CTC count=1, WR4=47h, WR3=61h). These must
+match. Override via MAME cfg file (`cfg/rc702.cfg`) inside `<system>`:
+
+```xml
+<port tag=":rs232a:null_modem:RS232_TXBAUD" type="TYPE_OTHER(6,0)" mask="255" defvalue="7" value="11" />
+<port tag=":rs232a:null_modem:RS232_RXBAUD" type="TYPE_OTHER(6,0)" mask="255" defvalue="7" value="11" />
+<port tag=":rs232a:null_modem:RS232_DATABITS" type="TYPE_OTHER(6,0)" mask="255" defvalue="3" value="2" />
+<port tag=":rs232a:null_modem:RS232_PARITY" type="TYPE_OTHER(6,0)" mask="255" defvalue="0" value="2" />
 ```
-mame rc702mini -rs232a null_modem -bitb1 socket.localhost:PORT
+
+Values: TXBAUD/RXBAUD 11=38400, DATABITS 2=7-bit, PARITY 2=even.
+Type `TYPE_OTHER(6,0)` is MAME's internal token for `IPT_CONFIG` ports.
+Alternatively, change settings at runtime via Tab → Machine Configuration.
+
+**Step 2: Start host-side TCP server**
+
+```python
+#!/usr/bin/env python3
+# serial_server.py — send file to CP/M via MAME null_modem
+import socket, sys, time
+port, delay = 4321, 15.0
+filename = sys.argv[1] if len(sys.argv) > 1 else '/tmp/testfile.txt'
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('localhost', port))
+server.listen(1)
+print(f"Listening on port {port}...")
+conn, addr = server.accept()
+print(f"Connected. Waiting {delay}s for CP/M to boot...")
+time.sleep(delay)  # wait for CP/M boot + PIP to start
+with open(filename, 'rb') as f:
+    data = f.read()
+print(f"Sending {len(data)} bytes...")
+for byte in data:
+    conn.send(bytes([byte]))
+    time.sleep(0.002)  # ~500 bytes/sec pacing
+print("Done.")
+time.sleep(5)
+conn.close()
+server.close()
 ```
+
+The delay (15s) ensures data arrives after CP/M has booted and PIP is
+waiting. MAME's bitbanger socket uses non-blocking `select()`, so no
+data loss from timing — the null_modem simply polls and finds nothing
+until the server starts sending.
+
+**Step 3: Launch MAME**
+
+```bash
+cd ~/git/mame
+./regnecentralend rc702 -rs232a null_modem \
+    -bitb "socket.localhost:4321" \
+    -flop /tmp/cpm22_rel30_maxi.imd \
+    -skip_gameinfo -window -nomaximize
+```
+
+**Step 4: In CP/M**
+
+```
+A>pip con:=rdr:          (display received text on screen)
+A>pip file.hex=rdr:      (save to disk — use Intel HEX for binary files)
+A>load file              (convert FILE.HEX → FILE.COM)
+```
+
+Text files terminate on Ctrl-Z (0x1A). For binary transfer, convert to
+Intel HEX format on the host (pure 7-bit ASCII: `:0-9A-F\r\n`), which
+passes cleanly through the 7-bit even parity link. Use CP/M's LOAD.COM
+to convert back to binary.
+
+### Tested configurations
+
+| Config | Result |
+|--------|--------|
+| 9600 8-N-1, 60 bytes, `pip con:=rdr:` | 3 lines displayed correctly |
+| 9600 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All 100 lines received, no data loss |
+| Socket connection via `socket.localhost:PORT` | Works — non-blocking reads via POSIX `select()` |
+
+Note: `pip con:=rdr:` does not write to disk, so DI periods from FDC
+are not exercised. A full stress test with `pip file.hex=rdr:` at 38400
+with matching null_modem config is needed to verify ring buffer survival
+during disk writes.
 
 ## RC702 SIO Hardware Notes
 
