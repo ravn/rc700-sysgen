@@ -1,0 +1,27 @@
+; z80dasm block definitions for 58K rel.1.3 BIOS
+
+code000:	start 0xE080 end 0xE1BD type code
+initpad:	start 0xE1BD end 0xE200 type bytedata
+code002:	start 0xE200 end 0xE233 type code
+extcfg:	start 0xE233 end 0xE24A type bytedata
+code004:	start 0xE24A end 0xE259 type code
+msgpad:	start 0xE259 end 0xE25C type bytedata
+errmsg:	start 0xE25C end 0xE274 type bytedata
+signon:	start 0xE274 end 0xE28A type bytedata
+code008:	start 0xE28A end 0xE7FC type code
+intvec:	start 0xE7FC end 0xE83C type worddata
+code010:	start 0xE83C end 0xE9B2 type code
+skew_t0:	start 0xE9B2 end 0xE9CC type bytedata
+skew_maxi:	start 0xE9CC end 0xE9DB type bytedata
+skew_mini:	start 0xE9DB end 0xE9E4 type bytedata
+skew_seq:	start 0xE9E4 end 0xE9FE type bytedata
+dpb_fm1:	start 0xE9FE end 0xEA0D type worddata
+dpb_mfm1:	start 0xEA0D end 0xEA1C type worddata
+dpb_fm2:	start 0xEA1C end 0xEA2B type worddata
+dpb_mfm2:	start 0xEA2B end 0xEA3A type worddata
+dskcfg:	start 0xEA3A end 0xEABA type bytedata
+workspace:	start 0xEABA end 0xEE15 type bytedata
+code021:	start 0xEE15 end 0xF2BF type code
+workspace2:	start 0xF2BF end 0xF300 type bytedata
+code023:	start 0xF300 end 0xF4BF type code
+trailing:	start 0xF4BF end 0xF500 type bytedata

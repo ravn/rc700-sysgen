@@ -38,7 +38,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
-.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel14-mini rel14-maxi verify verify-all dumps bios disasm clean emu patch-test mame-test
+.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel13-mini rel14-mini rel14-maxi rc703-rel10 rc703-rel12 rc703-reltfj rc702e-rel201 rc702e-rel220 verify verify-summary dumps bios disasm clean emu patch-test mame-test
 
 all: verify
 
@@ -79,8 +79,29 @@ rel14-mini: src/BIOS.MAC
 rel14-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL14 -DMAXI src/BIOS.MAC
 
+# 58K BIOS targets (separate source tree)
+rel13-mini: src-58k/BIOS_58K.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL13 src-58k/BIOS_58K.MAC
+
+# RC703 BIOS targets (separate source tree)
+rc703-rel12: src-rc703/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL12 src-rc703/BIOS.MAC
+
+rc703-reltfj: src-rc703/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DRELTFJ src-rc703/BIOS.MAC
+
+rc703-rel10: src-rc703/BIOS_REL10.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL10 src-rc703/BIOS_REL10.MAC
+
+# RC702E BIOS targets (separate source tree, two variants)
+rc702e-rel201: src-rc702e/BIOS_E201.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL201 src-rc702e/BIOS_E201.MAC
+
+rc702e-rel220: src-rc702e/BIOS_E220.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL220 src-rc702e/BIOS_E220.MAC
+
 # Verify all variants against reference binaries
-verify: verify-rel20-mini verify-rel21-mini verify-rel22-mini verify-rel23-mini verify-rel23-maxi verify-rel14-mini verify-rel14-maxi
+verify: verify-rel20-mini verify-rel21-mini verify-rel22-mini verify-rel23-mini verify-rel23-maxi verify-rel13-mini verify-rel14-mini verify-rel14-maxi verify-rc703-rel10 verify-rc703-rel12 verify-rc703-reltfj verify-rc702e-rel201 verify-rc702e-rel220 verify-summary
 
 verify-rel20-mini: rel20-mini
 	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.0_mini.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
@@ -97,6 +118,10 @@ verify-rel23-mini: rel23-mini
 verify-rel23-maxi: rel23-maxi
 	python3 verify_bios.py zout/BIOS.hex extracted_bios/cpm22_56k_rel2.3_maxi.bin $(BIOS_OFFSET_56K) $(EXTREF_OFFSET_56K)
 
+# 58K verification (separate source tree, disassembly-based)
+verify-rel13-mini: rel13-mini
+	python3 verify_58k.py zout/BIOS_58K.hex extracted_bios/cpm22_58k_rel1.3_mini.bin
+
 # The rel.1.4 builds are functionally equivalent but NOT byte-identical
 # to the original disk images, which were an independently written codebase.
 # Verify only that they assemble without errors.
@@ -105,6 +130,30 @@ verify-rel14-mini: rel14-mini
 
 verify-rel14-maxi: rel14-maxi
 	@echo "rel14-maxi: assembled OK (no byte-level verification — different codebase)"
+
+# RC703 verification (separate source tree, different binary layout)
+verify-rc703-rel10: rc703-rel10
+	python3 verify_rc703.py zout/BIOS_REL10.hex extracted_bios/cpm22_56k_rel1.0_rc703_maxi.bin --full
+
+verify-rc703-rel12: rc703-rel12
+	python3 verify_rc703.py zout/BIOS.hex extracted_bios/cpm22_56k_rel1.2_rc703.bin --full
+
+verify-rc703-reltfj: rc703-reltfj
+	python3 verify_rc703.py zout/BIOS.hex extracted_bios/cpm22_56k_relTFj_rc703.bin --code
+
+# RC702E verification (separate source tree, different ORGs)
+verify-rc702e-rel201: rc702e-rel201
+	python3 verify_rc702e.py zout/BIOS_E201.hex extracted_bios/cpm22_56k_rc702e_rel2.01_mini.bin --mini
+
+verify-rc702e-rel220: rc702e-rel220
+	python3 verify_rc702e.py zout/BIOS_E220.hex extracted_bios/cpm22_56k_rc702e_rel2.20_rc703.bin --qd
+
+verify-summary:
+	@echo "=== BIOS build summary ==="
+	@echo "  RC700 56K: 5 byte-verified (rel.2.0-2.3 mini, rel.2.3 maxi)"
+	@echo "  RC700 58K: 1 byte-verified (rel.1.3 mini), 2 assemble-only (rel.1.4 mini/maxi)"
+	@echo "  RC703:     3 byte-verified (rel.1.0 full, rel.1.2 full, rel.TFj code)"
+	@echo "  RC702E:    2 byte-verified (rel.2.01 mini, rel.2.20 qd)"
 
 # ============================================================
 # Extraction and disassembly targets

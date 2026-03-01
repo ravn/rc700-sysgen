@@ -34,7 +34,7 @@ def format_db(bytes_list):
             parts.append('0%02Xh' % b)
     if str_acc:
         parts.append("'" + ''.join(str_acc) + "'")
-    return '\tdb ' + ','.join(parts) + '\n'
+    return '\tDB ' + ','.join(parts) + '\n'
 
 def collapse_defb_strings(lines):
     """Find runs of defb lines and collapse those containing strings."""
@@ -45,7 +45,7 @@ def collapse_defb_strings(lines):
         run = []
         j = i
         while j < len(lines):
-            m = re.match(r'\tdefb 0([0-9a-f]{2})h\s*;', lines[j])
+            m = re.match(r'\t(?:defb|DB) 0([0-9a-fA-F]{2})h\s*;', lines[j])
             if m:
                 run.append(int(m.group(1), 16))
                 j += 1
@@ -59,7 +59,14 @@ def collapse_defb_strings(lines):
 
         # Only collapse if there's a genuine string (>= 4 consecutive printable)
         if longest_printable_run(run) >= 4:
-            result.append(format_db(run))
+            # Split long runs into chunks to avoid extremely long lines
+            for ci in range(0, len(run), 48):
+                chunk = run[ci:ci + 48]
+                if longest_printable_run(chunk) >= 4:
+                    result.append(format_db(chunk))
+                else:
+                    for kb, b in enumerate(chunk):
+                        result.append(lines[i + ci + kb])
         else:
             for k, b in enumerate(run):
                 result.append(lines[i + k])

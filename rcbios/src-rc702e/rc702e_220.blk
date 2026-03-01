@@ -1,0 +1,17 @@
+; z80dasm block definitions for RC702E rel.2.20 BIOS
+
+code000:	start 0xD480 end 0xD7B3 type code
+jtvars:	start 0xD7B3 end 0xD7CA type bytedata
+code002:	start 0xD7CA end 0xD7DF type code
+jtgap1:	start 0xD7DF end 0xD7E2 type bytedata
+code004:	start 0xD7E2 end 0xD7EE type code
+jtgap2:	start 0xD7EE end 0xD7F3 type bytedata
+errmsg:	start 0xD7F3 end 0xD807 type bytedata
+signon:	start 0xD807 end 0xD82B type bytedata
+code008:	start 0xD82B end 0xE460 type code
+disktab:	start 0xE460 end 0xE6BF type bytedata
+code010:	start 0xE6BF end 0xE975 type code
+ivtpad:	start 0xE975 end 0xE980 type bytedata
+intvec:	start 0xE980 end 0xE9A0 type worddata
+ivtdata:	start 0xE9A0 end 0xEA00 type bytedata
+verify:	start 0xEA00 end 0xFA00 type bytedata
