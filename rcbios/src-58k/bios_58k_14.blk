@@ -1,0 +1,26 @@
+; z80dasm block definitions for 58K rel.1.4 BIOS
+
+code000:	start 0xE080 end 0xE1BD type code
+initpad:	start 0xE1BD end 0xE200 type bytedata
+code002:	start 0xE200 end 0xE233 type code
+extcfg:	start 0xE233 end 0xE24A type bytedata
+code004:	start 0xE24A end 0xE259 type code
+msgpad:	start 0xE259 end 0xE25C type bytedata
+errmsg:	start 0xE25C end 0xE274 type bytedata
+signon:	start 0xE274 end 0xE28A type bytedata
+code008:	start 0xE28A end 0xE86A type code
+intvec:	start 0xE86A end 0xE8AA type worddata
+code010:	start 0xE8AA end 0xEA25 type code
+skew_t0:	start 0xEA25 end 0xEA3F type bytedata
+skew_maxi:	start 0xEA3F end 0xEA4E type bytedata
+skew_mini:	start 0xEA4E end 0xEA57 type bytedata
+skew_seq:	start 0xEA57 end 0xEA71 type bytedata
+dpb_fm1:	start 0xEA71 end 0xEA80 type worddata
+dpb_mfm1:	start 0xEA80 end 0xEA8F type worddata
+dpb_fm2:	start 0xEA8F end 0xEA9E type worddata
+dpb_mfm2:	start 0xEA9E end 0xEAAD type worddata
+dskcfg:	start 0xEAAD end 0xEB2D type bytedata
+workspace:	start 0xEB2D end 0xEE88 type bytedata
+code021:	start 0xEE88 end 0xF339 type code
+workspace2:	start 0xF339 end 0xF400 type bytedata
+code023:	start 0xF400 end 0xF500 type code

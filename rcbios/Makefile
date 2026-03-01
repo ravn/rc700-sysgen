@@ -73,15 +73,12 @@ rel23-mini: src/BIOS.MAC
 rel23-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL23 -DMAXI src/BIOS.MAC
 
-rel14-mini: src/BIOS.MAC
-	$(ZMAC) $(ZMFLAGS) -DREL14 -DMINI src/BIOS.MAC
-
-rel14-maxi: src/BIOS.MAC
-	$(ZMAC) $(ZMFLAGS) -DREL14 -DMAXI src/BIOS.MAC
-
 # 58K BIOS targets (separate source tree)
 rel13-mini: src-58k/BIOS_58K.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL13 src-58k/BIOS_58K.MAC
+
+rel14-mini rel14-maxi: src-58k/BIOS_58K_14.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL14 src-58k/BIOS_58K_14.MAC
 
 # RC703 BIOS targets (separate source tree)
 rc703-rel12: src-rc703/BIOS.MAC
@@ -122,14 +119,13 @@ verify-rel23-maxi: rel23-maxi
 verify-rel13-mini: rel13-mini
 	python3 verify_58k.py zout/BIOS_58K.hex extracted_bios/cpm22_58k_rel1.3_mini.bin
 
-# The rel.1.4 builds are functionally equivalent but NOT byte-identical
-# to the original disk images, which were an independently written codebase.
-# Verify only that they assemble without errors.
+# 58K rel.1.4 verification (separate source tree, disassembly-based)
+# Mini and maxi share the same 5248-byte code; maxi appends 0xE5 filler.
 verify-rel14-mini: rel14-mini
-	@echo "rel14-mini: assembled OK (no byte-level verification — different codebase)"
+	python3 verify_58k.py zout/BIOS_58K_14.hex extracted_bios/cpm22_58k_rel1.4_mini.bin
 
 verify-rel14-maxi: rel14-maxi
-	@echo "rel14-maxi: assembled OK (no byte-level verification — different codebase)"
+	python3 verify_58k.py zout/BIOS_58K_14.hex extracted_bios/cpm22_58k_rel1.4_mini.bin
 
 # RC703 verification (separate source tree, different binary layout)
 verify-rc703-rel10: rc703-rel10
@@ -151,7 +147,7 @@ verify-rc702e-rel220: rc702e-rel220
 verify-summary:
 	@echo "=== BIOS build summary ==="
 	@echo "  RC700 56K: 5 byte-verified (rel.2.0-2.3 mini, rel.2.3 maxi)"
-	@echo "  RC700 58K: 1 byte-verified (rel.1.3 mini), 2 assemble-only (rel.1.4 mini/maxi)"
+	@echo "  RC700 58K: 3 byte-verified (rel.1.3 mini, rel.1.4 mini/maxi)"
 	@echo "  RC703:     3 byte-verified (rel.1.0 full, rel.1.2 full, rel.TFj code)"
 	@echo "  RC702E:    2 byte-verified (rel.2.01 mini, rel.2.20 qd)"
 
