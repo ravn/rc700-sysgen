@@ -39,6 +39,34 @@
 ;  04-05 000-127     input conversion table.
 ;  06- and forward   Hardware initialization routines and CPM BIOS.
 ;
+; MEMORY MAP (56K, REL22PLUS/REL30):
+;
+;   0000  Warm boot vector (JP WBOOT)
+;   0003  IOBYTE
+;   0004  CDISK (current logged disk)
+;   0005  BDOS entry vector
+;   0080  BUFF - default DMA buffer (128 bytes)
+;   0100  TPA start (Transient Program Area)
+;   C400  CCP (Console Command Processor)
+;   CC06  BDOS (Basic Disk Operating System)
+;   D480  START - INIT code + configuration tables
+;   DA00  BIOS entry (jump table DA00-DA2F, extended entries DA4A+)
+;   EE80  ENDPRG - end of code, start of variables
+;   EE81  HSTBUF - host disk buffer (512 bytes)
+;   F081  DIRBF - directory scratch area (128 bytes)
+;   F101  Allocation/check vectors: floppy (2 drives) + hard disk
+;   F32E  Disk driver variables (SEKDSK through DUM)
+;   F37B  REL30: ring buffer pointers (RXHEAD, RXTAIL, KBHEAD, KBTAIL)
+;   F37F  REL30: keyboard ring buffer (16 bytes)
+;   F400  REL30: SIO ring buffer (256 bytes, page-aligned)
+;   F500  BGSTAR - semi-graphics bit table
+;   F620  ISTACK - interrupt stack (grows downward)
+;   F680  STACK / OUTCON - BIOS stack (grows down) / output conv table
+;   F700  INCONV - input conversion table
+;   F800  DSPSTR - display refresh memory (80x25)
+;   FFD1  Display control variables (cursor, addressing, counters)
+;   FFFC  RTC0-RTC3 - real time clock (4 bytes)
+;
 	.Z80
 	TITLE RC702 CP/M BASIS SOFTWARE RELEASE 1.1  83.01.05
 	; SUBTTL GLOBAL CONSTANT DEFINITION
@@ -74,6 +102,10 @@ HARDDISK EQU	1
 REL22PLUS EQU	1
 	ENDIF
 	IFDEF	REL23
+HARDDISK EQU	1
+REL22PLUS EQU	1
+	ENDIF
+	IFDEF	REL30
 HARDDISK EQU	1
 REL22PLUS EQU	1
 	ENDIF
@@ -338,6 +370,15 @@ TRANTB	EQU	SECSHF+1	; SECTOR TRANSLATION TABLE
 DTLV	EQU	TRANTB+2	; DATA LENGTH
 DSKTYP	EQU	DTLV+1 		; DISK TYPE (0:=FLP, FF:=HARD)
 DUM	EQU	DSKTYP+6	; FILLER TO OBTAIN 16 BYTE LENGTH
+
+	IFDEF	REL30
+RXHEAD	EQU	DUM+1			; SIO RING BUFFER HEAD (WRITE POSITION)
+RXTAIL	EQU	RXHEAD+1		; SIO RING BUFFER TAIL (READ POSITION)
+KBHEAD	EQU	RXTAIL+1		; KEYBOARD RING BUFFER HEAD
+KBTAIL	EQU	KBHEAD+1		; KEYBOARD RING BUFFER TAIL
+KBBUF	EQU	KBTAIL+1		; 16-BYTE KEYBOARD RING BUFFER
+RXBUF	EQU	(KBBUF+16+255) AND 0FF00H ; 256-BYTE SIO RING BUFFER (PAGE-ALIGNED)
+	ENDIF
 
 	IFDEF	HARDDISK
 ;==============================================================================

@@ -38,7 +38,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
-.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel13-mini rel14-mini rel14-maxi rc703-rel10 rc703-rel12 rc703-reltfj rc702e-rel201 rc702e-rel220 verify verify-summary dumps bios disasm clean emu patch-test mame-test
+.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel30-mini rel30-maxi rel13-mini rel14-mini rel14-maxi rc703-rel10 rc703-rel12 rc703-reltfj rc702e-rel201 rc702e-rel220 verify verify-summary dumps bios disasm clean emu patch-test mame-test
 
 all: verify
 
@@ -72,6 +72,12 @@ rel23-mini: src/BIOS.MAC
 
 rel23-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL23 -DMAXI src/BIOS.MAC
+
+rel30-mini: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL30 -DMINI src/BIOS.MAC
+
+rel30-maxi: src/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL30 -DMAXI src/BIOS.MAC
 
 # 58K BIOS targets (separate source tree)
 rel13-mini: src-58k/BIOS_58K.MAC
