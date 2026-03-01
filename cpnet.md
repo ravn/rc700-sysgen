@@ -3,8 +3,8 @@
 ## Goal
 
 Run CP/NET client on RC702 CP/M over SIO Channel A serial port,
-talking to a CP/NET server on macOS host. Channel A runs at 38400 baud
-(CTC divisor 1, x16 clock mode) — the maximum the hardware permits.
+talking to a CP/NET server on macOS host. Channel A runs at 38400 baud 8-N-1
+(CTC divisor 1, x16 clock mode) — the fastest 8-bit clean setting.
 
 ## Architecture
 
@@ -164,7 +164,7 @@ Not yet implemented — deferred until basic serial transfer is tested.
 ### Other REL30 changes
 - RCB ISR (Channel B receive) removed — dead code, Ch.B receiver is never enabled
   (printer port is output-only). IVT entry points to DUMITR.
-- Default baud rate: 38400 on SIO Ch.A (CTC count=1, max with x16 clock)
+- Default serial format: 38400 8-N-1 on SIO Ch.A (CTC count=1, WR4=44h)
 - SPECA (special receive error) resets ring buffer pointers instead of CHARA/RDRFLG
 
 ## MAME rc702.cpp — Serial Ports Wired
@@ -187,19 +187,18 @@ acts as the server.
 **Step 1: Configure null_modem baud rate**
 
 The null_modem defaults to 9600 8-N-1. The BIOS rel. 3.0 SIO defaults to
-38400 7-E-1 (INIPARMS.MAC: CTC count=1, WR4=47h, WR3=61h). These must
-match. Override via MAME cfg file (`cfg/rc702.cfg`) inside `<system>`:
+38400 8-N-1 (INIPARMS.MAC: CTC count=1, WR4=44h, WR3=C1h) — the fastest
+8-bit clean setting the hardware permits. Override the null_modem baud rate
+via MAME cfg file (`cfg/rc702.cfg`) inside `<system>`:
 
 ```xml
 <port tag=":rs232a:null_modem:RS232_TXBAUD" type="TYPE_OTHER(6,0)" mask="255" defvalue="7" value="11" />
 <port tag=":rs232a:null_modem:RS232_RXBAUD" type="TYPE_OTHER(6,0)" mask="255" defvalue="7" value="11" />
-<port tag=":rs232a:null_modem:RS232_DATABITS" type="TYPE_OTHER(6,0)" mask="255" defvalue="3" value="2" />
-<port tag=":rs232a:null_modem:RS232_PARITY" type="TYPE_OTHER(6,0)" mask="255" defvalue="0" value="2" />
 ```
 
-Values: TXBAUD/RXBAUD 11=38400, DATABITS 2=7-bit, PARITY 2=even.
+Values: TXBAUD/RXBAUD 11=38400. Data format is already 8-N-1 (null_modem default).
 Type `TYPE_OTHER(6,0)` is MAME's internal token for `IPT_CONFIG` ports.
-Alternatively, change settings at runtime via Tab → Machine Configuration.
+Alternatively, change baud rate at runtime via Tab → Machine Configuration.
 
 **Step 2: Start host-side TCP server**
 
@@ -252,10 +251,9 @@ A>pip file.hex=rdr:      (save to disk — use Intel HEX for binary files)
 A>load file              (convert FILE.HEX → FILE.COM)
 ```
 
-Text files terminate on Ctrl-Z (0x1A). For binary transfer, convert to
-Intel HEX format on the host (pure 7-bit ASCII: `:0-9A-F\r\n`), which
-passes cleanly through the 7-bit even parity link. Use CP/M's LOAD.COM
-to convert back to binary.
+Text files terminate on Ctrl-Z (0x1A). Binary files can be transferred
+directly over the 8-N-1 link, or converted to Intel HEX format on the
+host (pure 7-bit ASCII: `:0-9A-F\r\n`) and restored with CP/M's LOAD.COM.
 
 ### Tested configurations
 
