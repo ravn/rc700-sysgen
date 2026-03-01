@@ -286,15 +286,53 @@ the null_modem stays at 9600 — only works if BIOS is also set to 9600).
 
 **Step 4: In CP/M** (if not using autoboot)
 
+Receiving (host → CP/M):
 ```
 A>pip con:=rdr:          (display received text on screen)
-A>pip file.hex=rdr:      (save to disk — use Intel HEX for binary files)
+A>pip file.txt=rdr:      (save to disk — text, Ctrl-Z terminated)
+A>pip file.hex=rdr:      (save Intel HEX to disk)
 A>load file              (convert FILE.HEX → FILE.COM)
+```
+
+Sending (CP/M → host):
+```
+A>pip pun:=file.asm[z]   (send file to host, [z] appends Ctrl-Z)
 ```
 
 Text files terminate on Ctrl-Z (0x1A). Binary files can be transferred
 directly over the 8-N-1 link, or converted to Intel HEX format on the
 host (pure 7-bit ASCII: `:0-9A-F\r\n`) and restored with CP/M's LOAD.COM.
+
+For receiving on the host side, use a TCP server that saves incoming data:
+```python
+#!/usr/bin/env python3
+# serial_receiver.py — receive file from CP/M via MAME null_modem
+import socket, sys
+port = int(sys.argv[1]) if len(sys.argv) > 1 else 4321
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('localhost', port))
+server.listen(1)
+conn, _ = server.accept()
+data = bytearray()
+while True:
+    chunk = conn.recv(1024)
+    if not chunk:
+        break
+    data.extend(chunk)
+    if 0x1a in chunk:  # Ctrl-Z = end of file
+        break
+conn.close()
+server.close()
+# Strip leading nulls (SIO transmits zeros before PIP starts sending)
+content = data.lstrip(b'\x00')
+ctrlz = content.find(0x1a)
+if ctrlz >= 0:
+    content = content[:ctrlz]
+with open(sys.argv[2] if len(sys.argv) > 2 else '/tmp/received.txt', 'wb') as f:
+    f.write(content)
+print(f"Received {len(content)} bytes")
+```
 
 ### Tested configurations
 
@@ -303,7 +341,8 @@ host (pure 7-bit ASCII: `:0-9A-F\r\n`) and restored with CP/M's LOAD.COM.
 | 9600 8-N-1, 60 bytes, `pip con:=rdr:` | 3 lines displayed correctly |
 | 9600 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All 100 lines received, no data loss |
 | 9600 8-N-1, 1141 bytes (20 lines), ring buffer dump | Both ring buffers verified (see below) |
-| 38400 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All lines received, Lua baud rate setter |
+| 38400 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All lines received correctly (host → CP/M) |
+| 38400 8-N-1, 19443 bytes, `pip pun:=filex.asm[z]` | Byte-identical match (CP/M → host) |
 | Socket connection via `socket.localhost:PORT` | Works — non-blocking reads via POSIX `select()` |
 
 Note: `pip con:=rdr:` does not write to disk, so DI periods from FDC
