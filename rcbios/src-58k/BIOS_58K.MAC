@@ -38,11 +38,11 @@ code000_start:
 	ld bc,00180h		;e092
 	ldir			;e095
 	ld sp,00080h		;e097
-	ld a,(lf321h)		;e09a
+	ld a,(IVTPAG)		;e09a
 	ld i,a			;e09d
 	im 2			;e09f
-	jp le0a4h		;e0a1
-le0a4h:
+	jp INITIO		;e0a1
+INITIO:
 	ld a,002h		;e0a4
 	out (012h),a		;e0a6
 	ld a,004h		;e0a8
@@ -92,8 +92,8 @@ le0a4h:
 	out (0fbh),a		;e10d
 	in a,(014h)		;e10f
 	and 080h		;e111
-	jp z,le12eh		;e113
-	ld hl,le237h		;e116
+	jp z,INITFDC		;e113
+	ld hl,FD0		;e116
 	ld (hl),010h		;e119
 	inc hl			;e11b
 	ld (hl),010h		;e11c
@@ -103,23 +103,23 @@ le0a4h:
 	ld de,skew_seq_end	;e126
 	ld bc,0009ch		;e129
 	ldir			;e12c
-le12eh:
+INITFDC:
 	in a,(004h)		;e12e
 	and 01fh		;e130
-	jp nz,le12eh		;e132
+	jp nz,INITFDC		;e132
 	ld hl,0dda4h		;e135
 	ld b,(hl)		;e138
-le139h:
+INITLP:
 	inc hl			;e139
-le13ah:
+INITWT:
 	in a,(004h)		;e13a
 	and 0c0h		;e13c
 	cp 080h			;e13e
-	jp nz,le13ah		;e140
+	jp nz,INITWT		;e140
 	ld a,(hl)		;e143
 	out (005h),a		;e144
 	dec b			;e146
-	jp nz,le139h		;e147
+	jp nz,INITLP		;e147
 	ld hl,SCREENBUF		;e14a
 	ld de,0f801h		;e14d
 	ld bc,007cfh		;e150
@@ -157,11 +157,11 @@ le13ah:
 	ld hl,0dd8eh		;e19b
 	ld a,(hl)		;e19e
 	and 060h		;e19f
-	ld (le234h),a		;e1a1
+	ld (WR5A),a		;e1a1
 	ld hl,0dd99h		;e1a4
 	ld a,(hl)		;e1a7
 	and 060h		;e1a8
-	ld (le235h),a		;e1aa
+	ld (WR5B),a		;e1aa
 	ld a,(0ddach)		;e1ad
 	ld (code002_end),a	;e1b0
 	ld hl,(0ddadh)		;e1b3
@@ -246,7 +246,7 @@ JMPTAB:
 ; BLOCK 'code002' (start 0xe200 end 0xe233)
 code002_start:
 	jp BOOT			;e200
-le203h:
+WBOTE:
 	jp WBOOT		;e203
 	jp CONST		;e206
 	jp CONIN		;e209
@@ -259,22 +259,22 @@ le203h:
 	jp SETTRK		;e21e
 	jp SETSEC		;e221
 	jp SETDMA		;e224
-	jp SECTRAN		;e227
-	jp READ			;e22a
-	jp WRITE		;e22d
-	jp LISTST		;e230
+	jp XREAD		;e227
+	jp XWRITE			;e22a
+	jp STLIST		;e22d
+	jp SECTRA		;e230
 code002_end:
 EXTCFG:
 
 ; BLOCK 'extcfg' (start 0xe233 end 0xe24a)
 extcfg_start:
 	DB 000h		;e233
-le234h:
+WR5A:
 	DB 000h		;e234
-le235h:
+WR5B:
 	DB 000h		;e235
 	DB 000h		;e236
-le237h:
+FD0:
 	DB 008h		;e237
 	DB 008h		;e238
 	DB 000h		;e239
@@ -299,11 +299,11 @@ INTJP:
 
 ; BLOCK 'code004' (start 0xe24a end 0xe259)
 code004_start:
-	jp READS		;e24a
-	jp LINSEL		;e24d
-	jp EXIT			;e250
-	jp CLOCK		;e253
-	jp INTFN5		;e256
+	jp WFITR		;e24a
+	jp RDSTAT		;e24d
+	jp LINSEL			;e250
+	jp EXIT		;e253
+	jp CLOCK		;e256
 code004_end:
 MSGPAD:
 
@@ -324,7 +324,7 @@ SIGNON:
 ; BLOCK 'signon' (start 0xe274 end 0xe28a)
 signon_start:
 	DB 00Ch,'58K CP/M VERS 2.2',00Dh,00Ah,000h
-le289h:
+PRMSG:
 	DB 07eh		;e289
 signon_end:
 
@@ -337,55 +337,55 @@ code008_start:
 	call CONOUT		;e28e
 	pop hl			;e291
 	inc hl			;e292
-	jp le289h		;e293
-le296h:
+	jp PRMSG		;e293
+BOTERR:
 	ld hl,msgpad_end	;e296
-	call le289h		;e299
-le29ch:
-	jp le29ch		;e29c
-CLOCK:
+	call PRMSG		;e299
+BOPLP:
+	jp BOPLP		;e29c
+EXIT:
 	ld a,0c3h		;e29f
 	ld (WARMJP),a		;e2a1
 	ld (0ffe6h),hl		;e2a4
 	ex de,hl		;e2a7
 	ld (TIMER1),hl		;e2a8
 	ret			;e2ab
-INTFN5:
+CLOCK:
 	or a			;e2ac
-	jp z,le2b8h		;e2ad
+	jp z,CLOCK1		;e2ad
 	ld de,(RTCCNT)		;e2b0
 	ld hl,(0fffeh)		;e2b4
 	ret			;e2b7
-le2b8h:
+CLOCK1:
 	ld (RTCCNT),de		;e2b8
 	ld (0fffeh),hl		;e2bc
 	ret			;e2bf
-EXIT:
+LINSEL:
 	add a,00ah		;e2c0
 	ld c,a			;e2c2
 	ld d,005h		;e2c3
 	ld a,000h		;e2c5
-	call sub_e2f1h		;e2c7
+	call SETSIG		;e2c7
 	dec b			;e2ca
 	ret m			;e2cb
 	sla b			;e2cc
 	or b			;e2ce
-	call sub_e2f1h		;e2cf
+	call SETSIG		;e2cf
 	or 080h			;e2d2
-	call sub_e2f1h		;e2d4
+	call SETSIG		;e2d4
 	ld hl,00002h		;e2d7
-	call sub_f13eh		;e2da
+	call WAITD		;e2da
 	ld a,c			;e2dd
 	cp 00ah			;e2de
-	ld a,(le3a4h)		;e2e0
-	jp z,le2e9h		;e2e3
-	ld a,(le3a6h)		;e2e6
-le2e9h:
+	ld a,(RR0_A)		;e2e0
+	jp z,LINSEL_2		;e2e3
+	ld a,(RR0_B)		;e2e6
+LINSEL_2:
 	and 020h		;e2e9
-	jp z,sub_e2f1h		;e2eb
+	jp z,SETSIG		;e2eb
 	ld a,0ffh		;e2ee
 	ret			;e2f0
-sub_e2f1h:
+SETSIG:
 	di			;e2f1
 	out (c),d		;e2f2
 	out (c),a		;e2f4
@@ -394,12 +394,12 @@ sub_e2f1h:
 BOOT:
 	ld sp,00080h		;e2f8
 	ld hl,errmsg_end	;e2fb
-	call le289h		;e2fe
+	call PRMSG		;e2fe
 	xor a			;e301
 	ld (00004h),a		;e302
-	ld (lead5h),a		;e305
-	ld (leaddh),a		;e308
-	ld (lead6h),a		;e30b
+	ld (HSTACT),a		;e305
+	ld (ERFLAG),a		;e308
+	ld (HSTWRT),a		;e30b
 	in a,(014h)		;e30e
 	and 080h		;e310
 	jp z,WBOOT		;e312
@@ -409,19 +409,19 @@ BOOT:
 	ld a,b			;e31d
 	and 010h		;e31e
 	ld a,000h		;e320
-	jr nz,le325h		;e322
+	jr nz,BOOT1		;e322
 	inc a			;e324
-le325h:
-	ld (lee19h),a		;e325
+BOOT1:
+	ld (DRNO),a		;e325
 WBOOT:
 	ei			;e328
 	ld c,000h		;e329
 	call SELDSK		;e32b
 	xor a			;e32e
-	ld (lead7h),a		;e32f
+	ld (UNACNT),a		;e32f
 	ld (00003h),a		;e332
-	ld (lee19h+1),a		;e335
-	ld (le499h),a		;e338
+	ld (DRNO+1),a		;e335
+	ld (KEYFLG),a		;e338
 	call HOME		;e33b
 	ld sp,00080h		;e33e
 	ld bc,0cc00h		;e341
@@ -431,12 +431,12 @@ WBOOT:
 	call SETTRK		;e34b
 	ld c,000h		;e34e
 	call SETSEC		;e350
-le353h:
+RDSEC:
 	push bc			;e353
-	call SECTRAN		;e354
+	call XREAD		;e354
 	or a			;e357
-	jp nz,le296h		;e358
-	ld hl,(leae1h)		;e35b
+	jp nz,BOTERR		;e358
+	ld hl,(DMAADR)		;e35b
 	ld de,00080h		;e35e
 	add hl,de		;e361
 	ld b,h			;e362
@@ -447,13 +447,13 @@ le353h:
 	call SETSEC		;e369
 	ld a,c			;e36c
 	cp 02ch			;e36d
-	jp nz,le353h		;e36f
+	jp nz,RDSEC		;e36f
 	ld bc,00080h		;e372
 	call SETDMA		;e375
 	di			;e378
 	ld a,0c3h		;e379
 	ld (00000h),a		;e37b
-	ld hl,le203h		;e37e
+	ld hl,WBOTE		;e37e
 	ld (00001h),hl		;e381
 	ld (00005h),a		;e384
 	ld hl,0d406h		;e387
@@ -461,44 +461,44 @@ le353h:
 	ld a,(00004h)		;e38d
 	or a			;e390
 	ld c,a			;e391
-	ld a,(lee19h)		;e392
+	ld a,(DRNO)		;e392
 	cp c			;e395
-	jp nc,le39bh		;e396
+	jp nc,GOCPM		;e396
 	ld c,000h		;e399
-le39bh:
+GOCPM:
 	ei			;e39b
 	jp 0cc00h		;e39c
-le39fh:
+PRTFLG:
 	rst 38h			;e39f
-le3a0h:
+RDRFLG:
 	rst 38h			;e3a0
-le3a1h:
+PTPFLG:
 	rst 38h			;e3a1
-le3a2h:
+CHARA:
 	nop			;e3a2
-le3a3h:
+CHARB:
 	nop			;e3a3
-le3a4h:
+RR0_A:
 	nop			;e3a4
-le3a5h:
+RR1_A:
 	nop			;e3a5
-le3a6h:
+RR0_B:
 	nop			;e3a6
-le3a7h:
+RR1_B:
 	nop			;e3a7
-WRITE:
-	ld a,(le39fh)		;e3a8
+STLIST:
+	ld a,(PRTFLG)		;e3a8
 	ret			;e3ab
 LIST:
-	ld a,(le39fh)		;e3ac
+	ld a,(PRTFLG)		;e3ac
 	or a			;e3af
 	jp z,LIST		;e3b0
 	di			;e3b3
 	ld a,000h		;e3b4
-	ld (le39fh),a		;e3b6
+	ld (PRTFLG),a		;e3b6
 	ld a,005h		;e3b9
 	out (00bh),a		;e3bb
-	ld a,(le235h)		;e3bd
+	ld a,(WR5B)		;e3bd
 	add a,08ah		;e3c0
 	out (00bh),a		;e3c2
 	ld a,001h		;e3c4
@@ -509,13 +509,13 @@ LIST:
 	out (009h),a		;e3cd
 	ei			;e3cf
 	ret			;e3d0
-sub_e3d1h:
+READI:
 	di			;e3d1
 	xor a			;e3d2
-	ld (le3a0h),a		;e3d3
+	ld (RDRFLG),a		;e3d3
 	ld a,005h		;e3d6
 	out (00ah),a		;e3d8
-	ld a,(le234h)		;e3da
+	ld a,(WR5A)		;e3da
 	add a,08ah		;e3dd
 	out (00ah),a		;e3df
 	ld a,001h		;e3e1
@@ -524,28 +524,28 @@ sub_e3d1h:
 	out (00ah),a		;e3e7
 	ei			;e3e9
 	ret			;e3ea
-LINSEL:
-	ld a,(le3a0h)		;e3eb
+RDSTAT:
+	ld a,(RDRFLG)		;e3eb
 	ret			;e3ee
 READER:
-	call LINSEL		;e3ef
+	call RDSTAT		;e3ef
 	or a			;e3f2
 	jp z,READER		;e3f3
-	ld a,(le3a2h)		;e3f6
+	ld a,(CHARA)		;e3f6
 	push af			;e3f9
-	call sub_e3d1h		;e3fa
+	call READI		;e3fa
 	pop af			;e3fd
 	ret			;e3fe
 PUNCH:
-	ld a,(le3a1h)		;e3ff
+	ld a,(PTPFLG)		;e3ff
 	or a			;e402
 	jp z,PUNCH		;e403
 	di			;e406
 	ld a,000h		;e407
-	ld (le3a1h),a		;e409
+	ld (PTPFLG),a		;e409
 	ld a,005h		;e40c
 	out (00ah),a		;e40e
-	ld a,(le234h)		;e410
+	ld a,(WR5A)		;e410
 	add a,08ah		;e413
 	out (00ah),a		;e415
 	ld a,001h		;e417
@@ -556,18 +556,18 @@ PUNCH:
 	out (008h),a		;e420
 	ei			;e422
 	ret			;e423
-le424h:
+TXB:
 	ex af,af'		;e424
 	ld a,028h		;e425
 	out (00bh),a		;e427
 	ld a,0ffh		;e429
-	ld (le39fh),a		;e42b
+	ld (PRTFLG),a		;e42b
 	ex af,af'		;e42e
 	ei			;e42f
 	reti			;e430
 	ex af,af'		;e432
 	in a,(00bh)		;e433
-	ld (le3a6h),a		;e435
+	ld (RR0_B),a		;e435
 	ld a,010h		;e438
 	out (00bh),a		;e43a
 	ex af,af'		;e43c
@@ -575,16 +575,16 @@ le424h:
 	reti			;e43e
 	ex af,af'		;e440
 	in a,(008h)		;e441
-	ld (le3a3h),a		;e443
+	ld (CHARB),a		;e443
 	ex af,af'		;e446
 	ei			;e447
 	reti			;e448
-sub_e44ah:
+SPECB:
 	ex af,af'		;e44a
 	ld a,001h		;e44b
 	out (00bh),a		;e44d
 	in a,(00bh)		;e44f
-	ld (le3a7h),a		;e451
+	ld (RR1_B),a		;e451
 	ld a,030h		;e454
 	out (00bh),a		;e456
 	ex af,af'		;e458
@@ -594,14 +594,14 @@ sub_e44ah:
 	ld a,028h		;e45d
 	out (00ah),a		;e45f
 	ld a,0ffh		;e461
-	ld (le3a1h),a		;e463
+	ld (PTPFLG),a		;e463
 	ex af,af'		;e466
 	ei			;e467
 	reti			;e468
-sub_e46ah:
+EXTSTA:
 	ex af,af'		;e46a
 	in a,(00ah)		;e46b
-	ld (le3a4h),a		;e46d
+	ld (RR0_A),a		;e46d
 	ld a,010h		;e470
 	out (00ah),a		;e472
 	ex af,af'		;e474
@@ -609,62 +609,62 @@ sub_e46ah:
 	reti			;e476
 	ex af,af'		;e478
 	in a,(008h)		;e479
-	ld (le3a2h),a		;e47b
+	ld (CHARA),a		;e47b
 	ld a,0ffh		;e47e
-	ld (le3a0h),a		;e480
+	ld (RDRFLG),a		;e480
 	ex af,af'		;e483
 	ei			;e484
 	reti			;e485
-sub_e487h:
+SPECA:
 	ex af,af'		;e487
 	ld a,001h		;e488
 	out (00ah),a		;e48a
 	in a,(00ah)		;e48c
-	ld (le3a5h),a		;e48e
+	ld (RR1_A),a		;e48e
 	ld a,030h		;e491
 	out (00ah),a		;e493
 	ex af,af'		;e495
 	ei			;e496
 	reti			;e497
-le499h:
+KEYFLG:
 	nop			;e499
-le49ah:
+PARFLG:
 	nop			;e49a
 CONST:
-	ld a,(le499h)		;e49b
+	ld a,(KEYFLG)		;e49b
 	ret			;e49e
 CONIN:
-	ld a,(le499h)		;e49f
+	ld a,(KEYFLG)		;e49f
 	or a			;e4a2
 	jp z,CONIN		;e4a3
 	di			;e4a6
 	xor a			;e4a7
-	ld (le499h),a		;e4a8
+	ld (KEYFLG),a		;e4a8
 	ei			;e4ab
 	in a,(010h)		;e4ac
 	ld c,a			;e4ae
 	ld hl,0f700h		;e4af
-	call sub_e4eah		;e4b2
+	call CON1		;e4b2
 	ret			;e4b5
-le4b6h:
+KEYIT:
 	ex af,af'		;e4b6
 	ld a,0ffh		;e4b7
-	ld (le499h),a		;e4b9
+	ld (KEYFLG),a		;e4b9
 	ex af,af'		;e4bc
 	ei			;e4bd
 	reti			;e4be
 	ex af,af'		;e4c0
 	ld a,0ffh		;e4c1
-	ld (le49ah),a		;e4c3
+	ld (PARFLG),a		;e4c3
 	ex af,af'		;e4c6
 	ei			;e4c7
 	reti			;e4c8
-le4cah:
+GRAPH:
 	nop			;e4ca
-le4cbh:
+LINTEM:
 	nop			;e4cb
 	nop			;e4cc
-sub_e4cdh:
+CPLHL:
 	ld a,h			;e4cd
 	cpl			;e4ce
 	ld h,a			;e4cf
@@ -672,11 +672,11 @@ sub_e4cdh:
 	cpl			;e4d1
 	ld l,a			;e4d2
 	ret			;e4d3
-sub_e4d4h:
-	call sub_e4cdh		;e4d4
+NEGHL:
+	call CPLHL		;e4d4
 	inc hl			;e4d7
 	ret			;e4d8
-sub_e4d9h:
+TSTLROW:
 	ld hl,(CURY)		;e4d9
 	ld a,l			;e4dc
 	cp 080h			;e4dd
@@ -684,17 +684,17 @@ sub_e4d9h:
 	ld a,h			;e4e0
 	cp 007h			;e4e1
 	ret			;e4e3
-sub_e4e4h:
-	ld a,(le4cah)		;e4e4
+CONV:
+	ld a,(GRAPH)		;e4e4
 	or a			;e4e7
 	ld a,c			;e4e8
 	ret nz			;e4e9
-sub_e4eah:
+CON1:
 	ld b,000h		;e4ea
 	add hl,bc		;e4ec
 	ld a,(hl)		;e4ed
 	ret			;e4ee
-le4efh:
+WP75:
 	push af			;e4ef
 	ld a,080h		;e4f0
 	out (001h),a		;e4f2
@@ -704,35 +704,35 @@ le4efh:
 	out (000h),a		;e4fc
 	pop af			;e4fe
 	ret			;e4ff
-le500h:
+ROWDN:
 	ld hl,(CURY)		;e500
 	ld de,00050h		;e503
 	add hl,de		;e506
 	ld (CURY),hl		;e507
 	ld hl,0ffd4h		;e50a
 	inc (hl)		;e50d
-	jp le4efh		;e50e
-le511h:
+	jp WP75		;e50e
+ROWUP:
 	ld hl,(CURY)		;e511
 	ld de,0ffb0h		;e514
 	add hl,de		;e517
 	ld (CURY),hl		;e518
 	ld hl,0ffd4h		;e51b
 	dec (hl)		;e51e
-	jp le4efh		;e51f
-sub_e522h:
+	jp WP75		;e51f
+ES0H:
 	ld hl,00000h		;e522
 	ld (CURY),hl		;e525
 	xor a			;e528
 	ld (CURX),a		;e529
 	ld (0ffd4h),a		;e52c
 	ret			;e52f
-le530h:
+CHKDC:
 	cp b			;e530
 	ret c			;e531
 	sub b			;e532
-	jp le530h		;e533
-le536h:
+	jp CHKDC		;e533
+FILL:
 	ld hl,(0ffd5h)		;e536
 	ld d,h			;e539
 	ld e,l			;e53a
@@ -751,7 +751,7 @@ le536h:
 	ld (hl),000h		;e552
 	ldir			;e554
 	ret			;e556
-le557h:
+SCROLL:
 	ld hl,0f850h		;e557
 	ld de,SCREENBUF		;e55a
 	ld bc,00780h		;e55d
@@ -760,88 +760,88 @@ le557h:
 	ld (0ffd5h),hl		;e565
 	ld a,(0ffdbh)		;e568
 	cp 000h			;e56b
-	jp z,le536h		;e56d
+	jp z,FILL		;e56d
 	ld hl,0f50ah		;e570
 	ld de,trailing_end	;e573
 	ld bc,000f0h		;e576
 	ldir			;e579
 	ld hl,0f5f0h		;e57b
 	ld (0ffdch),hl		;e57e
-	jp le536h		;e581
-sub_e584h:
+	jp FILL		;e581
+ADDOFF:
 	ld a,000h		;e584
 	ld b,003h		;e586
-le588h:
+ADDOF1:
 	srl h			;e588
 	rr l			;e58a
 	rra			;e58c
 	dec b			;e58d
-	jp nz,le588h		;e58e
+	jp nz,ADDOF1		;e58e
 	cp 000h			;e591
 	ret z			;e593
 	ld b,005h		;e594
-le596h:
+ADDOF2:
 	rra			;e596
 	dec b			;e597
-	jp nz,le596h		;e598
+	jp nz,ADDOF2		;e598
 	ret			;e59b
-sub_e59ch:
+CLRBIT:
 	ld de,trailing_end	;e59c
 	add hl,de		;e59f
 	cp 000h			;e5a0
 	ld b,a			;e5a2
 	ld a,000h		;e5a3
-	jp nz,le5abh		;e5a5
+	jp nz,CLRBI1		;e5a5
 	and (hl)		;e5a8
 	ld (hl),a		;e5a9
 	ret			;e5aa
-le5abh:
+CLRBI1:
 	scf			;e5ab
 	rla			;e5ac
 	dec b			;e5ad
-	jp nz,le5abh		;e5ae
+	jp nz,CLRBI1		;e5ae
 	and (hl)		;e5b1
 	ld (hl),a		;e5b2
 	ret			;e5b3
-le5b4h:
+MOVUP:
 	ld a,000h		;e5b4
 	cp c			;e5b6
-	jp z,le5bdh		;e5b7
-le5bah:
+	jp z,MOVUP2		;e5b7
+MOVUP1:
 	ldir			;e5ba
 	ret			;e5bc
-le5bdh:
+MOVUP2:
 	cp b			;e5bd
-	jp nz,le5bah		;e5be
+	jp nz,MOVUP1		;e5be
 	ret			;e5c1
-sub_e5c2h:
+MOVDWN:
 	ld a,000h		;e5c2
 	cp c			;e5c4
-	jp z,le5cbh		;e5c5
-le5c8h:
+	jp z,MOVDWN2		;e5c5
+MOVDWN1:
 	lddr			;e5c8
 	ret			;e5ca
-le5cbh:
+MOVDWN2:
 	cp b			;e5cb
-	jp nz,le5c8h		;e5cc
+	jp nz,MOVDWN1		;e5cc
 	ret			;e5cf
 	out (01ch),a		;e5d0
 	ret			;e5d2
-	call sub_e522h		;e5d3
+	call ES0H		;e5d3
 	ld a,002h		;e5d6
 	ld (0ffd7h),a		;e5d8
 	ret			;e5db
 	ret			;e5dc
 	ld a,000h		;e5dd
 	ld (CURX),a		;e5df
-	jp le4efh		;e5e2
+	jp WP75		;e5e2
 	ld hl,SCRNEND		;e5e5
 	ld de,0ffceh		;e5e8
 	ld bc,007cfh		;e5eb
 	ld (hl),020h		;e5ee
 	lddr			;e5f0
-	call sub_e522h		;e5f2
-	call le4efh		;e5f5
+	call ES0H		;e5f2
+	call WP75		;e5f5
 	ld a,(0ffdbh)		;e5f8
 	cp 000h			;e5fb
 	ret z			;e5fd
@@ -868,7 +868,7 @@ le5cbh:
 	add a,04fh		;e626
 	ld c,a			;e628
 	ld (hl),020h		;e629
-	call sub_e5c2h		;e62b
+	call MOVDWN		;e62b
 	ld a,(0ffdbh)		;e62e
 	cp 000h			;e631
 	ret z			;e633
@@ -877,8 +877,8 @@ le5cbh:
 	ld a,(CURX)		;e639
 	ld e,a			;e63c
 	add hl,de		;e63d
-	call sub_e584h		;e63e
-	call sub_e59ch		;e641
+	call ADDOFF		;e63e
+	call CLRBIT		;e641
 	ld a,(CURX)		;e644
 	srl a			;e647
 	srl a			;e649
@@ -893,13 +893,13 @@ le5cbh:
 	ld e,l			;e656
 	inc de			;e657
 	ld a,000h		;e658
-	jp le5b4h		;e65a
+	jp MOVUP		;e65a
 	ld hl,(CURY)		;e65d
 	ld a,(CURX)		;e660
 	ld c,a			;e663
 	ld b,000h		;e664
 	add hl,bc		;e666
-	call sub_e4d4h		;e667
+	call NEGHL		;e667
 	ld de,007cfh		;e66a
 	add hl,de		;e66d
 	ld b,h			;e66e
@@ -907,7 +907,7 @@ le5cbh:
 	ld hl,SCRNEND		;e670
 	ld de,0ffceh		;e673
 	ld (hl),020h		;e676
-	call sub_e5c2h		;e678
+	call MOVDWN		;e678
 	ld a,(0ffdbh)		;e67b
 	cp 000h			;e67e
 	ret z			;e680
@@ -916,9 +916,9 @@ le5cbh:
 	ld a,(CURX)		;e686
 	ld e,a			;e689
 	add hl,de		;e68a
-	call sub_e584h		;e68b
-	call sub_e59ch		;e68e
-	call sub_e4cdh		;e691
+	call ADDOFF		;e68b
+	call CLRBIT		;e68e
+	call CPLHL		;e691
 	ld de,0f5f9h		;e694
 	add hl,de		;e697
 	ld a,080h		;e698
@@ -930,131 +930,131 @@ le5cbh:
 	ld l,e			;e69f
 	dec de			;e6a0
 	ld (hl),000h		;e6a1
-	jp sub_e5c2h		;e6a3
+	jp MOVDWN		;e6a3
 	ld a,(CURX)		;e6a6
 	cp 000h			;e6a9
-	jp z,le6b5h		;e6ab
+	jp z,ESCD1		;e6ab
 	dec a			;e6ae
 	ld (CURX),a		;e6af
-	jp le4efh		;e6b2
-le6b5h:
+	jp WP75		;e6b2
+ESCD1:
 	ld a,04fh		;e6b5
 	ld (CURX),a		;e6b7
 	ld hl,(CURY)		;e6ba
 	ld a,l			;e6bd
 	or h			;e6be
-	jp nz,le511h		;e6bf
+	jp nz,ROWUP		;e6bf
 	ld hl,00780h		;e6c2
 	ld (CURY),hl		;e6c5
 	ld a,018h		;e6c8
 	ld (0ffd4h),a		;e6ca
-	jp le4efh		;e6cd
-sub_e6d0h:
+	jp WP75		;e6cd
+ESCC:
 	ld a,(CURX)		;e6d0
 	cp 04fh			;e6d3
-	jp z,le6dfh		;e6d5
+	jp z,ESCC1		;e6d5
 	inc a			;e6d8
 	ld (CURX),a		;e6d9
-	jp le4efh		;e6dc
-le6dfh:
+	jp WP75		;e6dc
+ESCC1:
 	ld a,000h		;e6df
 	ld (CURX),a		;e6e1
-	call sub_e4d9h		;e6e4
-	jp nz,le500h		;e6e7
-	call le4efh		;e6ea
-	jp le557h		;e6ed
-	call sub_e6d0h		;e6f0
-	call sub_e6d0h		;e6f3
-	call sub_e6d0h		;e6f6
-	jp sub_e6d0h		;e6f9
-	call sub_e4d9h		;e6fc
-	jp nz,le500h		;e6ff
-	jp le557h		;e702
+	call TSTLROW		;e6e4
+	jp nz,ROWDN		;e6e7
+	call WP75		;e6ea
+	jp SCROLL		;e6ed
+	call ESCC		;e6f0
+	call ESCC		;e6f3
+	call ESCC		;e6f6
+	jp ESCC		;e6f9
+	call TSTLROW		;e6fc
+	jp nz,ROWDN		;e6ff
+	jp SCROLL		;e702
 	ld hl,(CURY)		;e705
 	ld a,l			;e708
 	or h			;e709
-	jp nz,le511h		;e70a
+	jp nz,ROWUP		;e70a
 	ld hl,00780h		;e70d
 	ld (CURY),hl		;e710
 	ld a,018h		;e713
 	ld (0ffd4h),a		;e715
-	jp le4efh		;e718
-	call sub_e522h		;e71b
-	jp le4efh		;e71e
+	jp WP75		;e718
+	call ES0H		;e71b
+	jp WP75		;e71e
 	ld hl,(CURY)		;e721
 	ld b,h			;e724
 	ld c,l			;e725
 	ld de,0f850h		;e726
 	add hl,de		;e729
-	ld (le4cbh),hl		;e72a
+	ld (LINTEM),hl		;e72a
 	ld de,0ffb0h		;e72d
 	add hl,de		;e730
 	ex de,hl		;e731
 	ld h,b			;e732
 	ld l,c			;e733
-	call sub_e4d4h		;e734
+	call NEGHL		;e734
 	ld bc,00780h		;e737
 	add hl,bc		;e73a
 	ld b,h			;e73b
 	ld c,l			;e73c
-	ld hl,(le4cbh)		;e73d
-	call le5b4h		;e740
+	ld hl,(LINTEM)		;e73d
+	call MOVUP		;e740
 	ld hl,0ff80h		;e743
 	ld (0ffd5h),hl		;e746
 	ld a,(0ffdbh)		;e749
 	cp 000h			;e74c
-	jp z,le536h		;e74e
+	jp z,FILL		;e74e
 	ld hl,(CURY)		;e751
-	call sub_e584h		;e754
+	call ADDOFF		;e754
 	ld b,h			;e757
 	ld c,l			;e758
 	ld de,0f50ah		;e759
 	add hl,de		;e75c
-	ld (le4cbh),hl		;e75d
+	ld (LINTEM),hl		;e75d
 	ld de,0fff6h		;e760
 	add hl,de		;e763
 	ex de,hl		;e764
 	ld h,b			;e765
 	ld l,c			;e766
-	call sub_e4d4h		;e767
+	call NEGHL		;e767
 	ld bc,000f0h		;e76a
 	add hl,bc		;e76d
 	ld b,h			;e76e
 	ld c,l			;e76f
-	ld hl,(le4cbh)		;e770
-	call le5b4h		;e773
+	ld hl,(LINTEM)		;e770
+	call MOVUP		;e773
 	ld hl,0f5f0h		;e776
 	ld (0ffdch),hl		;e779
-	jp le536h		;e77c
+	jp FILL		;e77c
 	ld hl,(CURY)		;e77f
 	ld de,SCREENBUF		;e782
 	add hl,de		;e785
 	ld (0ffd5h),hl		;e786
-	call sub_e4d4h		;e789
+	call NEGHL		;e789
 	ld de,0ff80h		;e78c
 	add hl,de		;e78f
 	ld b,h			;e790
 	ld c,l			;e791
 	ld hl,0ff7fh		;e792
 	ld de,SCRNEND		;e795
-	call sub_e5c2h		;e798
+	call MOVDWN		;e798
 	ld a,(0ffdbh)		;e79b
 	cp 000h			;e79e
-	jp z,le536h		;e7a0
+	jp z,FILL		;e7a0
 	ld hl,(CURY)		;e7a3
-	call sub_e584h		;e7a6
+	call ADDOFF		;e7a6
 	ld de,trailing_end	;e7a9
 	add hl,de		;e7ac
 	ld (0ffdch),hl		;e7ad
-	call sub_e4d4h		;e7b0
+	call NEGHL		;e7b0
 	ld de,0f5f0h		;e7b3
 	add hl,de		;e7b6
 	ld b,h			;e7b7
 	ld c,l			;e7b8
 	ld hl,0f5efh		;e7b9
 	ld de,0f5f9h		;e7bc
-	call sub_e5c2h		;e7bf
-	jp le536h		;e7c2
+	call MOVDWN		;e7bf
+	jp FILL		;e7c2
 	ld a,002h		;e7c5
 	ld (0ffdbh),a		;e7c7
 	ret			;e7ca
@@ -1064,29 +1064,29 @@ le6dfh:
 	ld hl,SCREENBUF		;e7d1
 	ld de,trailing_end	;e7d4
 	ld b,0fah		;e7d7
-le7d9h:
+ESCCF1:
 	ld a,(de)		;e7d9
 	ld c,008h		;e7da
 	cp 000h			;e7dc
-	jp nz,le7ebh		;e7de
-le7e1h:
+	jp nz,ESCCF3		;e7de
+ESCCF2:
 	ld (hl),020h		;e7e1
 	inc hl			;e7e3
 	dec c			;e7e4
-	jp nz,le7e1h		;e7e5
-	jp le7f6h		;e7e8
-le7ebh:
+	jp nz,ESCCF2		;e7e5
+	jp ESCCF5		;e7e8
+ESCCF3:
 	rra			;e7eb
-	jp c,le7f1h		;e7ec
+	jp c,ESCCF4		;e7ec
 	ld (hl),020h		;e7ef
-le7f1h:
+ESCCF4:
 	inc hl			;e7f1
 	dec c			;e7f2
-	jp nz,le7ebh		;e7f3
-le7f6h:
+	jp nz,ESCCF3		;e7f3
+ESCCF5:
 	inc de			;e7f6
 	dec b			;e7f7
-	jp nz,le7d9h		;e7f8
+	jp nz,ESCCF1		;e7f8
 	ret			;e7fb
 code008_end:
 INTVEC:
@@ -1143,43 +1143,43 @@ code010_start:
 	ld d,(hl)		;e850
 	ex de,hl		;e851
 	jp (hl)			;e852
-sub_e853h:
+XYADD:
 	ld a,(0ffdah)		;e853
 	and 07fh		;e856
 	sub 020h		;e858
 	ld hl,0ffd7h		;e85a
 	dec (hl)		;e85d
-	jp z,le865h		;e85e
+	jp z,XYADD1		;e85e
 	ld (0ffdeh),a		;e861
 	ret			;e864
-le865h:
+XYADD1:
 	ld d,a			;e865
 	ld a,(0ffdeh)		;e866
 	ld h,a			;e869
 	ld a,(code002_end)	;e86a
 	or a			;e86d
-	jp z,le872h		;e86e
+	jp z,XYADD2		;e86e
 	ex de,hl		;e871
-le872h:
+XYADD2:
 	ld a,h			;e872
 	ld b,050h		;e873
-	call le530h		;e875
+	call CHKDC		;e875
 	ld (CURX),a		;e878
 	ld a,d			;e87b
 	ld b,019h		;e87c
-	call le530h		;e87e
+	call CHKDC		;e87e
 	ld (0ffd4h),a		;e881
 	or a			;e884
-	jp z,le4efh		;e885
+	jp z,WP75		;e885
 	ld hl,(CURY)		;e888
 	ld de,00050h		;e88b
-le88eh:
+XYADD3:
 	add hl,de		;e88e
 	dec a			;e88f
-	jp nz,le88eh		;e890
+	jp nz,XYADD3		;e890
 	ld (CURY),hl		;e893
-	jp le4efh		;e896
-sub_e899h:
+	jp WP75		;e896
+DISPL:
 	ld hl,(CURY)		;e899
 	ld d,000h		;e89c
 	ld a,(CURX)		;e89e
@@ -1188,43 +1188,43 @@ sub_e899h:
 	ld (0ffd8h),hl		;e8a3
 	ld a,(0ffdah)		;e8a6
 	cp 0c0h			;e8a9
-	jp c,le8b0h		;e8ab
+	jp c,DISPL1		;e8ab
 	sub 0c0h		;e8ae
-le8b0h:
+DISPL1:
 	ld c,a			;e8b0
 	cp 080h			;e8b1
-	jp c,le8bfh		;e8b3
+	jp c,DISPL2		;e8b3
 	and 004h		;e8b6
-	ld (le4cah),a		;e8b8
+	ld (GRAPH),a		;e8b8
 	ld a,c			;e8bb
-	jp le8c5h		;e8bc
-le8bfh:
+	jp DISPL3		;e8bc
+DISPL2:
 	ld hl,CONVTAB		;e8bf
-	call sub_e4e4h		;e8c2
-le8c5h:
+	call CONV		;e8c2
+DISPL3:
 	ld hl,(0ffd8h)		;e8c5
 	ld de,SCREENBUF		;e8c8
 	add hl,de		;e8cb
 	ld (hl),a		;e8cc
-	call sub_e6d0h		;e8cd
+	call ESCC		;e8cd
 	ld a,(0ffdbh)		;e8d0
 	cp 002h			;e8d3
 	ret nz			;e8d5
 	ld hl,(0ffd8h)		;e8d6
-	call sub_e584h		;e8d9
+	call ADDOFF		;e8d9
 	ld de,trailing_end	;e8dc
 	add hl,de		;e8df
 	cp 000h			;e8e0
 	ld b,a			;e8e2
 	ld a,001h		;e8e3
-	jp nz,le8ebh		;e8e5
+	jp nz,DISPL4		;e8e5
 	or (hl)			;e8e8
 	ld (hl),a		;e8e9
 	ret			;e8ea
-le8ebh:
+DISPL4:
 	rlca			;e8eb
 	dec b			;e8ec
-	jp nz,le8ebh		;e8ed
+	jp nz,DISPL4		;e8ed
 	or (hl)			;e8f0
 	ld (hl),a		;e8f1
 	ret			;e8f2
@@ -1243,18 +1243,18 @@ CONOUT:
 	ld (0ffdah),a		;e902
 	ld a,(0ffd7h)		;e905
 	or a			;e908
-	jp z,le912h		;e909
-	call sub_e853h		;e90c
-	jp le923h		;e90f
-le912h:
+	jp z,CONOU1		;e909
+	call XYADD		;e90c
+	jp CONOU3		;e90f
+CONOU1:
 	ld a,(0ffdah)		;e912
 	cp 020h			;e915
-	jp nc,le920h		;e917
+	jp nc,CONOU2		;e917
 	call intvec_end		;e91a
-	jp le923h		;e91d
-le920h:
-	call sub_e899h		;e920
-le923h:
+	jp CONOU3		;e91d
+CONOU2:
+	call DISPL		;e920
+CONOU3:
 	pop de			;e923
 	pop bc			;e924
 	pop af			;e925
@@ -1299,43 +1299,43 @@ le923h:
 	out (00eh),a		;e968
 	ld hl,RTCCNT		;e96a
 	inc (hl)		;e96d
-	jp nz,le97dh		;e96e
+	jp nz,AFB11		;e96e
 	inc hl			;e971
 	inc (hl)		;e972
-	jp nz,le97dh		;e973
+	jp nz,AFB11		;e973
 	inc hl			;e976
 	inc (hl)		;e977
-	jp nz,le97dh		;e978
+	jp nz,AFB11		;e978
 	inc hl			;e97b
 	inc (hl)		;e97c
-le97dh:
+AFB11:
 	ld hl,(TIMER1)		;e97d
 	ld a,l			;e980
 	or h			;e981
-	jp z,le98eh		;e982
+	jp z,AFB12		;e982
 	dec hl			;e985
 	ld a,l			;e986
 	or h			;e987
 	ld (TIMER1),hl		;e988
 	call z,WARMJP		;e98b
-le98eh:
+AFB12:
 	ld hl,(TIMER2)		;e98e
 	ld a,l			;e991
 	or h			;e992
-	jp z,le99fh		;e993
+	jp z,AFB13		;e993
 	dec hl			;e996
 	ld a,l			;e997
 	or h			;e998
 	ld (TIMER2),hl		;e999
-	call z,sub_f134h	;e99c
-le99fh:
+	call z,FDSTOP	;e99c
+AFB13:
 	ld hl,(0ffe3h)		;e99f
 	ld a,l			;e9a2
 	or h			;e9a3
-	jp z,le9abh		;e9a4
+	jp z,AFB14		;e9a4
 	dec hl			;e9a7
 	ld (0ffe3h),hl		;e9a8
-le9abh:
+AFB14:
 	pop hl			;e9ab
 	ld sp,hl		;e9ac
 	exx			;e9ad
@@ -1560,7 +1560,7 @@ dskcfg_start:
 	DB 000h		;ea78
 	DB 000h		;ea79
 	DB 01ah		;ea7a
-lea7bh:
+FDF1:
 	DB 07fh		;ea7b
 	DB 000h		;ea7c
 	DB 000h		;ea7d
@@ -1592,7 +1592,7 @@ lea7bh:
 	DB 01ah		;ea97
 	DB 00eh		;ea98
 	DB 04dh		;ea99
-lea9ah:
+DPBASE:
 	DB 000h		;ea9a
 	DB 000h		;ea9b
 	DB 000h		;ea9c
@@ -1631,20 +1631,20 @@ WORKSPACE:
 ; BLOCK 'workspace' (start 0xeaba end 0xee15)
 workspace_start:
 	DB 000h		;eaba
-leabbh:
+DPBLK1:
 	DB 000h		;eabb
-leabch:
+CPMRBP:
 	DB 000h		;eabc
-leabdh:
+SPTRK:
 	DB 000h		;eabd
-leabeh:
+SECMSK:
 	DB 000h		;eabe
-leabfh:
+SECSHF:
 	DB 000h		;eabf
-leac0h:
+TRANTB:
 	DB 000h		;eac0
 	DB 000h		;eac1
-leac2h:
+DTLV:
 	DB 000h		;eac2
 	DB 000h		;eac3
 	DB 000h		;eac4
@@ -1653,53 +1653,53 @@ leac2h:
 	DB 000h		;eac7
 	DB 000h		;eac8
 	DB 000h		;eac9
-leacah:
+SEKDSK:
 	DB 000h		;eaca
-leacbh:
+SEKTRK:
 	DB 000h		;eacb
 	DB 000h		;eacc
-leacdh:
+SEKSEC:
 	DB 000h		;eacd
-leaceh:
+HSTDSK:
 	DB 000h		;eace
-leacfh:
+HSTTRK:
 	DB 000h		;eacf
 	DB 000h		;ead0
-lead1h:
+HSTSEC:
 	DB 000h		;ead1
-lead2h:
+LSTDSK:
 	DB 000h		;ead2
-lead3h:
+LSTTRK:
 	DB 000h		;ead3
-lead4h:
+SEKHST:
 	DB 000h		;ead4
-lead5h:
+HSTACT:
 	DB 000h		;ead5
-lead6h:
+HSTWRT:
 	DB 000h		;ead6
-lead7h:
+UNACNT:
 	DB 000h		;ead7
-lead8h:
+UNADSK:
 	DB 000h		;ead8
-lead9h:
+UNATRK:
 	DB 000h		;ead9
 	DB 000h		;eada
-leadbh:
+UNASEC:
 	DB 000h		;eadb
-leadch:
+UNAMSK:
 	DB 000h		;eadc
-leaddh:
+ERFLAG:
 	DB 000h		;eadd
-leadeh:
+RSFLAG:
 	DB 000h		;eade
-leadfh:
+READOP:
 	DB 000h		;eadf
-leae0h:
+WRTYPE:
 	DB 000h		;eae0
-leae1h:
+DMAADR:
 	DB 000h		;eae1
 	DB 000h		;eae2
-leae3h:
+HSTBUF:
 	DB 000h		;eae3
 	DB 000h		;eae4
 	DB 000h		;eae5
@@ -2524,19 +2524,19 @@ workspace_end:
 code021_start:
 	add a,e			;ee15
 	jp pe,00000h		;ee16
-lee19h:
+DRNO:
 	ld bc,00000h		;ee19
-lee1ch:
+DSKADH:
 	nop			;ee1c
-lee1dh:
+ACTRA:
 	nop			;ee1d
-lee1eh:
+ACSEC:
 	nop			;ee1e
-lee1fh:
+REPET:
 	nop			;ee1f
-lee20h:
+RSTAB:
 	nop			;ee20
-lee21h:
+RSTAB1:
 	nop			;ee21
 	nop			;ee22
 	nop			;ee23
@@ -2544,7 +2544,7 @@ lee21h:
 	nop			;ee25
 	nop			;ee26
 	nop			;ee27
-lee28h:
+FL_FLG:
 	rst 38h			;ee28
 SELDSK:
 	ld hl,00000h		;ee29
@@ -2552,34 +2552,34 @@ SELDSK:
 	ld sp,CONVTAB		;ee2d
 	push hl			;ee30
 	ld hl,00000h		;ee31
-	ld a,(lee19h)		;ee34
+	ld a,(DRNO)		;ee34
 	cp c			;ee37
-	jp c,lee9eh		;ee38
+	jp c,RSELD		;ee38
 	ld a,c			;ee3b
-	ld (leacah),a		;ee3c
+	ld (SEKDSK),a		;ee3c
 	ld bc,00000h		;ee3f
-	ld hl,le237h		;ee42
+	ld hl,FD0		;ee42
 	or a			;ee45
-	jp z,lee4dh		;ee46
+	jp z,SELD20		;ee46
 	inc hl			;ee49
 	ld bc,00010h		;ee4a
-lee4dh:
+SELD20:
 	ld a,(hl)		;ee4d
 	ld hl,0ee17h		;ee4e
 	cp (hl)			;ee51
-	jp z,lee64h		;ee52
+	jp z,SELN		;ee52
 	push af			;ee55
 	push bc			;ee56
-	ld a,(lead6h)		;ee57
+	ld a,(HSTWRT)		;ee57
 	or a			;ee5a
-	call nz,sub_f00bh	;ee5b
+	call nz,WRTHST	;ee5b
 	xor a			;ee5e
-	ld (lead6h),a		;ee5f
+	ld (HSTWRT),a		;ee5f
 	pop bc			;ee62
 	pop af			;ee63
-lee64h:
+SELN:
 	ld (0ee17h),a		;ee64
-	call sub_f10bh		;ee67
+	call GFPA		;ee67
 	ld (workspace_end),hl	;ee6a
 	inc hl			;ee6d
 	inc hl			;ee6e
@@ -2599,7 +2599,7 @@ lee64h:
 	ld bc,00010h		;ee85
 	ldir			;ee88
 	pop bc			;ee8a
-	ld hl,lea9ah		;ee8b
+	ld hl,DPBASE		;ee8b
 	add hl,bc		;ee8e
 	ex de,hl		;ee8f
 	ld hl,0000ah		;ee90
@@ -2608,9 +2608,9 @@ lee64h:
 	ld a,(dskcfg_end)	;ee95
 	ld (de),a		;ee98
 	inc de			;ee99
-	ld a,(leabbh)		;ee9a
+	ld a,(DPBLK1)		;ee9a
 	ld (de),a		;ee9d
-lee9eh:
+RSELD:
 	ex de,hl		;ee9e
 	pop hl			;ee9f
 	ld sp,hl		;eea0
@@ -2619,139 +2619,139 @@ lee9eh:
 SETTRK:
 	ld h,b			;eea3
 	ld l,c			;eea4
-	ld (leacbh),hl		;eea5
+	ld (SEKTRK),hl		;eea5
 	ret			;eea8
 SETSEC:
 	ld a,c			;eea9
-	ld (leacdh),a		;eeaa
+	ld (SEKSEC),a		;eeaa
 	ret			;eead
 SETDMA:
 	ld h,b			;eeae
 	ld l,c			;eeaf
-	ld (leae1h),hl		;eeb0
+	ld (DMAADR),hl		;eeb0
 	ret			;eeb3
-LISTST:
+SECTRA:
 	ld h,b			;eeb4
 	ld l,c			;eeb5
 	ret			;eeb6
-SECTRAN:
+XREAD:
 	ld a,001h		;eeb7
-	ld (leadfh),a		;eeb9
-	ld (leadeh),a		;eebc
+	ld (READOP),a		;eeb9
+	ld (RSFLAG),a		;eebc
 	ld a,002h		;eebf
-	ld (leae0h),a		;eec1
-	jp lef4bh		;eec4
-READ:
+	ld (WRTYPE),a		;eec1
+	jp RWOPER		;eec4
+XWRITE:
 	xor a			;eec7
-	ld (leadfh),a		;eec8
+	ld (READOP),a		;eec8
 	ld a,c			;eecb
-	ld (leae0h),a		;eecc
+	ld (WRTYPE),a		;eecc
 	cp 002h			;eecf
-	jp nz,leeech		;eed1
-	ld a,(leabch)		;eed4
-	ld (lead7h),a		;eed7
-	ld a,(leacah)		;eeda
-	ld (lead8h),a		;eedd
-	ld hl,(leacbh)		;eee0
-	ld (lead9h),hl		;eee3
-	ld a,(leacdh)		;eee6
-	ld (leadbh),a		;eee9
-leeech:
-	ld a,(lead7h)		;eeec
+	jp nz,CHKUNA		;eed1
+	ld a,(CPMRBP)		;eed4
+	ld (UNACNT),a		;eed7
+	ld a,(SEKDSK)		;eeda
+	ld (UNADSK),a		;eedd
+	ld hl,(SEKTRK)		;eee0
+	ld (UNATRK),hl		;eee3
+	ld a,(SEKSEC)		;eee6
+	ld (UNASEC),a		;eee9
+CHKUNA:
+	ld a,(UNACNT)		;eeec
 	or a			;eeef
-	jp z,lef41h		;eef0
+	jp z,ALLOC		;eef0
 	dec a			;eef3
-	ld (lead7h),a		;eef4
-	ld a,(leacah)		;eef7
-	ld hl,lead8h		;eefa
+	ld (UNACNT),a		;eef4
+	ld a,(SEKDSK)		;eef7
+	ld hl,UNADSK		;eefa
 	cp (hl)			;eefd
-	jp nz,lef41h		;eefe
-	ld hl,lead9h		;ef01
-	call sub_efffh		;ef04
-	jp nz,lef41h		;ef07
-	ld a,(leacdh)		;ef0a
-	ld hl,leadbh		;ef0d
+	jp nz,ALLOC		;eefe
+	ld hl,UNATRK		;ef01
+	call TRKCMP		;ef04
+	jp nz,ALLOC		;ef07
+	ld a,(SEKSEC)		;ef0a
+	ld hl,UNASEC		;ef0d
 	cp (hl)			;ef10
-	jp nz,lef41h		;ef11
+	jp nz,ALLOC		;ef11
 	inc (hl)		;ef14
 	ld a,(hl)		;ef15
-	ld hl,leabdh		;ef16
+	ld hl,SPTRK		;ef16
 	cp (hl)			;ef19
-	jp c,lef29h		;ef1a
-	ld hl,leadbh		;ef1d
+	jp c,NOOVF		;ef1a
+	ld hl,UNASEC		;ef1d
 	ld (hl),000h		;ef20
-	ld hl,(lead9h)		;ef22
+	ld hl,(UNATRK)		;ef22
 	inc hl			;ef25
-	ld (lead9h),hl		;ef26
-lef29h:
+	ld (UNATRK),hl		;ef26
+NOOVF:
 	xor a			;ef29
-	ld (leadeh),a		;ef2a
-	ld a,(leacdh)		;ef2d
-	ld hl,leabeh		;ef30
+	ld (RSFLAG),a		;ef2a
+	ld a,(SEKSEC)		;ef2d
+	ld hl,SECMSK		;ef30
 	and (hl)		;ef33
 	cp (hl)			;ef34
 	ld a,000h		;ef35
-	jp nz,lef3bh		;ef37
+	jp nz,SETMSK		;ef37
 	inc a			;ef3a
-lef3bh:
-	ld (leadch),a		;ef3b
-	jp lef4bh		;ef3e
-lef41h:
+SETMSK:
+	ld (UNAMSK),a		;ef3b
+	jp RWOPER		;ef3e
+ALLOC:
 	xor a			;ef41
-	ld (lead7h),a		;ef42
-	ld a,(leabeh)		;ef45
-	ld (leadeh),a		;ef48
-lef4bh:
+	ld (UNACNT),a		;ef42
+	ld a,(SECMSK)		;ef45
+	ld (RSFLAG),a		;ef48
+RWOPER:
 	ld hl,00000h		;ef4b
 	add hl,sp		;ef4e
 	ld sp,CONVTAB		;ef4f
 	push hl			;ef52
-	ld a,(leabfh)		;ef53
+	ld a,(SECSHF)		;ef53
 	ld b,a			;ef56
-	ld a,(leacdh)		;ef57
-lef5ah:
+	ld a,(SEKSEC)		;ef57
+RSECS:
 	dec b			;ef5a
-	jp z,lef63h		;ef5b
+	jp z,SETSH		;ef5b
 	or a			;ef5e
 	rra			;ef5f
-	jp lef5ah		;ef60
-lef63h:
-	ld (lead4h),a		;ef63
-	ld hl,lead5h		;ef66
+	jp RSECS		;ef60
+SETSH:
+	ld (SEKHST),a		;ef63
+	ld hl,HSTACT		;ef66
 	ld a,(hl)		;ef69
 	ld (hl),001h		;ef6a
 	or a			;ef6c
-	jp z,lef94h		;ef6d
-	ld a,(leacah)		;ef70
-	ld hl,leaceh		;ef73
+	jp z,FILHST		;ef6d
+	ld a,(SEKDSK)		;ef70
+	ld hl,HSTDSK		;ef73
 	cp (hl)			;ef76
-	jp nz,lef8dh		;ef77
-	ld hl,leacfh		;ef7a
-	call sub_efffh		;ef7d
-	jp nz,lef8dh		;ef80
-	ld a,(lead4h)		;ef83
-	ld hl,lead1h		;ef86
+	jp nz,NOMATC		;ef77
+	ld hl,HSTTRK		;ef7a
+	call TRKCMP		;ef7d
+	jp nz,NOMATC		;ef80
+	ld a,(SEKHST)		;ef83
+	ld hl,HSTSEC		;ef86
 	cp (hl)			;ef89
-	jp z,lefb1h		;ef8a
-lef8dh:
-	ld a,(lead6h)		;ef8d
+	jp z,MATCH		;ef8a
+NOMATC:
+	ld a,(HSTWRT)		;ef8d
 	or a			;ef90
-	call nz,sub_f00bh	;ef91
-lef94h:
-	ld a,(leacah)		;ef94
-	ld (leaceh),a		;ef97
-	ld hl,(leacbh)		;ef9a
-	ld (leacfh),hl		;ef9d
-	ld a,(lead4h)		;efa0
-	ld (lead1h),a		;efa3
-	ld a,(leadeh)		;efa6
+	call nz,WRTHST	;ef91
+FILHST:
+	ld a,(SEKDSK)		;ef94
+	ld (HSTDSK),a		;ef97
+	ld hl,(SEKTRK)		;ef9a
+	ld (HSTTRK),hl		;ef9d
+	ld a,(SEKHST)		;efa0
+	ld (HSTSEC),a		;efa3
+	ld a,(RSFLAG)		;efa6
 	or a			;efa9
-	call nz,sub_f011h	;efaa
+	call nz,RDHST	;efaa
 	xor a			;efad
-	ld (lead6h),a		;efae
-lefb1h:
-	ld a,(leacdh)		;efb1
-	ld hl,leabeh		;efb4
+	ld (HSTWRT),a		;efae
+MATCH:
+	ld a,(SEKSEC)		;efb1
+	ld hl,SECMSK		;efb4
 	and (hl)		;efb7
 	ld l,a			;efb8
 	ld h,000h		;efb9
@@ -2762,41 +2762,41 @@ lefb1h:
 	add hl,hl		;efbf
 	add hl,hl		;efc0
 	add hl,hl		;efc1
-	ld de,leae3h		;efc2
+	ld de,HSTBUF		;efc2
 	add hl,de		;efc5
 	ex de,hl		;efc6
-	ld hl,(leae1h)		;efc7
+	ld hl,(DMAADR)		;efc7
 	ld bc,00080h		;efca
 	ex de,hl		;efcd
-	ld a,(leadfh)		;efce
+	ld a,(READOP)		;efce
 	or a			;efd1
-	jp nz,lefdbh		;efd2
+	jp nz,RWMOVE		;efd2
 	ld a,001h		;efd5
-	ld (lead6h),a		;efd7
+	ld (HSTWRT),a		;efd7
 	ex de,hl		;efda
-lefdbh:
+RWMOVE:
 	ldir			;efdb
-	ld a,(leae0h)		;efdd
+	ld a,(WRTYPE)		;efdd
 	cp 001h			;efe0
-	ld hl,leaddh		;efe2
+	ld hl,ERFLAG		;efe2
 	ld a,(hl)		;efe5
 	ld (hl),000h		;efe6
-	jp nz,leffch		;efe8
+	jp nz,RRWOP		;efe8
 	or a			;efeb
-	jp nz,leffch		;efec
+	jp nz,RRWOP		;efec
 	xor a			;efef
-	ld (lead6h),a		;eff0
-	call sub_f00bh		;eff3
-	ld hl,leaddh		;eff6
+	ld (HSTWRT),a		;eff0
+	call WRTHST		;eff3
+	ld hl,ERFLAG		;eff6
 	ld a,(hl)		;eff9
 	ld (hl),000h		;effa
-leffch:
+RRWOP:
 	pop hl			;effc
 	ld sp,hl		;effd
 	ret			;effe
-sub_efffh:
+TRKCMP:
 	ex de,hl		;efff
-	ld hl,leacbh		;f000
+	ld hl,SEKTRK		;f000
 	ld a,(de)		;f003
 	cp (hl)			;f004
 	ret nz			;f005
@@ -2805,142 +2805,142 @@ sub_efffh:
 	ld a,(de)		;f008
 	cp (hl)			;f009
 	ret			;f00a
-sub_f00bh:
-	call sub_f021h		;f00b
-	jp lf0e1h		;f00e
-sub_f011h:
-	ld a,(leadch)		;f011
+WRTHST:
+	call CHKTRK		;f00b
+	jp SECWR		;f00e
+RDHST:
+	ld a,(UNAMSK)		;f011
 	or a			;f014
-	jp nz,lf01bh		;f015
-	ld (lead7h),a		;f018
-lf01bh:
-	call sub_f021h		;f01b
-	jp lf097h		;f01e
-sub_f021h:
-	ld a,(lead1h)		;f021
+	jp nz,RCHECK		;f015
+	ld (UNACNT),a		;f018
+RCHECK:
+	call CHKTRK		;f01b
+	jp SECRD		;f01e
+CHKTRK:
+	ld a,(HSTSEC)		;f021
 	ld c,a			;f024
 	ld a,(0ee18h)		;f025
 	ld b,a			;f028
 	dec a			;f029
 	cp c			;f02a
-	ld a,(leaceh)		;f02b
-	jp nc,lf03ch		;f02e
+	ld a,(HSTDSK)		;f02b
+	jp nc,SET1		;f02e
 	or 004h			;f031
-	ld (lee19h+1),a		;f033
+	ld (DRNO+1),a		;f033
 	ld a,c			;f036
 	sub b			;f037
 	ld c,a			;f038
-	jp lf03fh		;f039
-lf03ch:
-	ld (lee19h+1),a		;f03c
-lf03fh:
+	jp SET2		;f039
+SET1:
+	ld (DRNO+1),a		;f03c
+SET2:
 	ld b,000h		;f03f
-	ld hl,(leac0h)		;f041
+	ld hl,(TRANTB)		;f041
 	add hl,bc		;f044
 	ld a,(hl)		;f045
-	ld (lee1eh),a		;f046
-	ld a,(leacfh)		;f049
-	ld (lee1dh),a		;f04c
-	ld hl,leae3h		;f04f
-	ld (lee19h+2),hl	;f052
-	ld a,(leaceh)		;f055
-	ld hl,lead2h		;f058
+	ld (ACSEC),a		;f046
+	ld a,(HSTTRK)		;f049
+	ld (ACTRA),a		;f04c
+	ld hl,HSTBUF		;f04f
+	ld (DRNO+2),hl	;f052
+	ld a,(HSTDSK)		;f055
+	ld hl,LSTDSK		;f058
 	cp (hl)			;f05b
-	jp nz,lf067h		;f05c
-	ld a,(leacfh)		;f05f
-	ld hl,lead3h		;f062
+	jp nz,SEEKT		;f05c
+	ld a,(HSTTRK)		;f05f
+	ld hl,LSTTRK		;f062
 	cp (hl)			;f065
 	ret z			;f066
-lf067h:
-	ld a,(leaceh)		;f067
-	ld (lead2h),a		;f06a
-	ld a,(leacfh)		;f06d
-	ld (lead3h),a		;f070
-	call sub_f1fah		;f073
-	call sub_f1c1h		;f076
-	call READS		;f079
-	ld a,(lee19h+1)		;f07c
+SEEKT:
+	ld a,(HSTDSK)		;f067
+	ld (LSTDSK),a		;f06a
+	ld a,(HSTTRK)		;f06d
+	ld (LSTTRK),a		;f070
+	call CLFIT		;f073
+	call FLO7		;f076
+	call WFITR		;f079
+	ld a,(DRNO+1)		;f07c
 	and 003h		;f07f
 	add a,020h		;f081
 	cp b			;f083
 	ret z			;f084
-sub_f085h:
-	call sub_f1fah		;f085
-	call sub_f175h		;f088
+RECA:
+	call CLFIT		;f085
+	call FLO4		;f088
 	push bc			;f08b
-	call READS		;f08c
-	call sub_f1c1h		;f08f
-	call READS		;f092
+	call WFITR		;f08c
+	call FLO7		;f08f
+	call WFITR		;f092
 	pop bc			;f095
 	ret			;f096
-lf097h:
+SECRD:
 	ld a,00ah		;f097
-	ld (lee1fh),a		;f099
-lf09ch:
-	call sub_f116h		;f09c
-	call sub_f1fah		;f09f
+	ld (REPET),a		;f099
+RPSC:
+	call FDSTAR		;f09c
+	call CLFIT		;f09f
 	ld hl,(workspace_end)	;f0a2
 	ld c,(hl)		;f0a5
 	inc hl			;f0a6
 	ld b,(hl)		;f0a7
 	inc hl			;f0a8
-	call sub_f239h		;f0a9
-	call sub_f101h		;f0ac
-	call sub_f210h		;f0af
+	call FLPW		;f0a9
+	call RFDAT		;f0ac
+	call WATIR		;f0af
 	ld c,000h		;f0b2
-lf0b4h:
-	ld hl,lee20h		;f0b4
+SECCH:
+	ld hl,RSTAB		;f0b4
 	ld a,(hl)		;f0b7
 	and 0f8h		;f0b8
 	ret z			;f0ba
 	and 008h		;f0bb
-	jp nz,lf0d7h		;f0bd
-	ld a,(lee1fh)		;f0c0
+	jp nz,SCR1		;f0bd
+	ld a,(REPET)		;f0c0
 	dec a			;f0c3
-	ld (lee1fh),a		;f0c4
-	jp z,lf0d7h		;f0c7
+	ld (REPET),a		;f0c4
+	jp z,SCR1		;f0c7
 	cp 005h			;f0ca
-	call z,sub_f085h	;f0cc
+	call z,RECA	;f0cc
 	xor a			;f0cf
 	cp c			;f0d0
-	jp z,lf09ch		;f0d1
-	jp lf0e6h		;f0d4
-lf0d7h:
+	jp z,RPSC		;f0d1
+	jp RPSW		;f0d4
+SCR1:
 	ld a,c			;f0d7
-	ld (lead5h),a		;f0d8
+	ld (HSTACT),a		;f0d8
 	ld a,001h		;f0db
-	ld (leaddh),a		;f0dd
+	ld (ERFLAG),a		;f0dd
 	ret			;f0e0
-lf0e1h:
+SECWR:
 	ld a,00ah		;f0e1
-	ld (lee1fh),a		;f0e3
-lf0e6h:
-	call sub_f116h		;f0e6
-	call sub_f1fah		;f0e9
+	ld (REPET),a		;f0e3
+RPSW:
+	call FDSTAR		;f0e6
+	call CLFIT		;f0e9
 	ld hl,(workspace_end)	;f0ec
 	ld c,(hl)		;f0ef
 	inc hl			;f0f0
 	ld b,(hl)		;f0f1
 	inc hl			;f0f2
-	call sub_f218h		;f0f3
-	call sub_f106h		;f0f6
-	call sub_f210h		;f0f9
+	call FLPR		;f0f3
+	call WFDAT		;f0f6
+	call WATIR		;f0f9
 	ld c,001h		;f0fc
-	jp lf0b4h		;f0fe
-sub_f101h:
+	jp SECCH		;f0fe
+RFDAT:
 	ld a,006h		;f101
-	jp lf243h		;f103
-sub_f106h:
+	jp GNCOM		;f103
+WFDAT:
 	ld a,005h		;f106
-	jp lf243h		;f108
-sub_f10bh:
-	ld hl,lea7bh		;f10b
+	jp GNCOM		;f108
+GFPA:
+	ld hl,FDF1		;f10b
 	ld a,(0ee17h)		;f10e
 	ld e,a			;f111
 	ld d,000h		;f112
 	add hl,de		;f114
 	ret			;f115
-sub_f116h:
+FDSTAR:
 	in a,(014h)		;f116
 	and 080h		;f118
 	ret z			;f11a
@@ -2955,141 +2955,141 @@ sub_f116h:
 	ld a,001h		;f129
 	out (014h),a		;f12b
 	ld hl,00032h		;f12d
-	call sub_f13eh		;f130
+	call WAITD		;f130
 	ret			;f133
-sub_f134h:
+FDSTOP:
 	in a,(014h)		;f134
 	and 080h		;f136
 	ret z			;f138
 	ld a,000h		;f139
 	out (014h),a		;f13b
 	ret			;f13d
-sub_f13eh:
+WAITD:
 	ld (0ffe3h),hl		;f13e
-lf141h:
+WAIT10:
 	ld hl,(0ffe3h)		;f141
 	ld a,l			;f144
 	or h			;f145
-	jp nz,lf141h		;f146
+	jp nz,WAIT10		;f146
 	ret			;f149
 HOME:
-	ld a,(leacah)		;f14a
-	ld (lee19h+1),a		;f14d
-	ld (lead2h),a		;f150
+	ld a,(SEKDSK)		;f14a
+	ld (DRNO+1),a		;f14d
+	ld (LSTDSK),a		;f150
 	xor a			;f153
-	ld (lead3h),a		;f154
-	call sub_f1fah		;f157
-	call sub_f175h		;f15a
-	call READS		;f15d
+	ld (LSTTRK),a		;f154
+	call CLFIT		;f157
+	call FLO4		;f15a
+	call WFITR		;f15d
 	ret			;f160
-lf161h:
+FLO2:
 	in a,(004h)		;f161
 	and 0c0h		;f163
 	cp 080h			;f165
-	jp nz,lf161h		;f167
+	jp nz,FLO2		;f167
 	ret			;f16a
-lf16bh:
+FLO3:
 	in a,(004h)		;f16b
 	and 0c0h		;f16d
 	cp 0c0h			;f16f
-	jp nz,lf16bh		;f171
+	jp nz,FLO3		;f171
 	ret			;f174
-sub_f175h:
-	call sub_f116h		;f175
-	call lf161h		;f178
+FLO4:
+	call FDSTAR		;f175
+	call FLO2		;f178
 	ld a,007h		;f17b
 	out (005h),a		;f17d
-	call lf161h		;f17f
-	ld a,(lee19h+1)		;f182
+	call FLO2		;f17f
+	ld a,(DRNO+1)		;f182
 	and 003h		;f185
 	out (005h),a		;f187
 	ret			;f189
-	call lf161h		;f18a
+	call FLO2		;f18a
 	ld a,004h		;f18d
 	out (005h),a		;f18f
-	call lf161h		;f191
-	ld a,(lee19h+1)		;f194
+	call FLO2		;f191
+	ld a,(DRNO+1)		;f194
 	and 003h		;f197
 	out (005h),a		;f199
-	call lf16bh		;f19b
+	call FLO3		;f19b
 	in a,(005h)		;f19e
-	ld (lee20h),a		;f1a0
+	ld (RSTAB),a		;f1a0
 	ret			;f1a3
-sub_f1a4h:
-	call lf161h		;f1a4
+FLO6:
+	call FLO2		;f1a4
 	ld a,008h		;f1a7
 	out (005h),a		;f1a9
-	call lf16bh		;f1ab
+	call FLO3		;f1ab
 	in a,(005h)		;f1ae
-	ld (lee20h),a		;f1b0
+	ld (RSTAB),a		;f1b0
 	and 0c0h		;f1b3
 	cp 080h			;f1b5
 	ret z			;f1b7
-	call lf16bh		;f1b8
+	call FLO3		;f1b8
 	in a,(005h)		;f1bb
-	ld (lee21h),a		;f1bd
+	ld (RSTAB1),a		;f1bd
 	ret			;f1c0
-sub_f1c1h:
-	call sub_f116h		;f1c1
-	call lf161h		;f1c4
+FLO7:
+	call FDSTAR		;f1c1
+	call FLO2		;f1c4
 	ld a,00fh		;f1c7
 	out (005h),a		;f1c9
-	call lf161h		;f1cb
-	ld a,(lee19h+1)		;f1ce
+	call FLO2		;f1cb
+	ld a,(DRNO+1)		;f1ce
 	and 003h		;f1d1
 	out (005h),a		;f1d3
-	call lf161h		;f1d5
-	ld a,(lee1dh)		;f1d8
+	call FLO2		;f1d5
+	ld a,(ACTRA)		;f1d8
 	out (005h),a		;f1db
 	ret			;f1dd
-sub_f1deh:
-	ld hl,lee20h		;f1de
+RSULT:
+	ld hl,RSTAB		;f1de
 	ld d,007h		;f1e1
-lf1e3h:
-	call lf16bh		;f1e3
+RSL1:
+	call FLO3		;f1e3
 	in a,(005h)		;f1e6
 	ld (hl),a		;f1e8
 	inc hl			;f1e9
 	ld a,004h		;f1ea
-lf1ech:
+RSL2:
 	dec a			;f1ec
-	jp nz,lf1ech		;f1ed
+	jp nz,RSL2		;f1ed
 	in a,(004h)		;f1f0
 	and 010h		;f1f2
 	ret z			;f1f4
 	dec d			;f1f5
-	jp nz,lf1e3h		;f1f6
+	jp nz,RSL1		;f1f6
 	ret			;f1f9
-sub_f1fah:
+CLFIT:
 	di			;f1fa
 	xor a			;f1fb
-	ld (lee28h),a		;f1fc
+	ld (FL_FLG),a		;f1fc
 	ei			;f1ff
 	ret			;f200
-READS:
-	call sub_f210h		;f201
-	ld a,(lee20h)		;f204
+WFITR:
+	call WATIR		;f201
+	ld a,(RSTAB)		;f204
 	ld b,a			;f207
-	ld a,(lee21h)		;f208
+	ld a,(RSTAB1)		;f208
 	ld c,a			;f20b
-	call sub_f1fah		;f20c
+	call CLFIT		;f20c
 	ret			;f20f
-sub_f210h:
-	ld a,(lee28h)		;f210
+WATIR:
+	ld a,(FL_FLG)		;f210
 	or a			;f213
-	jp z,sub_f210h		;f214
+	jp z,WATIR		;f214
 	ret			;f217
-sub_f218h:
+FLPR:
 	ld a,005h		;f218
 	di			;f21a
 	out (0fah),a		;f21b
 	ld a,049h		;f21d
-lf21fh:
+FLPR_2:
 	out (0fbh),a		;f21f
 	out (0fch),a		;f221
-	ld a,(lee19h+2)		;f223
+	ld a,(DRNO+2)		;f223
 	out (0f2h),a		;f226
-	ld a,(lee1ch)		;f228
+	ld a,(DSKADH)		;f228
 	out (0f2h),a		;f22b
 	ld a,c			;f22d
 	out (0f3h),a		;f22e
@@ -3099,49 +3099,49 @@ lf21fh:
 	out (0fah),a		;f235
 	ei			;f237
 	ret			;f238
-sub_f239h:
+FLPW:
 	ld a,005h		;f239
 	di			;f23b
 	out (0fah),a		;f23c
 	ld a,045h		;f23e
-	jp lf21fh		;f240
-lf243h:
+	jp FLPR_2		;f240
+GNCOM:
 	push af			;f243
 	di			;f244
-	call lf161h		;f245
+	call FLO2		;f245
 	pop af			;f248
 	ld b,(hl)		;f249
 	inc hl			;f24a
 	add a,b			;f24b
 	out (005h),a		;f24c
-	call lf161h		;f24e
-	ld a,(lee19h+1)		;f251
+	call FLO2		;f24e
+	ld a,(DRNO+1)		;f251
 	out (005h),a		;f254
-	call lf161h		;f256
-	ld a,(lee1dh)		;f259
+	call FLO2		;f256
+	ld a,(ACTRA)		;f259
 	out (005h),a		;f25c
-	call lf161h		;f25e
-	ld a,(lee19h+1)		;f261
+	call FLO2		;f25e
+	ld a,(DRNO+1)		;f261
 	rra			;f264
 	rra			;f265
 	and 003h		;f266
 	out (005h),a		;f268
-	call lf161h		;f26a
-	ld a,(lee1eh)		;f26d
+	call FLO2		;f26a
+	ld a,(ACSEC)		;f26d
 	out (005h),a		;f270
-	call lf161h		;f272
+	call FLO2		;f272
 	ld a,(hl)		;f275
 	inc hl			;f276
 	out (005h),a		;f277
-	call lf161h		;f279
+	call FLO2		;f279
 	ld a,(hl)		;f27c
 	inc hl			;f27d
 	out (005h),a		;f27e
-	call lf161h		;f280
+	call FLO2		;f280
 	ld a,(hl)		;f283
 	out (005h),a		;f284
-	call lf161h		;f286
-	ld a,(leac2h)		;f289
+	call FLO2		;f286
+	ld a,(DTLV)		;f289
 	out (005h),a		;f28c
 	ei			;f28e
 	ret			;f28f
@@ -3152,26 +3152,26 @@ lf243h:
 	ld sp,ISRSTACK		;f296
 	push hl			;f299
 	ld a,0ffh		;f29a
-	ld (lee28h),a		;f29c
+	ld (FL_FLG),a		;f29c
 	ld a,005h		;f29f
-lf2a1h:
+FITX:
 	dec a			;f2a1
-	jp nz,lf2a1h		;f2a2
+	jp nz,FITX		;f2a2
 	in a,(004h)		;f2a5
 	and 010h		;f2a7
-	jp nz,lf2b2h		;f2a9
-	call sub_f1a4h		;f2ac
-	jp lf2b5h		;f2af
-lf2b2h:
-	call sub_f1deh		;f2b2
-lf2b5h:
+	jp nz,FIT1		;f2a9
+	call FLO6		;f2ac
+	jp FIT2		;f2af
+FIT1:
+	call RSULT		;f2b2
+FIT2:
 	pop hl			;f2b5
 	ld sp,hl		;f2b6
 	exx			;f2b7
 	ex af,af'		;f2b8
 	ei			;f2b9
 	reti			;f2ba
-sub_f2bch:
+DUMITR:
 	ei			;f2bc
 	reti			;f2bd
 code021_end:
@@ -3249,23 +3249,23 @@ workspace2_end:
 ; BLOCK 'code023' (start 0xf300 end 0xf4bf)
 code023_start:
 	cp h			;f300
-	jp p,le4b6h		;f301
+	jp p,KEYIT		;f301
 	ret nz			;f304
-	call po,sub_f2bch	;f305
+	call po,DUMITR	;f305
 	cp h			;f308
-	jp p,sub_f2bch		;f309
+	jp p,DUMITR		;f309
 	inc l			;f30c
 	jp (hl)			;f30d
 	sub b			;f30e
-	jp p,le424h		;f30f
+	jp p,TXB		;f30f
 	ld (040e4h),a		;f312
-	call po,sub_e44ah	;f315
+	call po,SPECB	;f315
 	ld e,h			;f318
-	call po,sub_e46ah	;f319
+	call po,EXTSTA	;f319
 	ld a,b			;f31c
-	call po,sub_e487h	;f31d
+	call po,SPECA	;f31d
 	nop			;f320
-lf321h:
+IVTPAG:
 	di			;f321
 	nop			;f322
 	nop			;f323
@@ -3279,7 +3279,7 @@ lf321h:
 	nop			;f32d
 	ld (bc),a		;f32e
 	nop			;f32f
-	ld bc,sub_f101h		;f330
+	ld bc,RFDAT		;f330
 	ret			;f333
 	in a,(014h)		;f334
 	and 080h		;f336
@@ -3291,102 +3291,102 @@ lf321h:
 	ld hl,(0ffe3h)		;f341
 	ld a,l			;f344
 	or h			;f345
-	jp nz,lf141h		;f346
+	jp nz,WAIT10		;f346
 	ret			;f349
-	ld a,(leacah)		;f34a
-	ld (lee19h+1),a		;f34d
-	ld (lead2h),a		;f350
+	ld a,(SEKDSK)		;f34a
+	ld (DRNO+1),a		;f34d
+	ld (LSTDSK),a		;f350
 	xor a			;f353
-	ld (lead3h),a		;f354
-	call sub_f1fah		;f357
-	call sub_f175h		;f35a
-	call READS		;f35d
+	ld (LSTTRK),a		;f354
+	call CLFIT		;f357
+	call FLO4		;f35a
+	call WFITR		;f35d
 	ret			;f360
 	in a,(004h)		;f361
 	and 0c0h		;f363
 	cp 080h			;f365
-	jp nz,lf161h		;f367
+	jp nz,FLO2		;f367
 	ret			;f36a
 	in a,(004h)		;f36b
 	and 0c0h		;f36d
 	cp 0c0h			;f36f
-	jp nz,lf16bh		;f371
+	jp nz,FLO3		;f371
 	ret			;f374
-	call sub_f116h		;f375
-	call lf161h		;f378
+	call FDSTAR		;f375
+	call FLO2		;f378
 	ld a,007h		;f37b
 	out (005h),a		;f37d
-	call lf161h		;f37f
-	ld a,(lee19h+1)		;f382
+	call FLO2		;f37f
+	ld a,(DRNO+1)		;f382
 	and 003h		;f385
 	out (005h),a		;f387
 	ret			;f389
-	call lf161h		;f38a
+	call FLO2		;f38a
 	ld a,004h		;f38d
 	out (005h),a		;f38f
-	call lf161h		;f391
-	ld a,(lee19h+1)		;f394
+	call FLO2		;f391
+	ld a,(DRNO+1)		;f394
 	and 003h		;f397
 	out (005h),a		;f399
-	call lf16bh		;f39b
+	call FLO3		;f39b
 	in a,(005h)		;f39e
-	ld (lee20h),a		;f3a0
+	ld (RSTAB),a		;f3a0
 	ret			;f3a3
-	call lf161h		;f3a4
+	call FLO2		;f3a4
 	ld a,008h		;f3a7
 	out (005h),a		;f3a9
-	call lf16bh		;f3ab
+	call FLO3		;f3ab
 	in a,(005h)		;f3ae
-	ld (lee20h),a		;f3b0
+	ld (RSTAB),a		;f3b0
 	and 0c0h		;f3b3
 	cp 080h			;f3b5
 	ret z			;f3b7
-	call lf16bh		;f3b8
+	call FLO3		;f3b8
 	in a,(005h)		;f3bb
-	ld (lee21h),a		;f3bd
+	ld (RSTAB1),a		;f3bd
 	ret			;f3c0
-	call sub_f116h		;f3c1
-	call lf161h		;f3c4
+	call FDSTAR		;f3c1
+	call FLO2		;f3c4
 	ld a,00fh		;f3c7
 	out (005h),a		;f3c9
-	call lf161h		;f3cb
-	ld a,(lee19h+1)		;f3ce
+	call FLO2		;f3cb
+	ld a,(DRNO+1)		;f3ce
 	and 003h		;f3d1
 	out (005h),a		;f3d3
-	call lf161h		;f3d5
-	ld a,(lee1dh)		;f3d8
+	call FLO2		;f3d5
+	ld a,(ACTRA)		;f3d8
 	out (005h),a		;f3db
 	ret			;f3dd
-	ld hl,lee20h		;f3de
+	ld hl,RSTAB		;f3de
 	ld d,007h		;f3e1
-	call lf16bh		;f3e3
+	call FLO3		;f3e3
 	in a,(005h)		;f3e6
 	ld (hl),a		;f3e8
 	inc hl			;f3e9
 	ld a,004h		;f3ea
 	dec a			;f3ec
-	jp nz,lf1ech		;f3ed
+	jp nz,RSL2		;f3ed
 	in a,(004h)		;f3f0
 	and 010h		;f3f2
 	ret z			;f3f4
 	dec d			;f3f5
-	jp nz,lf1e3h		;f3f6
+	jp nz,RSL1		;f3f6
 	ret			;f3f9
 	di			;f3fa
 	xor a			;f3fb
-	ld (lee28h),a		;f3fc
+	ld (FL_FLG),a		;f3fc
 	ei			;f3ff
 	ret			;f400
-	call sub_f210h		;f401
-	ld a,(lee20h)		;f404
+	call WATIR		;f401
+	ld a,(RSTAB)		;f404
 	ld b,a			;f407
-	ld a,(lee21h)		;f408
+	ld a,(RSTAB1)		;f408
 	ld c,a			;f40b
-	call sub_f1fah		;f40c
+	call CLFIT		;f40c
 	ret			;f40f
-	ld a,(lee28h)		;f410
+	ld a,(FL_FLG)		;f410
 	or a			;f413
-	jp z,sub_f210h		;f414
+	jp z,WATIR		;f414
 	ret			;f417
 	ld a,005h		;f418
 	di			;f41a
@@ -3394,9 +3394,9 @@ lf321h:
 	ld a,049h		;f41d
 	out (0fbh),a		;f41f
 	out (0fch),a		;f421
-	ld a,(lee19h+2)		;f423
+	ld a,(DRNO+2)		;f423
 	out (0f2h),a		;f426
-	ld a,(lee1ch)		;f428
+	ld a,(DSKADH)		;f428
 	out (0f2h),a		;f42b
 	ld a,c			;f42d
 	out (0f3h),a		;f42e
@@ -3410,43 +3410,43 @@ lf321h:
 	di			;f43b
 	out (0fah),a		;f43c
 	ld a,045h		;f43e
-	jp lf21fh		;f440
+	jp FLPR_2		;f440
 	push af			;f443
 	di			;f444
-	call lf161h		;f445
+	call FLO2		;f445
 	pop af			;f448
 	ld b,(hl)		;f449
 	inc hl			;f44a
 	add a,b			;f44b
 	out (005h),a		;f44c
-	call lf161h		;f44e
-	ld a,(lee19h+1)		;f451
+	call FLO2		;f44e
+	ld a,(DRNO+1)		;f451
 	out (005h),a		;f454
-	call lf161h		;f456
-	ld a,(lee1dh)		;f459
+	call FLO2		;f456
+	ld a,(ACTRA)		;f459
 	out (005h),a		;f45c
-	call lf161h		;f45e
-	ld a,(lee19h+1)		;f461
+	call FLO2		;f45e
+	ld a,(DRNO+1)		;f461
 	rra			;f464
 	rra			;f465
 	and 003h		;f466
 	out (005h),a		;f468
-	call lf161h		;f46a
-	ld a,(lee1eh)		;f46d
+	call FLO2		;f46a
+	ld a,(ACSEC)		;f46d
 	out (005h),a		;f470
-	call lf161h		;f472
+	call FLO2		;f472
 	ld a,(hl)		;f475
 	inc hl			;f476
 	out (005h),a		;f477
-	call lf161h		;f479
+	call FLO2		;f479
 	ld a,(hl)		;f47c
 	inc hl			;f47d
 	out (005h),a		;f47e
-	call lf161h		;f480
+	call FLO2		;f480
 	ld a,(hl)		;f483
 	out (005h),a		;f484
-	call lf161h		;f486
-	ld a,(leac2h)		;f489
+	call FLO2		;f486
+	ld a,(DTLV)		;f489
 	out (005h),a		;f48c
 	ei			;f48e
 	ret			;f48f
@@ -3457,16 +3457,16 @@ lf321h:
 	ld sp,ISRSTACK		;f496
 	push hl			;f499
 	ld a,0ffh		;f49a
-	ld (lee28h),a		;f49c
+	ld (FL_FLG),a		;f49c
 	ld a,005h		;f49f
 	dec a			;f4a1
-	jp nz,lf2a1h		;f4a2
+	jp nz,FITX		;f4a2
 	in a,(004h)		;f4a5
 	and 010h		;f4a7
-	jp nz,lf2b2h		;f4a9
-	call sub_f1a4h		;f4ac
-	jp lf2b5h		;f4af
-	call sub_f1deh		;f4b2
+	jp nz,FIT1		;f4a9
+	call FLO6		;f4ac
+	jp FIT2		;f4af
+	call RSULT		;f4b2
 	pop hl			;f4b5
 	ld sp,hl		;f4b6
 	exx			;f4b7

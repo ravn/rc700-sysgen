@@ -76,31 +76,31 @@ CODE_LABELS = {
     # Internal JP table
     0xE24A: 'INTJP',
 
-    # JT targets (from decoded JT at E200)
+    # JT targets (standard CP/M BIOS entries)
     0xE2F8: 'BOOT',
     0xE328: 'WBOOT',
-    0xE4F3: 'CONST',       # shifted +88 (after 8 CTC ISRs)
+    0xE4F3: 'CONST',       # shifted +88 (after 8 SIO ISRs)
     0xE4F7: 'CONIN',       # shifted +88
     0xE961: 'CONOUT',      # shifted +110 (after 10 small ISRs)
     0xE3AC: 'LIST',
     0xE3FF: 'PUNCH',
     0xE3EF: 'READER',
-    0xF1BF: 'HOME',        # shifted +117 (after FDC + save_sp)
+    0xF1BF: 'HOME',        # shifted +117 (after SAVESP)
     0xEE9E: 'SELDSK',      # shifted +117
     0xEF18: 'SETTRK',      # shifted +117
     0xEF1E: 'SETSEC',      # shifted +117
     0xEF23: 'SETDMA',      # shifted +117
-    0xEF29: 'SECTRAN',     # shifted +117
-    0xEF2C: 'READ',        # shifted +117
-    0xEF3C: 'WRITE',       # shifted +117
-    0xE3A8: 'LISTST',
+    0xEF29: 'SECTRA',      # shifted +117
+    0xEF2C: 'XREAD',       # shifted +117
+    0xEF3C: 'XWRITE',      # shifted +117
+    0xE3A8: 'STLIST',
 
-    # Internal JP targets
-    0xF276: 'READS',        # shifted +117
-    0xE3EB: 'LINSEL',
-    0xE2C0: 'EXIT',
-    0xE29F: 'CLOCK',
-    0xE2AC: 'INTFN5',
+    # Internal JP targets (extended BIOS entries)
+    0xF276: 'WFITR',        # shifted +117
+    0xE3EB: 'RDSTAT',
+    0xE2C0: 'LINSEL',
+    0xE29F: 'EXIT',
+    0xE2AC: 'CLOCK',
 }
 
 VAR_LABELS = {

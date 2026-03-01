@@ -68,7 +68,7 @@ CODE_LABELS = {
     # Internal JP table
     0xE24A: 'INTJP',
 
-    # JT targets
+    # JT targets (standard CP/M BIOS entries)
     0xE2F8: 'BOOT',
     0xE328: 'WBOOT',
     0xE49B: 'CONST',
@@ -82,17 +82,17 @@ CODE_LABELS = {
     0xEEA3: 'SETTRK',
     0xEEA9: 'SETSEC',
     0xEEAE: 'SETDMA',
-    0xEEB7: 'SECTRAN',
-    0xEEC7: 'READ',
-    0xE3A8: 'WRITE',
-    0xEEB4: 'LISTST',
+    0xEEB4: 'SECTRA',
+    0xEEB7: 'XREAD',
+    0xEEC7: 'XWRITE',
+    0xE3A8: 'STLIST',
 
-    # Internal JP targets
-    0xF201: 'READS',
-    0xE3EB: 'LINSEL',
-    0xE2C0: 'EXIT',
-    0xE29F: 'CLOCK',
-    0xE2AC: 'INTFN5',
+    # Internal JP targets (extended BIOS entries)
+    0xF201: 'WFITR',
+    0xE3EB: 'RDSTAT',
+    0xE2C0: 'LINSEL',
+    0xE29F: 'EXIT',
+    0xE2AC: 'CLOCK',
 }
 
 VAR_LABELS = {
