@@ -1,0 +1,181 @@
+# CP/NET for RC702
+
+## Goal
+
+Run CP/NET client on RC702 CP/M over SIO Channel A serial port,
+talking to a CP/NET server on macOS host. Channel A runs at 38400 baud
+(CTC divisor 1, x16 clock mode) — the maximum the hardware permits.
+
+## Architecture
+
+```
+RC702 (CP/M 2.2)                    macOS host
++------------------+                 +------------------+
+| Application      |                 |                  |
+| NDOS.SPR         |  serial link    | CP/NET server    |
+| SNIOS.SPR (RC702)|<--------------->| (Java or C)      |
+| BDOS / BIOS      |  SIO Ch.A      | Host filesystem  |
++------------------+  (38400 baud)   +------------------+
+```
+
+## CP/NET Components
+
+### Client side (runs on CP/M)
+- **NDOS.SPR** — Network Disk Operating System, intercepts BDOS calls
+- **SNIOS.SPR** — Slave Network I/O System (hardware-specific, must be written for RC702 SIO)
+- **CCP.SPR** — Modified CCP with network commands
+- **CPNETLDR.COM** — Loader: reads NDOS+SNIOS, relocates below BDOS, patches entry at 0005h
+- **Utilities**: LOGIN.COM, LOGOFF.COM, NETWORK.COM, LOCAL.COM, CPNETSTS.COM
+
+### Server side (runs on macOS)
+- **CpnetSerialServer.jar** (Java) or **cpnet-server** (C) — see below
+- Maps CP/M drives A-P to host directories
+- Handles all BDOS function forwarding
+
+### SNIOS for RC702
+Must provide 8 jump table entries: NTWKIN, NTWKST, CNFTBL, SNDMSG, RCVMSG, NTWKER, NTWKBT, NTWKDN.
+
+The actual serial I/O is just 4 routines (`chrio.asm`):
+- `check` — init UART, verify present
+- `sendby` — transmit one byte (poll TX empty, write)
+- `recvby` — receive one byte with timeout (poll RX ready, read)
+- `recvbt` — receive with longer initial timeout
+
+For RC702: use SIO Channel A (ports 08h/0Ah) — the channel with the ring buffer
+and BIOS READER/PUNCH assignment. The SNIOS can either call BIOS READER/PUNCH
+entry points or drive the SIO directly for better performance.
+
+**Closest reference**: Kaypro SNIOS in durgadas311/cpnet-z80 (also Z80-SIO).
+
+### DRI Serial Protocol (Appendix E)
+```
+Requester sends ENQ → Server replies ACK
+Header:  SOH FMT DID SID FNC SIZ HCS → ACK
+Data:    STX data[0..n] ETX → ACK
+Trailer: DCS EOT → ACK
+```
+Checksum: two's complement of sum of block bytes.
+
+## Software Sources
+
+### CP/NET client files
+| Source | URL |
+|--------|-----|
+| DRI binaries (CP/NET 1.1 + 1.2) | http://www.cpm.z80.de/binary.html |
+| DRI source (disassembly) | http://www.cpm.z80.de/source.html |
+| hperaza client files (1.1 + 1.2) | https://github.com/hperaza/cpnet-server/tree/master/cpmfiles |
+| durgadas311 full distribution | https://github.com/durgadas311/cpnet-z80 |
+| CP/NET reference manual (PDF) | http://sebhc.durgadas.com/mms89/docs/dri-cpnet.pdf |
+| Humongous CP/M Archive | https://archive.org/details/Humongous_CPM_Archive_Collection |
+
+### CP/NET server implementations
+| Project | Language | URL | Notes |
+|---------|----------|-----|-------|
+| durgadas311/cpnet-z80 | Java | https://github.com/durgadas311/cpnet-z80 | CpnetSerialServer.jar, supports DRI + BINARY protocols, macOS/Linux/Windows |
+| hperaza/cpnet-server | C | https://github.com/hperaza/cpnet-server | Unix server, DRI protocol, CP/NET 1.1 + 1.2 |
+| cm68/cpnet | C | https://github.com/cm68/cpnet | RomWBW/Z180, serial-over-WiFi |
+
+### SNIOS reference implementations (Z80-SIO)
+| Platform | Location |
+|----------|----------|
+| Kaypro (Z80-SIO) | durgadas311/cpnet-z80 `src/kaypro/` |
+| RC2014 (Z80-SIO) | durgadas311/cpnet-z80 `src/rc2014/` |
+| SC131 (Z180-SIO) | durgadas311/cpnet-z80 `src/sc131/` |
+| DRI serial protocol | durgadas311/cpnet-z80 `src/ser-dri/snios.asm` |
+
+## Alternative File Transfer (simpler, no CP/NET)
+
+| Method | Effort | Notes |
+|--------|--------|-------|
+| PIP via RDR:/PUN: | Zero | Built into CP/M. Text only (Ctrl-Z terminated). BIOS RDR/PUN already mapped to SIO Ch.A. |
+| Kermit-80 (generic) | Low | Works on any CP/M, no hardware-specific code. ~1 KB/s. https://www.columbia.edu/kermit/cpm.html |
+| xmodem80 | Low | Uses CON: device, no UART code. https://github.com/SmallRoomLabs/xmodem80 |
+| CP/NET | High | Full network filesystem, requires custom SNIOS |
+
+## Version Compatibility Warning
+
+CP/NET 1.0, 1.1, and 1.2 are **NOT wire-compatible**. Client and server must match.
+The durgadas311 Java server supports multiple versions.
+
+## Receive Buffering — Implemented in BIOS rel. 3.0
+
+### Problem (original BIOS)
+
+The original BIOS loses incoming serial characters when the CPU is busy:
+
+- Z80 SIO has only a **3-byte receive FIFO**
+- BIOS disables interrupts (`DI`) during FDC operations (seek, read, write)
+- FDC operations take many milliseconds — at 38400 baud, ~3840 chars/sec,
+  the 3-byte FIFO overflows in ~0.8 ms
+- Original RCA ISR stored one character in a single-byte variable (CHARA);
+  a second character arriving before READER is called overwrites the first
+
+### Solution: ring buffers in BIOS rel. 3.0
+
+BIOS rel. 3.0 (`-DREL30`) adds two ring buffers (see `rcbios/src/`):
+
+**SIO Channel A** (serial READER/PUNCH):
+- 256-byte page-aligned ring buffer at F400h (RXBUF)
+- RCA ISR stores received character at RXBUF[RXHEAD], advances head
+- READS checks RXTAIL != RXHEAD (returns 0 if empty, 0FFh if data)
+- READER reads from RXBUF[RXTAIL], advances tail
+- Overflow guard: if buffer full, incoming character is discarded
+- READI called at BOOT to arm RTS/DTR and enable receive interrupts immediately
+
+**PIO Channel A** (keyboard):
+- 16-byte ring buffer at F37Fh (KBBUF), wraps with AND 0Fh
+- KEYIT ISR reads key from PIO and stores in KBBUF[KBHEAD]
+- CONST checks KBTAIL != KBHEAD
+- CONIN reads from KBBUF[KBTAIL], then converts through INCONV table
+- Overflow guard: if buffer full, keystroke is discarded
+
+### Limitation during DI
+
+Ring buffers don't help during `DI` (FDC operations) — the ISR can't fire,
+so characters exceeding the SIO's 3-byte hardware FIFO are still lost.
+Mitigations:
+- Hardware flow control (RTS/CTS) to pause the sender during disk I/O
+- MAME-side buffering between host connection and emulated SIO
+- Accept the limitation (real hardware had the same problem)
+
+### Other REL30 changes
+- RCB ISR (Channel B receive) removed — dead code, Ch.B receiver is never enabled
+  (printer port is output-only). IVT entry points to DUMITR.
+- Default baud rate: 38400 on SIO Ch.A (CTC count=1, max with x16 clock)
+- SPECA (special receive error) resets ring buffer pointers instead of CHARA/RDRFLG
+
+## MAME rc702.cpp — Serial Ports Wired
+
+Both SIO channels are now connected to rs232 port devices in MAME:
+
+```
+SIO Channel A ("rs232a") — BIOS READER/PUNCH — serial I/O for CP/NET
+SIO Channel B ("rs232b") — BIOS LIST — printer output
+```
+
+Each channel has TXD/RTS/DTR output callbacks and RXD/CTS input handlers.
+Usage example:
+```
+mame rc702mini -rs232a null_modem -bitb1 socket.localhost:PORT
+```
+
+## RC702 SIO Hardware Notes
+
+### Channel assignments
+
+| Channel | Ports | BIOS role | Hardware label | Ring buffer |
+|---------|-------|-----------|----------------|-------------|
+| A | 08h/0Ah | READER/PUNCH | "Printer port" | 256 bytes (REL30) |
+| B | 09h/0Bh | LIST | "Terminal port" | — (output only) |
+
+Note: CONFI.COM labels are swapped vs BIOS assignments — its "PRINTER PORT"
+menu configures SIO-B (terminal channel) and vice versa.
+
+### Baud rate
+
+- CTC input clock: 0.614 MHz, SIO WR4 x16 mode
+- CTC divisor 0x20 = 1200 baud (original default)
+- CTC divisor 0x02 = 19200 baud (rel.2.2 default)
+- CTC divisor 0x01 = 38400 baud (rel.3.0 default, maximum for async serial)
+- **In MAME**: emulated baud rate is artificial — run at max speed the
+  emulated hardware permits
