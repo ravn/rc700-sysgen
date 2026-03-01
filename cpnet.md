@@ -188,17 +188,52 @@ acts as the server.
 
 The null_modem defaults to 9600 8-N-1. The BIOS rel. 3.0 SIO defaults to
 38400 8-N-1 (INIPARMS.MAC: CTC count=1, WR4=44h, WR3=C1h) — the fastest
-8-bit clean setting the hardware permits. Override the null_modem baud rate
-via MAME cfg file (`cfg/rc702.cfg`) inside `<system>`:
+8-bit clean setting the hardware permits. The null_modem baud rate must be
+set to match.
 
-```xml
-<port tag=":rs232a:null_modem:RS232_TXBAUD" type="TYPE_OTHER(6,0)" mask="255" defvalue="7" value="11" />
-<port tag=":rs232a:null_modem:RS232_RXBAUD" type="TYPE_OTHER(6,0)" mask="255" defvalue="7" value="11" />
+**Method: Lua autoboot script** (reliable, tested)
+
+Use `-autoboot_script` with a Lua script that sets baud rate via
+`field.user_value` and types the CP/M command:
+
+```lua
+-- set_38400.lua — set null_modem to 38400 and type PIP command
+local ports = manager.machine.ioport.ports
+for tag, port in pairs(ports) do
+    if tag:find("RS232_TXBAUD") or tag:find("RS232_RXBAUD") then
+        for name, field in pairs(port.fields) do
+            field.user_value = 0x0b  -- RS232_BAUD_38400
+        end
+    end
+end
+
+local typed = false
+emu.register_periodic(function()
+    if not typed and manager.machine.time.seconds >= 10 then
+        typed = true
+        manager.machine.natkeyboard:post("pip con:=rdr:\r")
+        return false  -- unregister callback
+    end
+end)
 ```
 
-Values: TXBAUD/RXBAUD 11=38400. Data format is already 8-N-1 (null_modem default).
-Type `TYPE_OTHER(6,0)` is MAME's internal token for `IPT_CONFIG` ports.
-Alternatively, change baud rate at runtime via Tab → Machine Configuration.
+The Lua `field.user_value` setter calls `set_user_settings()` internally,
+which updates `live().value` and triggers the device callback. The plain
+`field:set_value()` does NOT work for CONFIG ports (it only sets a boolean
+digital value).
+
+Note: `-autoboot_script` and `-autoboot_command` are mutually exclusive —
+the script must handle both baud rate and keyboard input.
+
+**Alternative: Tab menu** (manual, per-session)
+
+Press Tab during emulation → Machine Configuration → TX Baud / RX Baud →
+change both to 38400.
+
+**Note on cfg files**: MAME's cfg file format supports `<port>` tags with
+`type="TYPE_OTHER(6,0)"` for CONFIG ports, but in practice these settings
+are not reliably applied for slot device ports like null_modem. Use the
+Lua script method instead.
 
 **Step 2: Start host-side TCP server**
 
@@ -240,10 +275,16 @@ cd ~/git/mame
 ./regnecentralend rc702 -rs232a null_modem \
     -bitb "socket.localhost:4321" \
     -flop /tmp/cpm22_rel30_maxi.imd \
-    -skip_gameinfo -window -nomaximize
+    -skip_gameinfo -window -nomaximize \
+    -autoboot_script /tmp/set_38400.lua
 ```
 
-**Step 4: In CP/M**
+The Lua script sets the baud rate and types `pip con:=rdr:` after 10 seconds.
+To run a different CP/M command, edit the `natkeyboard:post()` line in the
+script. Without `-autoboot_script`, use `-autoboot_command` instead (but then
+the null_modem stays at 9600 — only works if BIOS is also set to 9600).
+
+**Step 4: In CP/M** (if not using autoboot)
 
 ```
 A>pip con:=rdr:          (display received text on screen)
@@ -262,6 +303,7 @@ host (pure 7-bit ASCII: `:0-9A-F\r\n`) and restored with CP/M's LOAD.COM.
 | 9600 8-N-1, 60 bytes, `pip con:=rdr:` | 3 lines displayed correctly |
 | 9600 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All 100 lines received, no data loss |
 | 9600 8-N-1, 1141 bytes (20 lines), ring buffer dump | Both ring buffers verified (see below) |
+| 38400 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All lines received, Lua baud rate setter |
 | Socket connection via `socket.localhost:PORT` | Works — non-blocking reads via POSIX `select()` |
 
 Note: `pip con:=rdr:` does not write to disk, so DI periods from FDC
