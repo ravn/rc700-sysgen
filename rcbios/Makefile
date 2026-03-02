@@ -74,10 +74,14 @@ rel23-maxi: src/BIOS.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL23 -DMAXI src/BIOS.MAC
 
 rel30-mini: src/BIOS.MAC
-	$(ZMAC) $(ZMFLAGS) -DREL30 -DMINI src/BIOS.MAC
+	@mkdir -p zout
+	@echo "	DB	'$$(date +%Y-%m-%d)'" > zout/BUILDDATE.MAC
+	$(ZMAC) $(ZMFLAGS) -I zout -DREL30 -DMINI src/BIOS.MAC
 
 rel30-maxi: src/BIOS.MAC
-	$(ZMAC) $(ZMFLAGS) -DREL30 -DMAXI src/BIOS.MAC
+	@mkdir -p zout
+	@echo "	DB	'$$(date +%Y-%m-%d)'" > zout/BUILDDATE.MAC
+	$(ZMAC) $(ZMFLAGS) -I zout -DREL30 -DMAXI src/BIOS.MAC
 
 # 58K BIOS targets (separate source tree)
 rel13-mini: src-58k/BIOS_58K.MAC

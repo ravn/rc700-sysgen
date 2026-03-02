@@ -109,7 +109,8 @@ SIGNON:	DB	12
 	DB	'RC700   56k CP/M vers.2.2   rel. 2.3'
 	ENDIF
 	IFDEF	REL30
-	DB	'RC700   56k CP/M vers.2.2   rel. 3.0'
+	DB	'RC700   56k CP/M 2.2 bios '
+	INCLUDE	BUILDDATE.MAC
 	ENDIF
 	DB	13,10,0
 

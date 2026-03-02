@@ -260,22 +260,31 @@ Formula: baud = 614400 / (SIO_clock_mode x CTC_divisor)
 
 ### Runtime Config Variables (DMA buffer for Track 0 sector 2)
 
-Loaded from disk at startup into 0x0D75-0x0DF4 (128 bytes). Key fields:
+Loaded from disk at startup into 0x0D75-0x0DF4 (128 bytes).  Layout matches
+INIPARMS.MAC in the BIOS source (`rcbios/src/INIPARMS.MAC`).
 
-| Offset | Address | Var | Description |
-|--------|---------|-----|-------------|
-| +1 | 0x0D76 | ctc_a_div | CTC Ch0 divisor for SIO-A baud rate |
-| +3 | 0x0D78 | ctc_b_div | CTC Ch1 divisor for SIO-B baud rate |
-| +8 | 0x0D7D | sio_a_cfg[0..8] | SIO-A init block (9 bytes, OTIR to port 0x0A) |
-| +17 | 0x0D86 | sio_b_cfg[0..10] | SIO-B init block (11 bytes, OTIR to port 0x0B) |
-| +32 | 0x0D95 | crt_params[0..3] | CRT controller parameters (4 bytes to port 0x00) |
-| +35 | 0x0D98 | crt_param4 | CRT param 4 (cursor format in bits 4-5) |
-| +40 | 0x0D9D | adr_mode | Cursor addressing: 0=H,V 1=V,H |
-| +41 | 0x0D9E | conv_idx | Conversion table index (0-6) |
-| +42 | 0x0D9F | baud_a_idx | SIO-A baud rate selection (for re-display) |
-| +43 | 0x0DA0 | baud_b_idx | SIO-B baud rate selection (for re-display) |
-| +44 | 0x0DA1 | motor_lo | Motor stop timer (low byte) |
-| +45 | 0x0DA2 | motor_hl | Motor stop timer (word, in seconds) |
+| Offset | Address | CONFI label | INIPARMS label | Description |
+|--------|---------|-------------|----------------|-------------|
+| +0 | 0x0D75 | — | MODE0 | CTC Ch0 timer mode (0x47) |
+| +1 | 0x0D76 | CBTERMBAUD | COUNT0 | CTC Ch0 divisor for SIO-A baud rate |
+| +2 | 0x0D77 | — | MODE1 | CTC Ch1 timer mode (0x47) |
+| +3 | 0x0D78 | CBPRINTBAUD | COUNT1 | CTC Ch1 divisor for SIO-B baud rate |
+| +4 | 0x0D79 | — | MODE2 | CTC Ch2 counter mode (0xD7, display) |
+| +5 | 0x0D7A | — | COUNT2 | CTC Ch2 count (0x01) |
+| +6 | 0x0D7B | — | MODE3 | CTC Ch3 counter mode (0xD7, floppy) |
+| +7 | 0x0D7C | — | COUNT3 | CTC Ch3 count (0x01) |
+| +8..+16 | 0x0D7D | CBTERM | PSIOA | SIO-A init block (9 bytes, OTIR to port 0x0A) |
+| +17..+27 | 0x0D86 | CBPRINT | PSIOB | SIO-B init block (11 bytes, OTIR to port 0x0B) |
+| +28..+31 | 0x0D91 | — | DMODE0-3 | DMA controller mode registers (4 bytes) |
+| +32..+35 | 0x0D95 | CBVIDEO1-4 | PAR1-4 | CRT controller parameters (4 bytes) |
+| +36..+39 | 0x0D99 | — | FDPROG | FDC specify parameters (4 bytes) |
+| +40 | 0x0D9D | CBCURSOR | — | Cursor format index (0-3) |
+| +41 | 0x0D9E | CBLANGUAGE | — | Conversion table index (0-6) |
+| +42 | 0x0D9F | CURTERMBAUD | — | SIO-A baud rate index (0-10: 50..19200) |
+| +43 | 0x0DA0 | CURPRINTBAUD | — | SIO-B baud rate index (0-10: 50..19200) |
+| +44 | 0x0DA1 | CBXB4Y | XYFLG | Cursor addressing mode (0=H,V  1=V,H) |
+| +45-46 | 0x0DA2 | CBSTOPTIME | STPTIM | Motor stop timer (word, 1/50s ticks; 250=5sec) |
+| +47..+127 | 0x0DA4 | — | INFD0..pad | Disk types, CTC2, boot disk, padding (not modified) |
 
 ### SIO Init Block Layout
 

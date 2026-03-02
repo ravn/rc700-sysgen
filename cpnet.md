@@ -138,6 +138,42 @@ Mitigations:
 - MAME-side buffering between host connection and emulated SIO
 - Accept the limitation (real hardware had the same problem)
 
+### DI analysis in the FDC code path (FLOPPY.MAC)
+
+The floppy driver has three DI sections. Two are strictly necessary; one is
+conservative and could be removed to reduce the interrupt blackout window:
+
+| Location | Duration | Necessary? | Reason |
+|----------|----------|------------|--------|
+| CLFIT (742) | ~5µs | Yes | Atomic clear of FL_FLG — prevents race with FLITR ISR |
+| FLPR/FLPW (763-786) | ~50µs | Yes | 8237 DMA byte pointer flip-flop is shared across all channels. DSPITR (display ISR) programs channels 2/3 — if it fires mid-setup, the flip-flop state is corrupted and address bytes go to the wrong register |
+| GNCOM (790-828) | ~175µs | No (cautious) | Sends 9-byte command to µPD765 FDC. The FDC waits patiently in command phase (no timeout between parameter bytes). ISRs all save/restore registers. No ISR touches the FDC. The original programmer was being defensively correct |
+
+The **actual disk data transfer** uses DMA with interrupts enabled — `WATIR`
+(line 758) polls FL_FLG with EI. The ring buffer ISR fires normally during
+data movement. DI is only during command setup.
+
+At 1200 baud (original default), a character arrives every 8.3ms — these DI
+periods are utterly invisible. At 19200 (rel.2.2), 520µs per character, still
+fine. At 38400, one character per 260µs — the combined DI (~230µs) is tight
+but should fit within the 3-byte SIO hardware FIFO.
+
+**MAME z80sio.cpp FIFO verification**: MAME correctly emulates the 3-byte
+receive FIFO (`m_rx_data_fifo` is a `uint32_t` with 3 packed bytes; overrun
+detected at `m_rx_fifo_depth == 3`, line 2295). So the data loss in testing
+is genuine, not a MAME simplification.
+
+**Why 74% loss exceeds predictions**: The simple DI analysis above only counts
+explicit DI instructions in FLOPPY.MAC. But the Z80 also disables interrupts
+during ISR execution (IFF cleared on interrupt acknowledge, restored by EI
+before RETI). The DSPITR display ISR fires every ~20ms and runs for ~125µs
+with interrupts off. When DSPITR coincides with FDC DI periods, the combined
+blackout can exceed the FIFO capacity. Additionally, PIP processes received
+data in a loop that may include multiple BIOS calls per buffer fill, and each
+RWOPER→WRTHST→SECWR sequence involves CLFIT+FLPW+GNCOM DI blocks plus
+potential DSPITR overlap. The cumulative effect across hundreds of sector
+writes explains the severe loss.
+
 ### Future: automatic RTS flow control
 
 To prevent data loss during DI periods, the BIOS could de-assert RTS before
@@ -343,12 +379,39 @@ print(f"Received {len(content)} bytes")
 | 9600 8-N-1, 1141 bytes (20 lines), ring buffer dump | Both ring buffers verified (see below) |
 | 38400 8-N-1, 5701 bytes (100 lines), `pip con:=rdr:` | All lines received correctly (host → CP/M) |
 | 38400 8-N-1, 19443 bytes, `pip pun:=filex.asm[z]` | Byte-identical match (CP/M → host) |
+| 38400 8-N-1, 51000 bytes, round-trip disk test | **74% data loss** — see below |
 | Socket connection via `socket.localhost:PORT` | Works — non-blocking reads via POSIX `select()` |
 
-Note: `pip con:=rdr:` does not write to disk, so DI periods from FDC
-are not exercised. A full stress test with `pip file.hex=rdr:` at 38400
-with matching null_modem config is needed to verify ring buffer survival
-during disk writes.
+### Disk-backed round-trip test results
+
+Sent 51000 bytes (750 lines + 256 trailing Ctrl-Z) from host → CP/M disk →
+host at 38400 8-N-1. PIP commands: `pip test.dat=rdr:` then `pip pun:=test.dat[z]`.
+
+| Metric | Value |
+|--------|-------|
+| Sent | 51000 bytes content |
+| Received back | 13014 bytes (stripped 40 leading nulls) |
+| Data loss | 74% (37986 bytes) |
+| First corruption | byte 337 (~line 5) — SIO FIFO overflow during FDC disk write |
+| Ctrl-Z termination | Worked (256 trailing Ctrl-Z bytes — PIP terminates on first) |
+
+**Root cause**: `DI` during FDC operations (seek, read, write) prevents the
+RCA ISR from firing. At 38400 baud, the SIO's 3-byte hardware FIFO overflows
+in ~0.8 ms. Data lost during DI is permanently gone — the ring buffer can only
+help between DI periods.
+
+**Key insight**: PIP saves the file with embedded corruption. When sent back
+with `pip pun:=file[z]`, PIP stops at the first embedded Ctrl-Z (0x1A) in the
+corrupted data, so the received-back file is truncated to the first uncorrupted
+segment plus some garbled bytes.
+
+**Workaround**: Use multiple trailing Ctrl-Z bytes (256) in the send file.
+A single Ctrl-Z can be lost during DI, causing PIP to never terminate.
+
+**Conclusion**: Reliable disk-backed serial transfer at 38400 requires
+RTS flow control (drop RTS before DI, re-assert after EI) — see the
+"Future: automatic RTS flow control" section above. Memory-only transfers
+(`pip con:=rdr:`) work perfectly at any baud rate.
 
 ### Ring buffer verification (memory dump)
 
