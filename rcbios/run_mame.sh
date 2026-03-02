@@ -70,25 +70,45 @@ if [ ! -f "$WORK_IMAGE" ] || [ "$FORCE" = true ]; then
     fi
     echo "Copying ${SOURCE_IMAGE} -> ${WORK_IMAGE}"
     cp "$SOURCE_IMAGE" "$WORK_IMAGE"
+fi
+
+if [ ! -f "$WORK_IMAGE" ]; then
+    echo "ERROR: Work image not found: ${WORK_IMAGE}"
+    exit 1
+fi
+
+if [ "$FORCE" = true ] || [ "$CIM" -nt "$WORK_IMAGE" ]; then
     echo "Patching BIOS onto working image..."
     python3 "${SCRIPT_DIR}/patch_bios.py" "$WORK_IMAGE" "$CIM"
 else
-    echo "Using existing ${WORK_IMAGE} (use -f to re-patch)"
+    echo "BIOS unchanged, skipping patch."
 fi
 
-# ── Write Lua autoboot script (set null_modem to 38400) ──
+# ── Write Lua autoboot script (set null_modem to 38400 + RTS flow control) ──
 
 LUA_SCRIPT="/tmp/set_38400.lua"
 cat > "$LUA_SCRIPT" << 'LUAEOF'
--- set null_modem TX/RX baud to 38400 to match REL30 BIOS default
+-- set null_modem TX/RX baud to 38400 and enable RTS flow control
+local log = io.open("/tmp/mame_serial_setup.log", "w")
 local ports = manager.machine.ioport.ports
 for tag, port in pairs(ports) do
     if tag:find("RS232_TXBAUD") or tag:find("RS232_RXBAUD") then
         for name, field in pairs(port.fields) do
             field.user_value = 0x0b  -- RS232_BAUD_38400
+            log:write(string.format("SET %s : %s = 0x0b\n", tag, name))
+        end
+    end
+    if tag:find("FLOW_CONTROL") then
+        for name, field in pairs(port.fields) do
+            log:write(string.format("FOUND %s : %s (defvalue=0x%x)\n", tag, name, field.defvalue))
+            if name:find("Flow Control") then
+                field.user_value = 0x01  -- RTS
+                log:write(string.format("SET %s : %s = 0x01 (RTS)\n", tag, name))
+            end
         end
     end
 end
+log:close()
 LUAEOF
 
 # ── Launch MAME ──
@@ -125,9 +145,10 @@ else
     echo "Starting serial terminal + MAME on port ${SERIAL_PORT}..."
     TERM_SCRIPT="/tmp/rc702_terminal.py"
     cat > "$TERM_SCRIPT" << 'PYEOF'
-import socket, sys, os, select, subprocess
+import socket, sys, os, select, subprocess, time
 
 PORT = int(os.environ["SERIAL_PORT"])
+BAUD = 38400
 with open(os.environ["MAME_CMD_FILE"]) as f:
     MAME_CMD = [line.rstrip("\n") for line in f]
 
@@ -143,7 +164,7 @@ sys.stdout.flush()
 
 conn, addr = server.accept()
 print(f"MAME connected from {addr}")
-print("Serial terminal active  (Ctrl-C to disconnect)")
+print("Serial terminal active  (Ctrl-] for menu, Ctrl-C to quit)")
 print("---")
 sys.stdout.flush()
 
@@ -153,6 +174,66 @@ old_settings = None
 if is_tty:
     import tty, termios
     old_settings = termios.tcgetattr(fd)
+    tty.setraw(fd)
+
+def send_file(conn, old_settings, fd):
+    """Escape to cooked mode, prompt for filename, send file over serial."""
+    import termios
+    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    print("\r")
+    print("--- Send file over serial ---")
+    print("  On CP/M side, run:  pip filename=rdr:")
+    print("  (text mode adds CR before LF, appends Ctrl-Z EOF)")
+    path = input("File path (empty to cancel): ").strip()
+    if not path:
+        print("Cancelled.")
+        tty.setraw(fd)
+        return
+    try:
+        raw = open(path, "rb").read()
+    except FileNotFoundError:
+        print(f"Not found: {path}")
+        tty.setraw(fd)
+        return
+    # Detect binary vs text: if any non-text bytes, send raw
+    is_text = all(b in (0x09, 0x0A, 0x0D) or 0x20 <= b <= 0x7E for b in raw)
+    if is_text:
+        # Convert LF -> CR LF for CP/M, append Ctrl-Z
+        data = raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n") + b"\x1a"
+        desc = "text"
+    else:
+        data = raw
+        desc = "binary"
+    # Pace at baud rate: MAME processes at emulated speed, so match it.
+    # 10 bits/char (8N1 + start + stop) → chars_per_sec = BAUD / 10
+    chars_per_sec = BAUD / 10
+    chunk = 32  # send in small bursts
+    delay = chunk / chars_per_sec  # time per chunk at baud rate
+    print(f"Sending {len(data)} bytes ({desc}) at {BAUD} baud...")
+    sent = 0
+    t0 = time.monotonic()
+    while sent < len(data):
+        end = min(sent + chunk, len(data))
+        conn.sendall(data[sent:end])
+        sent = end
+        # drain any incoming data (CP/M echoes)
+        while True:
+            rd, _, _ = select.select([conn], [], [], 0.001)
+            if not rd:
+                break
+            try:
+                echo = conn.recv(4096)
+                if echo:
+                    os.write(sys.stdout.fileno(), echo)
+            except (ConnectionResetError, OSError):
+                break
+        # pace: sleep until we've caught up with the baud rate clock
+        expected = sent / chars_per_sec
+        elapsed = time.monotonic() - t0
+        if expected > elapsed:
+            time.sleep(expected - elapsed)
+    elapsed = time.monotonic() - t0
+    print(f"Done — {sent} bytes sent in {elapsed:.1f}s.")
     tty.setraw(fd)
 
 try:
@@ -175,7 +256,10 @@ try:
                 ch = os.read(fd, 1)
                 if not ch:
                     raise SystemExit
-                conn.sendall(ch)
+                if ch == b"\x1d" and old_settings:  # Ctrl-]
+                    send_file(conn, old_settings, fd)
+                else:
+                    conn.sendall(ch)
         # Exit if MAME has quit
         if mame_proc.poll() is not None:
             msg = b"\r\nMAME exited.\r\n" if is_tty else b"\nMAME exited.\n"
