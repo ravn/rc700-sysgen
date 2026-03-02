@@ -107,25 +107,38 @@ if [ -n "$FLOP2" ]; then
     MAME_ARGS+=(-flop2 "$FLOP2")
 fi
 
-# ── Start serial terminal server (MAME bitbanger connects to it) ──
+# ── Start serial terminal + MAME ──
+#
+# The Python terminal runs in the FOREGROUND (needs stdin for keyboard).
+# It listens on the TCP port, launches MAME as a subprocess, then accepts
+# the connection and enters the interactive loop.
 
 if [ -n "$TERMINAL_CMD" ]; then
     eval "$TERMINAL_CMD" &
     TERM_PID=$!
     sleep 1
+    echo "Starting MAME: rc702 with serial on port ${SERIAL_PORT}..."
+    "$MAME" "${MAME_ARGS[@]}"
+    kill "$TERM_PID" 2>/dev/null || true
+    wait "$TERM_PID" 2>/dev/null || true
 else
-    echo "Starting serial terminal server on port ${SERIAL_PORT}..."
-    SERIAL_PORT=$SERIAL_PORT python3 -u << 'PYEOF' &
-import socket, sys, os, select, signal
+    echo "Starting serial terminal + MAME on port ${SERIAL_PORT}..."
+    TERM_SCRIPT="/tmp/rc702_terminal.py"
+    cat > "$TERM_SCRIPT" << 'PYEOF'
+import socket, sys, os, select, subprocess
 
-HOST = "localhost"
 PORT = int(os.environ["SERIAL_PORT"])
+with open(os.environ["MAME_CMD_FILE"]) as f:
+    MAME_CMD = [line.rstrip("\n") for line in f]
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind((HOST, PORT))
+server.bind(("localhost", PORT))
 server.listen(1)
-print(f"Listening on {HOST}:{PORT} — waiting for MAME to connect...")
+
+# Launch MAME now that the socket is listening
+mame_proc = subprocess.Popen(MAME_CMD)
+print(f"Listening on localhost:{PORT} — waiting for MAME to connect...")
 sys.stdout.flush()
 
 conn, addr = server.accept()
@@ -134,19 +147,17 @@ print("Serial terminal active  (Ctrl-C to disconnect)")
 print("---")
 sys.stdout.flush()
 
-# Switch to raw mode if stdin is a tty
-is_tty = os.isatty(sys.stdin.fileno())
+fd = sys.stdin.fileno()
+is_tty = os.isatty(fd)
+old_settings = None
 if is_tty:
     import tty, termios
-    fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     tty.setraw(fd)
 
 try:
     conn.setblocking(False)
-    inputs = [conn]
-    if is_tty:
-        inputs.append(sys.stdin)
+    inputs = [conn] + ([sys.stdin] if is_tty else [])
     while True:
         readable, _, _ = select.select(inputs, [], [], 0.1)
         for r in readable:
@@ -156,37 +167,34 @@ try:
                 except (ConnectionResetError, OSError):
                     data = b""
                 if not data:
-                    if is_tty:
-                        os.write(sys.stdout.fileno(), b"\r\nConnection closed.\r\n")
-                    else:
-                        print("\nConnection closed.")
+                    msg = b"\r\nConnection closed.\r\n" if is_tty else b"\nConnection closed.\n"
+                    os.write(sys.stdout.fileno(), msg)
                     raise SystemExit
                 os.write(sys.stdout.fileno(), data)
             elif r is sys.stdin:
-                ch = os.read(sys.stdin.fileno(), 1)
+                ch = os.read(fd, 1)
                 if not ch:
                     raise SystemExit
                 conn.sendall(ch)
+        # Exit if MAME has quit
+        if mame_proc.poll() is not None:
+            msg = b"\r\nMAME exited.\r\n" if is_tty else b"\nMAME exited.\n"
+            os.write(sys.stdout.fileno(), msg)
+            break
 except (KeyboardInterrupt, SystemExit):
     pass
 finally:
-    if is_tty:
+    if old_settings:
+        import termios
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     conn.close()
     server.close()
-    print("\nDisconnected.")
+    mame_proc.terminate()
+    mame_proc.wait()
+    print("Disconnected.")
 PYEOF
-    TERM_PID=$!
-    sleep 1  # let server start listening
+    # Write MAME command to a file (one arg per line) for Python to read
+    MAME_CMD_FILE="/tmp/rc702_mame_cmd.txt"
+    printf '%s\n' "$MAME" "${MAME_ARGS[@]}" > "$MAME_CMD_FILE"
+    MAME_CMD_FILE="$MAME_CMD_FILE" SERIAL_PORT=$SERIAL_PORT exec python3 -u "$TERM_SCRIPT"
 fi
-
-# ── Launch MAME (connects to terminal server) ──
-
-echo "Starting MAME: rc702 with serial on port ${SERIAL_PORT}..."
-"$MAME" "${MAME_ARGS[@]}" &
-MAME_PID=$!
-
-# Wait for either process to exit
-wait "$MAME_PID" 2>/dev/null || true
-kill "$TERM_PID" 2>/dev/null || true
-wait "$TERM_PID" 2>/dev/null || true
