@@ -245,10 +245,11 @@ local function screen_find(substr)
     return nil
 end
 
--- Check if bare "A> " appears at the start of a line.
+-- Check if a bare drive prompt (A>..H>) appears at the start of a line.
 -- Requires col 2 == space to distinguish "A>" from "A>COMMAND".
 local function is_prompt_at(row)
-    return display_char(row, 0) == 0x41   -- 'A'
+    local c0 = display_char(row, 0)
+    return c0 >= 0x41 and c0 <= 0x48  -- 'A'-'H'
         and display_char(row, 1) == 0x3E  -- '>'
         and display_char(row, 2) == 0x20  -- space (bare prompt only)
 end
@@ -552,7 +553,7 @@ local function advance_state()
             dump_screen("after_network")
             collect_diagnostics("after_network")
             -- Inject: DIR already ran from $$$.SUB; skip Lua-driven DIR (states 8+9)
-            state = INJECT_MODE and 10 or 8
+            state = INJECT_MODE and 9.5 or 8
             wait_until = frame + 1
         end
 
@@ -570,8 +571,27 @@ local function advance_state()
         if frame >= wait_until then
             dump_screen("after_dir")
             collect_diagnostics("after_dir")
-            state = 10
+            state = 9.5
             wait_until = frame + 1
+        end
+
+    elseif state == 9.5 then
+        -- Switch default drive to H:
+        if frame >= wait_until then
+            print("[autotest] Typing: H:")
+            type_text("H:\r")
+            state = 9.6
+            wait_until = frame + SETTLE_DELAY
+        end
+
+    elseif state == 9.6 then
+        -- Wait for H> prompt, then switch back to A:
+        if frame >= wait_until then
+            dump_screen("after_h_drive")
+            print("[autotest] Typing: A:")
+            type_text("A:\r")
+            state = 10
+            wait_until = frame + SETTLE_DELAY
         end
 
     elseif state == 10 then
