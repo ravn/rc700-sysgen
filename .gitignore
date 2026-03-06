@@ -4,3 +4,8 @@ zout
 .claude/
 .idea/
 .vscode/
+
+# MAME runtime files
+snap/
+cfg/
+rcbios/cfg/

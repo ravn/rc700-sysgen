@@ -5,10 +5,11 @@
 All optimizations below are for REL30 only, guarded by `IFDEF REL30`.
 Non-REL30 builds must remain byte-exact with reference binaries.
 
-## Failed attempt (2026-03-03)
+## Failed attempt: CONOUT wrapper (2026-03-03)
 
-An implementation of items 6 and 7 (CONOUT wrapper + unrolled scroll) was
-reverted because CP/M failed to boot. Root cause not yet diagnosed.
+Item 6 (CONOUT wrapper restructuring) combined with item 7 (unrolled scroll)
+failed to boot. Item 7 alone works fine. Root cause of item 6 failure not
+yet diagnosed — likely the CONSP/LOCAD aliasing or the USHER coupling.
 
 Key issue found during implementation: DISPL reads `LD A,(USHER)` so any
 CONOUT restructuring that skips the USHER store on the normal char path
@@ -99,17 +100,10 @@ Replace CONOUT with REL30-conditional version:
 - Defer USHER store to rare paths (control chars, XY addressing)
 - CONSP EQU LOCAD: reuses LOCAD's 2-byte slot (requires item 1 first)
 
-## 7. Unrolled LDI scroll (~8,395T saved, 20% faster)
+## 7. Unrolled LDI scroll — DONE (2026-03-03)
 
-Replace SCROLL's `LDIR` with 16-wide unrolled LDI loop:
-```
-SCRL1:  LDI             ; x16 (16T each vs 21T for LDIR)
-        ...
-        LDI
-        JP   PE,SCRL1   ; P/V=1 when BC>0; 1920/16 = 120 exact iterations
-```
-
-Cost: 31,920T vs 40,315T. Code: +33 bytes.
+Implemented and boot-tested. 16-wide LDI unroll in SCROLL, `IFDEF REL30`.
+31,920T vs 40,315T (20.8% faster). +33 bytes code.
 
 ## Expected cumulative timing (all optimizations)
 
