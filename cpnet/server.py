@@ -500,7 +500,13 @@ class CPNetServer:
 
     def handle_read_rand(self, payload):
         """BDOS 33: Read random.
-        Payload format: user(1) + drive(1) + FCB[1..35](35)."""
+        Payload format: user(1) + drive(1) + FCB[1..35](35).
+        Response: retcode(1) + drive+FCB[1..35](36) + data(128) = 165 bytes.
+        NDOS uses GTFCCR which copies resp[2..33] → FCB[1..32], so the full
+        FCB must be echoed back (same format as handle_read_seq).  Returning
+        only retcode+data (129 bytes) causes NDOS to overwrite the FCB name
+        field with the first 32 bytes of file data, corrupting all subsequent
+        calls that use the same FCB."""
         drive = self._fcb_drive(payload, offset=1)
         name = self._fcb_name(payload, offset=1)
         path = self._resolve_path(drive, name)
@@ -520,7 +526,21 @@ class CPNetServer:
                 if not data:
                     return bytes([6])  # Seek past end
                 data = data.ljust(128, b'\x1A')
-                return bytes([0]) + data
+                print(f"  Read rand: OK, record {rec}")
+
+                # Update EX and CR to reflect sequential position for this record
+                cr = rec % 128
+                ex = (rec // 128) % 32
+
+                # Build response: retcode + drive+FCB[1..35] + sector_data (165 bytes)
+                resp = bytearray(165)
+                resp[0] = 0  # return code
+                fcb_data = payload[1:37]  # drive + FCB[1..35]
+                resp[1:1+len(fcb_data)] = fcb_data
+                resp[13] = ex   # FCB[12] = EX
+                resp[33] = cr   # FCB[32] = CR
+                resp[37:165] = data
+                return bytes(resp)
         except OSError:
             return bytes([0xFF])
 
@@ -728,7 +748,9 @@ class CPNetServer:
 
     def handle_file_size(self, payload):
         """BDOS 35: Compute file size.
-        Payload format: user(1) + drive(1) + FCB[1..35](35)."""
+        Payload format: user(1) + drive(1) + FCB[1..35](35).
+        Response: retcode(1) + drive+FCB[1..35](36) = 37 bytes, with
+        r0,r1,r2 (FCB[33,34,35] = resp[34,35,36]) set to total 128-byte records."""
         drive = self._fcb_drive(payload, offset=1)
         name = self._fcb_name(payload, offset=1)
         path = self._resolve_path(drive, name)
@@ -737,12 +759,17 @@ class CPNetServer:
 
         size = os.path.getsize(path)
         records = (size + 127) // 128
+        print(f"  File size: {path} = {records} records")
 
-        resp = bytearray(payload[:36] if len(payload) >= 36 else payload + b'\x00' * (36 - len(payload)))
+        # Echo back drive+FCB[1..35], then overwrite r0,r1,r2
+        resp = bytearray(37)  # retcode + drive + FCB[1..35]
         resp[0] = 0  # success
-        resp[33] = records & 0xFF
-        resp[34] = (records >> 8) & 0xFF
-        resp[35] = (records >> 16) & 0xFF
+        src = payload[1:37]
+        resp[1:1+len(src)] = src
+        # r0,r1,r2 are at FCB[33,34,35] = resp[34,35,36]
+        resp[34] = records & 0xFF
+        resp[35] = (records >> 8) & 0xFF
+        resp[36] = (records >> 16) & 0xFF
         return bytes(resp)
 
     def handle_get_alloc(self, payload):
@@ -753,6 +780,100 @@ class CPNetServer:
     def handle_get_ro(self, payload):
         """BDOS 29: Get read-only vector. Returns 0 (no R/O drives)."""
         return bytes([0, 0])
+
+    def handle_write_prot(self, payload):
+        """BDOS 28: Write protect disk. No-op — server drives are always writable."""
+        return bytes([0])
+
+    def handle_set_attrs(self, payload):
+        """BDOS 30: Set file attributes (R/O, SYS, Archive). No-op on host."""
+        drive = self._fcb_drive(payload, offset=1)
+        name = self._fcb_name(payload, offset=1)
+        print(f"  Set attrs: drive={drive} name={name[:11]} (no-op)")
+        return bytes([0])
+
+    def handle_write_rand(self, payload):
+        """BDOS 34: Write random.
+        Payload format: user(1) + drive(1) + FCB[1..35](35) + DMA(128).
+        Response: retcode(1) + drive+FCB[1..35](36) = 37 bytes."""
+        drive = self._fcb_drive(payload, offset=1)
+        name = self._fcb_name(payload, offset=1)
+        path = self._resolve_path(drive, name)
+        if not path:
+            return bytes([0xFF])
+
+        if len(payload) < 37:
+            return bytes([0xFF])
+        rec = payload[34] | (payload[35] << 8) | (payload[36] << 16)
+        offset = rec * 128
+
+        data_start = 37
+        if len(payload) < data_start + 128:
+            print(f"  Write rand: insufficient data ({len(payload)} bytes)")
+            return bytes([0xFF])
+        data = payload[data_start:data_start + 128]
+
+        try:
+            mode = 'r+b' if os.path.exists(path) else 'wb'
+            with open(path, mode) as f:
+                f.seek(offset)
+                f.write(data)
+            print(f"  Write rand: {path} record {rec}")
+
+            cr = rec % 128
+            ex = (rec // 128) % 32
+            resp = bytearray(37)
+            resp[0] = 0
+            fcb_data = payload[1:37]
+            resp[1:1+len(fcb_data)] = fcb_data
+            resp[13] = ex
+            resp[33] = cr
+            return bytes(resp)
+        except OSError as e:
+            print(f"  Write rand failed: {e}")
+            return bytes([0xFF])
+
+    def handle_write_rand_zf(self, payload):
+        """BDOS 40: Write random with zero fill.
+        Same as F34 but the server fills any unwritten gap with zeros."""
+        drive = self._fcb_drive(payload, offset=1)
+        name = self._fcb_name(payload, offset=1)
+        path = self._resolve_path(drive, name)
+        if not path:
+            return bytes([0xFF])
+
+        if len(payload) < 37:
+            return bytes([0xFF])
+        rec = payload[34] | (payload[35] << 8) | (payload[36] << 16)
+        offset = rec * 128
+
+        data_start = 37
+        if len(payload) < data_start + 128:
+            return bytes([0xFF])
+        data = payload[data_start:data_start + 128]
+
+        try:
+            mode = 'r+b' if os.path.exists(path) else 'wb'
+            with open(path, mode) as f:
+                cur_size = f.seek(0, 2)  # seek to end
+                if offset > cur_size:
+                    f.write(b'\x00' * (offset - cur_size))  # zero fill
+                f.seek(offset)
+                f.write(data)
+            print(f"  Write rand ZF: {path} record {rec}")
+
+            cr = rec % 128
+            ex = (rec // 128) % 32
+            resp = bytearray(37)
+            resp[0] = 0
+            fcb_data = payload[1:37]
+            resp[1:1+len(fcb_data)] = fcb_data
+            resp[13] = ex
+            resp[33] = cr
+            return bytes(resp)
+        except OSError as e:
+            print(f"  Write rand ZF failed: {e}")
+            return bytes([0xFF])
 
     # Handler dispatch table
     handlers = {
@@ -772,7 +893,11 @@ class CPNetServer:
         FUNC_SET_DMA: handle_set_dma,
         FUNC_GET_ALLOC: handle_get_alloc,
         FUNC_GET_RO: handle_get_ro,
+        FUNC_WRITE_PROT: handle_write_prot,
+        FUNC_SET_ATTRS: handle_set_attrs,
         FUNC_GET_DPB: handle_get_dpb,
+        FUNC_WRITE_RAND: handle_write_rand,
+        FUNC_WRITE_RAND_ZF: handle_write_rand_zf,
         FUNC_GET_USER: handle_get_user,
         FUNC_READ_RAND: handle_read_rand,
         FUNC_FILE_SIZE: handle_file_size,
