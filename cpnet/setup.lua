@@ -176,6 +176,7 @@ local function advance_state()
     if state == 0 then
         configure_serial()
         detect_keyboard()
+        manager.machine.video.throttled = false  -- run fast during bootstrap
         print("[setup] Serial: 38400/RTS, keyboard: " .. (keyboard_method or "NONE"))
         state = 1
         wait_until = frame + BOOT_TIMEOUT
@@ -236,7 +237,6 @@ local function advance_state()
             if mem_read16(0x0006) == ORIG_BDOS then
                 print("[setup] WARNING: SUBMIT timeout — CPNETLDR may not have run")
             end
-            clear_display()
             -- Inject: NETWORK + DIR already ran from $$$.SUB; skip to state 5
             state = INJECT_MODE and 5 or 4
             wait_until = frame + 1
@@ -259,6 +259,7 @@ local function advance_state()
             return
         end
         if frame >= wait_until then
+            manager.machine.video.throttled = true  -- restore normal speed for interactive use
             dump_screen("ready")
             local bdos = mem_read16(0x0006)
             print(string.format(

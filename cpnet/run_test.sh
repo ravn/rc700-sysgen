@@ -37,6 +37,7 @@ HEADLESS=false
 SETUP_MODE=false
 SERIAL_TRANSFER=false
 INJECT=false
+FAST=false
 SERVER_ARGS=()
 
 # ── Parse arguments ──
@@ -61,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --inject)
             INJECT=true
+            shift
+            ;;
+        --fast)
+            FAST=true
             shift
             ;;
         *)
@@ -257,6 +262,7 @@ if $HEADLESS; then
     MAME_ARGS+=(-sound none -nothrottle)
     echo "Starting MAME (will exit when autotest completes)..."
 else
+    $FAST && MAME_ARGS+=(-nothrottle)
     echo "Starting MAME rc702 with null_modem on port ${SERIAL_PORT}..."
 fi
 

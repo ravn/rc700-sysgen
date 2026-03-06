@@ -506,7 +506,6 @@ local function advance_state()
             if mem_read16(0x0006) == ORIG_BDOS then
                 print("[autotest] WARNING: SUBMIT timeout — CPNETLDR may not have run")
             end
-            clear_display()
             dump_screen("after_submit")
             collect_diagnostics("after_cpnetldr")
             -- Inject: NETWORK + DIR already ran from $$$.SUB; skip to state 7
