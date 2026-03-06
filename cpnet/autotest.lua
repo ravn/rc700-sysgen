@@ -34,6 +34,10 @@ local DIR_TIMEOUT      = 15 * FPS   -- 15s for DIR command
 local TYPE_TIMEOUT     = 15 * FPS   -- 15s for TYPE command
 local SETTLE_DELAY     =  2 * FPS   -- 2s for display settle
 local PIP_TIMEOUT      = 30 * FPS   -- 30s for network PIP copy
+local ERA_TIMEOUT      =  5 * FPS   -- 5s for ERA on network drive
+local HELP_TIMEOUT     = 30 * FPS   -- 30s for HELP ERA EXAMPLES
+local BIGFILE_TIMEOUT  = 360 * FPS  -- 6 min for 204KB BIGFILE.DAT transfer
+local CHKSUM_TIMEOUT   = 300 * FPS  -- 5min for CHKSUM of 204KB on floppy
 
 -- Display geometry
 local DISP_ROWS = 25   -- 25 text rows (rows 0-24)
@@ -64,7 +68,14 @@ local last_bdos_byte6 = nil
 local last_bdos_byte7 = nil
 local bdos_changes = {}  -- {frame, old6, old7, new6, new7}
 
-local bigfile_result = nil     -- CRC of locally-copied file
+local bigfile_result = nil     -- CRC of locally-copied HELLO.TXT copy
+local bigfile_chksum = nil    -- CRC of locally-copied BIGFILE.DAT
+local help_result = nil       -- "OK" or "ERror: ..."
+local era_result = nil        -- "OK" or "ERror: ..."
+local pip_start_frame = 0     -- frame when BIGFILE PIP was typed (for poll delay)
+local pip_prompt_cleared = false  -- true once A> disappears (PIP running)
+local chksum_start_frame = 0     -- frame when CHKSUM was typed
+local chksum_prompt_cleared = false  -- true once A> disappears (CHKSUM running)
 
 local ORIG_BDOS = 0xCC06  -- BDOS vector before CPNETLDR (JP BDOS)
 
@@ -254,9 +265,9 @@ local function is_prompt_at(row)
         and display_char(row, 2) == 0x20  -- space (bare prompt only)
 end
 
--- Find the lowest (latest) A> prompt on screen (rows 0-23)
+-- Find the lowest (latest) drive prompt on screen (all 25 rows)
 local function find_prompt()
-    for row = 23, 0, -1 do
+    for row = DISP_ROWS - 1, 0, -1 do
         if is_prompt_at(row) then
             return row
         end
@@ -383,10 +394,28 @@ local function write_results()
         return
     end
 
-    -- Big file CRC result
+    -- Small file round-trip CRC
     if bigfile_result then
-        f:write("=== BIGFILE TRANSFER ===\n")
+        f:write("=== HELLO ROUND-TRIP ===\n")
         f:write("BIGFILE_RESULT=" .. bigfile_result .. "\n\n")
+    end
+
+    -- ERA result
+    if era_result then
+        f:write("=== ERA H:HLCOPY2.TXT ===\n")
+        f:write("ERA_RESULT=" .. era_result .. "\n\n")
+    end
+
+    -- HELP ERA EXAMPLES result
+    if help_result then
+        f:write("=== HELP ERA EXAMPLES ===\n")
+        f:write("HELP_RESULT=" .. help_result .. "\n\n")
+    end
+
+    -- Large file transfer CRC
+    if bigfile_chksum then
+        f:write("=== BIGFILE TRANSFER ===\n")
+        f:write("BIGFILE_CHKSUM=" .. bigfile_chksum .. "\n\n")
     end
 
     -- BDOS vector change log
@@ -676,11 +705,194 @@ local function advance_state()
                 bigfile_result = "PIP_ROUNDTRIP_ATTEMPTED"
             end
             collect_diagnostics("after_pip")
-            state = 17
+            state = 18
             wait_until = frame + SETTLE_DELAY
         end
 
-    elseif state == 17 then
+    elseif state == 18 then
+        -- ERA H:HLCOPY2.TXT — delete the file we uploaded, test F19
+        if frame >= wait_until then
+            print("[autotest] Typing: ERA H:HLCOPY2.TXT")
+            type_text("ERA H:HLCOPY2.TXT\r")
+            state = 19
+            wait_until = frame + ERA_TIMEOUT
+        end
+
+    elseif state == 19 then
+        -- Wait for ERA to complete
+        if frame >= wait_until then
+            dump_screen("after_era")
+            -- Check for error message
+            local err_row = screen_find("ERror:")
+            if err_row then
+                era_result = "ERror: " .. display_row(err_row)
+                print("[autotest] ERA FAILED: " .. era_result)
+            else
+                era_result = "OK"
+                print("[autotest] ERA OK")
+            end
+            state = 20
+            wait_until = frame + SETTLE_DELAY
+        end
+
+    elseif state == 20 then
+        -- Switch to H: so HELP.COM finds HELP.HLP on the default drive
+        if frame >= wait_until then
+            print("[autotest] Typing: H: (for HELP)")
+            type_text("H:\r")
+            state = 20.5
+            wait_until = frame + SETTLE_DELAY
+        end
+
+    elseif state == 20.5 then
+        -- HELP ERA EXAMPLES — exercises F33 (read random) and F35 (file size)
+        -- Must run from H: so HELP.COM can open H:HELP.HLP
+        if frame >= wait_until then
+            print("[autotest] Typing: HELP ERA EXAMPLES")
+            type_text("HELP ERA EXAMPLES\r")
+            state = 21
+            wait_until = frame + HELP_TIMEOUT
+        end
+
+    elseif state == 21 then
+        -- Wait for HELP output; send bare Enter to dismiss the pager
+        if frame >= wait_until then
+            dump_screen("after_help")
+            -- Success: no "ERROR:" or "ERror:" on screen; look for HELP content
+            local err_row = screen_find("ERror:") or screen_find("ERROR:")
+            if err_row then
+                help_result = "ERror: " .. display_row(err_row)
+                print("[autotest] HELP FAILED: " .. help_result)
+            else
+                local found = screen_find("ERA") or screen_find("ERASE")
+                help_result = found and "OK" or "OK (no ERA text found)"
+                print("[autotest] HELP result: " .. help_result)
+            end
+            -- Send Enter to dismiss HELP pager (HELP uses CONIN, not line input)
+            print("[autotest] Typing: <Enter> (dismiss HELP pager)")
+            type_text("\r")
+            state = 21.5
+            wait_until = frame + SETTLE_DELAY
+        end
+
+    elseif state == 21.5 then
+        -- Now switch back to A: (HELP has exited, we are at H>)
+        if frame >= wait_until then
+            print("[autotest] Typing: A: (back from HELP)")
+            type_text("A:\r")
+            state = 21.6
+            wait_until = frame + SETTLE_DELAY
+        end
+
+    elseif state == 21.6 then
+        -- Wait for A> prompt to confirm drive switch back
+        if frame >= wait_until then
+            state = 22
+            wait_until = frame + 1
+        end
+
+    elseif state == 22 then
+        -- Large file: PIP A:BIGCOPY.DAT=H:BIGFILE.DAT (204KB)
+        if frame >= wait_until then
+            pip_prompt_cleared = false
+            print("[autotest] Typing: PIP A:BIGCOPY.DAT=H:BIGFILE.DAT")
+            type_text("PIP A:BIGCOPY.DAT=H:BIGFILE.DAT\r")
+            state = 23
+            wait_until = frame + BIGFILE_TIMEOUT
+            pip_start_frame = frame
+        end
+
+    elseif state == 23 then
+        -- Wait for large file PIP to complete using 2-phase prompt detection:
+        -- Phase 1: wait for A> to DISAPPEAR  (PIP has started running)
+        -- Phase 2: wait for A> to REAPPEAR   (PIP has completed)
+        -- This works even when before/after A> is at the same row.
+        if frame >= wait_until then
+            print("[autotest] WARNING: BIGFILE PIP timeout — no prompt seen")
+            dump_screen("after_bigfile_pip")
+            type_text("CHKSUM A:BIGCOPY.DAT\r")
+            chksum_start_frame = frame
+            chksum_prompt_cleared = false
+            state = 24
+            wait_until = frame + CHKSUM_TIMEOUT
+        elseif frame >= pip_start_frame + 30 then
+            if not pip_prompt_cleared then
+                -- Phase 1: waiting for A> to vanish
+                if not find_prompt() then
+                    pip_prompt_cleared = true
+                    print("[autotest] PIP phase 1: prompt cleared (PIP running)")
+                end
+            else
+                -- Phase 2: waiting for new A> to appear
+                if find_prompt() then
+                    dump_screen("after_bigfile_pip")
+                    print("[autotest] PIP phase 2: prompt returned (PIP complete)")
+                    type_text("CHKSUM A:BIGCOPY.DAT\r")
+                    chksum_start_frame = frame
+                    chksum_prompt_cleared = false
+                    state = 24
+                    wait_until = frame + CHKSUM_TIMEOUT
+                end
+            end
+        end
+
+    elseif state == 24 then
+        -- Wait for CHKSUM to complete using 2-phase detection (same as PIP):
+        -- Phase 1: A> disappears  → CHKSUM is running
+        -- Phase 2: A> reappears  → CHKSUM is done, CRC is on screen
+        -- Fall back to CHKSUM_TIMEOUT if phases never trigger.
+        if frame >= wait_until then
+            print("[autotest] WARNING: CHKSUM timeout — capturing screen anyway")
+            dump_screen("after_bigfile_chksum")
+            for row = 0, DISP_ROWS - 1 do
+                local line = display_row(row)
+                if line:find("CHKSUM A:BIGCOPY.DAT", 1, true) then
+                    local result_row = row + 1
+                    if result_row < DISP_ROWS then
+                        local result_line = display_row(result_row)
+                        local actual = result_line:match("^(%x%x%x%x)$")
+                            or result_line:match("^(%x%x%x%x)%s")
+                        bigfile_chksum = actual and actual:upper() or "NOT_FOUND"
+                    end
+                    break
+                end
+            end
+            if not bigfile_chksum then bigfile_chksum = "NOT_FOUND" end
+            print("[autotest] BIGCOPY.DAT CRC: " .. bigfile_chksum)
+            state = 25
+            wait_until = frame + SETTLE_DELAY
+        elseif frame >= chksum_start_frame + 30 then
+            if not chksum_prompt_cleared then
+                if not find_prompt() then
+                    chksum_prompt_cleared = true
+                    print("[autotest] CHKSUM phase 1: prompt cleared (CHKSUM running)")
+                end
+            else
+                if find_prompt() then
+                    dump_screen("after_bigfile_chksum")
+                    print("[autotest] CHKSUM phase 2: prompt returned (CHKSUM done)")
+                    for row = 0, DISP_ROWS - 1 do
+                        local line = display_row(row)
+                        if line:find("CHKSUM A:BIGCOPY.DAT", 1, true) then
+                            local result_row = row + 1
+                            if result_row < DISP_ROWS then
+                                local result_line = display_row(result_row)
+                                local actual = result_line:match("^(%x%x%x%x)$")
+                                    or result_line:match("^(%x%x%x%x)%s")
+                                bigfile_chksum = actual and actual:upper() or "NOT_FOUND"
+                            end
+                            break
+                        end
+                    end
+                    if not bigfile_chksum then bigfile_chksum = "NOT_FOUND" end
+                    print("[autotest] BIGCOPY.DAT CRC: " .. bigfile_chksum)
+                    state = 25
+                    wait_until = frame + SETTLE_DELAY
+                end
+            end
+        end
+
+    elseif state == 25 then
         -- Final diagnostics and results
         if frame >= wait_until then
             collect_diagnostics("final")

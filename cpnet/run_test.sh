@@ -411,6 +411,41 @@ if $AUTO_MODE && [ -f "$RESULT_FILE" ]; then
     else
         echo "RESULT: INCONCLUSIVE"
     fi
+
+    # ERA result
+    ERA_RESULT=$(grep "^ERA_RESULT=" "$RESULT_FILE" | cut -d= -f2-)
+    if [ "$ERA_RESULT" = "OK" ]; then
+        echo "RESULT: PASS — ERA H:HLCOPY2.TXT succeeded"
+    elif [ -n "$ERA_RESULT" ]; then
+        echo "RESULT: FAIL — ERA: $ERA_RESULT"
+    fi
+
+    # HELP ERA EXAMPLES result
+    HELP_RESULT=$(grep "^HELP_RESULT=" "$RESULT_FILE" | cut -d= -f2-)
+    if echo "$HELP_RESULT" | grep -q "^OK"; then
+        echo "RESULT: PASS — HELP ERA EXAMPLES succeeded"
+    elif [ -n "$HELP_RESULT" ]; then
+        echo "RESULT: FAIL — HELP: $HELP_RESULT"
+    fi
+
+    # Large file transfer: compare CHKSUM against server-side file
+    BIGFILE_CHKSUM=$(grep "^BIGFILE_CHKSUM=" "$RESULT_FILE" | cut -d= -f2-)
+    if [ -n "$BIGFILE_CHKSUM" ] && [ "$BIGFILE_CHKSUM" != "NOT_FOUND" ]; then
+        EXPECTED_SUM=$(python3 -c "
+data = open('${CPNET_DIR}/BIGFILE.DAT','rb').read()
+pad = (-len(data)) % 128
+data += b'\x1A' * pad
+s = sum(data) & 0xFFFF
+print('%04X' % s)
+" 2>/dev/null)
+        if [ "$BIGFILE_CHKSUM" = "$EXPECTED_SUM" ]; then
+            echo "RESULT: PASS — BIGFILE.DAT transfer verified (sum $BIGFILE_CHKSUM)"
+        else
+            echo "RESULT: FAIL — BIGFILE.DAT sum mismatch: got $BIGFILE_CHKSUM expected $EXPECTED_SUM"
+        fi
+    elif [ -n "$BIGFILE_CHKSUM" ]; then
+        echo "RESULT: FAIL — BIGFILE.DAT CHKSUM not found"
+    fi
 fi
 
 echo "Done."

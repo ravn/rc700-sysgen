@@ -1,9 +1,6 @@
-; CHKSUM.COM — Print CRC-16 checksum of a CP/M file
+; CHKSUM.COM — Print 16-bit sum of a CP/M file
 ; Usage: A>CHKSUM FILENAME.EXT
-; Output: 4 hex digits (CRC-16 of all bytes in all 128-byte records)
-;
-; CRC-16: polynomial 0x8408 (CCITT reversed), init 0xFFFF
-; Same polynomial as used by SNIOS serial protocol.
+; Output: 4 uppercase hex digits (sum of all bytes in all 128-byte records)
 
 	.Z80
 	ORG	100H
@@ -28,10 +25,10 @@ DMA	EQU	80H
 	XOR	A
 	LD	(FCB+32),A
 
-	; Initialize CRC-16 to FFFF
-	LD	HL,0FFFFH
+	; Initialize 16-bit sum to 0
+	LD	HL,0
 
-	; Read loop: read 128-byte records, update CRC for all bytes
+	; Read loop: read 128-byte records, accumulate sum of all bytes
 RDLOOP:	LD	C,20		; BDOS F20 = READ SEQUENTIAL
 	LD	DE,FCB
 	PUSH	HL
@@ -40,16 +37,20 @@ RDLOOP:	LD	C,20		; BDOS F20 = READ SEQUENTIAL
 	OR	A
 	JR	NZ,DONE		; Non-zero = EOF or error
 
-	; CRC 128 bytes at DMA buffer
+	; Sum 128 bytes at DMA buffer
 	LD	DE,DMA
 	LD	B,128
-CRCLP:	LD	A,(DE)
+SUMLP:	LD	A,(DE)
 	INC	DE
-	CALL	CRC16
-	DJNZ	CRCLP
+	ADD	A,L
+	LD	L,A
+	ADC	A,H
+	SUB	L
+	LD	H,A
+	DJNZ	SUMLP
 	JR	RDLOOP
 
-DONE:	; Print CRC as 4 uppercase hex digits
+DONE:	; Print sum as 4 uppercase hex digits
 	PUSH	HL
 	LD	A,H
 	CALL	PRHEX
@@ -68,25 +69,6 @@ DONE:	; Print CRC as 4 uppercase hex digits
 NOFILE:	LD	E,'?'
 	LD	C,2
 	CALL	BDOS
-	RET
-
-; CRC16 - Update CRC-16 with byte in A
-; HL = current CRC (updated in place)
-; Polynomial: 0x8408 (CCITT reversed)
-CRC16:	XOR	L		; A = byte XOR CRC_low
-	LD	L,A
-	LD	E,8		; 8 bits
-CRC0:	SRL	H		; shift CRC right through carry
-	RR	L
-	JR	NC,CRC1		; if no carry, skip XOR
-	LD	A,H
-	XOR	84H		; polynomial high
-	LD	H,A
-	LD	A,L
-	XOR	08H		; polynomial low
-	LD	L,A
-CRC1:	DEC	E
-	JR	NZ,CRC0
 	RET
 
 ; Print A as 2 hex digits (uppercase)
