@@ -133,3 +133,41 @@ Display RAM: 0xF800–0xFFCF (2000 bytes). Work area variables:
   CPMBOOT+SIO+DISPLAY+FLOPPY+RAMDISK; those modules are stubs for REL220
 - `MOTORTIMER` is a code function label in FLOPPY.MAC (REL201, ~0xE608);
   for REL220 it is an EQU alias pointing to the FDTIMO RAM slot (0xFFE7)
+
+## rel.3.0 (56K, new development — not a reconstruction)
+
+New BIOS development enabling reliable high-speed serial I/O for CP/NET.
+Built from the same shared source tree with `-DREL30 -DMINI` or `-DREL30 -DMAXI`.
+
+### SIO ring buffer (256 bytes)
+- Page-aligned 256-byte receive buffer at F400h (RXBUF)
+- RCA ISR stores characters at RXBUF[RXHEAD], wraps with INC (page-aligned)
+- READER reads from RXBUF[RXTAIL], READS checks RXTAIL != RXHEAD
+- Register-cached TAIL in ISR and READER for speed
+- Parametric size via RXBUFSZ EQU (default 256)
+- Overflow: incoming character discarded if buffer full
+
+### PIO keyboard ring buffer (16 bytes)
+- 16-byte ring buffer at F37Fh (KBBUF), wraps with AND 0Fh
+- KEYIT ISR stores keystrokes, CONST/CONIN consume from tail
+- Replaces single-byte CHARA variable
+
+### RTS hardware flow control
+- De-assert RTS when buffer reaches RXTHHI (248 bytes)
+- Re-assert RTS when buffer drains below RXTHLO (240 bytes)
+- READI called at boot to arm RTS/DTR and enable receive interrupts
+
+### Serial configuration
+- Default: 38400 baud 8-N-1 (CTC divisor 1, SIO WR4=44h, WR3=C1h)
+- Maximum rate the RC702 hardware supports (614.4 kHz / 1 / x16)
+
+### Dead code removal
+- RCB ISR (Channel B receive) removed — Ch.B receiver is never enabled
+  (printer port is output-only). IVT entry points to DUMITR.
+
+### Display optimizations
+- SCROLL: unrolled LDIR into 16-wide LDI loop (20% faster)
+- CONOUT register usage: verified CP/M 2.2 BDOS requires no register preservation
+
+### Signon
+- `RC700   56k CP/M vers.2.2   rel.3.0` with build date

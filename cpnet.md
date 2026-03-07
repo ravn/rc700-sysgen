@@ -1,5 +1,9 @@
 # CP/NET for RC702
 
+**VALIDATION COMPLETE** — See [TEST_RESULTS.md](cpnet/TEST_RESULTS.md) for full test report.
+
+Quick reference: [CPNET_SYSTEM.md](cpnet/CPNET_SYSTEM.md) | [TEST_RESULTS.md](cpnet/TEST_RESULTS.md)
+
 ## Goal
 
 Run CP/NET client on RC702 CP/M over SIO Channel A serial port,
@@ -13,7 +17,7 @@ RC702 (CP/M 2.2)                    macOS host
 +------------------+                 +------------------+
 | Application      |                 |                  |
 | NDOS.SPR         |  serial link    | CP/NET server    |
-| SNIOS.SPR (RC702)|<--------------->| (Java or C)      |
+| SNIOS.SPR (RC702)|<--------------->| server.py        |
 | BDOS / BIOS      |  SIO Ch.A      | Host filesystem  |
 +------------------+  (38400 baud)   +------------------+
 ```
@@ -477,6 +481,142 @@ This could automate multi-step serial transfers:
 ; Record 0: "TYPE TEST.TXT"    (executed last)
 ; Record 1: "PIP TEST.TXT=RDR:" (executed first)
 ```
+
+## CP/NOS Diskless Boot via PROM1
+
+### Goal
+
+A diskless CP/NET client that boots entirely from PROM1 (2KB ROM at 0x2000)
+and a Python server running on the host. No floppy needed.
+
+### PROM1 hardware constraints
+
+- Size: 2048 bytes (0x2000–0x27FF)
+- Signature: " RC702" at offset 0x2002 (ROA375 checks this)
+- Entry: vector at 0x2000 (`LD HL,(0x2000); JP (HL)`)
+- Disabled together with PROM0 by writing to port 0x18 (RAMEN)
+
+### Hardware state when PROM1 gets control
+
+ROA375 boot fails (no disk) → CHECKPROM1 → jump to PROM1. At this point:
+
+| Initialized | NOT initialized |
+|---|---|
+| PIO (keyboard, output) | **SIO — no serial init at all** |
+| CTC (timers only, not baud clocks) | CTC Ch0/Ch1 not as baud generators |
+| DMA (all 4 channels) | |
+| CRT (display active, " RC700" shown) | |
+| FDC (SPECIFY command sent) | |
+| Z80 IM 2, EI, I=0x73 | |
+| Interrupt vector table at 0x7300 | |
+
+PROM1 must initialize SIO and CTC before any serial communication.
+
+### Maximum baud rate analysis
+
+38,400 baud is the hard ceiling — no software trick can go higher:
+
+- CTC input clock: 614,400 Hz (hardware divider, not changeable in software)
+- CTC minimum divisor: 1 (already used by REL30)
+- SIO minimum useful clock mode: ×16 (×1 is sync-only, unreliable for async)
+- 614,400 ÷ 1 ÷ 16 = 38,400 baud
+
+4 MHz to CTC would require a PCB modification (TRG pins are hardwired to
+the 614.4 kHz divider output).
+
+### DMA serial receive: not possible
+
+- SIO W/RDY pins are **not wired** to any DMA DREQ input on the RC702 PCB
+- All 4 DMA channels allocated: HD(0), FDC(1), CRT(2,3)
+- Irrelevant anyway: at 38,400 baud the ISR uses ~5% CPU, ring buffer proven
+  reliable for 32KB sustained transfers
+
+### PROM1 contents (~1.3KB estimated, fits in 2KB)
+
+```
+0x2000  JP entry          ; 3B — entry vector for ROA375
+0x2002  " RC702"          ; 5B — signature
+0x2007  entry:
+
+Sections:
+  SIO/CTC init            ~80B   (SIO Ch.A + CTC Ch0 for 38400 baud)
+  chrio: sendby/recvby    ~80B   (polled SIO, timeout loops)
+  SNIOS: hex/CRC-16       ~300B  (encode/decode, CRC-16 poly 0x8408)
+  SNIOS: SNDMSG/RCVMSG    ~100B  (message send/receive with framing)
+  SNIOS: NTWKIN/CNFTBL    ~60B   (init handshake, config table return)
+  netboot client          ~120B  (receive blocks, set DMA, execute)
+  CFGTBL                  ~170B  (config table + list device buffer)
+  display helpers         ~50B   (status messages to CRT buffer)
+                         -------
+  Total                  ~1000B  (leaves ~1KB spare in 2KB PROM)
+```
+
+### What the server pushes at boot (netboot protocol)
+
+1. FNC=1: Display "CP/NET booting..." text
+2. FNC=2: Set DMA address for NDOS
+3. FNC=3: Push NDOS in 128B blocks (~3KB = 24 blocks)
+4. FNC=2: Set DMA for BDOS
+5. FNC=3: Push BDOS (~3.5KB = 28 blocks)
+6. FNC=2: Set DMA for BIOS
+7. FNC=3: Push minimal BIOS (~1KB = 8 blocks)
+8. FNC=4: Execute at cold boot address
+
+Total: ~7.5KB = ~60 messages ≈ 1.1 seconds at 38400 baud.
+
+### Protocol: cpnet-z80 "serial" (hex-encoded CRC-16)
+
+```
+Wire: "++" <header hex> <data hex> <CRC-16 hex> "--"
+
+Header (5 bytes): FMT DID SID FNC SIZ
+Data: SIZ+1 bytes (max 256)
+CRC-16: polynomial 0x8408, init 0xFFFF, over header+data
+```
+
+Reference: ~/git/cpnet-z80/src/serial/snios.asm
+
+### Server: Python (to be written)
+
+Connects to MAME null_modem TCP socket. Implements:
+- Serial framing (hex encode/decode, CRC-16)
+- Init handshake (FNC=0xFF → assign node IDs)
+- Netboot protocol (push NDOS+BDOS+BIOS)
+- BDOS function emulation against host filesystem directories
+
+Reference for BDOS emulation: hperaza/cpnet-server (C, GPL-2.0)
+
+### TODO
+
+**Phase 1: PROM1 client (Z80 assembly)**
+- [ ] Create cpnet/ directory
+- [ ] Write RC702 chrio.asm (polled SIO Ch.A, CTC baud init)
+- [ ] Adapt serial SNIOS from cpnet-z80 (hex, CRC-16, send/receive)
+- [ ] Write netboot client (receive blocks, execute)
+- [ ] Write PROM1 entry (signature, init, display, boot)
+- [ ] Build with zmac, verify ≤ 2KB
+- [ ] Test in MAME
+
+**Phase 2: Python server**
+- [ ] Serial framing + CRC-16
+- [ ] Init handshake (FNC=0xFF)
+- [ ] Netboot protocol (push boot image)
+- [ ] BDOS file operations against host filesystem
+- [ ] MAME null_modem TCP connection
+- [ ] Test full boot
+
+**Phase 3: CP/M runtime**
+- [ ] Build/adapt NDOS from cpnet-z80
+- [ ] Minimal BIOS (console only, no disk)
+- [ ] Standard CP/M 2.2 BDOS
+- [ ] Test: DIR, TYPE, PIP
+
+### Open questions
+- Use existing REL30 BIOS (with NDOS patching disk calls) or minimal BIOS?
+- Polled I/O in PROM1 (simpler) or interrupt-driven (more robust)?
+- PROM1 must not disable existing interrupts (CRT display ISR is running)
+  — polled SIO with interrupts enabled seems safest
+- MAME: exact command-line syntax for loading PROM1 ROM image?
 
 ## RC702 SIO Hardware Notes
 

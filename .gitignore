@@ -4,4 +4,7 @@ zout
 .claude/
 .idea/
 .vscode/
+
+# MAME runtime files
+snap/
 cfg/
