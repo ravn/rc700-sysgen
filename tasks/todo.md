@@ -9,33 +9,87 @@
 - [x] Step 6: 58K family (separate source tree) — 3 variants byte-verified
 - [x] Step 7: 58K label renaming — auto-labels replaced with meaningful names
 
-## Next: MAME RC702 serial port + CP/NET
+## Done: MAME RC702 serial port + CP/NET (completed)
+- [x] SIO Channel A wired in MAME with null_modem
+- [x] REL30 BIOS: 256B ring buffer, RTS flow control, 38400 baud
+- [x] SNIOS.SPR: hex-encoded CRC-16 serial framing
+- [x] Python CP/NET server: BDOS F13-F40, F64-F65, F70-F71
+- [x] 204KB file transfer validated, zero packet loss
+- [x] Automated test suite (autotest.lua + run_test.sh)
+- See [cpnet.md](../cpnet.md) for full details
 
-### Goal
-Add SIO Channel B (terminal serial port) to MAME rc702 driver so CP/M programs
-can communicate over serial — initially to a macOS host shell or telnet to localhost.
-Longer term: run a CP/NET client on CP/M talking to a CP/NET server on the macOS host
-to exchange files.
+## Next: Switch to DRI binary protocol + MP/M server
 
-### Steps
-1. Wire up SIO Channel B in MAME rc702.cpp (currently only Channel A / printer is connected)
-2. Connect to a bitbanger or rs232 port so MAME exposes it as a host-side serial device
-3. Modify BIOS SIO Channel B receive ISR to use a ring buffer (e.g., 256 bytes)
-   instead of single-byte variable. CONST checks head!=tail, CONIN reads from tail.
-   Note: doesn't help during DI (FDC ops) — SIO 3-byte FIFO is the limit there.
-4. Test with a CP/M terminal program (e.g. MEX, MODEM7, or similar)
-5. Build CP/NET client for RC702 CP/M (BIOS PUNCH/READER or dedicated serial driver)
-6. Build CP/NET server on macOS host (file server, console redirection)
+### Investigation findings (2026-03-07)
 
-### Notes
-- RC702 SIO: Channel A = printer port, Channel B = terminal port
-  (CONFI.COM labels are swapped — see MEMORY.md)
-- BIOS LINSEL entry controls DTR/RTS for RC791 line selector
-- Default serial config: 7-bit, even parity, 1 stop, 1200 baud (CTC=0x20)
-- rel.2.2 defaults to 19200 baud (CTC=0x02)
-- SIO port B should run as fast as the physical hardware allows (CTC=1 → 38400 baud with x16 clock)
-- In MAME the emulated baud rate is artificial — run at max speed the hardware permits
-- See [cpnet.md](../cpnet.md) for full CP/NET research, software sources, and protocol details
+**Three CP/NET serial protocols exist** (cpnet-z80 project):
+
+| Protocol | Framing | Encoding | Checksum | Server option |
+|----------|---------|----------|----------|---------------|
+| `serial` (ASCII) | `++`...`--` | Hex-encoded | CRC-16 (0x8408) | `proto=ASCII` |
+| `ser-dri` (DRI) | ENQ/ACK/SOH/STX/ETX/EOT | Binary or ASCII | Two's complement sum | `proto=DRI` |
+| z80pack | DRI protocol | Binary (`Binary$ASCII=FFh`) | Two's complement sum | Built-in |
+
+**Our current RC702 SNIOS uses the `serial` (ASCII/hex) protocol.**
+This is incompatible with DRI standard and z80pack.
+
+**z80pack has:**
+- MP/M II V2.0 on disk images (mpm-1.dsk, mpm-2.dsk)
+- Network I/O via TCP socket on port 50/51 (`net_client.conf` → host:port)
+- Three SNIOS variants: snios-0 (original DRI), snios-1 (CP/NET 1.1), snios-2 (CP/NET 1.2)
+- All use DRI protocol in binary mode by default
+
+**CP/NET version**: Our CPNETLDR.COM says "CP/NET 1.2". Versions 1.1 and 1.2 are
+NOT binary compatible. Must use matching client/server versions.
+
+**MP/M as server**: cpnet-z80 has an MP/M Server implementation (NETSERVR.RSP)
+but currently only builds for W5500 NIC (Ethernet), not serial.
+Would need: serial NIOS for MP/M server side, or adapt z80pack's socket I/O.
+
+**CpnetSerialServer.jar** (Java, in cpnet-z80/contrib) supports both ASCII and DRI
+protocols via `cpnet_proto=` config. This is the easiest server to use.
+
+### Recommended approach
+
+**Phase 1: Switch SNIOS to DRI binary protocol**
+- [ ] Rewrite RC702 SNIOS to use DRI ENQ/ACK/SOH/STX/ETX/EOT framing
+- [ ] Use binary mode (no hex encoding) — 8-bit clean serial link
+- [ ] Simple two's complement checksum (saves ~80 bytes vs hex+CRC-16)
+- [ ] Keep FNC=FFh init and FNC=FEh shutdown (same across all protocols)
+- [ ] Update server.py to speak DRI binary protocol
+- [ ] Test with CpnetSerialServer.jar (`proto=DRI`) as alternative server
+
+**Phase 2: MP/M server via z80pack**
+- [ ] Build z80pack cpmsim on macOS
+- [ ] Boot MP/M II with CP/NET server (NETSERVR.RSP)
+- [ ] Connect: RC702 (MAME, DRI SNIOS) ↔ TCP ↔ z80pack (MP/M server)
+- [ ] Challenge: need serial NIOS on MP/M side, or bridge via TCP
+
+**Phase 3: Investigate cpmtools3 for disk image file injection**
+- [ ] Check ~/git/cpmtools3 for RC702 format support
+- [ ] Compare with our imd_cpmfs.py (which handles IMD format directly)
+- [ ] cpmtools3 may handle standard formats; RC702 multi-density needs custom diskdefs
+
+### Protocol savings (DRI binary vs current hex)
+- Wire: 8+N bytes vs 18+2N bytes per message (2x bandwidth)
+- SNIOS code: ~80 bytes smaller (no hex encode/decode, simpler checksum)
+- Server code: ~90% smaller framing code
+- Throughput: ~4.8 KB/s vs ~2.4 KB/s at 38400 baud
+
+**Phase 4: Recreate Java server sources**
+- [ ] CpnetSerialServer.jar in cpnet-z80/contrib/ is distributed as .class files only
+- [ ] Decompile and recreate source for CpnetSerialServer, CpnetDRIProtocol,
+      CpnetSerialProtocol, CpnetSimpleProtocol, HostFileBdos, etc.
+- [ ] Key classes: ServerDispatch, NetworkServer, SerialDevice, TtySerial
+- [ ] Goal: maintainable source for the DRI protocol serial server
+
+### Resources
+- z80pack: https://retrocmp.de/emulator/z80pack/z80pack.htm
+- z80pack fork: https://github.com/ravn/z80pack (local: ~/git/z80pack)
+- cpnet-z80: https://github.com/durgadas311/cpnet-z80 (local: ~/git/cpnet-z80)
+- CP/NET docs: http://sebhc.durgadas.com/CPNET-docs/cpnet.html
+- CpnetSerialServer.jar: cpnet-z80/contrib/ (Java, supports DRI+ASCII protocols)
+- cpmtools3: ~/git/cpmtools3
 
 ## REL30 Code Size Optimizations (not yet implemented)
 
