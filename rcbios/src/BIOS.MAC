@@ -225,9 +225,7 @@ ENDPRG	EQU	0EE80H		; RESERVED AREA FOR BIOS VARIABLES (56K)
 	ENDIF
 ISTACK	EQU	BGSTAR+250+38	; STACK USED BY INTERRUPT ROUTINES
 STACK	EQU	ISTACK+96	; STACK USED BY BIOS DRIVERS
-OUTCON	EQU	0F680H		; OUTPUT CONVERSION TABLE
-INCONV	EQU	OUTCON+128	; INPUT CONVERSION TABLE
-; DSPSTR defined in upper memory DS block (0xF800, 2000 bytes → 0xFFCF)
+; OUTCON, INCONV, DSPSTR defined in upper memory DS block
 
 	PAGE
 
@@ -400,13 +398,25 @@ CONVTA:
 	INCLUDE		PIO.MAC
 	ENDIF
 
-; ==== Work area layout (0xFFD0-0xFFFF, 48 bytes after 80x25 display RAM) ====
+; ==== Upper memory layout (0xF680-0xFFFF) ====
 ; Dephase first: INIPARMS.MAC opened a .PHASE block with no matching .DEPHASE
 	.DEPHASE
-; Display RAM occupies 0xF800-0xFFCF (2000 bytes); work area follows at 0xFFD0.
+; Conversion tables (0xF680), display RAM (0xF800), work area (0xFFD0).
 ; Labels defined by position; no code or data emitted into the binary here.
 
-	ORG	0F800H
+	ORG	0F680H
+;
+; ---- Character conversion tables (copied from CONVTA by INIT) ----
+;
+OUTCON:
+	DS	128		; 0xF680-0xF6FF: output conversion table (128 bytes)
+				; Maps character codes to display codes for DISPL.
+				; Copied from CONVTA at boot by INIT.
+INCONV:
+	DS	128		; 0xF700-0xF77F: input conversion table (128 bytes)
+				; Maps keyboard scan codes to ASCII for PIO handler.
+				; Copied from CONVTA+128 at boot by INIT.
+	DS	128		; 0xF780-0xF7FF: unused (copied but not referenced)
 DSPSTR:
 	DS	2000		; 0xF800-0xFFCF: DISPLAY REFRESH MEMORY (80x25)
 				; Intel 8275 CRT buffer. Init to 0x20 (space).
