@@ -261,6 +261,12 @@ else
     echo "Starting MAME rc702 with null_modem on port ${SERIAL_PORT}..."
 fi
 
+# ── Start live throughput graph in a new terminal window ──
+# server.py writes /tmp/serial_monitor.csv; serial_graph.py displays it
+if ! $HEADLESS; then
+    osascript -e "tell app \"Terminal\" to do script \"exec python3 '${SCRIPT_DIR}/serial_graph.py'\"" >/dev/null 2>&1 || true
+fi
+
 "$MAME" "${MAME_ARGS[@]}"
 
 # ── Cleanup ──

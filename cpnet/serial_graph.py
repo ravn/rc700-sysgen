@@ -51,6 +51,9 @@ def main():
     peak_tx = 0
     peak_rx = 0
     history = []
+    last_update = time.time()
+    STALE_TIMEOUT = 5  # exit after 5s with no new data (server stopped)
+    had_data = False   # true once we've seen at least one data row
 
     print(f"Waiting for {LOG_FILE} ...")
     while not os.path.exists(LOG_FILE):
@@ -82,8 +85,16 @@ def main():
                     if rx > peak_rx:
                         peak_rx = rx
                     history.append((sec, tx, rx))
+                    had_data = True
+                    last_update = time.time()
 
+            if len(lines) > last_line:
+                last_update = time.time()
             last_line = len(lines)
+
+            # Auto-exit when server stops writing
+            if had_data and time.time() - last_update > STALE_TIMEOUT:
+                break
 
             # Trim history
             if len(history) > HISTORY:
