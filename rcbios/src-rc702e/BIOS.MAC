@@ -1,0 +1,78 @@
+; RC702E CP/M 2.2 BIOS — modular source
+; Assembled with:
+;   zmac -z --dri -DREL201 src-rc702e/BIOS.MAC   (rel.2.01 mini)
+;   zmac -z --dri -DREL220 src-rc702e/BIOS.MAC   (rel.2.20 RC703 QD)
+;
+; RC702E-specific features:
+;   - RAM disk support
+;   - Clock display (Danish format)
+;   - No hard disk support
+;   - 10 DPBs (MINI, MAXI, QD, RAM disk variants)
+;   - VERIFY/BLOCKS.BAD utility (REL220 only)
+
+	.Z80
+
+	IFDEF	REL201
+	ORG	0D700H
+	ENDIF
+	IFDEF	REL220
+	ORG	0D480H
+	ENDIF
+
+; ==== Address equates ====
+
+	IFDEF	REL201
+ISR_FDC:	EQU	0xdffc
+; trailing_end = 0xEC80
+RAMDSTAT:	EQU	0xf49a
+SIOFLG:		EQU	0xf4ca
+SIOFLG2:	EQU	0xf4cc
+CONVTAB:	EQU	0xf680
+CONVTAB2:	EQU	0xf700
+SCREENBUF:	EQU	0xf800
+SCRNEND:	EQU	0xffcf
+CURX:		EQU	0xffd1
+CURY:		EQU	0xffd2
+TIMER1:		EQU	0xffdf
+TIMER2:		EQU	0xffe1
+WARMJP:		EQU	0xffe5
+	ENDIF	; REL201
+
+	IFDEF	REL220
+CONSTAT2:	EQU	0xdac5
+INTFN2:		EQU	0xdae8
+SIOWR2:		EQU	0xdb0b
+WBOOT:		EQU	0xdb8d
+LIST:		EQU	0xdc62
+PUNCH2:		EQU	0xdc85
+READER2:	EQU	0xdc89
+READER:		EQU	0xdca2
+PUNCH:		EQU	0xdcc9
+CONOUT:		EQU	0xe071
+SELDSK:		EQU	0xe1a8
+SETTRK:		EQU	0xe280
+SETSEC:		EQU	0xe285
+SECTRAN:	EQU	0xe28f
+READ:		EQU	0xe292
+SCRNEND:	EQU	0xffcf
+CURX:		EQU	0xffd1
+CURY:		EQU	0xffd2
+TIMER1:		EQU	0xffdf
+TIMER2:		EQU	0xffe1
+MOTORTIMER:	EQU	0xffe7
+RTCCNT:		EQU	0xfffc
+	ENDIF	; REL220
+
+; ==== Module includes ====
+; START: label defined in INIT.MAC for both variants
+
+	INCLUDE	INIT.MAC
+	INCLUDE	CPMBOOT.MAC
+	INCLUDE	DISPLAY.MAC
+	INCLUDE	FLOPPY.MAC
+	INCLUDE	RAMDISK.MAC
+	INCLUDE	DISKTAB.MAC
+	INCLUDE	INTTAB.MAC
+	IFDEF	REL220
+	INCLUDE	VERIFY.MAC
+	ENDIF
