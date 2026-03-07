@@ -19,7 +19,53 @@
 	ORG	0D480H
 	ENDIF
 
-; ==== Address equates ====
+; ==== I/O port equates (same device assignment as REL20 HARDDISK/56K) ====
+; PIO
+PIOAC	EQU	12H		; PIO CHANNEL A CONTROL
+PIOAD	EQU	10H		; PIO CHANNEL A DATA
+PIOBC	EQU	13H		; PIO CHANNEL B CONTROL
+PIOBD	EQU	11H		; PIO CHANNEL B DATA
+; CTC1 (channels 0-3)
+CTCCH0	EQU	0CH		; CTC CHANNEL 0 (SIO-A BAUD RATE)
+CTCCH1	EQU	0DH		; CTC CHANNEL 1 (SIO-B BAUD RATE)
+CTCCH2	EQU	0EH		; CTC CHANNEL 2 (DISPLAY)
+CTCCH3	EQU	0FH		; CTC CHANNEL 3 (FLOPPY)
+; SIO
+SIOAC	EQU	0AH		; SIO CHANNEL A CONTROL
+SIOAD	EQU	08H		; SIO CHANNEL A DATA
+SIOBC	EQU	0BH		; SIO CHANNEL B CONTROL
+SIOBD	EQU	09H		; SIO CHANNEL B DATA
+; CRT 8275
+DSPLC	EQU	001H		; DISPLAY CONTROL
+DSPLD	EQU	000H		; DISPLAY DATA
+; FDC uPD765
+FDC	EQU	004H		; FLOPPY CONTROL/STATUS
+FDD	EQU	005H		; FLOPPY DATA
+; DMA AM9517
+DMAC	EQU	0F8H		; DMA CONTROL
+DMAMOD	EQU	0FBH		; DMA MODE REGISTER
+DMAMAS	EQU	0FAH		; DMA MASK REGISTER
+DMAAD0	EQU	0F0H		; DMA ADDRESS CH.0
+DMAAD1	EQU	0F2H		; DMA ADDRESS CH.1
+DMAAD2	EQU	0F4H		; DMA ADDRESS CH.2
+DMAAD3	EQU	0F6H		; DMA ADDRESS CH.3
+DMACN0	EQU	0F1H		; DMA WORD COUNT CH.0
+DMACN1	EQU	0F3H		; DMA WORD COUNT CH.1
+DMACN2	EQU	0F5H		; DMA WORD COUNT CH.2
+DMACN3	EQU	0F7H		; DMA WORD COUNT CH.3
+DMACBC	EQU	0FCH		; DMA CLEAR BYTE COUNTER
+DMAREQ	EQU	0F9H		; DMA SOFTWARE REQUEST
+DMAMSK	EQU	0FFH		; DMA MASK
+DMATMP	EQU	0FDH		; DMA TEMP
+; Misc
+BELL	EQU	01CH		; BELL PORT
+SW1	EQU	014H		; ROM DISABLE / SWITCH PORT
+
+; Display RAM base (hardware address, 80x25 = 2000 bytes, 0xF800-0xFFCF)
+SCREENBUF	EQU	0F800H		; DISPLAY REFRESH MEMORY BASE
+SCRNEND		EQU	0FFCFH		; LAST BYTE OF DISPLAY RAM
+
+; ==== Address equates (variant-specific) ====
 
 	IFDEF	REL201
 ISR_FDC:	EQU	0xdffc
@@ -29,16 +75,10 @@ SIOFLG:		EQU	0xf4ca
 SIOFLG2:	EQU	0xf4cc
 CONVTAB:	EQU	0xf680
 CONVTAB2:	EQU	0xf700
-SCREENBUF:	EQU	0xf800
-SCRNEND:	EQU	0xffcf
-CURX:		EQU	0xffd1
-CURY:		EQU	0xffd2
-TIMER1:		EQU	0xffdf
-TIMER2:		EQU	0xffe1
-WARMJP:		EQU	0xffe5
 	ENDIF	; REL201
 
 	IFDEF	REL220
+MOTORTIMER	EQU	0FFE7H		; RAM location at 0xFFE7 (= FDTIMO position)
 CONSTAT2:	EQU	0xdac5
 INTFN2:		EQU	0xdae8
 SIOWR2:		EQU	0xdb0b
@@ -54,13 +94,6 @@ SETTRK:		EQU	0xe280
 SETSEC:		EQU	0xe285
 SECTRAN:	EQU	0xe28f
 READ:		EQU	0xe292
-SCRNEND:	EQU	0xffcf
-CURX:		EQU	0xffd1
-CURY:		EQU	0xffd2
-TIMER1:		EQU	0xffdf
-TIMER2:		EQU	0xffe1
-MOTORTIMER:	EQU	0xffe7
-RTCCNT:		EQU	0xfffc
 	ENDIF	; REL220
 
 ; ==== Module includes ====
@@ -76,3 +109,52 @@ RTCCNT:		EQU	0xfffc
 	IFDEF	REL220
 	INCLUDE	VERIFY.MAC
 	ENDIF
+
+; ==== Work area layout (48 bytes: 0xFFD0-0xFFFF, after 80x25 display RAM) ====
+; Display RAM occupies 0xF800-0xFFCF (2000 bytes); work area follows at 0xFFD0.
+; Labels defined by position; no code or data emitted into the binary here.
+
+	ORG	0FFD0H
+	DS	1		; 0xFFD0: unused (first byte after display RAM)
+CCTAD:
+CURX:
+	DS	1		; 0xFFD1: cursor X — column (0..79)  (REL20: CCTAD)
+RCTAD:
+CURY:
+	DS	2		; 0xFFD2: cursor Y — row offset row*80 (word) (REL20: RCTAD)
+CURSY:
+	DS	1		; 0xFFD4: CRT row-within-char counter (REL20: CURSY)
+LOCBUF:
+	DS	2		; 0xFFD5: scroll source pointer (word) (REL20: LOCBUF)
+XFLG:
+	DS	1		; 0xFFD7: display mode/escape state (0=normal) (REL20: XFLG)
+LOCAD:
+	DS	2		; 0xFFD8: screen address for CONOUT: CURY+CURX (word) (REL20: LOCAD)
+USHER:
+	DS	1		; 0xFFDA: character being output (REL20: USHER)
+	DS	1		; 0xFFDB: unused (REL20: BGFLG — selective-clear mode: 0=off, 1=foreground, 2=background)
+	DS	2		; 0xFFDC: unused (REL20: LOCBBU — pointer into BGSTAR bitmap; tracks which positions to clear)
+ADR0:
+	DS	1		; 0xFFDE: XY escape first coordinate byte (REL20: ADR0)
+EXCNT0:
+TIMER1:
+	DS	2		; 0xFFDF: warm-boot countdown; ISR_CRT decrements (REL20: EXCNT0)
+EXCNT1:
+TIMER2:
+	DS	2		; 0xFFE1: motor stop countdown; FDC ISR decrements (REL20: EXCNT1)
+DELCNT:
+	DS	2		; 0xFFE3: TIMER2 reload / motor stop delay (word) (REL20: DELCNT)
+EXROUT:
+WARMJP:
+	DS	2		; 0xFFE5: FDC seek delay counter (not a JP!) (REL20: EXROUT)
+FDTIMO:
+	DS	1		; 0xFFE7: JP opcode 0xC3 written by HALT (REL20: FDTIMO)
+	DS	2		; 0xFFE8: JP target = WBOOT; ISR_CRT calls when TIMER1=0
+STPTIM:
+	DS	2		; 0xFFEA: TIMER2 reload from boot config (word)
+CLKTIM:
+	DS	2		; 0xFFEC: clock/screen-blank timer; FDC ISR decrements
+	DS	14		; 0xFFEE: unused
+RTCCNT:
+	DS	2		; 0xFFFC: SETWARM save area for DE (REL20: RTC0/RTC1)
+	DS	2		; 0xFFFE: SETWARM save area for HL (REL20: RTC2/RTC3)

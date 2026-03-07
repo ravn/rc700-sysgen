@@ -2732,7 +2732,7 @@ CONVTAB2:
 	DB 000h		;f7fd
 	DB 000h		;f7fe
 	DB 000h		;f7ff
-SCREENBUF:
+verify_f800:
 	DB 0b8h		;f800
 lf801h:
 	DB 040h		;f801
