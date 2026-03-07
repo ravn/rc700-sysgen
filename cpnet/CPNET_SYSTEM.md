@@ -3,7 +3,7 @@
 ## Quick Reference
 
 **Status:** ✅ Production Ready
-**Validation:** [CPNET_VALIDATION.md](../CPNET_VALIDATION.md) (full test report)
+**Validation:** [TEST_RESULTS.md](TEST_RESULTS.md) (full test report)
 
 ## What is CP/NET?
 
@@ -109,7 +109,7 @@ A>CHKSUM H:DATAFILE.DAT ; Verify file integrity
 | F39 | File Info | ✅ File control |
 | F70 | Network Status | ✅ Check connection |
 
-See CPNET_VALIDATION.md for detailed protocol testing results.
+See TEST_RESULTS.md for detailed protocol testing results.
 
 ## Serial Protocol
 
@@ -171,7 +171,7 @@ Options:
 - ✅ Serial frame transmission (++ format)
 - ✅ Zero packet loss (all records delivered)
 
-See CPNET_VALIDATION.md for full test results.
+See TEST_RESULTS.md for full test results.
 
 ## Troubleshooting
 
@@ -228,7 +228,7 @@ See CPNET_VALIDATION.md for full test results.
 
 ### Reference
 - `SPR_FORMAT.md` - Relocatable program file format
-- `CPNET_VALIDATION.md` - Full validation test report
+- `TEST_RESULTS.md` - Full validation test report
 - `README.md` (this file) - Quick start guide
 
 ### Related
@@ -246,4 +246,4 @@ See CPNET_VALIDATION.md for full test results.
 
 **Last Updated:** 2026-03-04
 **Validation Status:** ✅ COMPLETE
-**Test Results:** See CPNET_VALIDATION.md
+**Test Results:** See TEST_RESULTS.md

@@ -1,6 +1,6 @@
 # CP/NET for RC702
 
-🎉 **VALIDATION COMPLETE** — See [CPNET_VALIDATION.md](CPNET_VALIDATION.md) for full test report and results.
+**VALIDATION COMPLETE** — See [TEST_RESULTS.md](cpnet/TEST_RESULTS.md) for full test report.
 
 Quick reference: [CPNET_SYSTEM.md](cpnet/CPNET_SYSTEM.md) | [TEST_RESULTS.md](cpnet/TEST_RESULTS.md)
 
@@ -17,7 +17,7 @@ RC702 (CP/M 2.2)                    macOS host
 +------------------+                 +------------------+
 | Application      |                 |                  |
 | NDOS.SPR         |  serial link    | CP/NET server    |
-| SNIOS.SPR (RC702)|<--------------->| (Java or C)      |
+| SNIOS.SPR (RC702)|<--------------->| server.py        |
 | BDOS / BIOS      |  SIO Ch.A      | Host filesystem  |
 +------------------+  (38400 baud)   +------------------+
 ```
