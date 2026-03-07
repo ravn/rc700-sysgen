@@ -1,8 +1,9 @@
 ; RC702 CP/NET SNIOS (Slave Network I/O System)
-; Serial hex-encoded CRC-16 protocol over BIOS READER/PUNCH/READS
+; DRI binary serial protocol over BIOS READER/PUNCH/READS
 ;
-; Adapted from cpnet-z80/src/serial/snios.asm
-; Rewritten in native Z80 mnemonics for zmac assembler
+; Implements the standard DRI CP/NET serial framing:
+;   Send: ENQ → ACK → SOH+header+HCS → ACK → STX+data+ETX+CKS+EOT → ACK
+;   Recv: ENQ → ACK → SOH+header+HCS → ACK → STX+data+ETX+CKS+EOT → ACK
 ;
 ; Character I/O calls BIOS READER/PUNCH/READS through the standard
 ; jump table at DA00h (56K system). No direct hardware access.
@@ -14,22 +15,27 @@
 	.Z80
 
 ; BIOS entry points (56K system, BIOS base = DA00h)
-B$COUT	EQU	0DA0CH		; BIOS CONOUT (patched by NDOS to NCONOT hook)
 B$PUNCH	EQU	0DA12H		; BIOS PUNCH (send byte in C via SIO Ch.A)
 B$READ	EQU	0DA15H		; BIOS READER (receive byte from SIO Ch.A)
 B$RSTA	EQU	0DA4DH		; BIOS READS (reader status, 0=not ready)
 
-; Timeout loop counts for receive polling
-STTIMO	EQU	8000H		; START TIMEOUT (FINITE FOR DEBUGGING)
-CHTIMO	EQU	0800H		; CHAR TIMEOUT (BETWEEN ADJACENT CHARS)
+; Protocol constants
+SOH	EQU	01H		; Start of Header
+STX	EQU	02H		; Start of Data
+ETX	EQU	03H		; End of Data
+EOT	EQU	04H		; End of Transmission
+ENQ	EQU	05H		; Enquire
+ACK	EQU	06H		; Acknowledge
+NAK	EQU	15H		; Negative Acknowledge
+
+; Retry and timeout parameters
+MAXRETRY EQU	10		; max send/receive retries
+TMRETRY	EQU	100		; timeout retries per attempt
 
 ; Network status byte flags
 ACTIVE	EQU	00010000B	; SLAVE LOGGED IN ON NETWORK
 RCVERR	EQU	00000010B	; ERROR IN RECEIVED MESSAGE
 SNDERR	EQU	00000001B	; UNABLE TO SEND MESSAGE
-
-; CRC-16 polynomial (CCITT reversed)
-CRCPOLY	EQU	8408H
 
 	ORG	0
 
@@ -51,7 +57,7 @@ CRCPOLY	EQU	8408H
 ;= MUST MATCH CP/NET CFGTBL LAYOUT              =
 ;================================================
 CFGTBL:	DB	0		; +0  NETWORK STATUS BYTE
-	DS	1		; +1  SLAVE PROCESSOR ID
+	DB	0FFH		; +1  SLAVE PROCESSOR ID (FFh = accept any DID during init)
 	DS	2		; +2  A: DISK DEVICE (BIT7=0 = LOCAL)
 	DS	2		; +4  B:
 	DS	2		; +6  C:
@@ -80,7 +86,8 @@ CFGTBL:	DB	0		; +0  NETWORK STATUS BYTE
 MSGBUF:				; +45 MSG(1)..MSG(128)
 	DS	128		; (don't disturb LST: header above)
 
-HOSTID:	DB	0		; SERVER NODE ID
+MSGADR:	DS	2		; MESSAGE ADDRESS (SCRATCH)
+RETCNT:	DS	1		; RETRY COUNTER
 
 ;================================================
 ;= CHARACTER I/O WRAPPERS                       =
@@ -88,30 +95,28 @@ HOSTID:	DB	0		; SERVER NODE ID
 ;================================================
 
 ; SENDBY - Send byte in A via BIOS PUNCH
-; Destroys: C
 SENDBY:	LD	C,A
 	JP	B$PUNCH		; BIOS PUNCH WAITS FOR TX READY
 
-; RECVBY - Receive one byte with char timeout
-; Returns: A = byte, CY clear on success; CY set on timeout
-; Destroys: C
-RECVBY:	PUSH	DE
-	PUSH	HL
-	LD	HL,CHTIMO
-	JR	RCVWT0
+; RECVBY - Receive one byte (busy wait, no timeout)
+; Returns: A = byte, CY clear
+; Preserves: HL, DE (BIOS READER/READS use HL internally)
+RECVBY:	PUSH	HL
+	PUSH	DE
+RCVBY1:	CALL	B$RSTA		; BIOS READER STATUS
+	OR	A
+	JR	Z,RCVBY1
+	CALL	B$READ		; READ BYTE FROM RING BUFFER
+	POP	DE
+	POP	HL
+	OR	A		; CLEAR CARRY
+	RET
 
-; RECVBT - Receive first byte with start timeout
+; RECVBT - Receive one byte with timeout
 ; Returns: A = byte, CY clear on success; CY set on timeout
-; Destroys: C
 RECVBT:	PUSH	DE
 	PUSH	HL
-	LD	HL,STTIMO
-
-RCVWT0:	LD	A,H		; CHECK IF TIMEOUT = 0 (WAIT FOREVER)
-	OR	L
-	JR	Z,RCVWT2	; ZERO = INFINITE WAIT
-
-	; Finite timeout: poll with countdown
+	LD	HL,8000H	; TIMEOUT COUNTER
 RCVWT1:	CALL	B$RSTA		; BIOS READER STATUS
 	OR	A
 	JR	NZ,RCVWT3	; DATA AVAILABLE
@@ -124,12 +129,6 @@ RCVWT1:	CALL	B$RSTA		; BIOS READER STATUS
 	POP	DE
 	SCF			; SIGNAL TIMEOUT
 	RET
-
-	; Infinite wait: poll until data arrives
-RCVWT2:	CALL	B$RSTA
-	OR	A
-	JR	Z,RCVWT2
-
 RCVWT3:	CALL	B$READ		; READ BYTE FROM RING BUFFER
 	POP	HL
 	POP	DE
@@ -137,119 +136,55 @@ RCVWT3:	CALL	B$READ		; READ BYTE FROM RING BUFFER
 	RET
 
 ;================================================
-;= HEX ENCODING/DECODING                        =
+;= CHECKSUM UTILITIES                           =
+;= D = running checksum accumulator             =
 ;================================================
 
-; SNDHEX - Send byte in A as 2 ASCII hex digits
-; Destroys: C, E
-SNDHEX:	LD	E,A		; SAVE BYTE
-	RRCA			; HIGH NIBBLE FIRST
-	RRCA
-	RRCA
-	RRCA
-	CALL	SNDDIG
-	LD	A,E		; LOW NIBBLE
-SNDDIG:	AND	0FH
-	ADD	A,90H		; DAA TRICK: BINARY TO ASCII HEX
-	DAA
-	ADC	A,40H
-	DAA
-	JP	SENDBY		; SEND AND RETURN
+; NETOUT - Send byte C, accumulate checksum in D
+NETOUT:	LD	A,D
+	ADD	A,C
+	LD	D,A		; UPDATE CHECKSUM
+	LD	A,C
+	JP	SENDBY		; SEND RAW BYTE
 
-; RCVHEX - Receive 2 ASCII hex digits, return byte in A
-; Returns: CY set on timeout or invalid hex
-; Destroys: C, E
-RCVHEX:	CALL	RCVDIG		; HIGH NIBBLE
-	RET	C		; TIMEOUT
-	RLCA			; SHIFT TO HIGH NIBBLE
-	RLCA
-	RLCA
-	RLCA
-	LD	E,A		; SAVE
-	CALL	RCVDIG		; LOW NIBBLE
-	RET	C		; TIMEOUT
-	OR	E		; COMBINE
+; NETIN - Receive byte, accumulate checksum in D
+; Returns: A = byte, D updated, Z flag reflects checksum
+; CY set on timeout
+NETIN:	CALL	RECVBY		; GET RAW BYTE
+	LD	B,A
+	ADD	A,D		; ADD TO CHECKSUM
+	LD	D,A
+	OR	A		; SET Z FLAG FROM CHECKSUM
+	LD	A,B		; RESTORE BYTE
 	RET
 
-RCVDIG:	CALL	RECVBY		; GET ASCII CHAR
+; MSGIN - Receive E bytes into (HL), accumulate checksum
+; Returns: CY set on timeout
+MSGIN:	CALL	NETIN
 	RET	C		; TIMEOUT
-	SUB	'0'
-	RET	C		; < '0'
-	CP	10
-	JR	NC,RCVDG1	; >= 10, TRY A-F
-	OR	A		; CLEAR CARRY
-	RET
-RCVDG1:	SUB	'A'-'0'		; CONVERT A-F
-	RET	C		; INVALID
-	ADD	A,10
-	RET
-
-;================================================
-;= CRC-16 CALCULATION                           =
-;================================================
-
-; CRC - Update CRC with byte in A
-; HL = cumulative CRC, A = new byte
-; Destroys: C, E, A
-CRC:	LD	E,8		; 8 BITS
-CRC0:	LD	C,A		; SAVE BYTE
-	XOR	L		; CLEARS CARRY
-	RR	H		; SHIFT CRC RIGHT
-	RR	L
-	AND	1		; CHECK LSB OF (BYTE XOR CRC_LOW)
-	JR	Z,CRC1
-	LD	A,L		; XOR WITH POLYNOMIAL
-	XOR	LOW CRCPOLY
-	LD	L,A
-	LD	A,H
-	XOR	HIGH CRCPOLY
-	LD	H,A
-CRC1:	LD	A,C		; RESTORE BYTE
-	RRA			; SHIFT BYTE RIGHT
+	LD	(HL),A
+	INC	HL
 	DEC	E
-	JR	NZ,CRC0
-	OR	A		; CLEAR CARRY ON RETURN
+	JR	NZ,MSGIN
 	RET
 
-;================================================
-;= SEND/RECEIVE MESSAGE HEADER                  =
-;================================================
-
-; SNDHDR - Send "++" sync, then 5-byte header with CRC
-; IX = message pointer (advanced by 5 on return)
-; Returns: HL = CRC after header, A=0/CY clear on success
-; Destroys: B, C, D, E
-SNDHDR:	LD	A,'+'		; SYNC BYTE 1
-	CALL	SENDBY
-	LD	A,'+'		; SYNC BYTE 2
-	CALL	SENDBY
-	LD	HL,0FFFFH	; INIT CRC
-	LD	B,5		; 5 HEADER BYTES
-SNDH0:	LD	A,(IX+0)
-	INC	IX
-	LD	D,A		; SAVE FOR CRC
-	CALL	SNDHEX		; SEND AS HEX
-	LD	A,D
-	CALL	CRC		; UPDATE CRC
-	DEC	B
-	JR	NZ,SNDH0
-	XOR	A		; SUCCESS
+; MSGOUT - Send preamble C, then E bytes from (HL), init checksum
+; D = 0 on entry (initialized here), accumulates checksum
+MSGOUT:	LD	D,0		; INIT CHECKSUM
+	CALL	PREOUT		; SEND PREAMBLE (C), UPDATE D
+MSOLP:	LD	C,(HL)
+	INC	HL
+	CALL	NETOUT
+	DEC	E
+	JR	NZ,MSOLP
 	RET
 
-; RCVHDR - Receive 5-byte header, store via IX, compute CRC
-; IX = destination buffer (advanced by 5 on return)
-; Returns: HL = CRC after header, CY set on error
-; Destroys: B, C, E
-RCVHDR:	LD	HL,0FFFFH	; INIT CRC
-	LD	B,5		; 5 HEADER BYTES
-RCVH0:	CALL	RCVHEX		; GET ONE BYTE
-	RET	C		; TIMEOUT
-	LD	(IX+0),A	; STORE IN BUFFER
-	INC	IX
-	CALL	CRC		; UPDATE CRC
-	DEC	B
-	JR	NZ,RCVH0
-	RET			; CY CLEAR FROM CRC
+; PREOUT - Send byte C, accumulate checksum in D
+PREOUT:	LD	A,D
+	ADD	A,C
+	LD	D,A		; UPDATE CHECKSUM
+	LD	A,C
+	JP	SENDBY		; SEND RAW BYTE
 
 ;================================================
 ;= SNDMSG - SEND MESSAGE ON NETWORK             =
@@ -258,39 +193,75 @@ RCVH0:	CALL	RCVHEX		; GET ONE BYTE
 ; Returns: A = 0 on success, 0FFh on error
 SNDMSG:	LD	A,(CFGTBL)	; CHECK NETWORK STATUS
 	AND	ACTIVE
-	JP	Z,NETERR	; NOT ACTIVE
-SNDMS0:	PUSH	BC
-	POP	IX		; IX = MESSAGE START
-	LD	A,(CFGTBL+1)	; OUR SLAVE ID
-	LD	(IX+2),A	; ENSURE SID IS CORRECT
-	CALL	SNDHDR		; SEND "++" AND 5-BYTE HEADER (IX ADVANCES BY 5)
-	OR	A
-	JP	NZ,NETERR
-	; IX now points past header (original+5)
-	; (IX-1) = original+4 = SIZ field
-	LD	B,(IX-1)	; SIZ FIELD
-	INC	B		; 0 MEANS 1 BYTE (UP TO 256)
-	; Send payload bytes starting at (IX+0)
-SNDM1:	LD	A,(IX+0)
-	INC	IX
-	LD	D,A		; SAVE FOR CRC
-	CALL	SNDHEX		; SEND BYTE AS HEX
-	LD	A,D
-	CALL	CRC		; UPDATE CRC
-	DEC	B
-	JR	NZ,SNDM1
-	; Send CRC (low byte first)
-	LD	A,L
-	CALL	SNDHEX
-	LD	A,H
-	CALL	SNDHEX
-	; Send end-of-message "--"
-	LD	A,'-'
+	JP	Z,SNDERR1	; NOT ACTIVE
+SNDMS0:	LD	H,B
+	LD	L,C		; HL = MESSAGE ADDRESS
+	LD	(MSGADR),HL
+	; Ensure SID is correct
+	LD	A,(CFGTBL+1)
+	INC	BC
+	INC	BC
+	LD	(BC),A		; STORE SID
+
+RESEND:	LD	A,MAXRETRY
+	LD	(RETCNT),A
+SEND:	LD	HL,(MSGADR)
+	; Send ENQ
+	LD	A,ENQ
 	CALL	SENDBY
-	LD	A,'-'
+	; Wait for ACK (with timeout retries)
+	LD	D,TMRETRY
+ENQRSP:	CALL	RECVBT
+	JR	NC,GOTENQ
+	DEC	D
+	JR	NZ,ENQRSP
+	JR	SNDTMO		; TIMEOUT
+GOTENQ:	CALL	CHKACK
+	; Send SOH + 5 header bytes + HCS
+	LD	C,SOH
+	LD	E,5
+	CALL	MSGOUT		; SEND SOH FMT DID SID FNC SIZ
+	; Send header checksum (two's complement)
+	XOR	A
+	SUB	D
+	LD	C,A
+	CALL	NETOUT		; SEND HCS
+	; Wait for ACK
+	CALL	GETACK
+	; Send STX + data bytes + ETX + CKS + EOT
+	DEC	HL		; BACK TO SIZ FIELD
+	LD	E,(HL)
+	INC	HL
+	INC	E		; 0 MEANS 1 BYTE
+	LD	C,STX
+	CALL	MSGOUT		; SEND STX + DATA
+	LD	C,ETX
+	CALL	PREOUT		; SEND ETX (PART OF CHECKSUM)
+	; Send data checksum
+	XOR	A
+	SUB	D
+	LD	C,A
+	CALL	NETOUT		; SEND CKS
+	; Send EOT
+	LD	A,EOT
 	CALL	SENDBY
-	XOR	A		; SUCCESS
-	RET
+	; Wait for final ACK
+	CALL	GETACK
+	RET			; A=0 SUCCESS (FROM CHKACK)
+
+; GETACK - Wait for ACK, retry on timeout or NAK
+GETACK:	CALL	RECVBT
+	JR	C,SNDRET	; TIMEOUT → RETRY
+CHKACK:	AND	7FH
+	SUB	ACK
+	RET	Z		; GOT ACK, A=0
+; Fall through to retry
+SNDRET:	POP	HL		; DISCARD RETURN ADDRESS
+	LD	HL,RETCNT
+	DEC	(HL)
+	JR	NZ,SEND		; RETRY
+SNDTMO:	LD	A,SNDERR
+	JP	ERRRTN
 
 ;================================================
 ;= RCVMSG - RECEIVE MESSAGE FROM NETWORK        =
@@ -299,67 +270,139 @@ SNDM1:	LD	A,(IX+0)
 ; Returns: A = 0 on success, 0FFh on error
 RCVMSG:	LD	A,(CFGTBL)	; CHECK NETWORK STATUS
 	AND	ACTIVE
-	JP	Z,NETERR	; NOT ACTIVE
-RCVMS0:	PUSH	BC
-	POP	IX		; IX = MESSAGE BUFFER
+	JP	Z,SNDERR1	; NOT ACTIVE
+RCVMS0:	LD	H,B
+	LD	L,C		; HL = MESSAGE ADDRESS
+	LD	(MSGADR),HL
 
-	; Wait for "++" sync sequence
-RCVSYN:	LD	B,2		; NEED 2 CONSECUTIVE '+' CHARS
-RCVSY0:	CALL	RECVBT		; USE START TIMEOUT
-	JR	C,RCVERR1	; TIMEOUT
-	CP	'+'
-	JR	NZ,RCVSYN	; NOT '+', RESET COUNT
-	DEC	B
-	JR	NZ,RCVSY0	; NEED ONE MORE '+'
+RERCV:	LD	A,MAXRETRY
+	LD	(RETCNT),A
+RECALL:	CALL	RECV		; ON RETURN = RECEIVE ERROR
+	; Retry
+	LD	HL,RETCNT
+	DEC	(HL)
+	JR	NZ,RECALL
+RCVTMO:	LD	A,RCVERR
+	JP	ERRRTN
 
-	; Got "++", receive 5-byte header (IX advances by 5)
-	CALL	RCVHDR
-	JR	C,RCVERR1
-	; (IX-1) = original+4 = SIZ field
-	LD	B,(IX-1)	; SIZ FIELD
-	INC	B		; 0 MEANS 1 (UP TO 256)
-	; Receive payload bytes starting at (IX+0) = original+5
-RCVM1:	CALL	RCVHEX
-	JR	C,RCVERR1
-	LD	(IX+0),A	; STORE PAYLOAD BYTE
-	INC	IX
-	CALL	CRC		; UPDATE CRC
-	DEC	B
-	JR	NZ,RCVM1
+RECV:	LD	HL,(MSGADR)
+	; Wait for ENQ (with timeout retries)
+	LD	D,TMRETRY
+RCVFST:	CALL	RECVBT
+	JR	NC,GOTFST
+	DEC	D
+	JR	NZ,RCVFST
+	POP	HL		; DISCARD RECALL RETURN
+	JR	RCVTMO
+GOTFST:	AND	7FH
+	CP	ENQ		; ENQUIRE?
+	JR	NZ,RECV		; NOT ENQ, KEEP LOOKING
 
-	; Receive and verify CRC
-	CALL	RCVHEX		; CRC LOW
-	JR	C,RCVERR1
-	CALL	CRC
-	CALL	RCVHEX		; CRC HIGH
-	JR	C,RCVERR1
-	CALL	CRC
-	LD	A,H		; CRC SHOULD BE 0000
-	OR	L
-	JR	NZ,RCVERR1
+	; Got ENQ, send ACK
+	LD	A,ACK
+	CALL	SENDBY
 
-	; Verify end-of-message "--"
+	; Receive SOH
 	CALL	RECVBY
-	CP	'-'
-	JR	NZ,RCVERR1
+	RET	C		; TIMEOUT → RECALL RETRY
+	AND	7FH
+	CP	SOH
+	RET	NZ		; NOT SOH → RETRY
+	LD	D,A		; INIT HCS WITH SOH
+
+	; Receive 5 header bytes
+	LD	E,5
+	CALL	MSGIN
+	RET	C		; TIMEOUT → RETRY
+
+	; Receive and check HCS
+	CALL	NETIN
+	RET	C
+	JR	NZ,BADCKS	; BAD HEADER CHECKSUM
+
+	; Header OK, send ACK
+	CALL	SNDACK
+
+	; Receive STX
 	CALL	RECVBY
-	CP	'-'
-	JR	NZ,RCVERR1
-	XOR	A		; SUCCESS
+	RET	C
+	AND	7FH
+	CP	STX
+	RET	NZ		; NOT STX → RETRY
+	LD	D,A		; INIT CKS WITH STX
+
+	; Get data length from SIZ field (HL points past header)
+	DEC	HL
+	LD	E,(HL)
+	INC	HL
+	INC	E		; 0 MEANS 1 BYTE
+
+	; Receive data bytes
+	CALL	MSGIN
+	RET	C
+
+	; Receive ETX
+	CALL	RECVBY
+	RET	C
+	AND	7FH
+	CP	ETX
+	RET	NZ
+	ADD	A,D
+	LD	D,A		; UPDATE CKS WITH ETX
+
+	; Receive and check data checksum
+	CALL	NETIN
+	RET	C
+	; Receive EOT
+	CALL	RECVBY
+	RET	C
+	AND	7FH
+	CP	EOT
+	RET	NZ
+	; Verify CKS
+	LD	A,D
+	OR	A
+	JR	NZ,BADCKS
+
+	; Message received OK
+	POP	HL		; DISCARD RECALL RETURN
+	; Check DID matches our node
+	LD	HL,(MSGADR)
+	INC	HL		; POINT TO DID
+	LD	A,(CFGTBL+1)
+	INC	A		; FF → 00 (UNINITIALIZED = ACCEPT ALL)
+	JR	Z,SNDACK	; ACCEPT ANY DID DURING INIT
+	DEC	A		; RESTORE VALUE
+	SUB	(HL)
+	JR	Z,SNDACK	; DID MATCHES, A=0
+	LD	A,0FFH		; BAD DID
+SNDACK:	PUSH	AF		; SAVE RETURN CODE
+	LD	A,ACK
+	CALL	SENDBY
+	POP	AF		; RESTORE RETURN CODE
 	RET
 
-RCVERR1:
-NETERR:	LD	A,0FFH
-NTWKER:	RET			; NETWORK ERROR (STUB)
+BADCKS:	LD	A,NAK
+	JP	SENDBY		; SEND NAK AND RETURN TO RETRY
+
+;================================================
+;= ERROR HANDLING                                =
+;================================================
+ERRRTN:	LD	HL,CFGTBL
+	OR	(HL)
+	LD	(HL),A		; SET ERROR BIT IN STATUS
+	CALL	NTWKER		; DEVICE RE-INIT IF NEEDED
+SNDERR1:
+	LD	A,0FFH
+	RET
 
 ;================================================
 ;= NTWKIN - NETWORK INITIALIZATION               =
 ;================================================
 ; Sends FNC=FFh handshake to server, receives node IDs.
-; Uses MSGBUF area as scratch for the init message.
 ; Returns: A = 0 on success, 0FFh on error
 NTWKIN:
-	; Build init request at MSGBUF (5-byte header + 0 data bytes)
+	; Build init request at MSGBUF (5-byte header + 1 data byte)
 	LD	IX,MSGBUF
 	LD	(IX+0),0	; FMT = 0
 	LD	(IX+3),0FFH	; FNC = 255 (INIT REQUEST)
@@ -367,33 +410,25 @@ NTWKIN:
 	LD	BC,MSGBUF
 	CALL	SNDMS0		; SEND (BYPASS ACTIVE CHECK)
 	OR	A
-	JR	NZ,NTKERR1	; SEND FAILED
+	JR	NZ,INITERR	; SEND FAILED
 
 	LD	BC,MSGBUF	; RECEIVE RESPONSE INTO SAME AREA
 	CALL	RCVMS0		; RECEIVE (BYPASS ACTIVE CHECK)
 	OR	A
-	JR	NZ,NTKERR2	; RECEIVE FAILED
+	JR	NZ,INITERR	; RECEIVE FAILED
 
 	; Response header: DID=our ID, SID=server ID
 	LD	A,(MSGBUF+1)	; DID = OUR NODE ID
-	LD	B,A
-	LD	A,(MSGBUF+2)	; SID = HOST NODE ID
-	LD	C,A
-
-	; Store in config table
+	LD	(CFGTBL+1),A	; STORE OUR SLAVE ID
 	LD	A,ACTIVE
 	LD	(CFGTBL+0),A	; NETWORK STATUS = ACTIVE
-	LD	A,B
-	LD	(CFGTBL+1),A	; OUR SLAVE (CLIENT) ID
-	LD	A,C
-	LD	(HOSTID),A	; SERVER NODE ID
 	XOR	A
 	LD	(CFGTBL+43),A	; CLEAR SIZ - DISCARD LST OUTPUT
 	RET			; A=0 SUCCESS
 
-NTKERR1:			; SEND FAILED
-NTKERR2:			; RECV FAILED
-	JR	NETERR
+INITERR:
+	LD	A,0FFH
+	RET
 
 ;================================================
 ;= REMAINING SNIOS ENTRY POINTS                  =
@@ -416,6 +451,9 @@ CNFTBL:	LD	HL,CFGTBL
 ; NTWKBT - Called when CCP is reloaded from disk (warm boot)
 NTWKBT:	XOR	A
 	RET
+
+; NTWKER - Network error handler (device re-init if needed)
+NTWKER:	RET
 
 ; NTWKDN - Network shutdown
 ; Sends FNC=FEh to notify server

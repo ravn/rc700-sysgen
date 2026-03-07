@@ -52,11 +52,12 @@ protocols via `cpnet_proto=` config. This is the easiest server to use.
 ### Recommended approach
 
 **Phase 1: Switch SNIOS to DRI binary protocol**
-- [ ] Rewrite RC702 SNIOS to use DRI ENQ/ACK/SOH/STX/ETX/EOT framing
-- [ ] Use binary mode (no hex encoding) — 8-bit clean serial link
-- [ ] Simple two's complement checksum (saves ~80 bytes vs hex+CRC-16)
-- [ ] Keep FNC=FFh init and FNC=FEh shutdown (same across all protocols)
-- [ ] Update server.py to speak DRI binary protocol
+- [x] Rewrite RC702 SNIOS to use DRI ENQ/ACK/SOH/STX/ETX/EOT framing
+- [x] Use binary mode (no hex encoding) — 8-bit clean serial link
+- [x] Simple two's complement checksum (code is 32B larger due to retry/ACK)
+- [x] Keep FNC=FFh init and FNC=FEh shutdown (same across all protocols)
+- [x] Update server.py to speak DRI binary protocol
+- [x] Test with MAME (end-to-end validation)
 - [ ] Test with CpnetSerialServer.jar (`proto=DRI`) as alternative server
 
 **Phase 2: MP/M server via z80pack**

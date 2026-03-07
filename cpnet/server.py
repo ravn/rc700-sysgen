@@ -2,7 +2,7 @@
 """CP/NET server for RC702 over MAME null_modem TCP.
 
 Connects to MAME's null_modem serial port and serves CP/NET requests
-from the RC702 SNIOS using hex-encoded CRC-16 serial framing.
+from the RC702 SNIOS using the DRI binary serial protocol.
 
 Usage:
     python3 server.py [--host HOST] [--port PORT] [--drive-dir DIR] [--node NODE]
@@ -10,10 +10,10 @@ Usage:
 The server maps CP/NET network drives to host directories. By default,
 drive H: (network drive index 0) maps to the current directory.
 
-Protocol: hex-encoded CRC-16 serial framing
-  Frame: ++ HDR(5 bytes hex) DATA(SIZ+1 bytes hex) CRC(2 bytes hex) --
-  HDR:   FMT DID SID FNC SIZ
-  CRC:   CRC-16 (polynomial 0x8408, init 0xFFFF)
+Protocol: DRI binary serial framing
+  Send: ENQ → ACK → SOH HDR(5) HCS → ACK → STX DATA ETX CKS EOT → ACK
+  Recv: ENQ → ACK → SOH HDR(5) HCS → ACK → STX DATA ETX CKS EOT → ACK
+  Checksum: two's complement sum (0 - sum_of_bytes)
 """
 
 import argparse
@@ -61,35 +61,27 @@ FUNC_GET_SERVER_CFG = 71
 FUNC_NETWORK_INIT = 0xFF
 FUNC_NETWORK_DOWN = 0xFE
 
-# CRC-16 (polynomial 0x8408, init 0xFFFF)
-CRC_POLY = 0x8408
-CRC_INIT = 0xFFFF
+# DRI protocol control characters
+SOH = 0x01  # Start of Header
+STX = 0x02  # Start of Data
+ETX = 0x03  # End of Data
+EOT = 0x04  # End of Transmission
+ENQ = 0x05  # Enquire
+ACK = 0x06  # Acknowledge
+NAK = 0x15  # Negative Acknowledge
 
 
-def crc16(data, crc=CRC_INIT):
-    """Compute CRC-16 matching the Z80 SNIOS implementation."""
-    for byte in data:
-        for _ in range(8):
-            if (byte ^ crc) & 1:
-                crc = (crc >> 1) ^ CRC_POLY
-            else:
-                crc >>= 1
-            byte >>= 1
-    return crc & 0xFFFF
-
-
-def encode_hex(data):
-    """Encode bytes as uppercase ASCII hex string."""
-    return ''.join(f'{b:02X}' for b in data)
-
-
-def decode_hex(s):
-    """Decode ASCII hex string to bytes."""
-    return bytes(int(s[i:i+2], 16) for i in range(0, len(s), 2))
+def checksum(data, init=0):
+    """Compute two's complement checksum.
+    Returns the byte that makes the running sum zero."""
+    s = init
+    for b in data:
+        s = (s + b) & 0xFF
+    return (-s) & 0xFF
 
 
 class SerialConnection:
-    """Manages TCP connection to MAME null_modem."""
+    """Manages TCP connection to MAME null_modem using DRI binary protocol."""
 
     def __init__(self, host, port):
         self.host = host
@@ -118,93 +110,168 @@ class SerialConnection:
         except socket.timeout:
             return None
 
+    def recv_bytes(self, n, timeout=5.0):
+        """Receive exactly n bytes with timeout."""
+        result = bytearray()
+        for _ in range(n):
+            b = self.recv_byte(timeout)
+            if b is None:
+                return None
+            result.append(b)
+        return bytes(result)
+
     def send_frame(self, hdr, payload):
-        """Send a framed message: ++ header payload CRC --"""
-        # Build complete message for CRC
-        msg = bytes(hdr) + bytes(payload)
-        crc = crc16(msg)
+        """Send a DRI-framed message (server → client).
+        ENQ → wait ACK → SOH+header+HCS → wait ACK → STX+data+ETX+CKS+EOT → wait ACK"""
+        # Send ENQ
+        self.send_byte(ENQ)
 
-        # Encode and send
-        frame = '++'
-        frame += encode_hex(hdr)
-        frame += encode_hex(payload)
-        frame += encode_hex(bytes([crc & 0xFF, (crc >> 8) & 0xFF]))
-        frame += '--'
+        # Wait for ACK
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != ACK:
+            print(f"  No ACK after ENQ (got {b})")
+            return False
 
-        self.sock.sendall(frame.encode('ascii'))
+        # Send SOH + 5 header bytes
+        self.send_byte(SOH)
+        hcs = SOH
+        for byte in hdr[:5]:
+            self.send_byte(byte)
+            hcs = (hcs + byte) & 0xFF
+        # Send HCS (two's complement)
+        self.send_byte((-hcs) & 0xFF)
+
+        # Wait for ACK
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != ACK:
+            print(f"  No ACK after header (got {b})")
+            return False
+
+        # Send STX + data + ETX
+        self.send_byte(STX)
+        cks = STX
+        for byte in payload:
+            self.send_byte(byte)
+            cks = (cks + byte) & 0xFF
+        self.send_byte(ETX)
+        cks = (cks + ETX) & 0xFF
+        # Send CKS (two's complement)
+        cks_byte = (-cks) & 0xFF
+        self.send_byte(cks_byte)
+        # Account for CKS byte in the running sum for Net$out compatibility
+        # Actually, the DRI protocol sends CKS via Net$out which also updates D,
+        # but the receiver checks that the total sum is 0, so we just send the
+        # two's complement and then EOT.
+        self.send_byte(EOT)
+
+        # Wait for final ACK
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != ACK:
+            print(f"  No ACK after data (got {b})")
+            return False
+
+        return True
 
     def recv_frame(self):
-        """Receive a framed message. Returns (hdr, payload) or None."""
-        # Wait for "++" sync (no timeout — MAME connects at boot but
-        # CPNETLDR may not run until much later)
-        sync_count = 0
+        """Receive a DRI-framed message (client → server).
+        Wait for ENQ → send ACK → receive SOH+header+HCS → send ACK/NAK →
+        receive STX+data+ETX+CKS+EOT → send ACK/NAK.
+        Returns (hdr, payload) or None."""
+        # Wait for ENQ (no timeout — client may not send for a long time)
         byte_count = 0
-        while sync_count < 2:
+        while True:
             b = self.recv_byte(timeout=None)
             if b is None:
                 return None
             byte_count += 1
-            if byte_count <= 50 or b == ord('+'):
+            if b == ENQ:
+                break
+            if byte_count <= 50:
                 ch = chr(b) if 0x20 <= b < 0x7F else '.'
-                print(f"  rx[{byte_count}]: 0x{b:02X} '{ch}'")
+                print(f"  rx[{byte_count}]: 0x{b:02X} '{ch}' (waiting for ENQ)")
             elif byte_count == 51:
-                print(f"  ... (suppressing further non-sync bytes)")
-            if b == ord('+'):
-                sync_count += 1
-            else:
-                sync_count = 0
+                print(f"  ... (suppressing further non-ENQ bytes)")
 
-        # Receive hex-encoded header (5 bytes = 10 hex chars)
-        hex_chars = []
-        crc = CRC_INIT
+        # Got ENQ, send ACK
+        self.send_byte(ACK)
 
-        for _ in range(10):  # 5 header bytes × 2 hex chars
-            b = self.recv_byte()
-            if b is None:
-                return None
-            hex_chars.append(chr(b))
+        # Receive SOH
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != SOH:
+            print(f"  Expected SOH, got {b}")
+            return None
+        hcs = b & 0x7F  # Init HCS with SOH
 
-        hdr = decode_hex(''.join(hex_chars))
-        crc = crc16(hdr, crc)
+        # Receive 5 header bytes
+        hdr_data = self.recv_bytes(5, timeout=5.0)
+        if hdr_data is None:
+            print("  Timeout receiving header")
+            return None
+        for byte in hdr_data:
+            hcs = (hcs + byte) & 0xFF
 
-        # SIZ is header byte 4 (0-based count, 0 means 1 byte)
-        siz = hdr[4]
-        payload_len = siz + 1
-
-        # Receive hex-encoded payload
-        hex_chars = []
-        for _ in range(payload_len * 2):
-            b = self.recv_byte()
-            if b is None:
-                return None
-            hex_chars.append(chr(b))
-
-        payload = decode_hex(''.join(hex_chars))
-        crc = crc16(payload, crc)
-
-        # Receive CRC (2 bytes = 4 hex chars)
-        hex_chars = []
-        for _ in range(4):
-            b = self.recv_byte()
-            if b is None:
-                return None
-            hex_chars.append(chr(b))
-
-        recv_crc = decode_hex(''.join(hex_chars))
-        crc = crc16(recv_crc, crc)
-
-        if crc != 0:
-            print(f"CRC error! Computed: {crc:04X}")
+        # Receive HCS
+        b = self.recv_byte(timeout=5.0)
+        if b is None:
+            print("  Timeout receiving HCS")
+            return None
+        hcs = (hcs + b) & 0xFF
+        if hcs != 0:
+            print(f"  Header checksum error: {hcs:02X}")
+            self.send_byte(NAK)
             return None
 
-        # Receive "--" end-of-message
-        for expected in ['-', '-']:
-            b = self.recv_byte()
-            if b is None or chr(b) != expected:
-                print(f"Missing end-of-message marker")
-                return None
+        # Header OK, send ACK
+        self.send_byte(ACK)
 
-        return (hdr, payload)
+        # Receive STX
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != STX:
+            print(f"  Expected STX, got {b}")
+            return None
+        cks = b & 0x7F  # Init CKS with STX
+
+        # Get payload length from SIZ field (header byte 4)
+        siz = hdr_data[4]
+        payload_len = siz + 1  # 0 means 1 byte
+
+        # Receive data bytes
+        payload = self.recv_bytes(payload_len, timeout=5.0)
+        if payload is None:
+            print("  Timeout receiving payload")
+            return None
+        for byte in payload:
+            cks = (cks + byte) & 0xFF
+
+        # Receive ETX
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != ETX:
+            print(f"  Expected ETX, got {b}")
+            return None
+        cks = (cks + (b & 0x7F)) & 0xFF
+
+        # Receive CKS
+        b = self.recv_byte(timeout=5.0)
+        if b is None:
+            print("  Timeout receiving CKS")
+            return None
+        cks = (cks + b) & 0xFF
+
+        # Receive EOT
+        b = self.recv_byte(timeout=5.0)
+        if b is None or (b & 0x7F) != EOT:
+            print(f"  Expected EOT, got {b}")
+            return None
+
+        # Verify checksum
+        if cks != 0:
+            print(f"  Data checksum error: {cks:02X}")
+            self.send_byte(NAK)
+            return None
+
+        # All OK, send ACK
+        self.send_byte(ACK)
+        return (hdr_data, payload)
 
     def close(self):
         if self.sock:
@@ -1021,7 +1088,7 @@ def main():
         for i in range(16):
             drive_dirs[i] = os.getcwd()
 
-    print("CP/NET server for RC702")
+    print("CP/NET server for RC702 (DRI binary protocol)")
     print(f"Drive mappings:")
     for idx in sorted(drive_dirs):
         print(f"  {chr(ord('A') + idx)}: → {drive_dirs[idx]}")
