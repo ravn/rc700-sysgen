@@ -254,7 +254,7 @@ MAME_ARGS=(
     -flop "$WORK_IMAGE"
     -rs232a null_modem
     -bitb "socket.localhost:${SERIAL_PORT}"
-    -skip_gameinfo -window -nomaximize
+    -skip_gameinfo -window -nomaximize -resolution0 1100x720
     -autoboot_script "$LUA_SCRIPT"
 )
 
