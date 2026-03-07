@@ -63,11 +63,18 @@
 - **2026-03-03**: Ring buffer optimization: register-cached TAIL, parametric size
 - **2026-03-03**: SCROLL optimization: unrolled LDIR into 16-wide LDI loop (20% faster)
 
-## Phase 8: CP/NET Implementation (Mar 6, 2026)
-- **2026-03-06**: CP/NET test infrastructure with --inject and --serial-transfer modes
-- **2026-03-06**: CP/NET server: BDOS function handlers (F14-F23, F28, F30, F33-F35, F39, F40, F70)
-- **2026-03-06**: File transfer proven: 204KB, 1600 records, zero packet loss at 38400 baud
-- **2026-03-06**: SNIOS hex-encoded CRC-16 protocol working
+## Phase 8: CP/NET Implementation (Mar 4-6, 2026)
+- **2026-03-04**: SNIOS.SPR written (1280B Z80 assembly): hex-encoded CRC-16 serial framing
+- **2026-03-04**: Python CP/NET server: BDOS F13-F40, F64-F65, F70-F71 over TCP
+- **2026-03-04**: SPR relocatable format implemented (dual-assembly bitmap technique)
+- **2026-03-04**: File transfer validated: 204KB BIGFILE.DAT, 1600 records, zero packet loss
+- **2026-03-06**: Automated test suite: autotest.lua (MAME Lua) + run_test.sh orchestrator
+- **2026-03-06**: imd_cpmfs.py: CP/M file injector for IMD disk images
+- **2026-03-06**: Server expanded: F28/F30/F33-F35/F40 handlers added
+- **Key decision**: Custom hex-encoded CRC-16 protocol (from cpnet-z80 serial SNIOS)
+  over DRI's original ENQ/ACK protocol — simpler, proven in other Z80 implementations
+- **Key decision**: BIOS READER/PUNCH entry points for I/O (not direct SIO access)
+  — simpler SNIOS, ring buffer handled by BIOS ISR
 
 ## Phase 9: RC702E Modular Source (Mar 7, 2026)
 - **2026-03-07**: RC702E BIOS split into modular source files (current branch: rc702e-modular)
@@ -84,6 +91,9 @@
 | Conditional assembly | Single source tree for 5 BIOS variants (src/) |
 | Separate source trees | 58K, RC703, RC702E too different for conditional assembly |
 | Ring buffers in REL30 | Enable reliable serial at 38400 baud for CP/NET |
+| BIOS entry points for SNIOS | Simpler than direct SIO access, ring buffer in BIOS ISR |
+| Hex-encoded CRC-16 protocol | Proven in cpnet-z80, simpler than DRI ENQ/ACK |
+| Python CP/NET server | Quick iteration, handles all BDOS functions over TCP |
 | verify_bios.py approach | Compares code bytes only, ignoring runtime-modified variables |
 | patch_bios.py | Direct IMD patching avoids SYSGEN round-trip |
 
@@ -97,3 +107,10 @@
 | imd2raw.py | Extract raw Track 0 from IMD images |
 | bin2imd.py | Convert raw BIN to IMD format (mini, maxi, RC703) |
 | run_mame.sh | Automated build+patch+launch cycle for MAME testing |
+| imd_cpmfs.py | Inject files into CP/M IMD disk images |
+| build_snios.py | Build SNIOS.SPR with relocation bitmap |
+| server.py | Python CP/NET server (BDOS emulation over TCP) |
+| autotest.lua | MAME Lua test automation for CP/NET |
+| run_test.sh | Full CP/NET test orchestration |
+| chksum.asm | CP/M file checksum utility (16-bit sum) |
+| bin2ihex.py | Binary to Intel HEX converter for serial transfer |
