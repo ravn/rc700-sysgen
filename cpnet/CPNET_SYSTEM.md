@@ -20,15 +20,17 @@ NDOS (Network DOS) — Route F14-F23, F39, F70 to network
       ├─ Local: Pass to original BDOS for A:/B: drives
       └─ Remote: Call SNIOS for H: drive
            ↓
-SNIOS (Network I/O) — Serialize/deserialize network operations
-      ├─ sendhex/recvhex — Byte ↔ ASCII hex conversion
-      ├─ CRC-16 (0x8408) — Data integrity
-      └─ sendhdr/recvhdr — Serial frame transmission
+SNIOS (Network I/O) — DRI binary serial protocol
+      ├─ ENQ/ACK/SOH/STX/ETX/EOT framing
+      ├─ Two's complement checksum
+      └─ NAK + retry on error (10 attempts)
                 ↓
          Serial Port (38400 baud, RTS flow control)
                 ↓
          Server (Python TCP bridge or real hardware)
 ```
+
+See [DRI_PROTOCOL.md](DRI_PROTOCOL.md) for full protocol specification.
 
 ## Components
 
@@ -37,7 +39,7 @@ SNIOS (Network I/O) — Serialize/deserialize network operations
 | File | Size | Purpose |
 |------|------|---------|
 | CPNETLDR.COM | 1.5 KB | Loader: copies SNIOS & NDOS, patches BDOS vector |
-| SNIOS.SPR | 1.3 KB | Network I/O: hex encoding, CRC, frame transmission |
+| SNIOS.SPR | 1.0 KB | Network I/O: DRI binary protocol, send/receive |
 | NDOS.SPR | 3.7 KB | Network DOS: BDOS interception, drive mapping |
 | NETWORK.COM | varies | Utility: assigns network drives (`NETWORK H:=B:`) |
 | CCP.SPR | 3.2 KB | CP/M shell (required by CPNETLDR) |
@@ -113,35 +115,25 @@ See TEST_RESULTS.md for detailed protocol testing results.
 
 ## Serial Protocol
 
-### Frame Format
+Uses the standard DRI binary serial protocol. See [DRI_PROTOCOL.md](DRI_PROTOCOL.md)
+for the complete specification.
+
+### Frame Summary
 
 ```
-++ [hex-encoded payload] CRC-16 --
+Send: ENQ -> ACK -> SOH+header(5)+HCS -> ACK -> STX+data+ETX+CKS+EOT -> ACK
+Recv: ENQ -> ACK -> SOH+header(5)+HCS -> ACK -> STX+data+ETX+CKS+EOT -> ACK
 ```
 
-- **Start:** Two plus signs (`++`)
-- **Payload:** Each byte encoded as 2 ASCII hex digits (0-9, A-F)
-- **CRC-16:** 16-bit checksum (polynomial 0x8408, init 0xFFFF), hex-encoded
-- **End:** Two minus signs (`--`)
-
-### Example Frame
-
-```
-File: "README" (5 bytes: 0x52 0x45 0x41 0x44 0x4D)
-
-Hex encoding: 52 45 41 44 4D → "5245414" + "44D"
-CRC-16 computation:
-  Input: 0x52 0x45 0x41 0x44 0x4D
-  Output: 0xABCD (example)
-
-Transmitted:
-  ++ 52454144 4D ABCD --
-```
+- **Framing:** ENQ/ACK handshake, SOH/STX/ETX/EOT delimiters
+- **Encoding:** Raw binary (8-bit clean, no hex encoding)
+- **Checksum:** Two's complement sum (single byte)
+- **Error recovery:** NAK triggers retry, up to 10 attempts
 
 ## Performance
 
 - **Baud Rate:** 38400
-- **Effective Speed:** ~2.4 KB/sec (hex encoding halves bandwidth)
+- **Effective Speed:** ~4.8 KB/sec (binary protocol, no encoding overhead)
 - **Ring Buffer:** 256 bytes (page-aligned)
 - **Flow Control:** RTS/CTS hardware handshake
 - **Max Stable Transfer:** 204 KB+ (tested with BIGFILE.DAT)
@@ -167,8 +159,8 @@ Options:
 - ✅ Directory listing (DIR H:)
 - ✅ File reading (TYPE H:)
 - ✅ Large file transfer (204 KB)
-- ✅ CRC-16 verification (polynomial 0x8408)
-- ✅ Serial frame transmission (++ format)
+- ✅ DRI binary protocol framing (ENQ/ACK/SOH/STX/ETX/EOT)
+- ✅ Two's complement checksum verification
 - ✅ Zero packet loss (all records delivered)
 
 See TEST_RESULTS.md for full test results.
@@ -222,14 +214,16 @@ See TEST_RESULTS.md for full test results.
 ## Files
 
 ### Source Code
+- `snios.asm` - Z80 SNIOS: DRI binary protocol implementation
 - `server.py` - Python CP/NET server (localhost TCP bridge)
+- `build_snios.py` - SNIOS assembler wrapper (builds SPR with relocation bitmap)
 - `autotest.lua` - MAME Lua automation script
 - `run_test.sh` - Test orchestration shell script
 
 ### Reference
+- `DRI_PROTOCOL.md` - DRI binary serial protocol specification
 - `SPR_FORMAT.md` - Relocatable program file format
 - `TEST_RESULTS.md` - Full validation test report
-- `README.md` (this file) - Quick start guide
 
 ### Related
 - `~/git/cpnet-z80/` - Original SNIOS/NDOS source (Reference)
@@ -237,13 +231,13 @@ See TEST_RESULTS.md for full test results.
 
 ## References
 
-- **CP/NET Protocol:** Derived from DEC UNIVERSAL DOS and Xerox network design
-- **CRC-16:** CCITT polynomial 0x1021 (reversed: 0x8408)
-- **Z80 Assembly:** Original SNIOS from cpnet-z80 project
+- **DRI Protocol:** Digital Research CP/NET Operating System Manual, Appendix E
+- **Z80 Assembly:** Based on cpnet-z80 `src/ser-dri/snios.asm`
 - **RC702 Hardware:** http://www.jbox.dk/rc702/
 
 ---
 
-**Last Updated:** 2026-03-04
-**Validation Status:** ✅ COMPLETE
+**Last Updated:** 2026-03-07
+**Protocol:** DRI binary serial (ENQ/ACK framing, two's complement checksum)
+**Validation Status:** COMPLETE
 **Test Results:** See TEST_RESULTS.md

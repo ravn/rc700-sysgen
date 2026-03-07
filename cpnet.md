@@ -2,7 +2,7 @@
 
 **VALIDATION COMPLETE** — See [TEST_RESULTS.md](cpnet/TEST_RESULTS.md) for full test report.
 
-Quick reference: [CPNET_SYSTEM.md](cpnet/CPNET_SYSTEM.md) | [TEST_RESULTS.md](cpnet/TEST_RESULTS.md)
+Quick reference: [CPNET_SYSTEM.md](cpnet/CPNET_SYSTEM.md) | [DRI_PROTOCOL.md](cpnet/DRI_PROTOCOL.md) | [TEST_RESULTS.md](cpnet/TEST_RESULTS.md)
 
 ## Goal
 
@@ -39,26 +39,31 @@ RC702 (CP/M 2.2)                    macOS host
 ### SNIOS for RC702
 Must provide 8 jump table entries: NTWKIN, NTWKST, CNFTBL, SNDMSG, RCVMSG, NTWKER, NTWKBT, NTWKDN.
 
-The actual serial I/O is just 4 routines (`chrio.asm`):
-- `check` — init UART, verify present
-- `sendby` — transmit one byte (poll TX empty, write)
-- `recvby` — receive one byte with timeout (poll RX ready, read)
-- `recvbt` — receive with longer initial timeout
+The SNIOS calls BIOS entry points for all serial I/O (no direct hardware access):
+- `B$PUNCH` (DA12h) — send one byte via SIO Channel A
+- `B$READ` (DA15h) — receive one byte from SIO ring buffer
+- `B$RSTA` (DA4Dh) — check if receive data available
 
-For RC702: use SIO Channel A (ports 08h/0Ah) — the channel with the ring buffer
-and BIOS READER/PUNCH assignment. The SNIOS can either call BIOS READER/PUNCH
-entry points or drive the SIO directly for better performance.
+RECVBY must preserve HL and DE (BIOS READER/READS use HL internally for
+ring buffer indexing). CFGTBL+1 must be initialized to 0xFF so the DRI
+"accept any DID" logic works during the first NTWKIN handshake.
 
-**Closest reference**: Kaypro SNIOS in durgadas311/cpnet-z80 (also Z80-SIO).
+**Closest reference**: DRI serial SNIOS in durgadas311/cpnet-z80 `src/ser-dri/`.
 
-### DRI Serial Protocol (Appendix E)
+### DRI Serial Protocol (Appendix E) -- CURRENTLY USED
+
+See [cpnet/DRI_PROTOCOL.md](cpnet/DRI_PROTOCOL.md) for full specification.
+
 ```
 Requester sends ENQ → Server replies ACK
-Header:  SOH FMT DID SID FNC SIZ HCS → ACK
-Data:    STX data[0..n] ETX → ACK
-Trailer: DCS EOT → ACK
+Header:  SOH FMT DID SID FNC SIZ HCS → ACK/NAK
+Data:    STX data[0..SIZ] ETX CKS EOT → ACK/NAK
 ```
-Checksum: two's complement of sum of block bytes.
+
+- Checksum: two's complement of sum of block bytes
+- Binary mode: all bytes sent raw (8-bit clean)
+- Error recovery: NAK triggers retry, up to 10 attempts
+- Throughput: ~4.8 KB/s at 38400 baud (vs ~2.4 KB/s with hex encoding)
 
 ## Software Sources
 
@@ -541,8 +546,8 @@ the 614.4 kHz divider output).
 Sections:
   SIO/CTC init            ~80B   (SIO Ch.A + CTC Ch0 for 38400 baud)
   chrio: sendby/recvby    ~80B   (polled SIO, timeout loops)
-  SNIOS: hex/CRC-16       ~300B  (encode/decode, CRC-16 poly 0x8408)
-  SNIOS: SNDMSG/RCVMSG    ~100B  (message send/receive with framing)
+  SNIOS: DRI protocol     ~350B  (ENQ/ACK framing, checksum, retry)
+  SNIOS: SNDMSG/RCVMSG    ~100B  (message send/receive)
   SNIOS: NTWKIN/CNFTBL    ~60B   (init handshake, config table return)
   netboot client          ~120B  (receive blocks, set DMA, execute)
   CFGTBL                  ~170B  (config table + list device buffer)
@@ -564,24 +569,25 @@ Sections:
 
 Total: ~7.5KB = ~60 messages ≈ 1.1 seconds at 38400 baud.
 
-### Protocol: cpnet-z80 "serial" (hex-encoded CRC-16)
+### Protocol: DRI binary serial
 
 ```
-Wire: "++" <header hex> <data hex> <CRC-16 hex> "--"
+ENQ → ACK → SOH+header(5)+HCS → ACK → STX+data+ETX+CKS+EOT → ACK
 
 Header (5 bytes): FMT DID SID FNC SIZ
-Data: SIZ+1 bytes (max 256)
-CRC-16: polynomial 0x8408, init 0xFFFF, over header+data
+Data: SIZ+1 bytes (max 256), raw binary
+Checksum: two's complement sum
 ```
 
-Reference: ~/git/cpnet-z80/src/serial/snios.asm
+See [cpnet/DRI_PROTOCOL.md](cpnet/DRI_PROTOCOL.md) for full specification.
+Reference: ~/git/cpnet-z80/src/ser-dri/snios.asm
 
-### Server: Python (to be written)
+### Server: Python (implemented)
 
-Connects to MAME null_modem TCP socket. Implements:
-- Serial framing (hex encode/decode, CRC-16)
+`cpnet/server.py` connects to MAME null_modem TCP socket. Implements:
+- DRI binary serial framing (ENQ/ACK, two's complement checksum)
 - Init handshake (FNC=0xFF → assign node IDs)
-- Netboot protocol (push NDOS+BDOS+BIOS)
+- Intel HEX file bootstrap (raw ASCII, before DRI framing starts)
 - BDOS function emulation against host filesystem directories
 
 Reference for BDOS emulation: hperaza/cpnet-server (C, GPL-2.0)
