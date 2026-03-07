@@ -409,48 +409,80 @@ CONVTA:
 	ORG	0F800H
 DSPSTR:
 	DS	2000		; 0xF800-0xFFCF: DISPLAY REFRESH MEMORY (80x25)
+				; Intel 8275 CRT buffer. Init to 0x20 (space).
 	DS	1		; 0xFFD0: unused (first byte after display RAM)
+;
+; ---- Display state (cursor, addressing) ----
+;
 CCTAD:
-	DS	1		; 0xFFD1: COLUMN COUNT
+	DS	1		; 0xFFD1: cursor column (0-79)
 RCTAD:
-	DS	2		; 0xFFD2: ROW COUNT (word)
+	DS	2		; 0xFFD2: cursor row as byte offset into DSPSTR
+				; (0, 80, 160, ... 1920 for rows 0-24)
 CURSY:
-	DS	1		; 0xFFD4: CURSOR Y POSITION
+	DS	1		; 0xFFD4: cursor row number (0-24), sent to 8275
+				; cursor position register
 LOCBUF:
-	DS	2		; 0xFFD5: DISPLAY BUFFER LOCATION (word)
+	DS	2		; 0xFFD5: line-fill pointer, set to DSPSTR+row
+				; during scroll, DELETE_LINE, INSERT_LINE
 XFLG:
-	DS	1		; 0xFFD7: XY ADDRESSING MODE FLAG
+	DS	1		; 0xFFD7: ESC = XY addressing state machine
+				; (0=inactive, 2=awaiting 1st coord, 1=awaiting 2nd;
+				; decremented as each coordinate byte arrives)
 LOCAD:
-	DS	2		; 0xFFD8: LOCATION OF CHAR (word)
+	DS	2		; 0xFFD8: character offset into DSPSTR (RCTAD+CCTAD),
+				; used for BGSTAR bit position calculation
 USHER:
-	DS	1		; 0xFFDA: OUTPUT CHARACTER POSITION
+	DS	1		; 0xFFDA: character being processed by CONOUT,
+				; stored for access by XYADD/DISPL/SPECC subroutines
+;
+; ---- Background bitmap state (ESC S/F/C selective clear) ----
+;
 BGFLG:
-	DS	1		; 0xFFDB: BACKGROUND FLAG (0=after clear, 1=after set fg, 2=after set bg)
-				; Tracks mode for selective-clear via ESC C (clears only positions marked
-				; in the BGSTAR bitmap during background mode)
+	DS	1		; 0xFFDB: background mode flag
+				; 0=off (after clear-screen), 1=foreground (ESC F),
+				; 2=background (ESC S). In mode 2 each output char
+				; sets a bit in BGSTAR; ESC C clears only those positions.
 LOCBBU:
-	DS	2		; 0xFFDC: POINTER INTO BGSTAR BITMAP (word)
+	DS	2		; 0xFFDC: pointer into BGSTAR bitmap,
+				; updated during scroll/insert/delete line
+;
+; ---- XY addressing scratch ----
+;
 ADR0:
-	DS	1		; 0xFFDE: FIRST BYTE OF ADDRESS IN XY ADDRESSING
+	DS	1		; 0xFFDE: first coordinate byte of ESC = Y X sequence
+				; (raw value minus 0x20 CP/M offset; range 0-63)
+;
+; ---- Timers (all decremented by CTC ch.2 interrupt handler) ----
+;
 EXCNT0:
-	DS	2		; 0xFFDF: EXIT ROUTINE 0 COUNT (word)
+	DS	2		; 0xFFDF: exit routine timer — when it reaches 0,
+				; calls the JP at EXROUT. Set by EXIT in CPMBOOT
+				; for application-defined timeouts.
 EXCNT1:
-	DS	2		; 0xFFE1: EXIT ROUTINE 1 COUNT (word)
+	DS	2		; 0xFFE1: floppy motor-off timer — when it reaches 0,
+				; calls FDSTOP. Reloaded from FDTIMO by FDSTAR.
 DELCNT:
-	DS	2		; 0xFFE3: DELAY COUNT (word)
+	DS	2		; 0xFFE3: general delay timer — WAITD in floppy driver
+				; loads this and spins until the ISR decrements it to 0.
 EXROUT:
-	DS	2		; 0xFFE5: JMP TO EXIT ROUTINE 1 (word)
+	DS	2		; 0xFFE5: exit routine JP target address,
+				; called when EXCNT0 expires. Set by EXIT in CPMBOOT.
 FDTIMO:
-	DS	1		; 0xFFE7: LOAD VALUE OF EXCNT1
+	DS	1		; 0xFFE7: motor-off reload value, loaded once at boot
+				; from STPTIM parameter. FDSTAR copies this to EXCNT1.
 	DS	20		; 0xFFE8-0xFFFB: unused
+;
+; ---- Real-time clock (4-byte counter, incremented by CTC ch.2 ISR) ----
+;
 RTC0:
-	DS	1		; 0xFFFC: REAL TIME CLOCK BYTE 0
+	DS	1		; 0xFFFC: RTC byte 0 (LSB, fastest)
 RTC1:
-	DS	1		; 0xFFFD: REAL TIME CLOCK BYTE 1
+	DS	1		; 0xFFFD: RTC byte 1
 RTC2:
-	DS	1		; 0xFFFE: REAL TIME CLOCK BYTE 2
+	DS	1		; 0xFFFE: RTC byte 2
 RTC3:
-	DS	1		; 0xFFFF: REAL TIME CLOCK BYTE 3
+	DS	1		; 0xFFFF: RTC byte 3 (MSB, slowest)
 
 END
 
