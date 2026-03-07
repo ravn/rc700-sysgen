@@ -57,6 +57,7 @@ and byte counts.
 
 ## Parked (not working on now)
 - [ ] 58K rel.1.4: 4 ISR-specific auto-labels remain in BIOS_58K_14.MAC (sub_e43dh, lee8ah, lee8bh, lf421h)
+- [ ] VERIFY.COM disassembly: Pascal-compiled disk verification utility (10KB). VERIFY.MAC in RC702E BIOS is a related but separate compilation (4KB app block, missing runtime). Low value — compiler output won't produce readable source.
 
 ## Verification Status (13 targets) — all MATCH
 | # | Target | Source | Status |
