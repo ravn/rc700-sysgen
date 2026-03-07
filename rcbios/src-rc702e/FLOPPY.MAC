@@ -1,0 +1,707 @@
+	IFDEF	REL201
+	ld hl,(TIMER2)		;e135
+	ld a,l			;e138
+	or h			;e139
+	jr z,le145h		;e13a
+	dec hl			;e13c
+	ld a,l			;e13d
+	or h			;e13e
+	ld (TIMER2),hl		;e13f
+	call z,sub_e54fh	;e142
+le145h:
+	ld hl,(0ffech)		;e145
+	ld a,l			;e148
+	or h			;e149
+	jr z,le169h		;e14a
+	dec hl			;e14c
+	ld a,l			;e14d
+	or h			;e14e
+	ld (0ffech),hl		;e14f
+	jr nz,le169h		;e152
+	ld a,(SCREENBUF)	;e154
+	ld (0f4d6h),a		;e157
+	ld a,0f3h		;e15a
+	ld (SCREENBUF),a	;e15c
+	ld a,080h		;e15f
+	out (001h),a		;e161
+	ld a,020h		;e163
+	out (000h),a		;e165
+	out (000h),a		;e167
+le169h:
+	ld hl,0f4e8h		;e169
+	dec (hl)		;e16c
+	jr nz,le197h		;e16d
+	ld (hl),032h		;e16f
+	dec hl			;e171
+	ld b,002h		;e172
+	dec hl			;e174
+le175h:
+	dec hl			;e175
+	inc (hl)		;e176
+	call SELDSK_PRE		;e177
+	jr nz,le197h		;e17a
+	dec b			;e17c
+	jr nz,le175h		;e17d
+	dec hl			;e17f
+	inc (hl)		;e180
+	call SELDSK_PRE		;e181
+	ld hl,0f4deh		;e184
+	ld a,(hl)		;e187
+	cp 032h			;e188
+	jr nz,le197h		;e18a
+	inc hl			;e18c
+	ld a,(hl)		;e18d
+	cp 034h			;e18e
+	jr nz,le197h		;e190
+	ld (hl),030h		;e192
+	dec hl			;e194
+	ld (hl),030h		;e195
+le197h:
+	ld hl,0f4e7h		;e197
+	ld a,(hl)		;e19a
+	or a			;e19b
+	jr nz,le1a7h		;e19c
+	dec hl			;e19e
+	ld bc,0000ch		;e19f
+	ld de,0f84fh		;e1a2
+	lddr			;e1a5
+le1a7h:
+	ld hl,(WARMJP)		;e1a7
+	ld a,l			;e1aa
+	or h			;e1ab
+	jr z,le1b2h		;e1ac
+	dec hl			;e1ae
+	ld (WARMJP),hl		;e1af
+le1b2h:
+	ld hl,0f4d8h		;e1b2
+	ld a,(hl)		;e1b5
+	or a			;e1b6
+	jr z,le1bah		;e1b7
+	dec (hl)		;e1b9
+le1bah:
+	pop hl			;e1ba
+	pop de			;e1bb
+	pop bc			;e1bc
+	pop af			;e1bd
+	ld sp,(0f4b2h)		;e1be
+	ei			;e1c2
+	reti			;e1c3
+SELDSK_PRE:
+	ld a,(hl)		;e1c5
+	cp 03ah			;e1c6
+	ret nz			;e1c8
+	ld (hl),030h		;e1c9
+	dec hl			;e1cb
+	inc (hl)		;e1cc
+	ld a,(hl)		;e1cd
+	cp 036h			;e1ce
+	ret nz			;e1d0
+	ld (hl),030h		;e1d1
+	dec hl			;e1d3
+	ret			;e1d4
+SELDSK:
+	ld hl,00000h		;e1d5
+	add hl,sp		;e1d8
+	ld sp,0f586h		;e1d9
+	push hl			;e1dc
+	ld de,00000h		;e1dd
+	ld a,c			;e1e0
+	cp 004h			;e1e1
+	jp nc,SELDSK_RET	;e1e3
+	ld hl,lda73h		;e1e6
+	ld b,000h		;e1e9
+	add hl,bc		;e1eb
+	ld c,(hl)		;e1ec
+	ld hl,lda37h		;e1ed
+	add hl,bc		;e1f0
+	ld a,(hl)		;e1f1
+	cp 0ffh			;e1f2
+	jp z,SELDSK_RET		;e1f4
+	ld a,c			;e1f7
+	ld (0f482h),a		;e1f8
+	ld bc,00010h		;e1fb
+	ld de,lda37h		;e1fe
+	ld hl,00000h		;e201
+le204h:
+	or a			;e204
+	jr z,le20ch		;e205
+	inc de			;e207
+	add hl,bc		;e208
+	dec a			;e209
+	jr le204h		;e20a
+le20ch:
+	ld c,l			;e20c
+	ld b,h			;e20d
+	ex de,hl		;e20e
+	push bc			;e20f
+	push hl			;e210
+	ld a,(hl)		;e211
+	push af			;e212
+	ld a,(0f492h)		;e213
+	or a			;e216
+	call nz,DISKRD		;e217
+	xor a			;e21a
+	ld (0f492h),a		;e21b
+	pop af			;e21e
+	ld (0f4a2h),a		;e21f
+	pop hl			;e222
+	ld bc,00008h		;e223
+	add hl,bc		;e226
+	ld a,(hl)		;e227
+	and 003h		;e228
+	or 080h			;e22a
+	ld (0f4c8h),a		;e22c
+	ld a,(hl)		;e22f
+	or 00fh			;e230
+	ld b,a			;e232
+	ld a,003h		;e233
+	out (005h),a		;e235
+	call FDCRECAL		;e237
+	ld a,b			;e23a
+	out (005h),a		;e23b
+	call FDCRECAL		;e23d
+	ld a,028h		;e240
+	out (005h),a		;e242
+	call SELDSK_DPB		;e244
+	ld (0f4a0h),hl		;e247
+	inc hl			;e24a
+	inc hl			;e24b
+	inc hl			;e24c
+	inc hl			;e24d
+	ld a,(hl)		;e24e
+	ld (0f4a3h),a		;e24f
+	ld a,(0f4a2h)		;e252
+	and 0f8h		;e255
+	or a			;e257
+	rla			;e258
+	ld e,a			;e259
+	ld d,000h		;e25a
+	ld hl,le820h		;e25c
+	add hl,de		;e25f
+	ld de,0f4b7h		;e260
+	ld bc,00010h		;e263
+	ldir			;e266
+	ld hl,(0f4b7h)		;e268
+	ld bc,0000dh		;e26b
+	add hl,bc		;e26e
+	ex de,hl		;e26f
+	ld hl,le816h		;e270
+	ld b,000h		;e273
+	ld a,(0f482h)		;e275
+	ld c,a			;e278
+	add hl,bc		;e279
+	add hl,bc		;e27a
+	ld bc,00002h		;e27b
+	ldir			;e27e
+	pop bc			;e280
+	ld hl,le9b8h		;e281
+	add hl,bc		;e284
+	ex de,hl		;e285
+	ld hl,0000ah		;e286
+	add hl,de		;e289
+	ex de,hl		;e28a
+	ld a,(0f4b7h)		;e28b
+	ld (de),a		;e28e
+	inc de			;e28f
+	ld a,(0f4b8h)		;e290
+	ld (de),a		;e293
+	push hl			;e294
+	ld hl,0f4b6h		;e295
+	ld a,(0f482h)		;e298
+	ld (hl),0ffh		;e29b
+	cp 004h			;e29d
+	jr z,le2a2h		;e29f
+	inc (hl)		;e2a1
+le2a2h:
+	pop de			;e2a2
+SELDSK_RET:
+	pop hl			;e2a3
+	ld sp,hl		;e2a4
+	ex de,hl		;e2a5
+	ret			;e2a6
+SELDSK_DPB:
+	ld hl,le931h		;e2a7
+	ld a,(0f4a2h)		;e2aa
+	and 0f8h		;e2ad
+	ld e,a			;e2af
+	ld d,000h		;e2b0
+	add hl,de		;e2b2
+	ret			;e2b3
+SETTRK:
+	ld (0f483h),bc		;e2b4
+	ret			;e2b8
+SETSEC:
+	ld (0f485h),bc		;e2b9
+	ret			;e2bd
+SETDMA:
+	ld (0f49eh),bc		;e2be
+	ret			;e2c2
+SECTRAN:
+	ld h,b			;e2c3
+	ld l,c			;e2c4
+	ret			;e2c5
+READ:
+	xor a			;e2c6
+	ld (0f493h),a		;e2c7
+	ld a,001h		;e2ca
+	ld (0f49ch),a		;e2cc
+	ld (0f49bh),a		;e2cf
+	ld a,003h		;e2d2
+	ld (0f49dh),a		;e2d4
+	jp DISKIO		;e2d7
+WRITE:
+	xor a			;e2da
+	ld (0f49ch),a		;e2db
+	ld a,c			;e2de
+	ld (0f49dh),a		;e2df
+	cp 003h			;e2e2
+	jr nz,le2feh		;e2e4
+	ld a,(0f4b9h)		;e2e6
+	ld (0f493h),a		;e2e9
+	ld a,(0f482h)		;e2ec
+	ld (0f494h),a		;e2ef
+	ld hl,(0f483h)		;e2f2
+	ld (0f495h),hl		;e2f5
+	ld hl,(0f485h)		;e2f8
+	ld (0f497h),hl		;e2fb
+le2feh:
+	ld a,(0f493h)		;e2fe
+	or a			;e301
+	jr z,le35ch		;e302
+	dec a			;e304
+	ld (0f493h),a		;e305
+	ld a,(0f482h)		;e308
+	ld hl,0f494h		;e30b
+	cp (hl)			;e30e
+	jr nz,le35ch		;e30f
+	ld hl,0f495h		;e311
+	ld a,(0f483h)		;e314
+	cp (hl)			;e317
+	jr nz,le35ch		;e318
+	ld a,(0f485h)		;e31a
+	ld hl,0f497h		;e31d
+	cp (hl)			;e320
+	jr nz,le35ch		;e321
+	ld hl,(0f497h)		;e323
+	inc hl			;e326
+	ld (0f497h),hl		;e327
+	ex de,hl		;e32a
+	ld hl,0f4bah		;e32b
+	push bc			;e32e
+	ld c,(hl)		;e32f
+	inc hl			;e330
+	ld b,(hl)		;e331
+	ex de,hl		;e332
+	and a			;e333
+	sbc hl,bc		;e334
+	pop bc			;e336
+	jr c,le346h		;e337
+	ld hl,00000h		;e339
+	ld (0f497h),hl		;e33c
+	ld hl,(0f495h)		;e33f
+	inc hl			;e342
+	ld (0f495h),hl		;e343
+le346h:
+	xor a			;e346
+	ld (0f49bh),a		;e347
+	ld a,(0f485h)		;e34a
+	ld hl,0f4bch		;e34d
+	and (hl)		;e350
+	cp (hl)			;e351
+	ld a,000h		;e352
+	jr nz,le357h		;e354
+	inc a			;e356
+le357h:
+	ld (0f499h),a		;e357
+	jr DISKIO		;e35a
+le35ch:
+	xor a			;e35c
+	ld (0f493h),a		;e35d
+	ld a,(0f4bch)		;e360
+	ld (0f49bh),a		;e363
+DISKIO:
+	ld hl,00000h		;e366
+	add hl,sp		;e369
+	ld sp,0f586h		;e36a
+	push hl			;e36d
+	ld a,(0f4bdh)		;e36e
+	ld b,a			;e371
+	ld hl,(0f485h)		;e372
+le375h:
+	dec b			;e375
+	jr z,le37eh		;e376
+	srl h			;e378
+	rr l			;e37a
+	jr le375h		;e37c
+le37eh:
+	ld (0f48fh),hl		;e37e
+	ld hl,0f491h		;e381
+	ld a,(hl)		;e384
+	ld (hl),001h		;e385
+	or a			;e387
+	jr z,le3ach		;e388
+	ld a,(0f482h)		;e38a
+	ld hl,0f487h		;e38d
+	cp (hl)			;e390
+	jr nz,le3a5h		;e391
+	ld hl,0f488h		;e393
+	ld a,(0f483h)		;e396
+	cp (hl)			;e399
+	jr nz,le3a5h		;e39a
+	ld a,(0f48fh)		;e39c
+	ld hl,0f48ah		;e39f
+	cp (hl)			;e3a2
+	jr z,le3c9h		;e3a3
+le3a5h:
+	ld a,(0f492h)		;e3a5
+	or a			;e3a8
+	call nz,DISKRD		;e3a9
+le3ach:
+	ld a,(0f482h)		;e3ac
+	ld (0f487h),a		;e3af
+	ld hl,(0f483h)		;e3b2
+	ld (0f488h),hl		;e3b5
+	ld hl,(0f48fh)		;e3b8
+	ld (0f48ah),hl		;e3bb
+	ld a,(0f49bh)		;e3be
+	or a			;e3c1
+	call nz,sub_e42ah	;e3c2
+	xor a			;e3c5
+	ld (0f492h),a		;e3c6
+le3c9h:
+	ld a,(0f485h)		;e3c9
+	ld hl,0f4bch		;e3cc
+	and (hl)		;e3cf
+	ld l,a			;e3d0
+	ld h,000h		;e3d1
+	add hl,hl		;e3d3
+	add hl,hl		;e3d4
+	add hl,hl		;e3d5
+	add hl,hl		;e3d6
+	add hl,hl		;e3d7
+	add hl,hl		;e3d8
+	add hl,hl		;e3d9
+	ld de,0ec81h		;e3da
+	add hl,de		;e3dd
+	ex de,hl		;e3de
+	ld hl,(0f49eh)		;e3df
+	ld bc,00080h		;e3e2
+	ex de,hl		;e3e5
+	ld a,(0f49ch)		;e3e6
+	or a			;e3e9
+	jr nz,le3f2h		;e3ea
+	ld a,001h		;e3ec
+	ld (0f492h),a		;e3ee
+	ex de,hl		;e3f1
+le3f2h:
+	ldir			;e3f2
+	ld a,(0f49dh)		;e3f4
+	cp 001h			;e3f7
+	ld hl,RAMDSTAT		;e3f9
+	ld a,(hl)		;e3fc
+	push af			;e3fd
+	or a			;e3fe
+	jr z,le405h		;e3ff
+	xor a			;e401
+	ld (0f491h),a		;e402
+le405h:
+	pop af			;e405
+	ld (hl),000h		;e406
+	jr nz,le41ah		;e408
+	or a			;e40a
+	jr nz,le41ah		;e40b
+	xor a			;e40d
+	ld (0f492h),a		;e40e
+	call DISKRD		;e411
+	ld hl,RAMDSTAT		;e414
+	ld a,(hl)		;e417
+	ld (hl),000h		;e418
+le41ah:
+	pop hl			;e41a
+	ld sp,hl		;e41b
+	ret			;e41c
+DISKRD:
+	ld a,(0f4b6h)		;e41d
+	or a			;e420
+	jp nz,RAMDISK_INT	;e421
+	call DISKWR		;e424
+	jp FDCWAIT		;e427
+sub_e42ah:
+	ld a,(0f499h)		;e42a
+	or a			;e42d
+	jr nz,le433h		;e42e
+	ld (0f493h),a		;e430
+le433h:
+	ld a,(0f4b6h)		;e433
+	or a			;e436
+	jp nz,RAMDISK_INT2	;e437
+	call DISKWR		;e43a
+	jr le4b9h		;e43d
+DISKWR:
+	ld a,(0f48ah)		;e43f
+	ld c,a			;e442
+	ld a,(0f4a3h)		;e443
+	ld b,a			;e446
+	dec a			;e447
+	cp c			;e448
+	ld a,(0f487h)		;e449
+	jr nc,le458h		;e44c
+	or 004h			;e44e
+	ld (0f4a4h),a		;e450
+	ld a,c			;e453
+	sub b			;e454
+	ld c,a			;e455
+	jr le45bh		;e456
+le458h:
+	ld (0f4a4h),a		;e458
+le45bh:
+	ld b,000h		;e45b
+	ld hl,(0f4beh)		;e45d
+	add hl,bc		;e460
+	ld a,(hl)		;e461
+	ld (0f4a8h),a		;e462
+	ld a,(0f488h)		;e465
+	ld (0f4a7h),a		;e468
+	ld hl,0ec81h		;e46b
+	ld (0f4a5h),hl		;e46e
+	ld a,(0f487h)		;e471
+	ld hl,0f48ch		;e474
+	cp (hl)			;e477
+	jr nz,le489h		;e478
+	ld a,(0f488h)		;e47a
+	ld hl,0f48dh		;e47d
+	cp (hl)			;e480
+	jr nz,le489h		;e481
+	ld a,(0f489h)		;e483
+	inc hl			;e486
+	cp (hl)			;e487
+	ret z			;e488
+le489h:
+	ld a,(0f487h)		;e489
+	ld (0f48ch),a		;e48c
+	ld hl,(0f488h)		;e48f
+	ld (0f48dh),hl		;e492
+	call FLUSH		;e495
+	call MOTOROFF		;e498
+	call RAMDISK		;e49b
+	ld a,(0f4a4h)		;e49e
+	and 003h		;e4a1
+	add a,020h		;e4a3
+	cp b			;e4a5
+	ret z			;e4a6
+sub_e4a7h:
+	call FLUSH		;e4a7
+	call FDCDMA_RD		;e4aa
+	push bc			;e4ad
+	call RAMDISK		;e4ae
+	call MOTOROFF		;e4b1
+	call RAMDISK		;e4b4
+	pop bc			;e4b7
+	ret			;e4b8
+le4b9h:
+	ld a,00ah		;e4b9
+	ld (0f4a9h),a		;e4bb
+le4beh:
+	call FDCREAD		;e4be
+	call FLUSH		;e4c1
+	ld hl,(0f4a0h)		;e4c4
+	ld c,(hl)		;e4c7
+	inc hl			;e4c8
+	ld b,(hl)		;e4c9
+	inc hl			;e4ca
+	call RAMDISK_DMA	;e4cb
+	call FDCRESULT		;e4ce
+	call RAMDISK_RD		;e4d1
+	ld c,000h		;e4d4
+le4d6h:
+	ld hl,0f4aah		;e4d6
+	ld a,(hl)		;e4d9
+	and 0f8h		;e4da
+	ret z			;e4dc
+	and 008h		;e4dd
+	jr nz,le4f5h		;e4df
+	ld a,(0f4a9h)		;e4e1
+	dec a			;e4e4
+	ld (0f4a9h),a		;e4e5
+	jr z,le4f5h		;e4e8
+	cp 005h			;e4ea
+	call z,sub_e4a7h	;e4ec
+	xor a			;e4ef
+	cp c			;e4f0
+	jr z,le4beh		;e4f1
+	jr le504h		;e4f3
+le4f5h:
+	ld a,c			;e4f5
+	ld (0f491h),a		;e4f6
+	ld a,001h		;e4f9
+	ld (RAMDSTAT),a		;e4fb
+	ret			;e4fe
+FDCWAIT:
+	ld a,00ah		;e4ff
+	ld (0f4a9h),a		;e501
+le504h:
+	call FDCREAD		;e504
+	call FLUSH		;e507
+	ld hl,(0f4a0h)		;e50a
+	ld c,(hl)		;e50d
+	inc hl			;e50e
+	ld b,(hl)		;e50f
+	inc hl			;e510
+	call RAMDISK_WR		;e511
+	call FDCRESULT2		;e514
+	call RAMDISK_RD		;e517
+	ld c,001h		;e51a
+	jr le4d6h		;e51c
+FDCRESULT:
+	ld a,006h		;e51e
+	jp RAMDISK_IO		;e520
+FDCRESULT2:
+	ld a,005h		;e523
+	jp RAMDISK_IO		;e525
+FDCREAD:
+	di			;e528
+	ld hl,(TIMER2)		;e529
+	ld a,h			;e52c
+	or l			;e52d
+	ld a,(0f4c8h)		;e52e
+	jr z,le535h		;e531
+	or 001h			;e533
+le535h:
+	out (014h),a		;e535
+	ld a,(0f4c8h)		;e537
+	and 001h		;e53a
+	jr nz,le540h		;e53c
+	ei			;e53e
+	ret			;e53f
+le540h:
+	ld a,h			;e540
+	or l			;e541
+	ld hl,(0ffeah)		;e542
+	ld (TIMER2),hl		;e545
+	ei			;e548
+	ret nz			;e549
+	ld hl,00032h		;e54a
+	jr FDCSEEK		;e54d
+sub_e54fh:
+	ld a,000h		;e54f
+	out (014h),a		;e551
+	ret			;e553
+FDCSEEK:
+	ld (WARMJP),hl		;e554
+le557h:
+	ld hl,(WARMJP)		;e557
+	ld a,l			;e55a
+	or h			;e55b
+	jr nz,le557h		;e55c
+	ret			;e55e
+HOME:
+	ld a,(0f492h)		;e55f
+	or a			;e562
+	jr nz,le568h		;e563
+	ld (0f491h),a		;e565
+le568h:
+	ld a,(0f4b6h)		;e568
+	or a			;e56b
+	jr z,le574h		;e56c
+	xor a			;e56e
+	out (0e6h),a		;e56f
+	out (0e7h),a		;e571
+	ret			;e573
+le574h:
+	call FDCREAD		;e574
+	ld a,(0f482h)		;e577
+	ld (0f4a4h),a		;e57a
+	ld (0f48ch),a		;e57d
+	xor a			;e580
+	ld (0f48dh),a		;e581
+	ld (0f48eh),a		;e584
+	call FLUSH		;e587
+	call FDCDMA_RD		;e58a
+	call RAMDISK		;e58d
+	ret			;e590
+FDCRECAL:
+	in a,(004h)		;e591
+	and 0c0h		;e593
+	cp 080h			;e595
+	jr nz,FDCRECAL		;e597
+	ret			;e599
+FDCCMD:
+	in a,(004h)		;e59a
+	and 0c0h		;e59c
+	cp 0c0h			;e59e
+	jr nz,FDCCMD		;e5a0
+	ret			;e5a2
+FDCDMA_RD:
+	call FDCRECAL		;e5a3
+	ld a,007h		;e5a6
+	out (005h),a		;e5a8
+	call FDCRECAL		;e5aa
+	ld a,(0f4a4h)		;e5ad
+	and 003h		;e5b0
+	out (005h),a		;e5b2
+	ret			;e5b4
+	call FDCRECAL		;e5b5
+	ld a,004h		;e5b8
+	out (005h),a		;e5ba
+	call FDCRECAL		;e5bc
+	ld a,(0f4a4h)		;e5bf
+	and 003h		;e5c2
+	out (005h),a		;e5c4
+	call FDCCMD		;e5c6
+	in a,(005h)		;e5c9
+	ld (0f4aah),a		;e5cb
+	ret			;e5ce
+FDCMOTOR:
+	call FDCRECAL		;e5cf
+	ld a,008h		;e5d2
+	out (005h),a		;e5d4
+	call FDCCMD		;e5d6
+	in a,(005h)		;e5d9
+	ld (0f4aah),a		;e5db
+	and 0c0h		;e5de
+	cp 080h			;e5e0
+	ret z			;e5e2
+	call FDCCMD		;e5e3
+	in a,(005h)		;e5e6
+	ld (0f4abh),a		;e5e8
+	ret			;e5eb
+MOTOROFF:
+	di			;e5ec
+	call FDCRECAL		;e5ed
+	ld a,00fh		;e5f0
+	out (005h),a		;e5f2
+	call FDCRECAL		;e5f4
+	ld a,(0f4a4h)		;e5f7
+	and 003h		;e5fa
+	out (005h),a		;e5fc
+	call FDCRECAL		;e5fe
+	ld a,(0f4a7h)		;e601
+	out (005h),a		;e604
+	ei			;e606
+	ret			;e607
+MOTORTIMER:
+	ld hl,0f4aah		;e608
+	ld d,007h		;e60b
+le60dh:
+	call FDCCMD		;e60d
+	in a,(005h)		;e610
+	ld (hl),a		;e612
+	inc hl			;e613
+	ld a,004h		;e614
+le616h:
+	dec a			;e616
+	jr nz,le616h		;e617
+	in a,(004h)		;e619
+	and 010h		;e61b
+	ret z			;e61d
+	dec d			;e61e
+	jr nz,le60dh		;e61f
+	ret			;e621
+FLUSH:
+	di			;e622
+	xor a			;e623
+	ld (0f4b4h),a		;e624
+	ei			;e627
+	ret			;e628
+	ENDIF	; REL201
+; REL220: FLOPPY content merged into CPMBOOT.MAC (code008)

@@ -1,0 +1,141 @@
+	IFDEF	REL201
+RAMDISK:
+	call RAMDISK_RD		;e629
+	ld a,(0f4aah)		;e62c
+	ld b,a			;e62f
+	ld a,(0f4abh)		;e630
+	ld c,a			;e633
+	jr FLUSH		;e634
+RAMDISK_RD:
+	ld a,(0f4b4h)		;e636
+	or a			;e639
+	jr z,RAMDISK_RD		;e63a
+	ret			;e63c
+RAMDISK_WR:
+	ld a,005h		;e63d
+	di			;e63f
+	out (0fah),a		;e640
+	ld a,049h		;e642
+le644h:
+	out (0fbh),a		;e644
+	out (0fch),a		;e646
+	ld a,(0f4a5h)		;e648
+	out (0f2h),a		;e64b
+	ld a,(0f4a6h)		;e64d
+	out (0f2h),a		;e650
+	ld a,c			;e652
+	out (0f3h),a		;e653
+	ld a,b			;e655
+	out (0f3h),a		;e656
+	ld a,001h		;e658
+	out (0fah),a		;e65a
+	ei			;e65c
+	ret			;e65d
+RAMDISK_DMA:
+	ld a,005h		;e65e
+	di			;e660
+	out (0fah),a		;e661
+	ld a,045h		;e663
+	jr le644h		;e665
+RAMDISK_IO:
+	push af			;e667
+	di			;e668
+	call FDCRECAL		;e669
+	pop af			;e66c
+	ld b,(hl)		;e66d
+	inc hl			;e66e
+	add a,b			;e66f
+	out (005h),a		;e670
+	call FDCRECAL		;e672
+	ld a,(0f4a4h)		;e675
+	out (005h),a		;e678
+	call FDCRECAL		;e67a
+	ld a,(0f4a7h)		;e67d
+	out (005h),a		;e680
+	call FDCRECAL		;e682
+	ld a,(0f4a4h)		;e685
+	rra			;e688
+	rra			;e689
+	and 003h		;e68a
+	out (005h),a		;e68c
+	call FDCRECAL		;e68e
+	ld a,(0f4a8h)		;e691
+	out (005h),a		;e694
+	call FDCRECAL		;e696
+	ld a,(hl)		;e699
+	inc hl			;e69a
+	out (005h),a		;e69b
+	call FDCRECAL		;e69d
+	ld a,(hl)		;e6a0
+	inc hl			;e6a1
+	out (005h),a		;e6a2
+	call FDCRECAL		;e6a4
+	ld a,(hl)		;e6a7
+	out (005h),a		;e6a8
+	call FDCRECAL		;e6aa
+	ld a,(0f4c0h)		;e6ad
+	out (005h),a		;e6b0
+	ei			;e6b2
+	ret			;e6b3
+	ld (0f4b2h),sp		;e6b4
+	ld sp,0f526h		;e6b8
+	push af			;e6bb
+	push bc			;e6bc
+	push de			;e6bd
+	push hl			;e6be
+	ld a,0ffh		;e6bf
+	ld (0f4b4h),a		;e6c1
+	ld a,005h		;e6c4
+le6c6h:
+	dec a			;e6c6
+	jr nz,le6c6h		;e6c7
+	in a,(004h)		;e6c9
+	and 010h		;e6cb
+	jr nz,le6d4h		;e6cd
+	call FDCMOTOR		;e6cf
+	jr le6d7h		;e6d2
+le6d4h:
+	call MOTORTIMER		;e6d4
+le6d7h:
+	pop hl			;e6d7
+	pop de			;e6d8
+	pop bc			;e6d9
+	pop af			;e6da
+	ld sp,(0f4b2h)		;e6db
+	ei			;e6df
+	reti			;e6e0
+RAMDISK_INT:
+	ld e,0e0h		;e6e2
+	jr le6e8h		;e6e4
+RAMDISK_INT2:
+	ld e,0c0h		;e6e6
+le6e8h:
+	ld hl,0ec81h		;e6e8
+	ld a,(0f488h)		;e6eb
+	out (0e6h),a		;e6ee
+	in a,(0e7h)		;e6f0
+	and e			;e6f2
+	ld (RAMDSTAT),a		;e6f3
+	ret nz			;e6f6
+	ld a,(0f48ah)		;e6f7
+	out (0e7h),a		;e6fa
+	ld b,0ffh		;e6fc
+	ld c,0e8h		;e6fe
+	ld a,e			;e700
+	and 020h		;e701
+	jr z,le70bh		;e703
+	otir			;e705
+	outi			;e707
+	jr le70fh		;e709
+le70bh:
+	inir			;e70b
+	ini			;e70d
+le70fh:
+	in a,(0e7h)		;e70f
+	and 0c0h		;e711
+	ld (RAMDSTAT),a		;e713
+CODE_END:
+	ret			;e716
+code017_end:
+	ENDIF	; REL201
+; REL220: RAMDISK content merged into CPMBOOT.MAC (code008)

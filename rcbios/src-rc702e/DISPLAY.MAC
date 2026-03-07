@@ -1,0 +1,485 @@
+	IFDEF	REL201
+DSPY_START:
+	ld a,h			;ddd7
+	cpl			;ddd8
+	ld h,a			;ddd9
+	ld a,l			;ddda
+	cpl			;dddb
+	ld l,a			;dddc
+	ret			;dddd
+DSPY_NEG:
+	call DSPY_START		;ddde
+	inc hl			;dde1
+	ret			;dde2
+DSPY_INC:
+	ld hl,(CURY)		;dde3
+	ld a,l			;dde6
+	cp 080h			;dde7
+	ret nz			;dde9
+	ld a,h			;ddea
+	cp 007h			;ddeb
+	ret			;dded
+DSPY_CHECK:
+	ld a,(0f4d3h)		;ddee
+	or a			;ddf1
+	ld a,c			;ddf2
+	ret nz			;ddf3
+DSPY_XLAT:
+	ld b,000h		;ddf4
+	add hl,bc		;ddf6
+	ld a,(hl)		;ddf7
+	ret			;ddf8
+DSPY_CRT:
+	push af			;ddf9
+	ld a,080h		;ddfa
+	out (001h),a		;ddfc
+	ld a,(CURX)		;ddfe
+	out (000h),a		;de01
+	ld a,(0ffd4h)		;de03
+	out (000h),a		;de06
+	pop af			;de08
+	ret			;de09
+DSPY_DOWN:
+	ld hl,(CURY)		;de0a
+	ld de,00050h		;de0d
+	add hl,de		;de10
+	ld (CURY),hl		;de11
+	ld hl,0ffd4h		;de14
+	inc (hl)		;de17
+	jr DSPY_CRT		;de18
+DSPY_UP:
+	ld hl,(CURY)		;de1a
+	ld de,0ffb0h		;de1d
+	add hl,de		;de20
+	ld (CURY),hl		;de21
+	ld hl,0ffd4h		;de24
+	dec (hl)		;de27
+	jr DSPY_CRT		;de28
+DSPY_HOME:
+	ld hl,00000h		;de2a
+	ld (CURY),hl		;de2d
+	xor a			;de30
+	ld (CURX),a		;de31
+	ld (0ffd4h),a		;de34
+	ret			;de37
+DSPY_CLR:
+	cp b			;de38
+	ret c			;de39
+	sub b			;de3a
+	jr DSPY_CLR		;de3b
+DSPY_SCRL:
+	ld hl,(0ffd5h)		;de3d
+	ld d,h			;de40
+	ld e,l			;de41
+	inc de			;de42
+	ld bc,0004fh		;de43
+	ld (hl),020h		;de46
+	ldir			;de48
+	ret			;de4a
+DSPY_SCRL2:
+	ld hl,0f850h		;de4b
+	ld de,SCREENBUF		;de4e
+	ld bc,00780h		;de51
+	ldir			;de54
+	ld hl,0ff80h		;de56
+	ld (0ffd5h),hl		;de59
+	jr DSPY_SCRL		;de5c
+	ld a,000h		;de5e
+	ld b,003h		;de60
+lde62h:
+	srl h			;de62
+	rr l			;de64
+	rra			;de66
+	dec b			;de67
+	jr nz,lde62h		;de68
+	cp 000h			;de6a
+	ret z			;de6c
+	ld b,005h		;de6d
+lde6fh:
+	rra			;de6f
+	dec b			;de70
+	jr nz,lde6fh		;de71
+	ret			;de73
+DSPY_DIV8:
+	ld a,b			;de74
+	or c			;de75
+	ret z			;de76
+	ldir			;de77
+	ret			;de79
+DSPY_SETBIT:
+	ld a,b			;de7a
+	or c			;de7b
+	ret z			;de7c
+	lddr			;de7d
+	ret			;de7f
+	out (01ch),a		;de80
+	ret			;de82
+	call DSPY_HOME		;de83
+	ld a,002h		;de86
+	ld (0ffd7h),a		;de88
+	ret			;de8b
+	ret			;de8c
+	ld a,000h		;de8d
+	ld (CURX),a		;de8f
+	jp DSPY_CRT		;de92
+	ld hl,SCREENBUF		;de95
+	ld de,0f801h		;de98
+	ld bc,0004fh		;de9b
+	ld (hl),020h		;de9e
+	ldir			;dea0
+	inc hl			;dea2
+	inc de			;dea3
+	ld bc,0077fh		;dea4
+	ld (hl),020h		;dea7
+	ldir			;dea9
+	ld a,020h		;deab
+	ld (0f4d6h),a		;dead
+	call DSPY_HOME		;deb0
+	jp DSPY_CRT		;deb3
+	ld de,SCREENBUF		;deb6
+	ld hl,(CURY)		;deb9
+	add hl,de		;debc
+	ld de,0004fh		;debd
+	add hl,de		;dec0
+	ld d,h			;dec1
+	ld e,l			;dec2
+	dec de			;dec3
+	ld bc,00000h		;dec4
+	ld a,(CURX)		;dec7
+	cpl			;deca
+	inc a			;decb
+	add a,04fh		;decc
+	ld c,a			;dece
+	ld (hl),020h		;decf
+	jp DSPY_SETBIT		;ded1
+	ld hl,(CURY)		;ded4
+	ld a,(CURX)		;ded7
+	ld c,a			;deda
+	ld b,000h		;dedb
+	add hl,bc		;dedd
+	call DSPY_NEG		;dede
+	ld de,007cfh		;dee1
+	add hl,de		;dee4
+	ld b,h			;dee5
+	ld c,l			;dee6
+	ld hl,SCRNEND		;dee7
+	ld de,0ffceh		;deea
+	ld (hl),020h		;deed
+	jp DSPY_SETBIT		;deef
+	ld a,(CURX)		;def2
+	cp 000h			;def5
+	jr z,ldf00h		;def7
+	dec a			;def9
+	ld (CURX),a		;defa
+	jp DSPY_CRT		;defd
+ldf00h:
+	ld a,04fh		;df00
+	ld (CURX),a		;df02
+	ld hl,(CURY)		;df05
+	ld a,l			;df08
+	or h			;df09
+	jp nz,DSPY_UP		;df0a
+	ld hl,00780h		;df0d
+	ld (CURY),hl		;df10
+	ld a,018h		;df13
+	ld (0ffd4h),a		;df15
+	jp DSPY_CRT		;df18
+ISR_CRT:
+	ld a,(CURX)		;df1b
+	cp 04fh			;df1e
+	jr z,ldf29h		;df20
+	inc a			;df22
+	ld (CURX),a		;df23
+	jp DSPY_CRT		;df26
+ldf29h:
+	ld a,000h		;df29
+	ld (CURX),a		;df2b
+	call DSPY_INC		;df2e
+	jp nz,DSPY_DOWN		;df31
+	call DSPY_CRT		;df34
+	jp DSPY_SCRL2		;df37
+	ld a,(CURX)		;df3a
+	ld b,a			;df3d
+	add a,004h		;df3e
+	and 0fch		;df40
+	dec a			;df42
+	sub b			;df43
+ldf44h:
+	push af			;df44
+	call ISR_CRT		;df45
+	pop af			;df48
+	dec a			;df49
+	jr nz,ldf44h		;df4a
+	ret			;df4c
+	call DSPY_INC		;df4d
+	jp nz,DSPY_DOWN		;df50
+	jp DSPY_SCRL2		;df53
+	ld hl,(CURY)		;df56
+	ld a,l			;df59
+	or h			;df5a
+	jp nz,DSPY_UP		;df5b
+	ld hl,00780h		;df5e
+	ld (CURY),hl		;df61
+	ld a,018h		;df64
+	ld (0ffd4h),a		;df66
+	jp DSPY_CRT		;df69
+	call DSPY_HOME		;df6c
+	jp DSPY_CRT		;df6f
+	ld hl,(CURY)		;df72
+	ld b,h			;df75
+	ld c,l			;df76
+	ld de,0f850h		;df77
+	add hl,de		;df7a
+	ld (0f4d4h),hl		;df7b
+	ld de,0ffb0h		;df7e
+	add hl,de		;df81
+	ex de,hl		;df82
+	ld h,b			;df83
+	ld l,c			;df84
+	call DSPY_NEG		;df85
+	ld bc,00780h		;df88
+	add hl,bc		;df8b
+	ld b,h			;df8c
+	ld c,l			;df8d
+	ld hl,(0f4d4h)		;df8e
+	call DSPY_DIV8		;df91
+	ld hl,0ff80h		;df94
+	ld (0ffd5h),hl		;df97
+	jp DSPY_SCRL		;df9a
+	ld hl,(CURY)		;df9d
+	ld de,SCREENBUF		;dfa0
+	add hl,de		;dfa3
+	ld (0ffd5h),hl		;dfa4
+	call DSPY_NEG		;dfa7
+	ld de,0ff80h		;dfaa
+	add hl,de		;dfad
+	ld b,h			;dfae
+	ld c,l			;dfaf
+	ld hl,0ff7fh		;dfb0
+	ld de,SCRNEND		;dfb3
+	call DSPY_SETBIT	;dfb6
+	jp DSPY_SCRL		;dfb9
+CRT_CURSOR:
+	adc a,h			;dfbc
+	sbc a,09dh		;dfbd
+	rst 18h			;dfbf
+	ld (hl),d		;dfc0
+	rst 18h			;dfc1
+	adc a,h			;dfc2
+	sbc a,08ch		;dfc3
+	sbc a,0f2h		;dfc5
+	sbc a,083h		;dfc7
+	sbc a,080h		;dfc9
+	sbc a,0f2h		;dfcb
+	sbc a,03ah		;dfcd
+	rst 18h			;dfcf
+	ld c,l			;dfd0
+	rst 18h			;dfd1
+	adc a,h			;dfd2
+	sbc a,095h		;dfd3
+	sbc a,08dh		;dfd5
+	sbc a,08ch		;dfd7
+	sbc a,08ch		;dfd9
+	sbc a,08ch		;dfdb
+	sbc a,08ch		;dfdd
+	sbc a,08ch		;dfdf
+	sbc a,08ch		;dfe1
+	sbc a,08ch		;dfe3
+	sbc a,08ch		;dfe5
+	sbc a,08ch		;dfe7
+	sbc a,08ch		;dfe9
+	sbc a,01bh		;dfeb
+	rst 18h			;dfed
+	adc a,h			;dfee
+	sbc a,056h		;dfef
+	rst 18h			;dff1
+	adc a,h			;dff2
+	sbc a,08ch		;dff3
+	sbc a,06ch		;dff5
+	rst 18h			;dff7
+	or (hl)			;dff8
+	sbc a,0d4h		;dff9
+	sbc a,03eh		;dffb
+	nop			;dffd
+	ld (0ffd7h),a		;dffe
+	ld a,(0ffdah)		;e001
+	rlca			;e004
+	and 03eh		;e005
+	ld c,a			;e007
+	ld b,000h		;e008
+	ld hl,CRT_CURSOR	;e00a
+	add hl,bc		;e00d
+	ld e,(hl)		;e00e
+	inc hl			;e00f
+	ld d,(hl)		;e010
+	ex de,hl		;e011
+	jp (hl)			;e012
+CONOUT_DISP:
+	ld a,(0ffdah)		;e013
+	and 07fh		;e016
+	sub 020h		;e018
+	ld hl,0ffd7h		;e01a
+	dec (hl)		;e01d
+	jr z,le024h		;e01e
+	ld (0ffdeh),a		;e020
+	ret			;e023
+le024h:
+	ld d,a			;e024
+	ld a,(0ffdeh)		;e025
+	ld h,a			;e028
+	ld a,(code008_end)	;e029
+	or a			;e02c
+	jr z,le030h		;e02d
+	ex de,hl		;e02f
+le030h:
+	ld a,h			;e030
+	ld b,050h		;e031
+	call DSPY_CLR		;e033
+	ld (CURX),a		;e036
+	ld a,d			;e039
+	ld b,019h		;e03a
+	call DSPY_CLR		;e03c
+	ld (0ffd4h),a		;e03f
+	or a			;e042
+	jp z,DSPY_CRT		;e043
+	ld hl,(CURY)		;e046
+	ld de,00050h		;e049
+le04ch:
+	add hl,de		;e04c
+	dec a			;e04d
+	jr nz,le04ch		;e04e
+	ld (CURY),hl		;e050
+	jp DSPY_CRT		;e053
+CONOUT_PROC:
+	ld hl,(CURY)		;e056
+	ld d,000h		;e059
+	ld a,(CURX)		;e05b
+	ld e,a			;e05e
+	add hl,de		;e05f
+	ld (0ffd8h),hl		;e060
+	ld a,(0ffdah)		;e063
+	cp 0c0h			;e066
+	jr c,le06ch		;e068
+	sub 0c0h		;e06a
+le06ch:
+	ld c,a			;e06c
+	cp 080h			;e06d
+	jr c,le079h		;e06f
+	and 004h		;e071
+	ld (0f4d3h),a		;e073
+	ld a,c			;e076
+	jr le07fh		;e077
+le079h:
+	ld hl,CONVTAB		;e079
+	call DSPY_CHECK		;e07c
+le07fh:
+	ld hl,(0ffd8h)		;e07f
+	ld de,SCREENBUF		;e082
+	add hl,de		;e085
+	ld (hl),a		;e086
+	jp ISR_CRT		;e087
+CONOUT_CLOCK:
+	ld hl,(lda60h)		;e08a
+	ld (0ffech),hl		;e08d
+	ld a,(SCREENBUF)	;e090
+	cp 0f3h			;e093
+	ret			;e095
+CONOUT:
+	di			;e096
+	push hl			;e097
+	ld hl,00000h		;e098
+	add hl,sp		;e09b
+	ld sp,0f586h		;e09c
+	ei			;e09f
+	push hl			;e0a0
+	push af			;e0a1
+	push bc			;e0a2
+	push de			;e0a3
+	call CONOUT_CLOCK	;e0a4
+	jr nz,le0afh		;e0a7
+	ld a,(0f4d6h)		;e0a9
+	ld (SCREENBUF),a	;e0ac
+le0afh:
+	ld a,c			;e0af
+	ld (0ffdah),a		;e0b0
+	ld a,(0ffd7h)		;e0b3
+	or a			;e0b6
+	jr z,le0beh		;e0b7
+	call CONOUT_DISP	;e0b9
+	jr le0cdh		;e0bc
+le0beh:
+	ld a,(0ffdah)		;e0be
+	cp 020h			;e0c1
+	jr nc,le0cah		;e0c3
+	call ISR_FDC		;e0c5
+	jr le0cdh		;e0c8
+le0cah:
+	call CONOUT_PROC	;e0ca
+le0cdh:
+	pop de			;e0cd
+	pop bc			;e0ce
+	pop af			;e0cf
+	pop hl			;e0d0
+	di			;e0d1
+	ld sp,hl		;e0d2
+	pop hl			;e0d3
+	ei			;e0d4
+	ret			;e0d5
+ISR_MAIN:
+	ld (0f4b2h),sp		;e0d6
+	ld sp,0f526h		;e0da
+	push af			;e0dd
+	push bc			;e0de
+	push de			;e0df
+	push hl			;e0e0
+	in a,(001h)		;e0e1
+	ld a,006h		;e0e3
+	out (0fah),a		;e0e5
+	ld a,007h		;e0e7
+	out (0fah),a		;e0e9
+	out (0fch),a		;e0eb
+	ld hl,SCREENBUF		;e0ed
+	ld a,l			;e0f0
+	out (0f4h),a		;e0f1
+	ld a,h			;e0f3
+	out (0f4h),a		;e0f4
+	ld hl,007cfh		;e0f6
+	ld a,l			;e0f9
+	out (0f5h),a		;e0fa
+	ld a,h			;e0fc
+	out (0f5h),a		;e0fd
+	ld a,000h		;e0ff
+	out (0f7h),a		;e101
+	out (0f7h),a		;e103
+	ld a,002h		;e105
+	out (0fah),a		;e107
+	ld a,003h		;e109
+	out (0fah),a		;e10b
+	ld a,0d7h		;e10d
+	out (00eh),a		;e10f
+	ld a,001h		;e111
+	out (00eh),a		;e113
+	ld hl,0fffch		;e115
+	inc (hl)		;e118
+	jr nz,le125h		;e119
+	inc hl			;e11b
+	inc (hl)		;e11c
+	jr nz,le125h		;e11d
+	inc hl			;e11f
+	inc (hl)		;e120
+	jr nz,le125h		;e121
+	inc hl			;e123
+	inc (hl)		;e124
+le125h:
+	ld hl,(TIMER1)		;e125
+	ld a,l			;e128
+	or h			;e129
+	jr z,CONOUT_END		;e12a
+	dec hl			;e12c
+	ld a,l			;e12d
+	or h			;e12e
+	ld (TIMER1),hl		;e12f
+	call z,0ffe7h		;e132
+CONOUT_END:
+	ENDIF	; REL201
+; REL220: DISPLAY content merged into CPMBOOT.MAC (code008)

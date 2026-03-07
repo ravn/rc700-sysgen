@@ -1,0 +1,899 @@
+	IFDEF	REL201
+START:
+
+; BLOCK 'code000' (start 0xd700 end 0xd950)
+code000_start:
+	di			;d700
+	ld hl,00000h		;d701
+	ld de,0d480h		;d704
+	ld bc,02381h		;d707
+	ldir			;d70a
+	ld hl,trailing_end	;d70c
+	ld de,0ec81h		;d70f
+	ld (hl),000h		;d712
+	ld bc,01380h		;d714
+	ldir			;d717
+	ld hl,0d580h		;d719
+	ld de,CONVTAB		;d71c
+	ld bc,00180h		;d71f
+	ldir			;d722
+	ld sp,00080h		;d724
+	ld a,(lec25h)		;d727
+	ld i,a			;d72a
+	im 2			;d72c
+	ld a,020h		;d72e
+	out (012h),a		;d730
+	ld a,022h		;d732
+	out (013h),a		;d734
+	ld a,04fh		;d736
+	out (012h),a		;d738
+	ld a,00fh		;d73a
+	out (013h),a		;d73c
+INITCONT:
+	ld a,083h		;d73e
+	out (012h),a		;d740
+	out (013h),a		;d742
+	ld a,000h		;d744
+	out (00ch),a		;d746
+	ld a,(0d500h)		;d748
+	out (00ch),a		;d74b
+	ld a,(0d501h)		;d74d
+	out (00ch),a		;d750
+	ld a,(0d502h)		;d752
+	out (00dh),a		;d755
+	ld a,(0d503h)		;d757
+	out (00dh),a		;d75a
+	ld a,(0d504h)		;d75c
+	out (00eh),a		;d75f
+	ld a,(0d505h)		;d761
+	out (00eh),a		;d764
+	ld a,(0d506h)		;d766
+	out (00fh),a		;d769
+	ld a,(0d507h)		;d76b
+	out (00fh),a		;d76e
+	ld hl,0d508h		;d770
+	ld b,009h		;d773
+	ld c,00ah		;d775
+	otir			;d777
+	ld hl,0d511h		;d779
+	ld b,00bh		;d77c
+	ld c,00bh		;d77e
+	otir			;d780
+	in a,(00ah)		;d782
+	ld (0f4cfh),a		;d784
+	ld a,001h		;d787
+	out (00ah),a		;d789
+	in a,(00ah)		;d78b
+	ld (0f4d0h),a		;d78d
+	in a,(00bh)		;d790
+	ld (0f4d1h),a		;d792
+	ld a,001h		;d795
+	out (00bh),a		;d797
+	in a,(00bh)		;d799
+	ld (0f4d2h),a		;d79b
+	ld a,020h		;d79e
+	out (0f8h),a		;d7a0
+	ld a,(0d51ch)		;d7a2
+	out (0fbh),a		;d7a5
+	ld a,(0d51eh)		;d7a7
+	out (0fbh),a		;d7aa
+	ld a,(0d51fh)		;d7ac
+	out (0fbh),a		;d7af
+	in a,(014h)		;d7b1
+	and 080h		;d7b3
+	jr z,ld7c6h		;d7b5
+	ld hl,0d52fh		;d7b7
+	ld a,(hl)		;d7ba
+	cp 018h			;d7bb
+	jr nz,ld7c6h		;d7bd
+	ld (hl),010h		;d7bf
+	ld a,041h		;d7c1
+	ld (0d537h),a		;d7c3
+ld7c6h:
+	in a,(004h)		;d7c6
+	and 01fh		;d7c8
+	jr nz,ld7c6h		;d7ca
+	ld hl,0d524h		;d7cc
+	ld b,(hl)		;d7cf
+ld7d0h:
+	inc hl			;d7d0
+ld7d1h:
+	in a,(004h)		;d7d1
+	and 0c0h		;d7d3
+	cp 080h			;d7d5
+	jr nz,ld7d1h		;d7d7
+	ld a,(hl)		;d7d9
+	out (005h),a		;d7da
+	dec b			;d7dc
+	jr nz,ld7d0h		;d7dd
+	ld hl,SCREENBUF		;d7df
+	ld de,0f801h		;d7e2
+	ld bc,007cfh		;d7e5
+	ld (hl),020h		;d7e8
+	ldir			;d7ea
+	ld a,000h		;d7ec
+	out (001h),a		;d7ee
+	ld a,(0d520h)		;d7f0
+	out (000h),a		;d7f3
+	ld a,(0d521h)		;d7f5
+	out (000h),a		;d7f8
+	ld a,(0d522h)		;d7fa
+	out (000h),a		;d7fd
+	ld a,(0d523h)		;d7ff
+	out (000h),a		;d802
+	ld a,080h		;d804
+	out (001h),a		;d806
+	ld a,000h		;d808
+	out (000h),a		;d80a
+	out (000h),a		;d80c
+	ld a,0e0h		;d80e
+	out (001h),a		;d810
+	ld a,023h		;d812
+	out (001h),a		;d814
+	ld a,(0d50eh)		;d816
+	and 060h		;d819
+	ld (lda34h),a		;d81b
+	ld a,(0d519h)		;d81e
+INIT2:
+	and 060h		;d821
+	ld (lda35h),a		;d823
+	ld a,(0d52ch)		;d826
+	ld (code008_end),a	;d829
+	ld hl,(0d52dh)		;d82c
+	ld (0ffeah),hl		;d82f
+	ld a,0ffh		;d832
+	ld (0f4c9h),a		;d834
+	ld (SIOFLG2),a		;d837
+	ld (0f4b4h),a		;d83a
+	ld hl,str_bootq_end	;d83d
+	ld de,0f4dah		;d840
+	ld bc,0000fh		;d843
+	ldir			;d846
+	ld hl,0d52fh		;d848
+	ld de,lda37h		;d84b
+	ld bc,00010h		;d84e
+	ldir			;d851
+	ei			;d853
+	ld hl,ld979h		;d854
+	call signon_end		;d857
+	ld iy,0f4a4h		;d85a
+	ld hl,lda3ah		;d85e
+	ld (iy+000h),003h	;d861
+	call FLUSH		;d865
+ld868h:
+	call INIT3		;d868
+	call nz,INIT3		;d86b
+	jr z,ld872h		;d86e
+	ld (hl),0ffh		;d870
+ld872h:
+	dec hl			;d872
+	dec (iy+000h)		;d873
+	jr nz,ld868h		;d876
+	jr ld886h		;d878
+INIT3:
+	call FDCDMA_RD		;d87a
+	call RAMDISK		;d87d
+	ld a,b			;d880
+	and 060h		;d881
+	cp 020h			;d883
+	ret			;d885
+ld886h:
+	xor a			;d886
+	out (0e6h),a		;d887
+	out (0e7h),a		;d889
+	in a,(0e6h)		;d88b
+	or a			;d88d
+	jr z,ld89fh		;d88e
+	ld hl,ld954h		;d890
+	call signon_end		;d893
+	ld hl,ld95dh		;d896
+	call signon_end		;d899
+	jp INIT5		;d89c
+ld89fh:
+	ld hl,0ec81h		;d89f
+	ld de,0ec82h		;d8a2
+	ld bc,00100h		;d8a5
+	ld (hl),0e5h		;d8a8
+	ldir			;d8aa
+	ld ix,0f488h		;d8ac
+	ld iy,0f48ah		;d8b0
+	ld (ix+000h),002h	;d8b4
+	ld (iy+000h),000h	;d8b8
+ld8bch:
+	call RAMDISK_INT	;d8bc
+	ld a,(RAMDSTAT)		;d8bf
+	and 080h		;d8c2
+	jr nz,ld8d9h		;d8c4
+	inc (iy+000h)		;d8c6
+	ld a,010h		;d8c9
+	cp (iy+000h)		;d8cb
+	jr nz,ld8bch		;d8ce
+	xor a			;d8d0
+	ld (iy+000h),a		;d8d1
+	inc (ix+000h)		;d8d4
+	jr nz,ld8bch		;d8d7
+ld8d9h:
+	ld a,(0f488h)		;d8d9
+	cp 011h			;d8dc
+	jr nc,ld8efh		;d8de
+	ld hl,ld954h		;d8e0
+	call signon_end		;d8e3
+	ld hl,str_notinst_end	;d8e6
+	call signon_end		;d8e9
+	jp INIT4		;d8ec
+ld8efh:
+	ld ix,04000h		;d8ef
+	ld (ix+001h),004h	;d8f3
+	ld a,080h		;d8f7
+	ld (lda3bh),a		;d8f9
+	ld a,(0f488h)		;d8fc
+	sub 002h		;d8ff
+	ld l,a			;d901
+	and 080h		;d902
+	jr z,ld90ah		;d904
+	xor a			;d906
+	ld (le80ch),a		;d907
+ld90ah:
+	ld h,000h		;d90a
+	add hl,hl		;d90c
+	dec hl			;d90d
+	ld (le80dh),hl		;d90e
+	ld hl,ld954h		;d911
+	call signon_end		;d914
+	ld hl,ld973h		;d917
+	call signon_end		;d91a
+INIT4:
+	ld hl,code000_end	;d91d
+	call signon_end		;d920
+	ld hl,str_waiting_end	;d923
+	call signon_end		;d926
+	call CONIN		;d929
+	ld a,e			;d92c
+	cp 059h			;d92d
+	jr nz,INIT5		;d92f
+	ld a,0ffh		;d931
+	ld (lda47h),a		;d933
+INIT5:
+	ld hl,str_clock_end	;d936
+	call signon_end		;d939
+	ld hl,lda92h		;d93c
+	call signon_end		;d93f
+	ld hl,str_timeinit_end	;d942
+	call signon_end		;d945
+	ld a,00ch		;d948
+	ld (lda92h),a		;d94a
+	jp BOOTMSG		;d94d
+code000_end:
+STR_RAMDISK:
+
+; BLOCK 'str_ramdisk' (start 0xd950 end 0xd95c)
+str_ramdisk_start:
+	DB 'USE '
+ld954h:
+	DB 'RAM-DISK'
+str_ramdisk_end:
+STR_NOTINST:
+
+; BLOCK 'str_notinst' (start 0xd95c end 0xd96f)
+str_notinst_start:
+	DB 000h		;d95c
+ld95dh:
+	DB ' NOT INSTALLED.',00Ah,00Dh,000h
+str_notinst_end:
+STR_NOTUSED:
+
+; BLOCK 'str_notused' (start 0xd96f end 0xd978)
+str_notused_start:
+	DB ' NOT'
+ld973h:
+	DB ' USED'
+str_notused_end:
+STR_WAITING:
+
+; BLOCK 'str_waiting' (start 0xd978 end 0xd98c)
+str_waiting_start:
+	DB 000h		;d978
+ld979h:
+	DB 00Ch,'RC702E Waiting.',00Dh,00Ah,000h
+str_waiting_end:
+STR_BOOTQ:
+
+; BLOCK 'str_bootq' (start 0xd98c end 0xd99f)
+str_bootq_start:
+	DB ' AS BOOTDISK?(Y/N)',000h
+str_bootq_end:
+STR_CLOCK:
+
+; BLOCK 'str_clock' (start 0xd99f end 0xd9ac)
+str_clock_start:
+	DB 080h,'Kl.00.00.00',080h
+str_clock_end:
+STR_TIMEINIT:
+
+; BLOCK 'str_timeinit' (start 0xd9ac end 0xd9c4)
+str_timeinit_start:
+	DB 'TIME NOT INITIALIZED.',00Ah,00Dh,000h
+str_timeinit_end:
+INIT6:
+
+; BLOCK 'code008' (start 0xd9c4 end 0xda33)
+code008_start:
+	ld a,(bc)		;d9c4
+	ld a,(bc)		;d9c5
+	nop			;d9c6
+	nop			;d9c7
+	nop			;d9c8
+	nop			;d9c9
+	nop			;d9ca
+	nop			;d9cb
+	nop			;d9cc
+	nop			;d9cd
+	nop			;d9ce
+	nop			;d9cf
+	nop			;d9d0
+	nop			;d9d1
+	nop			;d9d2
+	nop			;d9d3
+	nop			;d9d4
+	nop			;d9d5
+	nop			;d9d6
+	nop			;d9d7
+	nop			;d9d8
+	nop			;d9d9
+	nop			;d9da
+	nop			;d9db
+	nop			;d9dc
+	nop			;d9dd
+	nop			;d9de
+	nop			;d9df
+	nop			;d9e0
+	nop			;d9e1
+	nop			;d9e2
+	nop			;d9e3
+	nop			;d9e4
+	nop			;d9e5
+	nop			;d9e6
+	nop			;d9e7
+	nop			;d9e8
+	nop			;d9e9
+	nop			;d9ea
+	nop			;d9eb
+	nop			;d9ec
+	nop			;d9ed
+	nop			;d9ee
+	nop			;d9ef
+	nop			;d9f0
+	nop			;d9f1
+	nop			;d9f2
+	nop			;d9f3
+	nop			;d9f4
+	nop			;d9f5
+	nop			;d9f6
+	nop			;d9f7
+	nop			;d9f8
+	nop			;d9f9
+	nop			;d9fa
+	nop			;d9fb
+	nop			;d9fc
+	nop			;d9fd
+	nop			;d9fe
+	nop			;d9ff
+	ENDIF	; REL201
+
+	IFDEF	REL220
+START:
+
+; BLOCK 'code000' (start 0xd480 end 0xd7b3)
+code000_start:
+	di			;d480
+ld481h:
+	ld hl,START		;d481
+	ld de,ld481h		;d484
+	ld (hl),000h		;d487
+	ld bc,02b80h		;d489
+	ldir			;d48c
+ld48eh:
+	ld hl,00000h		;d48e
+	ld de,START		;d491
+	ld bc,01801h		;d494
+	ldir			;d497
+	ld hl,0d580h		;d499
+	ld de,CONVTAB		;d49c
+	ld bc,00180h		;d49f
+	ldir			;d4a2
+	ld hl,00000h		;d4a4
+	ld de,00001h		;d4a7
+	ld bc,00100h		;d4aa
+	ld (hl),000h		;d4ad
+	ldir			;d4af
+	ld sp,00080h		;d4b1
+	ld a,(lec25h)		;d4b4
+	ld i,a			;d4b7
+	im 2			;d4b9
+	jp ld73eh		;d4bb
+	ld a,020h		;d4be
+	out (012h),a		;d4c0
+	ld a,022h		;d4c2
+	out (013h),a		;d4c4
+	ld a,04fh		;d4c6
+	out (012h),a		;d4c8
+	ld a,00fh		;d4ca
+	out (013h),a		;d4cc
+	ld a,083h		;d4ce
+	out (012h),a		;d4d0
+	out (013h),a		;d4d2
+	ld a,000h		;d4d4
+	out (00ch),a		;d4d6
+ld4d8h:
+	ld a,(ld500h)		;d4d8
+	out (00ch),a		;d4db
+	ld a,(ld500h+1)		;d4dd
+	out (00ch),a		;d4e0
+	ld a,(ld500h+2)		;d4e2
+	out (00dh),a		;d4e5
+	ld a,(ld503h)		;d4e7
+	out (00dh),a		;d4ea
+	ld a,(ld503h+1)		;d4ec
+	out (00eh),a		;d4ef
+	ld a,(ld505h)		;d4f1
+	out (00eh),a		;d4f4
+	ld a,(ld505h+1)		;d4f6
+	out (00fh),a		;d4f9
+	ld a,(ld507h)		;d4fb
+	out (00fh),a		;d4fe
+ld500h:
+	ld hl,ld507h+1		;d500
+ld503h:
+	ld b,009h		;d503
+ld505h:
+	ld c,00ah		;d505
+ld507h:
+	otir			;d507
+	ld hl,0d511h		;d509
+	ld b,00bh		;d50c
+ld50eh:
+	ld c,00bh		;d50e
+	otir			;d510
+	in a,(00ah)		;d512
+	ld (lf4cfh),a		;d514
+	ld a,001h		;d517
+ld519h:
+	out (00ah),a		;d519
+	in a,(00ah)		;d51b
+	ld (lf4d0h),a		;d51d
+ld520h:
+	in a,(00bh)		;d520
+ld522h:
+	ld (lf4d1h),a		;d522
+	ld a,001h		;d525
+	out (00bh),a		;d527
+	in a,(00bh)		;d529
+	ld (lf4d2h),a		;d52b
+	ld a,010h		;d52e
+	out (0f8h),a		;d530
+	ld hl,0d51ch		;d532
+	ld b,004h		;d535
+ld537h:
+	ld c,0fbh		;d537
+	otir			;d539
+	in a,(014h)		;d53b
+	and 080h		;d53d
+	jr z,ld550h		;d53f
+	ld hl,0d52fh		;d541
+	ld a,(hl)		;d544
+	cp 018h			;d545
+	jr nz,ld550h		;d547
+	ld (hl),010h		;d549
+	ld a,041h		;d54b
+	ld (ld537h),a		;d54d
+ld550h:
+	in a,(004h)		;d550
+	and 01fh		;d552
+	jr nz,ld550h		;d554
+	ld hl,ld522h+2		;d556
+	ld b,(hl)		;d559
+ld55ah:
+	inc hl			;d55a
+ld55bh:
+	in a,(004h)		;d55b
+	and 0c0h		;d55d
+	cp 080h			;d55f
+	jr nz,ld55bh		;d561
+	ld a,(hl)		;d563
+	out (005h),a		;d564
+	dec b			;d566
+	jr nz,ld55ah		;d567
+	ld hl,SCREENBUF		;d569
+	ld de,lf801h		;d56c
+	ld bc,007cfh		;d56f
+	ld (hl),020h		;d572
+	ldir			;d574
+	ld a,000h		;d576
+	out (001h),a		;d578
+	ld a,(ld520h)		;d57a
+	out (000h),a		;d57d
+	ld a,(ld520h+1)		;d57f
+	out (000h),a		;d582
+	ld a,(ld522h)		;d584
+	out (000h),a		;d587
+	ld a,(ld522h+1)		;d589
+	out (000h),a		;d58c
+	ld a,080h		;d58e
+	out (001h),a		;d590
+	ld a,000h		;d592
+	out (000h),a		;d594
+	out (000h),a		;d596
+	ld a,0e0h		;d598
+	out (001h),a		;d59a
+	ld a,023h		;d59c
+	out (001h),a		;d59e
+	ld a,(ld50eh)		;d5a0
+	and 060h		;d5a3
+	ld (lda33h+1),a		;d5a5
+	ld a,(ld519h)		;d5a8
+	and 060h		;d5ab
+	ld (lda35h),a		;d5ad
+	ld a,(0d52ch)		;d5b0
+	ld (lda33h),a		;d5b3
+	ld hl,(0d52dh)		;d5b6
+	ld (MOTORTIMER),hl	;d5b9
+	ld hl,(0d542h)		;d5bc
+	ld (0da60h),hl		;d5bf
+	ld a,0ffh		;d5c2
+	ld (lf4c9h),a		;d5c4
+	ld (SIOFLG2),a		;d5c7
+	ld (lf4b4h),a		;d5ca
+	ld hl,0d4cbh		;d5cd
+	ld de,lf4d8h		;d5d0
+	ld bc,0000fh		;d5d3
+	ldir			;d5d6
+	ld hl,0d52fh		;d5d8
+	ld de,0da37h		;d5db
+	ld bc,00011h		;d5de
+	ldir			;d5e1
+	ei			;d5e3
+	ld hl,0d4b8h		;d5e4
+	call 0daach		;d5e7
+	ld iy,lf4a4h		;d5ea
+	ld ix,lda3ah		;d5ee
+	ld (iy+000h),003h	;d5f2
+	call sub_e5efh		;d5f6
+ld5f9h:
+	call sub_d88eh		;d5f9
+	call nz,sub_d88eh	;d5fc
+	jr z,ld605h		;d5ff
+	ld (ix+000h),0ffh	;d601
+ld605h:
+	dec ix			;d605
+	dec (iy+000h)		;d607
+	jr nz,ld5f9h		;d60a
+	jr ld61ah		;d60c
+	call sub_e565h		;d60e
+	call RAMDISK		;d611
+	ld a,b			;d614
+	and 060h		;d615
+	cp 020h			;d617
+	ret			;d619
+ld61ah:
+	ld hl,(0d52dh)		;d61a
+	ld (TIMER2),hl		;d61d
+	in a,(0f8h)		;d620
+	ld a,004h		;d622
+	di			;d624
+	out (0fah),a		;d625
+	ld a,044h		;d627
+	out (0fbh),a		;d629
+	out (0fch),a		;d62b
+	ld a,001h		;d62d
+	out (0f1h),a		;d62f
+	dec a			;d631
+	out (0f1h),a		;d632
+	out (0f0h),a		;d634
+	inc a			;d636
+	out (0f0h),a		;d637
+	xor a			;d639
+	out (0f1h),a		;d63a
+	out (0fah),a		;d63c
+	ei			;d63e
+	out (0eeh),a		;d63f
+	ld a,080h		;d641
+	out (0efh),a		;d643
+	ld b,a			;d645
+ld646h:
+	djnz ld646h		;d646
+	in a,(0f8h)		;d648
+	and 001h		;d64a
+	jr nz,ld667h		;d64c
+	ld a,004h		;d64e
+	out (0f9h),a		;d650
+	ld hl,00000h		;d652
+	ld (lda46h),hl		;d655
+	ld hl,ld48eh+1		;d658
+	call 0daach		;d65b
+	ld hl,0d49ah		;d65e
+	call 0daach		;d661
+	jp 0d960h		;d664
+ld667h:
+	ld de,00008h		;d667
+	in a,(0eeh)		;d66a
+	and 0fch		;d66c
+	jr nz,ld677h		;d66e
+	xor a			;d670
+	ld (lda46h),a		;d671
+	jp 0d960h		;d674
+ld677h:
+	ld b,a			;d677
+	cp 020h			;d678
+	jr c,ld68eh		;d67a
+	ld hl,le77ah		;d67c
+	ld (hl),000h		;d67f
+	cp 04dh			;d681
+	jr c,ld68eh		;d683
+	ld (hl),001h		;d685
+	dec hl			;d687
+	ld (hl),01fh		;d688
+	dec hl			;d68a
+	inc (hl)		;d68b
+	sra e			;d68c
+ld68eh:
+	ld l,d			;d68e
+	ld h,000h		;d68f
+ld691h:
+	add hl,de		;d691
+	djnz ld691h		;d692
+	dec hl			;d694
+	ld (le77bh),hl		;d695
+	ld hl,ld48eh+1		;d698
+	call 0daach		;d69b
+	ld hl,0d4b0h		;d69e
+	call 0daach		;d6a1
+	ld a,050h		;d6a4
+	ld (lda3ah+1),a		;d6a6
+	xor a			;d6a9
+	ld (lf48ah),a		;d6aa
+	call sub_e6a6h		;d6ad
+	jr z,ld6e0h		;d6b0
+	ld hl,00100h		;d6b2
+	ld de,00101h		;d6b5
+	ld bc,04000h		;d6b8
+	ld (hl),0e5h		;d6bb
+	ldir			;d6bd
+	xor a			;d6bf
+	ld iy,lf488h		;d6c0
+ld6c4h:
+	di			;d6c4
+	ld a,004h		;d6c5
+	out (0fah),a		;d6c7
+	ld a,048h		;d6c9
+	ld hl,00100h		;d6cb
+	ld bc,03fffh		;d6ce
+	call sub_e6b4h		;d6d1
+	in a,(0eeh)		;d6d4
+	and 0fch		;d6d6
+	inc (iy+000h)		;d6d8
+	cp (iy+000h)		;d6db
+	jr nz,ld6c4h		;d6de
+ld6e0h:
+	ld hl,le93fh		;d6e0
+	ld de,01000h		;d6e3
+	ld bc,000b9h		;d6e6
+	ldir			;d6e9
+	call 01000h		;d6eb
+	call CONST		;d6ee
+	or a			;d6f1
+	jr z,ld710h		;d6f2
+	call CONIN		;d6f4
+	and 05fh		;d6f7
+	sub 041h		;d6f9
+	cp 005h			;d6fb
+	jr nc,ld710h		;d6fd
+	ld c,a			;d6ff
+	ld hl,0da37h		;d700
+	add a,l			;d703
+	ld l,a			;d704
+	ld a,(hl)		;d705
+	inc a			;d706
+	jr z,ld710h		;d707
+	ld a,c			;d709
+	ld (lda47h),a		;d70a
+	ld (lda46h),a		;d70d
+ld710h:
+	ld a,(lda46h)		;d710
+	add a,041h		;d713
+	ld (0d4eeh),a		;d715
+	ld hl,0d4dch		;d718
+	call 0daach		;d71b
+	ld hl,0da88h		;d71e
+	call 0daach		;d721
+	ld hl,ld4d8h		;d724
+	call 0daach		;d727
+	ld a,00ch		;d72a
+	ld (0da88h),a		;d72c
+	jp ldb7ah		;d72f
+	nop			;d732
+	nop			;d733
+	nop			;d734
+	nop			;d735
+	nop			;d736
+	nop			;d737
+	nop			;d738
+	nop			;d739
+	nop			;d73a
+	nop			;d73b
+	nop			;d73c
+	nop			;d73d
+ld73eh:
+	nop			;d73e
+	nop			;d73f
+	nop			;d740
+	nop			;d741
+	nop			;d742
+	nop			;d743
+	nop			;d744
+	nop			;d745
+	nop			;d746
+	nop			;d747
+	nop			;d748
+	nop			;d749
+	nop			;d74a
+	nop			;d74b
+	nop			;d74c
+	nop			;d74d
+	nop			;d74e
+	nop			;d74f
+	nop			;d750
+	nop			;d751
+	nop			;d752
+	nop			;d753
+	nop			;d754
+	nop			;d755
+	nop			;d756
+	nop			;d757
+	nop			;d758
+	nop			;d759
+	nop			;d75a
+	nop			;d75b
+	nop			;d75c
+	nop			;d75d
+	nop			;d75e
+	nop			;d75f
+	nop			;d760
+	nop			;d761
+	nop			;d762
+	nop			;d763
+	nop			;d764
+	nop			;d765
+	nop			;d766
+	nop			;d767
+	nop			;d768
+	nop			;d769
+	nop			;d76a
+	nop			;d76b
+	nop			;d76c
+	nop			;d76d
+	nop			;d76e
+	nop			;d76f
+	nop			;d770
+	nop			;d771
+	nop			;d772
+	nop			;d773
+	nop			;d774
+	nop			;d775
+	nop			;d776
+	nop			;d777
+	nop			;d778
+	nop			;d779
+	nop			;d77a
+	nop			;d77b
+	nop			;d77c
+	nop			;d77d
+	nop			;d77e
+	nop			;d77f
+JMPTAB:
+	jp BOOT			;d780
+	jp WBOOT		;d783
+	jp CONST		;d786
+	jp CONIN		;d789
+	jp CONOUT		;d78c
+	jp LIST			;d78f
+	jp PUNCH		;d792
+	jp READER		;d795
+	jp HOME			;d798
+	jp SELDSK		;d79b
+	jp SETTRK		;d79e
+	jp SETSEC		;d7a1
+	jp SETDMA		;d7a4
+	jp READ			;d7a7
+	jp WRITE		;d7aa
+	jp LISTST		;d7ad
+	jp SECTRAN		;d7b0
+code000_end:
+JTVARS:
+
+; BLOCK 'jtvars' (start 0xd7b3 end 0xd7ca)
+jtvars_start:
+	DB 000h		;d7b3
+	DB 000h		;d7b4
+	DB 000h		;d7b5
+	DB 000h		;d7b6
+	DB 0ffh		;d7b7
+	DB 0ffh		;d7b8
+	DB 0ffh		;d7b9
+	DB 0ffh		;d7ba
+	DB 0ffh		;d7bb
+	DB 0ffh		;d7bc
+	DB 0ffh		;d7bd
+	DB 0ffh		;d7be
+	DB 0ffh		;d7bf
+	DB 0ffh		;d7c0
+	DB 0ffh		;d7c1
+	DB 0ffh		;d7c2
+	DB 0ffh		;d7c3
+	DB 000h		;d7c4
+	DB 000h		;d7c5
+	DB 000h		;d7c6
+	DB 000h		;d7c7
+	DB 0aah		;d7c8
+	DB 0f4h		;d7c9
+jtvars_end:
+INTJP0:
+
+; BLOCK 'code002' (start 0xd7ca end 0xd7df)
+code002_start:
+	jp RAMDISK		;d7ca
+INTJP1:
+	jp CONOUT_INT		;d7cd
+INTJP2:
+	jp LINSEL		;d7d0
+INTJP3:
+	jp CONSTAT2		;d7d3
+INTJP4:
+	jp INTFN1		;d7d6
+INTJP5:
+	jp WBOOT		;d7d9
+INTJP6:
+	jp WBOOT		;d7dc
+code002_end:
+JTGAP1:
+
+; BLOCK 'jtgap1' (start 0xd7df end 0xd7e2)
+jtgap1_start:
+	DB 000h		;d7df
+	DB 000h		;d7e0
+	DB 000h		;d7e1
+jtgap1_end:
+INTJP7:
+
+; BLOCK 'code004' (start 0xd7e2 end 0xd7ee)
+code004_start:
+	jp INTFN2		;d7e2
+INTJP8:
+	jp SIOWR2		;d7e5
+INTJP9:
+	jp READER2		;d7e8
+INTJP10:
+	jp PUNCH2		;d7eb
+code004_end:
+JTGAP2:
+
+; BLOCK 'jtgap2' (start 0xd7ee end 0xd7f3)
+jtgap2_start:
+	DB 000h		;d7ee
+	DB 000h		;d7ef
+	DB 000h		;d7f0
+	DB 020h		;d7f1
+	DB 002h		;d7f2
+jtgap2_end:
+ERRMSG:
+
+; BLOCK 'errmsg' (start 0xd7f3 end 0xd807)
+errmsg_start:
+	DB 00Dh,00Ah,'Disk error - reset'
+errmsg_end:
+SIGNON:
+
+; BLOCK 'signon' (start 0xd807 end 0xd82b)
+signon_start:
+	DB 000h,01Dh,'RC702E 56k CP/M Ver 2.2 Rel 2.20',00Dh,00Ah
+signon_end:
+	ENDIF	; REL220

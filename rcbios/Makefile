@@ -38,7 +38,7 @@ DUMPS = rccpm22_ram.bin cpm_comal80_ram.bin cpm22_rel22_ram.bin compas_ram.bin
 BIOS_BINS = ref/rccpm22_bios.bin ref/cpm22_rel22_bios.bin ref/compas_bios.bin
 BIOS_ASMS = rccpm22_bios.asm cpm22_rel22_bios.asm rel14_bios.asm
 
-.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel30-mini rel30-maxi rel13-mini rel14-mini rel14-maxi rc703-rel10 rc703-rel12 rc703-reltfj rc702e-rel201 rc702e-rel220 verify verify-summary dumps bios disasm clean emu patch-test mame-test
+.PHONY: all rel20-mini rel21-mini rel22-mini rel23-mini rel23-maxi rel30-mini rel30-maxi rel13-mini rel14-mini rel14-maxi rc703-rel10 rc703-rel12 rc703-reltfj rc702e-rel201 rc702e-rel220 verify verify-rc702e verify-summary dumps bios disasm clean emu patch-test mame-test
 
 all: verify
 
@@ -100,12 +100,14 @@ rc703-reltfj: src-rc703/BIOS.MAC
 rc703-rel10: src-rc703/BIOS_REL10.MAC
 	$(ZMAC) $(ZMFLAGS) -DREL10 src-rc703/BIOS_REL10.MAC
 
-# RC702E BIOS targets (separate source tree, two variants)
-rc702e-rel201: src-rc702e/BIOS_E201.MAC
-	$(ZMAC) $(ZMFLAGS) -DREL201 src-rc702e/BIOS_E201.MAC
+# RC702E BIOS targets (modular source, two variants)
+rc702e-rel201: src-rc702e/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL201 src-rc702e/BIOS.MAC
+	cp zout/BIOS.hex zout/BIOS_E201.hex
 
-rc702e-rel220: src-rc702e/BIOS_E220.MAC
-	$(ZMAC) $(ZMFLAGS) -DREL220 src-rc702e/BIOS_E220.MAC
+rc702e-rel220: src-rc702e/BIOS.MAC
+	$(ZMAC) $(ZMFLAGS) -DREL220 src-rc702e/BIOS.MAC
+	cp zout/BIOS.hex zout/BIOS_E220.hex
 
 # Verify all variants against reference binaries
 verify: verify-rel20-mini verify-rel21-mini verify-rel22-mini verify-rel23-mini verify-rel23-maxi verify-rel13-mini verify-rel14-mini verify-rel14-maxi verify-rc703-rel10 verify-rc703-rel12 verify-rc703-reltfj verify-rc702e-rel201 verify-rc702e-rel220 verify-summary
@@ -147,12 +149,14 @@ verify-rc703-rel12: rc703-rel12
 verify-rc703-reltfj: rc703-reltfj
 	python3 verify_rc703.py zout/BIOS.hex extracted_bios/cpm22_56k_relTFj_rc703.bin --code
 
-# RC702E verification (separate source tree, different ORGs)
+# RC702E verification (modular source, different ORGs)
 verify-rc702e-rel201: rc702e-rel201
 	python3 verify_rc702e.py zout/BIOS_E201.hex extracted_bios/cpm22_56k_rc702e_rel2.01_mini.bin --mini
 
 verify-rc702e-rel220: rc702e-rel220
 	python3 verify_rc702e.py zout/BIOS_E220.hex extracted_bios/cpm22_56k_rc702e_rel2.20_rc703.bin --qd
+
+verify-rc702e: verify-rc702e-rel201 verify-rc702e-rel220
 
 verify-summary:
 	@echo "=== BIOS build summary ==="
