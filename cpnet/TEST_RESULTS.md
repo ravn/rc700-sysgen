@@ -256,45 +256,7 @@ integrity checking. This is independent of the network protocol checksum.
 
 ## Known Issues
 
-### Issue 1: Injected File CRC Mismatch
-
-**Description:**
-Files injected onto disk via imd_cpmfs.py have different CRC than source files.
-
-**Evidence:**
-```
-Test file: SNIOS.SPR
-  Source: 1280 bytes → CRC 0xB6D9
-  Disk:   1280 bytes → CRC 0x213A (computed by CHKSUM.COM)
-
-All injected files affected:
-  NDOS.SPR:     expected 0x9EFD, got 0x7874
-  CPNETLDR.COM: expected 0x9008, got 0xA406
-  CHKSUM.COM:   expected 0x34D0, got 0x818A
-```
-
-**Root Cause Analysis:**
-1. Python CRC computed on source files: ✅ correct
-2. imd_cpmfs.py injection: preserves file size ✅
-3. CP/M BDOS reads full 128B records (including padding)
-4. Different padding in disk blocks vs. source files
-5. Result: CRC computed over padded disk data ≠ source data
-
-**Impact:** NONE on CP/NET functionality
-- Network transfers use source files (from server), not disk copies
-- File injection only used for local system files (not transferred)
-- CRC check failure doesn't prevent network operations
-
-**Workaround:** Use file size and record count for verification instead of CRC
-
-**Future Investigation:**
-- Check imd_cpmfs.py handling of file extent records
-- Verify CP/M CHKSUM.COM reads full records or actual file size
-- Consider alternative injection tool (imdu, etc.)
-
----
-
-### Issue 2: Lua Keyboard Input Pattern Inconsistency
+### Issue 1: Lua Keyboard Input Pattern Inconsistency
 
 **Description:**
 Some keyboard commands display on screen, others execute silently.
@@ -425,10 +387,9 @@ ROW08: A>
 8. DRI binary protocol (ENQ/ACK framing, two's complement checksum)
 9. Zero packet loss (all 1600 records delivered)
 
-### ⚠️ Non-Critical Issues
+### Non-Critical Issues
 
-1. Injected file CRC mismatch (doesn't affect CP/NET)
-2. Lua keyboard display inconsistency (doesn't affect functionality)
+1. Lua keyboard display inconsistency (doesn't affect functionality)
 
 ### Test Coverage
 

@@ -1,0 +1,55 @@
+# RC700/RC702/RC703 disk definitions for cpmtools3
+#
+# Usage: cpmls -f rc702-8dd image.imd
+#        cpmcp -f rc702-8dd image.imd file.com 0:file.com
+#
+# cpmtools3 finds this file via -d flag or CPMTOOLS_DISKDEFS env var.
+# Set in shell: export CPMTOOLS_DISKDEFS=/path/to/this/diskdefs
+#
+# These definitions match the DPB tables in rcbios/src/DISKTAB.MAC.
+# Sector skew tables match the TRAN tables (0-based for cpmtools).
+# boottrk=4 accounts for Track 0 (mixed-density boot, 2 sides)
+# and Track 1 (CCP+BDOS+BIOS, 2 sides) = 4 logical track-sides.
+
+# RC700/RC702 5.25" DD floppy (DPB16 from DISKTAB.MAC)
+# 35 cyl, 2 sides, 9 sectors x 512B, 2:1 interleave
+# Track 0: mixed-density boot (FM side 0 + MFM side 1)
+# FORMAT.COM stamps serial number in unused directory entries
+# (not 0xE5-filled), which causes fsck warnings on original disks.
+diskdef rc702-5dd
+  seclen 512
+  tracks 72
+  sectrk 9
+  blocksize 2048
+  maxdir 128
+  skewtab 0,2,4,6,8,1,3,5,7
+  boottrk 4
+  os 2.2
+end
+
+# RC700/RC702 8" DD floppy (DPB8 from DISKTAB.MAC)
+# 77 cyl, 2 sides, 15 sectors x 512B
+# Track 0: mixed-density boot (FM side 0 + MFM side 1)
+diskdef rc702-8dd
+  seclen 512
+  tracks 154
+  sectrk 15
+  blocksize 2048
+  maxdir 128
+  skewtab 0,4,8,12,1,5,9,13,2,6,10,14,3,7,11
+  boottrk 4
+  os 2.2
+end
+
+# RC703 5.25" QD floppy (DPB_QD3 from RC703 BIOS rel.1.2)
+# 80 cyl, 2 sides, 10 sectors x 512B, uniform MFM (no mixed-density boot)
+diskdef rc703-qd
+  seclen 512
+  tracks 160
+  sectrk 10
+  blocksize 2048
+  maxdir 256
+  skewtab 0,2,4,6,8,1,3,5,7,9
+  boottrk 4
+  os 2.2
+end

@@ -66,10 +66,12 @@ protocols via `cpnet_proto=` config. This is the easiest server to use.
 - [ ] Connect: RC702 (MAME, DRI SNIOS) ↔ TCP ↔ z80pack (MP/M server)
 - [ ] Challenge: need serial NIOS on MP/M side, or bridge via TCP
 
-**Phase 3: Investigate cpmtools3 for disk image file injection**
-- [ ] Check ~/git/cpmtools3 for RC702 format support
-- [ ] Compare with our imd_cpmfs.py (which handles IMD format directly)
-- [ ] cpmtools3 may handle standard formats; RC702 multi-density needs custom diskdefs
+**Phase 3: cpmtools3 for disk image file injection** (DONE)
+- [x] RC702 diskdefs: rc702-5dd, rc702-8dd, rc703-qd in `rcbios/diskdefs`
+- [x] cpmtools3 binaries installed to `~/.local/bin/`, diskdefs symlinked
+- [x] Handles IMD files natively (including multi-density RC702)
+- [x] run_test.sh --inject uses `cpmcp` from PATH
+- [x] imd_cpmfs.py deleted (replaced by cpmtools3)
 
 ### Protocol savings (DRI binary vs current hex)
 - Wire: 8+N bytes vs 18+2N bytes per message (2x bandwidth)
