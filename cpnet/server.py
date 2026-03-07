@@ -410,8 +410,8 @@ class CPNetServer:
         if not drive_dir:
             return None
         # CP/M filename: 8.3 format, space-padded
-        fname = name[:8].rstrip().decode('ascii', errors='replace')
-        ext = name[8:11].rstrip().decode('ascii', errors='replace')
+        fname = name[:8].rstrip(b'\x00 ').decode('ascii', errors='replace')
+        ext = name[8:11].rstrip(b'\x00 ').decode('ascii', errors='replace')
         if ext:
             return os.path.join(drive_dir, f"{fname}.{ext}")
         return os.path.join(drive_dir, fname)
@@ -776,14 +776,16 @@ class CPNetServer:
         try:
             open(path, 'ab').close()  # Create if not exists
             print(f"  Make: {path}")
-            resp = bytearray(payload[:33])
+            # Response: retcode(1) + FCB[0..32](33) = 34 bytes
+            resp = bytearray(34)
             resp[0] = 0  # directory code (success)
-            resp[12] = 0  # EX
-            resp[13] = 0  # S1
-            resp[14] = 0  # S2
-            resp[15] = 0  # RC
-            if len(resp) > 32:
-                resp[32] = 0  # CR
+            resp[1:13] = payload[1:13]  # drive + FCB[1..11] (name + ext)
+            resp[13] = 0  # FCB[12] = EX
+            resp[14] = 0  # FCB[13] = S1
+            resp[15] = 0  # FCB[14] = S2
+            resp[16] = 0  # FCB[15] = RC
+            # resp[17..32] = allocation map (zeros)
+            resp[33] = 0  # FCB[32] = CR
             return bytes(resp)
         except OSError as e:
             print(f"  Make failed: {e}")
