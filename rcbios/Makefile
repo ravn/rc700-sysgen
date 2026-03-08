@@ -233,6 +233,9 @@ rel14_bios.asm: ref/rel14_bios_disk.bin syms_rel14_z80dasm.sym blocks_rel14.def
 # ============================================================
 # Patch test: build BIOS, patch onto disk image, boot in emulator
 # ============================================================
+# NOTE: Requires a patched version of the rc700 emulator that supports
+# -memdump (auto-exit after boot with RAM snapshot).  This patched
+# emulator is not currently available, so this target will fail.
 
 # Patch rel.2.2 BIOS onto rel.2.1 mini image — signon should change
 # Patch rel.2.3 BIOS onto SW1711 maxi image — should boot identically

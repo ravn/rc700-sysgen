@@ -1,3 +1,5 @@
+; *** WORK IN PROGRESS — raw disassembly, hardcoded addresses not yet labeled ***
+;
 ; RC703 CP/M 2.2 BIOS rel.1.0 — disassembly from extracted binary
 ; Assembled with: zmac -z --dri -DREL10 src-rc703/BIOS_REL10.MAC
 ;

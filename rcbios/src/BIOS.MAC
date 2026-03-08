@@ -65,7 +65,7 @@
 ;   F700  INCONV - input conversion table
 ;   F800  DSPSTR - display refresh memory (80x25)
 ;   FFD1  Display control variables (cursor, addressing, counters)
-;   FFFC  RTC0-RTC3 - real time clock (4 bytes)
+;   FFFC  RTC0/RTC2 - real time clock (2 words, 4 bytes total)
 ;
 	.Z80
 	TITLE RC702 CP/M BASIS SOFTWARE RELEASE 1.1  83.01.05
@@ -775,16 +775,13 @@ FDTIMO:
 ; ---- Real-time clock (4-byte counter, incremented by CTC ch.2 ISR) ----
 ;
 RTC0:
-	DS	1		; 0xFFFC: RTC byte 0 (LSB, incremented each tick)
-RTC1:
-	DS	1		; 0xFFFD: RTC byte 1 (carries from RTC0)
+	DS	2		; 0xFFFC: RTC low word (LSB at FFFC, incremented by ISR)
 RTC2:
-	DS	1		; 0xFFFE: RTC byte 2 (carries from RTC1)
-RTC3:
-	DS	1		; 0xFFFF: RTC byte 3 (MSB, carries from RTC2)
+	DS	2		; 0xFFFE: RTC high word (carries from RTC0)
 				; 32-bit counter at 50 Hz (20ms/tick). Read/set via
-				; BIOS CLOCK: A!=0 reads DE=RTC0:1 HL=RTC2:3,
+				; BIOS CLOCK: A!=0 reads DE=(RTC0) HL=(RTC2),
 				; A=0 sets from DE and HL. Wraps after ~994 days.
+				; ISR increments byte-by-byte via LD HL,RTC0.
 
 END
 
