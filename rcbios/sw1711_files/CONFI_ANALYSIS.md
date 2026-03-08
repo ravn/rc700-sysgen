@@ -4,6 +4,12 @@ Disassembly and analysis of CONFI.COM from SW1711-I8.imd (rel.2.3 maxi system di
 
 Source: `rcbios/sw1711_files/CONFI.COM` (6528 bytes, loads at 0x0100-0x1A7F)
 
+**Fully annotated, byte-verified assembly source**: see `CONFI.MAC` in the
+`rc702-bios` repository (`/Users/ravn/git/rc702-bios/CONFI.MAC`, 1322 lines).
+That file was reconstructed from the original BIOS-DEV floppy sources, verified
+byte-exact against this binary, and has readable labels, X/Y cursor EQUs, and
+comments matching BIOS INIPARMS.MAC naming conventions.
+
 Version string: `RC700 CP/M CONFIGURATION UTILITY  VERS 2.1  13.01.83`
 
 ## Memory Layout

@@ -1,0 +1,15 @@
+# z88dk build artifacts
+bios
+bios.rom
+bios.cim
+bios.map
+bios.lis
+bios_CODE.bin
+*.o
+*.sym
+bios.def
+*.c.lis
+zcc_opt.def
+
+# Test disk images
+/tmp/
