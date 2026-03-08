@@ -1,13 +1,35 @@
 /*
  * bios.c — RC702 CP/M BIOS in C (REL30)
  *
- * Phase 1a: Build skeleton with stub implementations.
- * All BIOS entries return 0 or do nothing.
- * ISRs are minimal (EI + RETI via __interrupt attribute).
+ * Phase 1b: CRT display refresh ISR, keyboard input.
+ * The CRT ISR programs DMA for 8275 display refresh, increments the RTC,
+ * and decrements timers.  Keyboard ISR stores keys in a 16-byte ring buffer.
+ *
+ * ISRs that switch stacks use __naked wrappers (not __interrupt) because
+ * sdcc's __interrupt puts EI at the function START, enabling nested
+ * interrupts.  The CRT ISR must run with interrupts disabled to protect
+ * DMA programming and the shared sp_sav variable.
  */
 
 #include "hal.h"
 #include "bios.h"
+
+/* ================================================================
+ * ISR shared state
+ * ================================================================ */
+
+static uint16_t sp_sav;           /* saved SP during ISR stack switch */
+
+/* Keyboard ring buffer (REL30) */
+static uint8_t kbbuf[KBBUFSZ];
+static volatile uint8_t kbhead;   /* write index (ISR updates) */
+static volatile uint8_t kbtail;   /* read index (CONIN updates) */
+
+/* Floppy motor stop — stub for now */
+static void fdstop(void)
+{
+    _port_sw1 = 0x00;  /* motor off */
+}
 
 /* ================================================================
  * Hardware initialization (called from crt0.asm after relocation)
@@ -15,8 +37,6 @@
 
 void bios_hw_init(void)
 {
-    /* Phase 1a stub: hardware init will be added in Phase 1b */
-
     /* PIO: set interrupt vectors and modes */
     _port_pio_a_ctrl = 0x20;    /* PIO-A interrupt vector */
     _port_pio_b_ctrl = 0x22;    /* PIO-B interrupt vector */
@@ -62,11 +82,9 @@ void bios_hw_init(void)
     _port_dma_mode = 0x4A;      /* ch2 mode (display) */
     _port_dma_mode = 0x4B;      /* ch3 mode (display) */
 
-    /* FDC: check mini/maxi and send SPECIFY command */
-    /* (simplified for Phase 1a — full version needs mini detection) */
+    /* FDC: send SPECIFY command */
     while ((_port_fdc_status & 0x1F) != 0)
         ;  /* wait for FDC ready */
-    /* Send SPECIFY: 03h, DFh, 28h */
     while ((_port_fdc_status & 0xC0) != 0x80)
         ;
     _port_fdc_data = 0x03;      /* SPECIFY command */
@@ -111,10 +129,13 @@ void bios_hw_init(void)
     wr5a = psioa[6] & 0x60;    /* SIO-A bits/char from WR5 */
     wr5b = psiob[8] & 0x60;    /* SIO-B bits/char from WR5 */
     adrmod = xyflg;             /* copy addressing mode */
+
+    /* Initialize motor timer reload from config */
+    stptim_var = cfgstptim;
 }
 
 /* ================================================================
- * BIOS entry points — Phase 1a stubs
+ * BIOS entry points
  * ================================================================ */
 
 void bios_boot(void) __naked
@@ -127,7 +148,7 @@ void bios_boot(void) __naked
 
 void bios_boot_c(void)
 {
-    /* Phase 1a: just halt — no signon, no CCP load yet */
+    /* Phase 1b: halt */
     __asm
         di
         halt
@@ -142,10 +163,18 @@ void bios_wboot(void)
     __endasm;
 }
 
+/* ----------------------------------------------------------------
+ * Console I/O — keyboard ring buffer (REL30)
+ * ---------------------------------------------------------------- */
+
 uint8_t bios_const(void) __naked
 {
     __asm
-        ld l, #0                ; no char ready
+        ld a, (_kbtail)
+        ld hl, #_kbhead
+        sub a, (hl)
+        ret z                   ; 0 = no key
+        ld l, #0xFF
         ret
     __endasm;
 }
@@ -153,7 +182,27 @@ uint8_t bios_const(void) __naked
 uint8_t bios_conin(void) __naked
 {
     __asm
-        ld l, #0x0D             ; return CR
+    conin_wait$:
+        ld a, (_kbtail)
+        ld hl, #_kbhead
+        sub a, (hl)
+        jr z, conin_wait$       ; spin while empty
+
+        ld hl, #_kbbuf
+        ld a, (_kbtail)
+        add a, l
+        ld l, a                 ; HL = &kbbuf[tail]
+        ld c, (hl)              ; read raw key
+
+        ld a, (_kbtail)
+        inc a
+        and a, #0x0F            ; wrap at 16
+        ld (_kbtail), a
+
+        ld hl, #0xF700          ; INCONV table
+        ld b, #0
+        add hl, bc
+        ld l, (hl)
         ret
     __endasm;
 }
@@ -313,26 +362,150 @@ void bios_hrdfmt(void) __naked
 
 /* ================================================================
  * Interrupt service routines
- * All use __interrupt attribute: saves AF/BC/DE/HL, ends with EI+RETI
+ *
+ * ISRs needing stack switch use __naked wrappers with explicit
+ * register save/restore.  This avoids sdcc's __interrupt putting
+ * EI at function entry (which would allow nested interrupts and
+ * corrupt the shared sp_sav variable).
+ *
+ * Simple ISRs (flag-set only, stubs) use __interrupt.
  * ================================================================ */
 
-void isr_crt(void) __interrupt
+/* ISR wrappers below use __naked with explicit register save/restore
+ * and stack switch to ISTACK (0xF620).  IY saved because sdcc_iy
+ * library uses it as a global register. */
+
+/*
+ * CRT display refresh ISR body (CTC ch.2)
+ *
+ * Called ~50 times/sec by the 8275 CRT controller.
+ * Programs the DMA controller to refresh the display from DSPSTR (0xF800).
+ * Also increments the 32-bit RTC and decrements timers.
+ */
+static void isr_crt_body(void)
 {
-    /* Phase 1a stub: CRT refresh ISR
-     * Must program DMA for 8275 display refresh — without this,
-     * the screen stays blank. Full implementation in Phase 1b. */
+    /* Read CRT status register to acknowledge interrupt */
+    (void)_port_crt_cmd;
+
+    /* Program DMA for 8275 display refresh */
+    _port_dma_smsk = 6;         /* mask DMA ch2 */
+    _port_dma_smsk = 7;         /* mask DMA ch3 */
+    _port_dma_clbp = 0;         /* clear byte pointer flip-flop */
+
+    /* DMA ch2: display data transfer (2000 bytes from DSPSTR) */
+    hal_dma_ch2_addr(DSPSTR);
+    hal_dma_ch2_wc(SCRN_SIZE - 1);
+
+    /* DMA ch3: attribute data (zero length) */
+    _port_dma_ch3_wc = 0;
+    _port_dma_ch3_wc = 0;
+
+    /* Unmask DMA channels */
+    _port_dma_smsk = 2;         /* clear ch2 mask */
+    _port_dma_smsk = 3;         /* clear ch3 mask */
+
+    /* Reprogram CTC ch2 for next interrupt */
+    _port_ctc2 = 0xD7;          /* counter mode */
+    _port_ctc2 = 1;             /* count 1 */
+
+    /* Increment 32-bit real-time clock */
+    rtc0++;
+    if (rtc0 == 0)
+        rtc2++;
+
+    /* Timer 0: exit routine countdown */
+    if (timer1 != 0) {
+        timer1--;
+        if (timer1 == 0) {
+            /* Call exit routine at warmjp address */
+            ((void (*)(void))warmjp)();
+        }
+    }
+
+    /* Timer 1: floppy motor-off countdown */
+    if (timer2 != 0) {
+        timer2--;
+        if (timer2 == 0)
+            fdstop();
+    }
+
+    /* General delay timer */
+    if (delcnt != 0)
+        delcnt--;
 }
 
-void isr_floppy(void) __interrupt
+void isr_crt(void) __naked
 {
-    /* Phase 1a stub: set completion flag */
+    __asm
+        push af
+        push bc
+        push de
+        push hl
+        push iy
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        call _isr_crt_body
+        ld sp, (_sp_sav)
+        pop iy
+        pop hl
+        pop de
+        pop bc
+        pop af
+        ei
+        reti
+    __endasm;
 }
 
-void isr_hd(void) __interrupt
+/*
+ * Keyboard ISR body (PIO ch.A)
+ * Reads keystroke from PIO and stores in 16-byte ring buffer.
+ * Must read PIO data port to clear the interrupt even if buffer is full.
+ */
+static void isr_pio_kbd_body(void)
 {
-    /* HD ISR stub */
+    uint8_t key, new_head;
+
+    key = _port_pio_a_data;     /* read key (clears PIO interrupt) */
+    new_head = (kbhead + 1) & KBMASK;
+    if (new_head != kbtail) {   /* not full */
+        kbbuf[kbhead] = key;
+        kbhead = new_head;
+    }
+    /* if full, keystroke is discarded */
 }
 
+void isr_pio_kbd(void) __naked
+{
+    __asm
+        push af
+        push bc
+        push de
+        push hl
+        push iy
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        call _isr_pio_kbd_body
+        ld sp, (_sp_sav)
+        pop iy
+        pop hl
+        pop de
+        pop bc
+        pop af
+        ei
+        reti
+    __endasm;
+}
+
+/*
+ * Floppy completion ISR (CTC ch.3)
+ * Sets completion flag. Full implementation in floppy driver phase.
+ */
+void isr_floppy(void) __interrupt {}
+
+/* HD ISR stub */
+void isr_hd(void) __interrupt {}
+
+/* SIO ISR stubs */
 void isr_sio_b_tx(void) __interrupt {}
 void isr_sio_b_ext(void) __interrupt {}
 void isr_sio_b_spec(void) __interrupt {}
@@ -340,5 +513,6 @@ void isr_sio_a_tx(void) __interrupt {}
 void isr_sio_a_ext(void) __interrupt {}
 void isr_sio_a_rx(void) __interrupt {}
 void isr_sio_a_spec(void) __interrupt {}
-void isr_pio_kbd(void) __interrupt {}
+
+/* PIO ch.B (parallel output) ISR — not used on RC702 */
 void isr_pio_par(void) __interrupt {}

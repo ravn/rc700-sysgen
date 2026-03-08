@@ -7,22 +7,14 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1a: Build skeleton** — COMPLETE
+**Phase 1b: CRT ISR + keyboard** — COMPLETE
 
-All source files compile and link into a correct binary layout:
-- Boot entry at offset 0x000 with CBOOT pointer and " RC702" identification
-- CONFI config block at offset 0x080 (hardware init parameters)
-- Conversion tables at offset 0x100 (384 bytes from danish.bin)
-- INIT code at offset 0x280 (LDIR relocation, hw init, JP to BIOS)
-- BIOS JP table at offset 0x580 (runtime 0xDA00, 17 standard entries)
-- JTVARS at 0xDA33 (fixed addresses for CONFI.COM compatibility)
-- Extended JP table at 0xDA49
-- IVT at 0xDB00 (256-byte aligned, 18 entries)
-- C functions (stubs) in code_compiler section at 0xDB29+
-- Current size: 2032 bytes (fits both mini and maxi)
-
-All BIOS entries are stubs: boot halts, console returns defaults, disk
-returns errors. ISRs use `__interrupt` attribute (EI+RETI only).
+- Phase 1a (skeleton): correct binary layout, all stubs in place
+- Phase 1b (display): CRT ISR programs DMA for 8275 display refresh,
+  increments 32-bit RTC, decrements timers (exit routine, motor-off, delay)
+- Keyboard ISR stores keys in 16-byte ring buffer (REL30)
+- CONST/CONIN read from keyboard ring buffer with INCONV table conversion
+- Current size: 2343 bytes (fits both mini and maxi)
 
 ## Building
 
@@ -52,6 +44,17 @@ make clean   # remove build artifacts
 - The binary starts at file offset 0 = runtime address 0xD480. The ROM
   bootstrap loads this to physical address 0x0000 and the INIT code copies
   it to 0xD480 via LDIR.
+
+### ISR design
+
+ISRs needing stack switching use `__naked` wrappers with explicit register
+save/restore (PUSH AF/BC/DE/HL/IY, SP switch, CALL body, restore, EI, RETI).
+This is necessary because sdcc's `__interrupt` puts EI at the *start* of the
+function, enabling nested interrupts.  The CRT ISR must run with interrupts
+disabled to protect DMA programming and the shared `sp_sav` variable.
+
+Simple ISRs (flag-set only, stubs) use `__interrupt` which is safe since
+their bodies are empty or trivial.
 
 ## Next steps
 
