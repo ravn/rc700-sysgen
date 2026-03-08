@@ -59,10 +59,8 @@
 /*
  * Fixed-address variables (defined in crt0.asm via DEFC)
  * On Z80: these are at absolute addresses in the 0xFFD0-0xFFFF work area.
- * On host: regular globals (TODO: define in hal_host.c)
+ * On host: regular globals in hal_host.c.
  */
-#ifndef HOST_TEST
-
 extern volatile uint8_t  curx;          /* 0xFFD1: cursor column */
 extern volatile uint16_t cury;          /* 0xFFD2: cursor row offset */
 extern volatile uint8_t  cursy;         /* 0xFFD4: cursor row number */
@@ -90,7 +88,17 @@ extern uint8_t  mtype;         /* 0xDA36 */
 extern uint8_t  fd0;           /* 0xDA37 (16-byte array) */
 extern uint8_t  bootd;         /* 0xDA48 */
 
-#endif /* !HOST_TEST */
+/* Disk tables (in crt0.asm CODE section) */
+extern uint8_t tran0[], tran8[], tran16[], tran24[];
+extern uint8_t dpb0[], dpb8[], dpb16[], dpb24[];
+extern uint8_t fspa00[];            /* 4 × 16-byte format parameter blocks */
+extern uint8_t fdf1[];              /* format descriptor FDF1 */
+extern uint16_t trkoff[];           /* track offset table */
+
+/* Write type constants */
+#define WRALL   0   /* write to allocated sector */
+#define WRDIR   1   /* write to directory sector */
+#define WRUAL   2   /* write to unallocated sector */
 
 /* CONFI config block (in crt0.asm, fixed layout on Track 0) */
 extern uint8_t mode0, count0;

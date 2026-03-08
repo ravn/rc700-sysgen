@@ -12,9 +12,46 @@
 
 #ifdef HOST_TEST
 
-/* Host test stubs (TODO) */
+/* Compatibility stubs for clang/host analysis */
 void hal_ei(void);
 void hal_di(void);
+
+/* sdcc keywords → no-ops for clang */
+#define __naked
+#define __interrupt
+#define __sdcccall(x)
+#define __asm__(x) ((void)0)
+
+/* Port I/O as regular volatile globals */
+extern volatile uint8_t _port_crt_param, _port_crt_cmd;
+extern volatile uint8_t _port_fdc_status, _port_fdc_data;
+extern volatile uint8_t _port_sio_a_data, _port_sio_b_data;
+extern volatile uint8_t _port_sio_a_ctrl, _port_sio_b_ctrl;
+extern volatile uint8_t _port_ctc0, _port_ctc1, _port_ctc2, _port_ctc3;
+extern volatile uint8_t _port_pio_a_data, _port_pio_b_data;
+extern volatile uint8_t _port_pio_a_ctrl, _port_pio_b_ctrl;
+extern volatile uint8_t _port_sw1, _port_bell;
+extern volatile uint8_t _port_ctc2_ch0, _port_ctc2_ch1;
+extern volatile uint8_t _port_ctc2_ch2, _port_ctc2_ch3;
+extern volatile uint8_t _port_dma_ch0_addr, _port_dma_ch0_wc;
+extern volatile uint8_t _port_dma_ch1_addr, _port_dma_ch1_wc;
+extern volatile uint8_t _port_dma_ch2_addr, _port_dma_ch2_wc;
+extern volatile uint8_t _port_dma_ch3_addr, _port_dma_ch3_wc;
+extern volatile uint8_t _port_dma_cmd, _port_dma_req;
+extern volatile uint8_t _port_dma_smsk, _port_dma_mode;
+extern volatile uint8_t _port_dma_clbp, _port_dma_tmp, _port_dma_mask;
+extern volatile uint8_t _port_hd_data, _port_hd_error;
+extern volatile uint8_t _port_hd_secct, _port_hd_secno;
+extern volatile uint8_t _port_hd_cyllo, _port_hd_cylhi;
+extern volatile uint8_t _port_hd_sdh, _port_hd_status;
+
+/* DMA macros — stubs */
+#define hal_dma_ch1_addr(addr) ((void)0)
+#define hal_dma_ch1_wc(wc)    ((void)0)
+#define hal_dma_ch2_addr(addr) ((void)0)
+#define hal_dma_ch2_wc(wc)    ((void)0)
+#define hal_dma_ch3_addr(addr) ((void)0)
+#define hal_dma_ch3_wc(wc)    ((void)0)
 
 #else /* Z80 TARGET */
 

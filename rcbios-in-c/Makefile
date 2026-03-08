@@ -14,11 +14,16 @@ ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
 # sdcc via z88dk: register calling convention, optimize for size
+# --sdcccall 1: register-based parameter passing (A/HL/DE)
+# --disable-warning 296: suppressed because we use --no-crt and link NO stdlib.
+#   The build rule checks the map file for any accidentally-linked sdcccall(0)
+#   library functions (__div*, __mod*, __mul*) and fails if found.
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
          -Cs"--fomit-frame-pointer" \
          -Cs"--allow-unsafe-read" \
          -Cs"--sdcccall 1" \
+         -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0xD480 \
          -m --list -create-app
@@ -44,12 +49,23 @@ MAXI_LIMIT = 9984
 all: bios size
 
 # Z80 build
+# sdcccall safety: warning 296 is suppressed via --disable-warning 296 because
+# we use --no-crt and don't link stdlib. Instead we check the map file post-link
+# for any sdcccall(0) library functions that would silently corrupt arithmetic.
 bios: crt0.asm bios.c hal.h bios.h danish.bin peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
 	@cp bios.rom bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
+	@if grep -qE '__div[us]|__mod[us]|__mul[us]' bios.map 2>/dev/null; then \
+		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
+		echo "These will silently produce WRONG RESULTS (warning 296 scenario)."; \
+		echo "Avoid div/mod/mul operators, or use subtraction loops instead."; \
+		grep -E '__div[us]|__mod[us]|__mul[us]' bios.map; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
 
 # Size check
 size: bios
@@ -81,6 +97,23 @@ mame-maxi: bios
 	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_maxi.imd \
 		-skip_gameinfo -window -resolution 1100x720
+
+# Automated MAME disk test (maxi, with Lua script)
+# Usage: make mame-test [IMG=/path/to/image.imd]
+IMG ?= $(IMG_MAXI)
+mame-test: bios
+	cp $(IMG) /tmp/bios_c_test.imd
+	$(PATCH) /tmp/bios_c_test.imd bios.cim
+	python3 verify_checksums.py /tmp/bios_c_test.imd > /tmp/expected_checksums.txt
+	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_test.imd \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-nothrottle \
+		-autoboot_script mame_disk_test.lua
+	@echo "--- MAME screen ---"
+	@cat /tmp/screen.txt
+	@echo "--- Expected ---"
+	@cat /tmp/expected_checksums.txt
 
 # Host tests (TODO)
 test:

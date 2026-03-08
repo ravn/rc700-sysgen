@@ -17,6 +17,17 @@
 #include "hal.h"
 #include "bios.h"
 
+/* Forward declarations */
+static void conout_body(void);
+static void putch(uint8_t c);
+static void puts_p(const char *s);
+static void put_hex(uint16_t val);
+static void put_dec(uint16_t val);
+static uint16_t bios_seldsk_c(uint8_t drive);
+static void bios_home_c(void);
+static uint8_t xread(void);
+static uint8_t xwrite(uint8_t wt);
+
 /* ================================================================
  * ISR shared state
  * ================================================================ */
@@ -28,10 +39,485 @@ static uint8_t kbbuf[KBBUFSZ];
 static volatile uint8_t kbhead;   /* write index (ISR updates) */
 static volatile uint8_t kbtail;   /* read index (CONIN updates) */
 
-/* Floppy motor stop — stub for now */
+/* ================================================================
+ * Floppy disk driver — variables and buffers
+ * ================================================================ */
+
+/* Host sector buffer (512 bytes) and directory scratch (128 bytes) */
+static uint8_t hstbuf[512];
+static uint8_t dirbf[128];
+
+/* Allocation and check vectors (2 drives) */
+static uint8_t all0[71], chk0[32];
+static uint8_t all1[71], chk1[32];
+
+/* CP/M requested disk/track/sector (set by BDOS calls) */
+static uint8_t  sekdsk;
+static uint16_t sektrk;
+static uint16_t seksec;
+
+/* Host buffer state (what's cached in hstbuf) */
+static uint8_t  hstdsk;
+static uint16_t hsttrk;
+static uint16_t hstsec;
+
+/* Last seek position (skip redundant FDC seeks) */
+static uint8_t  lstdsk;
+static uint16_t lsttrk;
+
+/* Intermediate: seksec >> secshf */
+static uint16_t sekhst;
+
+/* Buffer status */
+static uint8_t  hstact;     /* 0=empty, 1=valid */
+static uint8_t  hstwrt;     /* 0=clean, 1=dirty */
+
+/* Unallocated sector tracking */
+static uint8_t  unacnt;
+static uint8_t  unadsk;
+static uint16_t unatrk;
+static uint16_t unasec;
+static uint8_t  unamsk;
+
+/* I/O operation control */
+static uint8_t  erflag;
+static uint8_t  rsflag;
+static uint8_t  readop;
+static uint8_t  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
+
+/* DMA and format state */
+static uint16_t dmaadr;  /* CP/M DMA address */
+static uint16_t form;    /* pointer to FDF block */
+static uint8_t  cform;   /* current format index */
+static uint8_t  eotv;        /* sectors per side on track 0 */
+static uint8_t  drno;        /* highest drive number */
+
+/* Physical disk control */
+static uint8_t  dskno;       /* drive + head select bits */
+static uint16_t dskad;       /* DMA address for FDC */
+static uint8_t  actra;       /* actual track */
+static uint8_t  acsec;       /* actual sector (1-based) */
+static uint8_t  repet;       /* retry counter */
+static volatile uint8_t rstab[8];    /* FDC result table */
+static volatile uint8_t fl_flg;      /* floppy completion flag */
+
+/* FSPA working copy (set by SELDSK) */
+static uint16_t dpblck;      /* DPB pointer */
+static uint8_t  cpmrbp;      /* records per block */
+static uint16_t cpmspt;      /* CP/M sectors per track */
+static uint8_t  secmsk;      /* sector mask */
+static uint8_t  secshf;      /* sector shift count */
+static uint16_t trantb;      /* translation table pointer */
+static uint8_t  dtlv;        /* data length value */
+static uint8_t  dsktyp;      /* 0=floppy, 0xFF=HD */
+
+/* Disk Parameter Headers — 2 drives × 16 bytes (8 words) each
+ * DPH layout: XLT(2), scratch(6), DIRBF(2), DPB(2), CHK(2), ALV(2)
+ * Initialized at boot; DPB pointer updated by SELDSK.
+ */
+static uint16_t dpbase[2 * 8];
+
+/* Motor control */
 static void fdstop(void)
 {
-    _port_sw1 = 0x00;  /* motor off */
+    if (!(_port_sw1 & 0x80))    /* maxi: no motor control */
+        return;
+    _port_sw1 = 0x00;
+}
+
+static void waitd(uint16_t ticks)
+{
+    delcnt = ticks;
+    while (delcnt)
+        ;
+}
+
+static void fdstar(void)
+{
+    if (!(_port_sw1 & 0x80))    /* maxi: no motor control */
+        return;
+    __asm__("di");
+    if (timer2 == 0) {
+        /* motor was stopped — start and wait for spinup */
+        timer2 = (uint16_t)fdtimo_var;
+        __asm__("ei");
+        _port_sw1 = 0x01;
+        waitd(50);              /* 50 * 20ms = 1 second */
+    } else {
+        timer2 = (uint16_t)fdtimo_var;
+        __asm__("ei");
+    }
+}
+
+/* FDC low-level */
+static void fdc_wait_write(void)
+{
+    while ((_port_fdc_status & 0xC0) != 0x80)
+        ;
+}
+
+static void fdc_wait_read(void)
+{
+    while ((_port_fdc_status & 0xC0) != 0xC0)
+        ;
+}
+
+static void fdc_recalibrate(void)
+{
+    fdc_wait_write();
+    _port_fdc_data = 0x07;      /* RECALIBRATE */
+    fdc_wait_write();
+    _port_fdc_data = dskno & 3; /* drive */
+}
+
+static void fdc_sense_int(void)
+{
+    fdc_wait_write();
+    _port_fdc_data = 0x08;      /* SENSE INTERRUPT STATUS */
+    fdc_wait_read();
+    rstab[0] = _port_fdc_data;
+    if ((rstab[0] & 0xC0) != 0x80) {
+        fdc_wait_read();
+        rstab[1] = _port_fdc_data;
+    }
+}
+
+static void fdc_seek(void)
+{
+    fdc_wait_write();
+    _port_fdc_data = 0x0F;      /* SEEK */
+    fdc_wait_write();
+    _port_fdc_data = dskno & 3; /* drive + head */
+    fdc_wait_write();
+    _port_fdc_data = actra;     /* cylinder */
+}
+
+static void fdc_result(void)
+{
+    uint8_t i;
+    for (i = 0; i < 7; i++) {
+        uint8_t delay;
+        fdc_wait_read();
+        rstab[i] = _port_fdc_data;
+        for (delay = 4; delay; delay--)
+            ;
+        if (!(_port_fdc_status & 0x10))
+            return;
+    }
+}
+
+/* Interrupt flag */
+static void clfit(void)
+{
+    __asm__("di");
+    fl_flg = 0;
+    __asm__("ei");
+}
+
+static void watir(void)
+{
+    while (!fl_flg)
+        ;
+}
+
+static void wfitr(void)
+{
+    watir();
+    clfit();
+}
+
+/* DMA setup for FDC transfers (channel 1)
+ * CHKTRK sets dskad = HSTBUF address before calling secrd/secwr.
+ * write=1 means FDC reads from memory (FLPR), write=0 means FDC writes to memory (FLPW)
+ */
+static void flp_dma_setup(uint16_t count, uint8_t write)
+{
+    __asm__("di");
+    _port_dma_smsk = 0x05;          /* mask ch1 */
+    _port_dma_mode = write ? 0x49 : 0x45;
+    _port_dma_clbp = 0;
+    _port_dma_ch1_addr = (uint8_t)dskad;
+    _port_dma_ch1_addr = (uint8_t)(dskad >> 8);
+    _port_dma_ch1_wc = (uint8_t)count;
+    _port_dma_ch1_wc = (uint8_t)(count >> 8);
+    _port_dma_smsk = 0x01;          /* unmask ch1 */
+    __asm__("ei");
+}
+
+/* General FDC command (9-byte read/write sequence)
+ * fdfp points past DMA count bytes, at the MF field:
+ *   fdfp[0]=MF, fdfp[1]=N, fdfp[2]=EOT, fdfp[3]=gap
+ */
+static void fdc_general_cmd(uint8_t cmd, uint8_t *fdfp)
+{
+    __asm__("di");
+    fdc_wait_write();
+    _port_fdc_data = cmd + fdfp[0]; /* command + MF flag */
+    fdc_wait_write();
+    _port_fdc_data = dskno;         /* drive + head */
+    fdc_wait_write();
+    _port_fdc_data = actra;         /* cylinder */
+    fdc_wait_write();
+    _port_fdc_data = (dskno >> 2) & 3;  /* head number */
+    fdc_wait_write();
+    _port_fdc_data = acsec;         /* sector */
+    fdc_wait_write();
+    _port_fdc_data = fdfp[1];       /* N (sector size code) */
+    fdc_wait_write();
+    _port_fdc_data = fdfp[2];       /* EOT (final sector) */
+    fdc_wait_write();
+    _port_fdc_data = fdfp[3];       /* gap length */
+    fdc_wait_write();
+    _port_fdc_data = dtlv;          /* data length */
+    __asm__("ei");
+}
+
+/* CHKTRK: multi-density track dispatch + sector translation + seek */
+static void chktrk(void)
+{
+    uint8_t sec, ev;
+    uint8_t *tp;
+
+    sec = (uint8_t)hstsec;
+    ev = eotv;
+    dskno = hstdsk;
+
+    if (sec >= ev) {
+        /* head 1 (track 0 side 1, or beyond EOTV) */
+        dskno |= 4;
+        sec -= ev;
+    }
+
+    /* sector translation */
+    tp = (uint8_t *)trantb;
+    acsec = tp[sec];
+    actra = (uint8_t)hsttrk;
+    dskad = (uint16_t)&hstbuf[0];
+
+    /* check if seek needed */
+    if (hstdsk == lstdsk && hsttrk == lsttrk)
+        return;
+
+    /* need to seek */
+    lstdsk = hstdsk;
+    lsttrk = hsttrk;
+    clfit();
+    fdc_seek();
+    wfitr();
+
+    /* check seek completion */
+    if (rstab[0] == ((dskno & 3) | 0x20))
+        return;
+
+    /* seek failed — recalibrate and retry */
+    clfit();
+    fdc_recalibrate();
+    wfitr();
+    fdc_sense_int();
+    clfit();
+    fdc_seek();
+    wfitr();
+    fdc_sense_int();
+}
+
+/* Sector read with retry */
+static void secrd(void)
+{
+    uint8_t *fp;
+    uint16_t dma_count;
+
+    repet = 10;
+    for (;;) {
+        fdstar();
+        clfit();
+
+        /* form points to FDF start: [dma_count_lo, dma_count_hi, MF, N, EOT, gap] */
+        fp = (uint8_t *)form;
+        dma_count = fp[0] | ((uint16_t)fp[1] << 8);
+
+        flp_dma_setup(dma_count, 0);    /* write to memory */
+        fdc_general_cmd(6, fp + 2);     /* READ DATA, skip DMA count */
+        watir();
+
+        if (!(rstab[0] & 0xF8))
+            return;                     /* success */
+
+        /* debug: show result bytes on first error */
+        if (repet == 10) {
+            putch('(');
+            put_hex(rstab[0]);
+            putch(' ');
+            put_hex(rstab[1]);
+            putch(' ');
+            put_hex(rstab[2]);
+            putch(')');
+        }
+
+        if (rstab[0] & 0x08)            /* write protected — no retry */
+            goto fail;
+
+        if (--repet == 0)
+            goto fail;
+
+        if (repet == 5) {
+            /* recalibrate and retry */
+            clfit();
+            fdc_recalibrate();
+            wfitr();
+            fdc_sense_int();
+            clfit();
+            fdc_seek();
+            wfitr();
+            fdc_sense_int();
+        }
+    }
+fail:
+    hstact = 0;
+    erflag = 1;
+}
+
+/* Sector write with retry */
+static void secwr(void)
+{
+    uint8_t *fp;
+    uint16_t dma_count;
+
+    repet = 10;
+    for (;;) {
+        fdstar();
+        clfit();
+
+        fp = (uint8_t *)form;
+        dma_count = fp[0] | ((uint16_t)fp[1] << 8);
+
+        flp_dma_setup(dma_count, 1);    /* read from memory */
+        fdc_general_cmd(5, fp + 2);     /* WRITE DATA, skip DMA count */
+        watir();
+
+        if (!(rstab[0] & 0xF8))
+            return;                     /* success */
+
+        if (rstab[0] & 0x08)            /* write protected */
+            goto fail;
+
+        if (--repet == 0)
+            goto fail;
+
+        if (repet == 5) {
+            clfit();
+            fdc_recalibrate();
+            wfitr();
+            fdc_sense_int();
+            clfit();
+            fdc_seek();
+            wfitr();
+            fdc_sense_int();
+        }
+    }
+fail:
+    hstact = 0;
+    erflag = 1;
+}
+
+/* Write host buffer to disk */
+static void wrthst(void)
+{
+    chktrk();
+    secwr();
+}
+
+/* Read host buffer from disk */
+static void rdhst(void)
+{
+    if (unamsk)
+        ;                   /* force pre-read if unamsk set */
+    else
+        unacnt = 0;
+    chktrk();
+    secrd();
+}
+
+/* 16-bit track compare: *(uint16_t *)p == sektrk */
+static uint8_t trkcmp(uint16_t *p)
+{
+    return *p == sektrk;
+}
+
+/* Core blocking/deblocking algorithm (DRI standard) */
+static uint8_t rwoper(void)
+{
+    uint8_t shift, i;
+    uint16_t hs;
+    uint8_t *src, *dst;
+    uint16_t offset;
+
+    /* compute host sector: sekhst = seksec >> (secshf-1)
+     * Original asm: DEC B first, then shift if nonzero.
+     * secshf=3 → 2 shifts (divide by 4, for 512B sectors).
+     * secshf=1 → 0 shifts (128B sectors, no deblocking). */
+    shift = secshf;
+    hs = seksec;
+    for (i = 1; i < shift; i++)
+        hs >>= 1;
+    sekhst = hs;
+
+    /* check if host buffer is active and matches */
+    if (hstact) {
+        if (sekdsk == hstdsk && trkcmp(&hsttrk) && sekhst == hstsec)
+            goto match;
+        /* not matching — flush if dirty */
+        if (hstwrt)
+            wrthst();
+    }
+
+    /* fill host buffer */
+    hstact = 1;
+    hstdsk = sekdsk;
+    hsttrk = sektrk;
+    hstsec = sekhst;
+    if (rsflag)
+        rdhst();
+    hstwrt = 0;
+
+match:
+    /* compute offset into host buffer */
+    offset = (uint16_t)(seksec & secmsk) << 7;
+    src = &hstbuf[offset];
+    dst = (uint8_t *)dmaadr;
+
+    if (readop) {
+        /* read: copy from host buffer to DMA area */
+        for (i = 0; i < 128; i++)
+            dst[i] = src[i];
+    } else {
+        /* write: copy from DMA area to host buffer */
+        hstwrt = 1;
+        for (i = 0; i < 128; i++)
+            src[i] = dst[i];
+    }
+
+    /* post-processing */
+    if (erflag) {
+        hstact = 0;
+    }
+
+    if (wrtype == WRDIR && !erflag) {
+        /* directory write: flush immediately */
+        hstwrt = 0;
+        wrthst();
+    }
+
+    {
+        uint8_t err = erflag;
+        erflag = 0;
+        return err;
+    }
+}
+
+/* GFPA: get format parameter address from CFORM */
+static uint8_t *gfpa(void)
+{
+    return (uint8_t *)&fdf1 + (cform & 0xF8);
 }
 
 /* ================================================================
@@ -60,6 +546,7 @@ void bios_hw_init(void)
     _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
 
     /* SIO: program via OTIR — use inline asm for the block output */
+#ifndef HOST_TEST
     __asm
         ld hl, _psioa
         ld b, #9
@@ -70,6 +557,7 @@ void bios_hw_init(void)
         ld c, #0x0B
         otir
     __endasm;
+#endif
 
     /* SIO: read initial status registers */
     (void)_port_sio_a_ctrl;     /* read RR0-A */
@@ -99,6 +587,7 @@ void bios_hw_init(void)
     _port_fdc_data = 0x28;      /* head load 40ms, DMA mode */
 
     /* Clear display buffer (fill 0xF800-0xFFCF with spaces) */
+#ifndef HOST_TEST
     __asm
         ld hl, #0xF800
         ld de, #0xF801
@@ -106,8 +595,10 @@ void bios_hw_init(void)
         ld (hl), #0x20
         ldir
     __endasm;
+#endif
 
     /* Clear work area (0xFFD1-0xFFFF with zeros) */
+#ifndef HOST_TEST
     __asm
         ld hl, #0xFFD1
         ld de, #0xFFD2
@@ -115,6 +606,7 @@ void bios_hw_init(void)
         ld bc, #0x002E
         ldir
     __endasm;
+#endif
 
     /* CRT 8275: reset and program */
     _port_crt_cmd = 0x00;       /* reset */
@@ -135,6 +627,44 @@ void bios_hw_init(void)
 
     /* Initialize motor timer reload from config */
     stptim_var = cfgstptim;
+
+    /* Initialize disk subsystem */
+    {
+        uint8_t d;
+
+        /* Copy initial drive format from config block */
+        *(&fd0 + 0) = infd0;       /* drive A format */
+        *(&fd0 + 1) = 0xFF;        /* end of drive table */
+
+        /* Count configured drives from fd0 table */
+        drno = 0;
+        for (d = 0; d < 16; d++) {
+            if (*(&fd0 + d) == 0xFF)
+                break;
+            drno = d;
+        }
+
+        /* Initialize DPH entries for each drive */
+        for (d = 0; d <= drno && d < 2; d++) {
+            uint16_t *dph = &dpbase[d * 8];
+            dph[0] = 0;                        /* XLT */
+            dph[1] = 0;                        /* scratch */
+            dph[2] = 0;
+            dph[3] = 0;
+            dph[4] = (uint16_t)dirbf;          /* DIRBF */
+            dph[5] = (uint16_t)dpb8;           /* DPB (initial) */
+            dph[6] = d == 0 ? (uint16_t)chk0 : (uint16_t)chk1;
+            dph[7] = d == 0 ? (uint16_t)all0 : (uint16_t)all1;
+        }
+
+        /* Clear disk state */
+        hstact = 0;
+        hstwrt = 0;
+        unacnt = 0;
+        erflag = 0;
+        cform = 0xFF;       /* force format reload on first SELDSK */
+        lstdsk = 0xFF;      /* force seek on first access */
+    }
 }
 
 /* ================================================================
@@ -143,15 +673,175 @@ void bios_hw_init(void)
 
 void bios_boot(void) __naked
 {
+#ifndef HOST_TEST
     __asm
-        ld sp, #0x0080          ; use DMA buffer as stack
+        ld sp, #0xD480          ; use area below BIOS code as stack
         jp _bios_boot_c
     __endasm;
+#endif
+}
+
+static void putch(uint8_t c)
+{
+    usession = c;
+    conout_body();
+}
+
+static void puts_p(const char *s)
+{
+    while (*s)
+        putch(*s++);
+}
+
+static void put_hex(uint16_t val)
+{
+    uint8_t i;
+    char buf[5];
+    for (i = 0; i < 4; i++) {
+        uint8_t nib = (val >> 12) & 0xF;
+        buf[i] = nib < 10 ? '0' + nib : 'A' + nib - 10;
+        val <<= 4;
+    }
+    buf[4] = 0;
+    puts_p(buf);
+}
+
+static void put_dec(uint16_t val)
+{
+    uint8_t d;
+    if (val >= 10000) { d = 0; while (val >= 10000) { val -= 10000; d++; } putch('0' + d); }
+    if (val >= 1000)  { d = 0; while (val >= 1000)  { val -= 1000;  d++; } putch('0' + d); }
+    if (val >= 100)   { d = 0; while (val >= 100)   { val -= 100;   d++; } putch('0' + d); }
+    if (val >= 10)    { d = 0; while (val >= 10)     { val -= 10;    d++; } putch('0' + d); }
+    putch('0' + (uint8_t)val);
+}
+
+/* Read all CP/M sectors on the current track and accumulate checksum */
+static uint16_t read_track_cksum(uint16_t trk, uint16_t *errors)
+{
+    uint16_t sec;
+    uint16_t cksum = 0;
+    sektrk = trk;
+    for (sec = 0; sec < cpmspt; sec++) {
+        seksec = sec;
+        if (xread()) {
+            (*errors)++;
+        } else {
+            uint8_t *p = (uint8_t *)0x0080;
+            uint8_t i;
+            for (i = 0; i < 128; i++)
+                cksum += p[i];
+        }
+    }
+    return cksum;
+}
+
+/* Switch drive A format and re-select */
+static void switch_format(uint8_t fmt)
+{
+    hstact = 0;         /* flush host buffer cache */
+    lstdsk = 0xFF;      /* force seek on next access */
+    *(&fd0) = fmt;
+    bios_seldsk_c(0);
 }
 
 void bios_boot_c(void)
 {
-    /* Phase 1d: halt with interrupts enabled (CRT ISR keeps display alive) */
+    /* Full disk read test: tracks 0-76, per-track checksum */
+    uint16_t trk;
+    uint16_t total_errors = 0;
+    uint16_t disk_cksum = 0;
+    uint8_t maxtrk;
+    uint8_t col;
+    uint16_t cksum, errs;
+
+    puts_p("DISK READ TEST\r\n");
+    bios_seldsk_c(0);
+    bios_home_c();
+    dmaadr = 0x0080;
+
+    /* Get max tracks from FDF block (offset 6 from form) */
+    maxtrk = ((uint8_t *)form)[6];
+    puts_p("TRK=");
+    put_dec(maxtrk);
+    puts_p(" SPT=");
+    put_dec(cpmspt);
+    puts_p("\r\n");
+
+    /* --- Track 0 Side 0: FM 128B (format 16) --- */
+    errs = 0;
+    switch_format(16);          /* FM 128B, SPT=26, tran24 */
+    cksum = read_track_cksum(0, &errs);
+    disk_cksum += cksum;
+    total_errors += errs;
+    puts_p("T0S0=");
+    put_hex(cksum);
+    if (errs) { puts_p("!E"); put_dec(errs); }
+
+    /* --- Track 0 Side 1: MFM 256B (format 24) --- */
+    errs = 0;
+    switch_format(24);          /* MFM 256B, SPT=104, eotv=26 */
+    /* Format 24 has SPT=104 covering both sides.
+     * Side 0 sectors (seksec 0..51) would try MFM on FM track → skip.
+     * Side 1 sectors: seksec 52..103 → hstsec 26..51 → head 1 */
+    {
+        uint16_t sec;
+        cksum = 0;
+        errs = 0;
+        sektrk = 0;
+        for (sec = 52; sec < 104; sec++) {
+            seksec = sec;
+            if (xread()) {
+                errs++;
+            } else {
+                uint8_t *p = (uint8_t *)0x0080;
+                uint8_t i;
+                for (i = 0; i < 128; i++)
+                    cksum += p[i];
+            }
+        }
+    }
+    disk_cksum += cksum;
+    total_errors += errs;
+    puts_p(" T0S1=");
+    put_hex(cksum);
+    if (errs) { puts_p("!E"); put_dec(errs); }
+    puts_p("\r\n");
+
+    /* --- Tracks 1 through maxtrk-1: MFM 512B (format 8) --- */
+    switch_format(8);           /* back to normal DD 512B */
+
+    col = 0;
+    for (trk = 1; trk < maxtrk; trk++) {
+        errs = 0;
+        cksum = read_track_cksum(trk, &errs);
+        disk_cksum += cksum;
+        total_errors += errs;
+
+        /* Compact output: "NN:XXXX " packed 6 per line */
+        put_dec(trk);
+        putch(':');
+        put_hex(cksum);
+        if (errs) {
+            putch('!');
+        }
+        col++;
+        if (col >= 6) {
+            puts_p("\r\n");
+            col = 0;
+        } else {
+            putch(' ');
+        }
+    }
+    if (col)
+        puts_p("\r\n");
+
+    puts_p("DISK=");
+    put_hex(disk_cksum);
+    puts_p(" ERR=");
+    put_dec(total_errors);
+    puts_p("\r\n");
+
     for (;;)
         __asm__("halt");
 }
@@ -168,6 +858,7 @@ void bios_wboot(void)
 
 uint8_t bios_const(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ld a, (_kbtail)
         ld hl, #_kbhead
@@ -176,10 +867,14 @@ uint8_t bios_const(void) __naked
         ld l, #0xFF
         ret
     __endasm;
+#else
+    return 0;
+#endif
 }
 
 uint8_t bios_conin(void) __naked
 {
+#ifndef HOST_TEST
     __asm
     conin_wait$:
         ld a, (_kbtail)
@@ -204,6 +899,9 @@ uint8_t bios_conin(void) __naked
         ld l, (hl)
         ret
     __endasm;
+#else
+    return 0;
+#endif
 }
 
 /* ================================================================
@@ -259,12 +957,14 @@ static void rowup(void)
 /* Scroll display up one line: copy 1920 bytes, fill last line */
 static void scroll(void)
 {
+#ifndef HOST_TEST
     __asm
         ld hl, #0xF850          ; DSPSTR + 80
         ld de, #0xF800          ; DSPSTR
         ld bc, #1920
         ldir
     __endasm;
+#endif
     fill_line((uint8_t *)(DSPSTR + 1920));
 }
 
@@ -350,6 +1050,7 @@ static void home(void)
 /* Clear screen — fill display with spaces, home */
 static void clear_screen(void)
 {
+#ifndef HOST_TEST
     __asm
         ld hl, #0xF800          ; DSPSTR
         ld de, #0xF801
@@ -357,6 +1058,7 @@ static void clear_screen(void)
         ld bc, #1999
         ldir
     __endasm;
+#endif
     es0h();
     wp75();
 }
@@ -385,6 +1087,7 @@ static void delete_line(void)
     uint16_t row_off = cury;
     uint16_t count = 1920 - row_off;
     if (count != 0) {
+#ifndef HOST_TEST
         __asm
             ld hl, (_cury)
             ld de, #0xF800      ; DSPSTR
@@ -405,6 +1108,7 @@ static void delete_line(void)
             pop hl
             ldir
         __endasm;
+#endif
     }
     fill_line((uint8_t *)(DSPSTR + 1920));
 }
@@ -415,6 +1119,7 @@ static void insert_line(void)
     uint16_t row_off = cury;
     uint16_t count = 1920 - row_off;
     if (count != 0) {
+#ifndef HOST_TEST
         __asm
             ; LDDR from DSPSTR+1919 to DSPSTR+1999
             ld bc, (_cury)
@@ -427,6 +1132,7 @@ static void insert_line(void)
             ld de, #(0xF800 + 1999)  ; DSPSTR + 1999 (dst end)
             lddr
         __endasm;
+#endif
     }
     fill_line((uint8_t *)(DSPSTR + cury));
 }
@@ -524,6 +1230,7 @@ static void conout_body(void)
 void bios_conout(uint8_t c) __naked
 {
     (void)c;
+#ifndef HOST_TEST
     __asm
         di
         push hl
@@ -548,151 +1255,397 @@ void bios_conout(uint8_t c) __naked
         ei
         ret
     __endasm;
+#endif
 }
 
 void bios_list(uint8_t c) __naked
 {
     (void)c;
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 void bios_punch(uint8_t c) __naked
 {
     (void)c;
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 uint8_t bios_reader(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ld l, #0x1A             ; return ^Z (EOF)
         ret
     __endasm;
+#else
+    return 0x1A;
+#endif
 }
 
 void bios_home(void) __naked
 {
+    /* CP/M calls HOME before SELDSK — flush pending writes, recalibrate */
+#ifndef HOST_TEST
     __asm
+        push hl
+        ld hl, #0
+        add hl, sp
+        ld sp, #0xF680
+        push hl
+        call _bios_home_c
+        pop hl
+        ld sp, hl
+        pop hl
         ret
     __endasm;
+#endif
+}
+
+static void bios_home_c(void)
+{
+    if (hstwrt) {
+        wrthst();
+    } else {
+        hstact = 0;
+    }
+    fdstar();
+    dskno = sekdsk;
+    lstdsk = sekdsk;
+    lsttrk = 0;
+    clfit();
+    fdc_recalibrate();
+    wfitr();
 }
 
 uint16_t bios_seldsk(uint8_t disk) __naked
 {
+    /* CP/M passes drive in C register */
     (void)disk;
+#ifndef HOST_TEST
     __asm
-        ld hl, #0               ; return NULL (error)
+        push bc
+        push de
+        push hl
+        ld hl, #0
+        add hl, sp
+        ld sp, #0xF680
+        push hl
+        ld a, c                 ; drive number
+        call _bios_seldsk_c
+        pop de                  ; saved SP
+        ex de, hl
+        ld sp, hl
+        ex de, hl
+        pop de                  ; discard saved HL (we return new HL)
+        pop de
+        pop bc
         ret
     __endasm;
+#else
+    return 0;
+#endif
+}
+
+static uint16_t bios_seldsk_c(uint8_t drive)
+{
+    uint8_t fmt, *fp;
+    uint16_t dph_offset;
+
+    if (drive > drno)
+        return 0;               /* invalid drive */
+
+    sekdsk = drive;
+
+    /* look up format from fd0 table */
+    fp = &fd0 + drive;
+    fmt = *fp;
+
+    /* if format changed, flush dirty buffer */
+    if (fmt != cform) {
+        if (hstwrt) {
+            wrthst();
+            hstwrt = 0;
+        }
+    }
+
+    cform = fmt;
+
+    /* get format descriptor (FDF) pointer */
+    form = (uint16_t)((uint8_t *)&fdf1 + (fmt & 0xF8));
+
+    /* get EOTV from format block: byte at offset 4 from FDF start is EOT */
+    {
+        uint8_t *fdfp = (uint8_t *)form;
+        eotv = fdfp[4];        /* EOT value (end-of-track) */
+    }
+
+    /* copy FSPA format parameters to working area */
+    {
+        uint8_t *src = &fspa00[((fmt & 0xF8) >> 3) * 16];
+        dpblck = src[0] | (src[1] << 8);
+        cpmrbp = src[2];
+        cpmspt = src[3] | (src[4] << 8);
+        secmsk = src[5];
+        secshf = src[6];
+        trantb = src[7] | (src[8] << 8);
+        dtlv = src[9];
+        dsktyp = src[10];
+    }
+
+    /* compute DPH offset */
+    dph_offset = (uint16_t)drive * 16;
+
+    /* update DPB pointer in DPH (offset 10 = word 5) */
+    {
+        uint16_t *dph = (uint16_t *)((uint8_t *)dpbase + dph_offset);
+        dph[5] = dpblck;
+    }
+
+    /* copy track offset for this drive */
+    {
+        uint16_t *dpb_ptr = (uint16_t *)dpblck;
+        uint16_t off = dpb_ptr[7];  /* OFF field is at DPB offset 14 (word 7) */
+        /* not used currently, but original does LDIR from DPB offset to TRKOFF */
+        (void)off;
+    }
+
+    return (uint16_t)((uint8_t *)dpbase + dph_offset);
 }
 
 void bios_settrk(uint16_t track) __naked
 {
+    /* CP/M passes track in BC */
     (void)track;
+#ifndef HOST_TEST
     __asm
+        ld (_sektrk), bc
         ret
     __endasm;
+#endif
 }
 
 void bios_setsec(uint16_t sector) __naked
 {
+    /* CP/M passes sector in BC */
     (void)sector;
+#ifndef HOST_TEST
     __asm
+        ld (_seksec), bc
         ret
     __endasm;
+#endif
 }
 
 void bios_setdma(uint16_t addr) __naked
 {
+    /* CP/M passes DMA address in BC */
     (void)addr;
+#ifndef HOST_TEST
     __asm
+        ld (_dmaadr), bc
         ret
     __endasm;
+#endif
+}
+
+static uint8_t xread(void)
+{
+    unacnt = 0;
+    readop = 1;
+    rsflag = 1;
+    wrtype = WRUAL;
+    return rwoper();
+}
+
+static uint8_t xwrite(uint8_t wt)
+{
+    readop = 0;
+    wrtype = wt;
+
+    if (wt == WRUAL) {
+        /* first write to unallocated block */
+        cpmrbp = cpmrbp;  /* keep as-is, just set unacnt */
+        unacnt = cpmrbp;
+        unadsk = sekdsk;
+        unatrk = sektrk;
+        unasec = seksec;
+    }
+
+    /* check for continuation of unallocated writes */
+    if (unacnt) {
+        unacnt--;
+        if (sekdsk != unadsk || sektrk != unatrk || seksec != unasec)
+            goto alloc;
+
+        /* match — advance unalloc pointer */
+        unasec++;
+        if (unasec >= cpmspt) {
+            unasec = 0;
+            unatrk++;
+        }
+
+        /* check if pre-read needed */
+        rsflag = 0;
+        if ((seksec & secmsk) == secmsk)
+            unamsk = 1;
+        else
+            unamsk = 0;
+        return rwoper();
+    }
+
+alloc:
+    unacnt = 0;
+    rsflag = secmsk;
+    return rwoper();
 }
 
 uint8_t bios_read(void) __naked
 {
+#ifndef HOST_TEST
     __asm
-        ld l, #1                ; return error
-        ret
+        push bc
+        push de
+        push hl
+        ld hl, #0
+        add hl, sp
+        ld sp, #0xF680
+        push hl
+        call _xread
+        pop de
+        ex de, hl
+        ld sp, hl
+        ex de, hl
+        pop de                  ; discard saved HL
+        pop de
+        pop bc
+        ret                     ; L = return value
     __endasm;
+#else
+    return 0;
+#endif
 }
 
 uint8_t bios_write(uint8_t type) __naked
 {
+    /* CP/M passes write type in C */
     (void)type;
+#ifndef HOST_TEST
     __asm
-        ld l, #1                ; return error
-        ret
+        push bc
+        push de
+        push hl
+        ld hl, #0
+        add hl, sp
+        ld sp, #0xF680
+        push hl
+        ld a, c                 ; write type from C register
+        call _xwrite
+        pop de
+        ex de, hl
+        ld sp, hl
+        ex de, hl
+        pop de
+        pop de
+        pop bc
+        ret                     ; L = return value
     __endasm;
+#else
+    return 0;
+#endif
 }
 
 uint8_t bios_listst(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ld l, #0xFF             ; list device ready
         ret
     __endasm;
+#else
+    return 0xFF;
+#endif
 }
 
 uint16_t bios_sectran(uint16_t sector) __naked
 {
     (void)sector;
+#ifndef HOST_TEST
     __asm
         ; return BC in HL (no translation)
         ld h, b
         ld l, c
         ret
     __endasm;
+#else
+    return 0;
+#endif
 }
 
 /* Extended entries */
 
 void bios_wfitr(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 uint8_t bios_reads(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ld l, #0                ; not ready
         ret
     __endasm;
+#else
+    return 0;
+#endif
 }
 
 void bios_linsel(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 void bios_exit(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 void bios_clock(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 void bios_hrdfmt(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         ret
     __endasm;
+#endif
 }
 
 /* ================================================================
@@ -771,17 +1724,20 @@ static void isr_crt_body(void)
 
 void isr_crt(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         push af
         push bc
         push de
         push hl
+        push ix
         push iy
         ld (_sp_sav), sp
         ld sp, #0xF620
         call _isr_crt_body
         ld sp, (_sp_sav)
         pop iy
+        pop ix
         pop hl
         pop de
         pop bc
@@ -789,6 +1745,7 @@ void isr_crt(void) __naked
         ei
         reti
     __endasm;
+#endif
 }
 
 /*
@@ -811,17 +1768,20 @@ static void isr_pio_kbd_body(void)
 
 void isr_pio_kbd(void) __naked
 {
+#ifndef HOST_TEST
     __asm
         push af
         push bc
         push de
         push hl
+        push ix
         push iy
         ld (_sp_sav), sp
         ld sp, #0xF620
         call _isr_pio_kbd_body
         ld sp, (_sp_sav)
         pop iy
+        pop ix
         pop hl
         pop de
         pop bc
@@ -829,13 +1789,54 @@ void isr_pio_kbd(void) __naked
         ei
         reti
     __endasm;
+#endif
 }
 
 /*
  * Floppy completion ISR (CTC ch.3)
- * Sets completion flag. Full implementation in floppy driver phase.
+ * Sets fl_flg, then reads FDC result or SENSE INTERRUPT STATUS.
  */
-void isr_floppy(void) __interrupt {}
+static void isr_floppy_body(void)
+{
+    uint8_t delay;
+
+    fl_flg = 0xFF;
+
+    /* brief delay for FDC status stabilization */
+    for (delay = 5; delay; delay--)
+        ;
+
+    if (_port_fdc_status & 0x10)
+        fdc_result();           /* result phase — read full result */
+    else
+        fdc_sense_int();        /* seek/recal — sense interrupt status */
+}
+
+void isr_floppy(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        push af
+        push bc
+        push de
+        push hl
+        push ix
+        push iy
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        call _isr_floppy_body
+        ld sp, (_sp_sav)
+        pop iy
+        pop ix
+        pop hl
+        pop de
+        pop bc
+        pop af
+        ei
+        reti
+    __endasm;
+#endif
+}
 
 /* HD ISR stub */
 void isr_hd(void) __interrupt {}
