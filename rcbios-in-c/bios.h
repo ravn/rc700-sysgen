@@ -29,7 +29,7 @@
 #define BUFF        0x0080      /* default DMA buffer */
 #define IOBYTE_ADDR 0x0003
 #define CDISK_ADDR  0x0004
-#define NSECTS      176         /* CCP+BDOS length in 128-byte sectors */
+#define NSECTS      44          /* CCP+BDOS length in 128-byte sectors (0x1600/128) */
 
 /* I/O port numbers (for reference; actual I/O via hal.h __sfr) */
 #define PORT_PIO_A_DATA 0x10

@@ -52,10 +52,17 @@ all: bios size
 # sdcccall safety: warning 296 is suppressed via --disable-warning 296 because
 # we use --no-crt and don't link stdlib. Instead we check the map file post-link
 # for any sdcccall(0) library functions that would silently corrupt arithmetic.
-bios: crt0.asm bios.c hal.h bios.h danish.bin peephole.def
+bios: crt0.asm bios.c hal.h bios.h builddate.h danish.bin peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
+
+builddate.h: FORCE
+	@echo '#define BUILDDATE "'$$(date +%Y-%m-%d\ %H:%M)'"' > $@.tmp
+	@cmp -s $@.tmp $@ 2>/dev/null || mv $@.tmp $@
+	@rm -f $@.tmp
+
+FORCE:
 	@cp bios.rom bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
 	@if grep -qE '__div[us]|__mod[us]|__mul[us]' bios.map 2>/dev/null; then \
@@ -121,5 +128,5 @@ test:
 
 clean:
 	rm -f bios bios.cim bios_CODE.bin bios.map bios.lis
-	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis
+	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis builddate.h
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd

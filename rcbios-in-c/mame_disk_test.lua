@@ -1,8 +1,9 @@
--- MAME autoboot script for BIOS-in-C disk read test.
--- Waits for "DISK=" in screen buffer (completion marker), dumps screen, exits.
+-- MAME autoboot script for BIOS-in-C boot/disk test.
+-- Waits for a marker string in screen buffer, dumps screen, exits.
+-- Marker: "A>" (CP/M prompt) or "DISK=" (disk test) or timeout.
 
 local frame = 0
-local max_frames = 50 * 600    -- 10 minutes (full disk takes ~5 min)
+local max_frames = 50 * 120   -- 2 minutes
 local done = false
 
 -- Search for a string in screen memory
@@ -28,7 +29,8 @@ emu.register_frame_done(function()
     if frame % 50 == 0 or frame >= max_frames then
         local space = manager.machine.devices[":maincpu"].spaces["program"]
 
-        if screen_find(space, "DISK=") or frame >= max_frames then
+        if screen_find(space, "A>") or screen_find(space, "DISK=")
+           or screen_find(space, "error") or frame >= max_frames then
             local f = io.open("/tmp/screen.txt", "w")
             for row = 0, 24 do
                 local line = ""

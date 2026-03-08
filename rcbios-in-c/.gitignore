@@ -10,6 +10,7 @@ bios_CODE.bin
 bios.def
 *.c.lis
 zcc_opt.def
+builddate.h
 
 # Test disk images
 /tmp/

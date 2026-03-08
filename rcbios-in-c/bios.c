@@ -16,6 +16,7 @@
 
 #include "hal.h"
 #include "bios.h"
+#include "builddate.h"
 
 /* Forward declarations */
 static void conout_body(void);
@@ -716,140 +717,82 @@ static void put_dec(uint16_t val)
     putch('0' + (uint8_t)val);
 }
 
-/* Read all CP/M sectors on the current track and accumulate checksum */
-static uint16_t read_track_cksum(uint16_t trk, uint16_t *errors)
-{
-    uint16_t sec;
-    uint16_t cksum = 0;
-    sektrk = trk;
-    for (sec = 0; sec < cpmspt; sec++) {
-        seksec = sec;
-        if (xread()) {
-            (*errors)++;
-        } else {
-            uint8_t *p = (uint8_t *)0x0080;
-            uint8_t i;
-            for (i = 0; i < 128; i++)
-                cksum += p[i];
-        }
-    }
-    return cksum;
-}
-
-/* Switch drive A format and re-select */
-static void switch_format(uint8_t fmt)
-{
-    hstact = 0;         /* flush host buffer cache */
-    lstdsk = 0xFF;      /* force seek on next access */
-    *(&fd0) = fmt;
-    bios_seldsk_c(0);
-}
+static void wboot_c(void);
 
 void bios_boot_c(void)
 {
-    /* Full disk read test: tracks 0-76, per-track checksum */
-    uint16_t trk;
-    uint16_t total_errors = 0;
-    uint16_t disk_cksum = 0;
-    uint8_t maxtrk;
-    uint8_t col;
-    uint16_t cksum, errs;
+    /* Cold boot: print signon, init state, then warm boot */
+    puts_p("\x0C"                       /* form feed = clear screen */
+           "RC700   56k CP/M 2.2 bios " BUILDDATE "\r\n");
 
-    puts_p("DISK READ TEST\r\n");
-    bios_seldsk_c(0);
-    bios_home_c();
-    dmaadr = 0x0080;
+    *(volatile uint8_t *)CDISK_ADDR = 0;
+    hstact = 0;
+    erflag = 0;
+    hstwrt = 0;
+    kbhead = 0;
+    kbtail = 0;
+    /* TODO: READI — arm SIO Ch.A receiver for serial ring buffer */
 
-    /* Get max tracks from FDF block (offset 6 from form) */
-    maxtrk = ((uint8_t *)form)[6];
-    puts_p("TRK=");
-    put_dec(maxtrk);
-    puts_p(" SPT=");
-    put_dec(cpmspt);
-    puts_p("\r\n");
-
-    /* --- Track 0 Side 0: FM 128B (format 16) --- */
-    errs = 0;
-    switch_format(16);          /* FM 128B, SPT=26, tran24 */
-    cksum = read_track_cksum(0, &errs);
-    disk_cksum += cksum;
-    total_errors += errs;
-    puts_p("T0S0=");
-    put_hex(cksum);
-    if (errs) { puts_p("!E"); put_dec(errs); }
-
-    /* --- Track 0 Side 1: MFM 256B (format 24) --- */
-    errs = 0;
-    switch_format(24);          /* MFM 256B, SPT=104, eotv=26 */
-    /* Format 24 has SPT=104 covering both sides.
-     * Side 0 sectors (seksec 0..51) would try MFM on FM track → skip.
-     * Side 1 sectors: seksec 52..103 → hstsec 26..51 → head 1 */
-    {
-        uint16_t sec;
-        cksum = 0;
-        errs = 0;
-        sektrk = 0;
-        for (sec = 52; sec < 104; sec++) {
-            seksec = sec;
-            if (xread()) {
-                errs++;
-            } else {
-                uint8_t *p = (uint8_t *)0x0080;
-                uint8_t i;
-                for (i = 0; i < 128; i++)
-                    cksum += p[i];
-            }
-        }
-    }
-    disk_cksum += cksum;
-    total_errors += errs;
-    puts_p(" T0S1=");
-    put_hex(cksum);
-    if (errs) { puts_p("!E"); put_dec(errs); }
-    puts_p("\r\n");
-
-    /* --- Tracks 1 through maxtrk-1: MFM 512B (format 8) --- */
-    switch_format(8);           /* back to normal DD 512B */
-
-    col = 0;
-    for (trk = 1; trk < maxtrk; trk++) {
-        errs = 0;
-        cksum = read_track_cksum(trk, &errs);
-        disk_cksum += cksum;
-        total_errors += errs;
-
-        /* Compact output: "NN:XXXX " packed 6 per line */
-        put_dec(trk);
-        putch(':');
-        put_hex(cksum);
-        if (errs) {
-            putch('!');
-        }
-        col++;
-        if (col >= 6) {
-            puts_p("\r\n");
-            col = 0;
-        } else {
-            putch(' ');
-        }
-    }
-    if (col)
-        puts_p("\r\n");
-
-    puts_p("DISK=");
-    put_hex(disk_cksum);
-    puts_p(" ERR=");
-    put_dec(total_errors);
-    puts_p("\r\n");
-
-    for (;;)
-        __asm__("halt");
+    wboot_c();
 }
 
-void bios_wboot(void)
+static void wboot_c(void)
 {
-    for (;;)
-        __asm__("halt");
+    uint8_t sec;
+
+    hal_ei();
+    bios_seldsk_c(0);
+
+    unacnt = 0;
+    *(volatile uint8_t *)IOBYTE_ADDR = 0;
+    dskno = 0;
+
+    bios_home_c();
+
+    /* Load CCP+BDOS from track 1 into CCP_BASE */
+    dmaadr = CCP_BASE;
+    sektrk = 1;
+
+    for (sec = 0; sec < NSECTS; sec++) {
+        seksec = sec;
+        if (xread()) {
+            puts_p("\r\nDisk read error - reset\r\n");
+            for (;;)
+                __asm__("halt");
+        }
+        dmaadr += 128;
+    }
+
+    dmaadr = BUFF;
+
+    /* Set up JP vectors at page zero */
+#ifndef HOST_TEST
+    *(volatile uint8_t *)0x0000 = 0xC3;        /* JP opcode */
+    *(volatile uint16_t *)0x0001 = BIOS_BASE + 3;  /* WBOOT entry */
+    *(volatile uint8_t *)0x0005 = 0xC3;        /* JP opcode */
+    *(volatile uint16_t *)0x0006 = BDOS_BASE;
+
+    /* Re-select drive to ensure clean state for CCP */
+    bios_seldsk_c(0);
+
+    /* Jump to CCP with current disk in C */
+    __asm
+        ld a, (#0x0004)             ; CDISK
+        and #0x0F                   ; mask off user bits
+        ld c, a
+        jp CCP_BASE
+    __endasm;
+#endif
+}
+
+void bios_wboot(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld sp, #0xD480          ; reset stack (below BIOS code)
+        jp _wboot_c
+    __endasm;
+#endif
 }
 
 /* ----------------------------------------------------------------
@@ -1327,25 +1270,22 @@ static void bios_home_c(void)
 
 uint16_t bios_seldsk(uint8_t disk) __naked
 {
-    /* CP/M passes drive in C register */
+    /* CP/M passes drive in C register, expects DPH in HL */
     (void)disk;
 #ifndef HOST_TEST
     __asm
         push bc
-        push de
-        push hl
         ld hl, #0
         add hl, sp
-        ld sp, #0xF680
-        push hl
-        ld a, c                 ; drive number
-        call _bios_seldsk_c
-        pop de                  ; saved SP
-        ex de, hl
-        ld sp, hl
-        ex de, hl
-        pop de                  ; discard saved HL (we return new HL)
-        pop de
+        ld sp, #0xF680          ; switch to BIOS stack
+        push hl                 ; save caller SP
+        ld a, c                 ; drive number in A (sdcccall 1)
+        call _bios_seldsk_c    ; returns DPH in DE (sdcccall 1)
+        ex de, hl               ; HL = DPH (for CP/M), DE = garbage
+        pop de                  ; DE = saved caller SP
+        ex de, hl               ; save HL (return val), HL = caller SP
+        ld sp, hl               ; restore caller stack
+        ex de, hl               ; HL = return value
         pop bc
         ret
     __endasm;
