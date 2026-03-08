@@ -61,14 +61,14 @@ See [DRI_PROTOCOL.md](DRI_PROTOCOL.md) for full protocol specification.
 cd rcbios
 # Build custom 38400 baud BIOS
 make rel30-maxi
-# Patch disk and inject CP/NET files
+# Patch BIOS onto disk
 python3 patch_bios.py /path/to/disk.imd zout/BIOS.cim
-python3 imd_cpmfs.py /path/to/disk.imd \
-    ~/git/cpnet-z80/dist/ccp.spr CCP.SPR \
-    zout/SNIOS.SPR SNIOS.SPR \
-    ~/git/cpnet-z80/dist/ndos.spr NDOS.SPR \
-    ~/git/cpnet-z80/dist/cpnetldr.com CPNETLDR.COM \
-    ~/git/cpnet-z80/dist/network.com NETWORK.COM
+# Inject CP/NET files (cpmtools3 must be on PATH)
+cpmcp -f rc702-8dd /path/to/disk.imd ~/git/cpnet-z80/dist/ccp.spr 0:CCP.SPR
+cpmcp -f rc702-8dd /path/to/disk.imd zout/SNIOS.SPR 0:SNIOS.SPR
+cpmcp -f rc702-8dd /path/to/disk.imd ~/git/cpnet-z80/dist/ndos.spr 0:NDOS.SPR
+cpmcp -f rc702-8dd /path/to/disk.imd ~/git/cpnet-z80/dist/cpnetldr.com 0:CPNETLDR.COM
+cpmcp -f rc702-8dd /path/to/disk.imd ~/git/cpnet-z80/dist/network.com 0:NETWORK.COM
 ```
 
 ### 2. Start Server

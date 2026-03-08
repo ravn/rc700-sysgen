@@ -107,7 +107,7 @@
 | imd2raw.py | Extract raw Track 0 from IMD images |
 | bin2imd.py | Convert raw BIN to IMD format (mini, maxi, RC703) |
 | run_mame.sh | Automated build+patch+launch cycle for MAME testing |
-| imd_cpmfs.py | Inject files into CP/M IMD disk images |
+| diskdefs | RC700/RC702/RC703 disk definitions for cpmtools3 |
 | build_snios.py | Build SNIOS.SPR with relocation bitmap |
 | server.py | Python CP/NET server (BDOS emulation over TCP) |
 | autotest.lua | MAME Lua test automation for CP/NET |

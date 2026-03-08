@@ -1,4 +1,12 @@
 VERIFY:
+;
+; -- NOTE --
+;
+; This file contains the data for the 'verify' block of the ROM.  Claude found
+; that this is most likely part of a USCD Pascal program that is not
+; intentionally part of the BIOS but may have been in memory before
+; SYSGEN was run and the BIOS was too small to overwrite it.  The data is not used by the BIOS and may be safely ignored.
+; It is included here for completeness and to preserve the original ROM contents.
 
 ; BLOCK 'verify' (start 0xea00 end 0xfa00)
 verify_start:

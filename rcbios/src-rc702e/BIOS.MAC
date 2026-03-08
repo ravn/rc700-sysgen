@@ -1,3 +1,5 @@
+; *** WORK IN PROGRESS — raw disassembly, hardcoded addresses not yet labeled ***
+;
 ; RC702E CP/M 2.2 BIOS — modular source
 ; Assembled with:
 ;   zmac -z --dri -DREL201 src-rc702e/BIOS.MAC   (rel.2.01 mini)
@@ -66,19 +68,15 @@ SCREENBUF	EQU	0F800H		; DISPLAY REFRESH MEMORY BASE
 SCRNEND		EQU	0FFCFH		; LAST BYTE OF DISPLAY RAM
 
 ; ==== Address equates (variant-specific) ====
+; Code-address EQUs remain here; RAM variable addresses are defined
+; as positional ORG+DS labels below (after module includes).
 
 	IFDEF	REL201
-ISR_FDC:	EQU	0xdffc
-; trailing_end = 0xEC80
-RAMDSTAT:	EQU	0xf49a
-SIOFLG:		EQU	0xf4ca
-SIOFLG2:	EQU	0xf4cc
-CONVTAB:	EQU	0xf680
-CONVTAB2:	EQU	0xf700
+ISR_FDC:	EQU	0xdffc		; floppy ISR entry (code address in RAMDISK.MAC)
 	ENDIF	; REL201
 
 	IFDEF	REL220
-MOTORTIMER	EQU	0FFE7H		; RAM location at 0xFFE7 (= FDTIMO position)
+MOTORTIMER	EQU	FDTIMO		; alias for work area byte at 0xFFE7
 CONSTAT2:	EQU	0xdac5
 INTFN2:		EQU	0xdae8
 SIOWR2:		EQU	0xdb0b
@@ -109,6 +107,29 @@ READ:		EQU	0xe292
 	IFDEF	REL220
 	INCLUDE	VERIFY.MAC
 	ENDIF
+
+; ==== REL201 work area (RAM variables above code, no bytes emitted) ====
+; Code+data ends at 0xEC7F (5504 bytes from ORG 0xD700).
+; Work area starts at 0xEC81 (host buffer) and extends through 0xF7FF.
+; Most floppy driver variables (0xF482-0xF4C8) remain as hardcoded
+; addresses in FLOPPY.MAC; only the named variables are defined here.
+
+	IFDEF	REL201
+
+	ORG	0F49AH
+RAMDSTAT:	DS	1		; 0xF49A: RAM disk status (0=OK, nonzero=error)
+
+	ORG	0F4CAH
+SIOFLG:		DS	1		; 0xF4CA: SIO interrupt flag
+		DS	1		; 0xF4CB: (unused)
+SIOFLG2:	DS	1		; 0xF4CC: SIO interrupt flag 2
+
+	ORG	0F680H
+CONVTAB:	DS	128		; 0xF680: keyboard/character conversion table
+CONVTAB2:	DS	256		; 0xF700: extended conversion table
+					; Total 384 bytes (0x180), copied from boot track by INIT
+
+	ENDIF	; REL201
 
 ; ==== Work area layout (48 bytes: 0xFFD0-0xFFFF, after 80x25 display RAM) ====
 ; Display RAM occupies 0xF800-0xFFCF (2000 bytes); work area follows at 0xFFD0.
@@ -156,5 +177,7 @@ CLKTIM:
 	DS	2		; 0xFFEC: clock/screen-blank timer; FDC ISR decrements
 	DS	14		; 0xFFEE: unused
 RTCCNT:
-	DS	2		; 0xFFFC: SETWARM save area for DE (REL20: RTC0/RTC1)
-	DS	2		; 0xFFFE: SETWARM save area for HL (REL20: RTC2/RTC3)
+RTC0:
+	DS	2		; 0xFFFC: RTC low word / SETWARM save for DE (REL20: RTC0)
+RTC2:
+	DS	2		; 0xFFFE: RTC high word / SETWARM save for HL (REL20: RTC2)

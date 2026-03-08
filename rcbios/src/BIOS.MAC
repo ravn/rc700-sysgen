@@ -65,7 +65,7 @@
 ;   F700  INCONV - input conversion table
 ;   F800  DSPSTR - display refresh memory (80x25)
 ;   FFD1  Display control variables (cursor, addressing, counters)
-;   FFFC  RTC0-RTC3 - real time clock (4 bytes)
+;   FFFC  RTC0/RTC2 - real time clock (2 words, 4 bytes total)
 ;
 	.Z80
 	TITLE RC702 CP/M BASIS SOFTWARE RELEASE 1.1  83.01.05
@@ -210,7 +210,7 @@ START	EQU	0D480H		; START OF CODE (INIT + BIOS) (56K)
 	IFDEF	REL22PLUS
 START	EQU	0D480H		; START OF CODE (INIT + BIOS) (56K)
 	ENDIF
-BGSTAR	EQU	0F500H		; START OF BACKGROUND BITTABLE
+; BGSTAR, ISTACK, STACK defined in upper memory DS block
 	IFDEF	REL14
 ENDPRG	EQU	0F168H		; RESERVED AREA FOR BIOS VARIABLES (58K)
 	ENDIF
@@ -223,143 +223,16 @@ ENDPRG	EQU	0EE80H		; RESERVED AREA FOR BIOS VARIABLES (56K)
 	IFDEF	REL22PLUS
 ENDPRG	EQU	0EE80H		; RESERVED AREA FOR BIOS VARIABLES (56K)
 	ENDIF
-ISTACK	EQU	BGSTAR+250+38	; STACK USED BY INTERRUPT ROUTINES
-STACK	EQU	ISTACK+96	; STACK USED BY BIOS DRIVERS
-OUTCON	EQU	0F680H		; OUTPUT CONVERSION TABLE
-INCONV	EQU	OUTCON+128	; INPUT CONVERSION TABLE
-DSPSTR	EQU	0F800H		; DISPLAY REFRESH MEMORY BASE (80x25 = 2000 bytes, 0xF800-0xFFCF)
+; OUTCON, INCONV, DSPSTR defined in upper memory DS block
 
-	PAGE
-
-;========================================================
-;= FLOPPY DRIVER VARIABLES                              =
-;========================================================
-HSTBUF	EQU	ENDPRG+1	; HOST DISK DMA BUFFER
-DIRBF	EQU	HSTBUF+512	; SCRATCH DIRECTORY AREA
-ALL0	EQU	DIRBF+128	; ALLOCATION VECTOR DRIVE 0
-CHK0	EQU	ALL0+71		; CHECK VECTOR DRIVE 0
-ALL1	EQU	CHK0+32		; ALLOCATION VECTOR DRIVE 1
-CHK1	EQU	ALL1+71		; CHECK VECTOR DRIVE 1
-	IFDEF	HARDDISK
-ALVHD	EQU	CHK1+32		; ALLOCATION VECTOR FOR 5 LOG.HARD DSK UNITS
-	ENDIF
-	IFDEF	REL20
-SEKDSK	EQU	ALVHD+71+(4*63)	; SEEK DISK NUMBER
-	ENDIF
-	IFDEF	REL21
-SEKDSK	EQU	ALVHD+71+(4*63)	; SEEK DISK NUMBER
-	ENDIF
-	IFDEF	REL22PLUS
-SEKDSK	EQU	ALVHD+71+(4*63)+28 ; SEEK DISK NUMBER (28 extra bytes in REL22)
-	ENDIF
-	IFDEF	REL14
-SEKDSK	EQU	CHK1+32		; SEEK DISK NUMBER (NO HD ALLOC VECTORS)
-	ENDIF
-SEKTRK	EQU	SEKDSK+1	; SEEK TRACK NUMBER
-SEKSEC	EQU	SEKTRK+2	; SEEK SECTOR NUMBER
-HSTDSK	EQU	SEKSEC+2	; HOST DISK NUMBER
-HSTTRK	EQU	HSTDSK+1	; HOST TRACK NUMBER
-HSTSEC	EQU	HSTTRK+2	; HOST SECTOR NUMBER
-LSTDSK	EQU	HSTSEC+2	; LAST DISK SEEKED
-LSTTRK	EQU	LSTDSK+1	; LAST TRACK SEEKED
-SEKHST	EQU	LSTTRK+2	; SEEK SHR SECSHF
-HSTACT	EQU	SEKHST+2	; HOST ACTIVE FLAG
-HSTWRT	EQU	HSTACT+1	; HOST WRITTEN FLAG
-UNACNT	EQU	HSTWRT+1	; UNALLOCATED REC COUNT
-UNADSK	EQU	UNACNT+1	; LAST UNALLOCATED DISK
-UNATRK	EQU	UNADSK+1	; LAST UNALLOCATED TRACK
-UNASEC	EQU	UNATRK+2	; LAST UNALLOCATED SECTOR
-UNAMSK	EQU	UNASEC+2	; LAST UNALLOCATED SECTOR MASKED
-ERFLAG	EQU	UNAMSK+1	; ERROR FLAG
-RSFLAG	EQU	ERFLAG+1	; READ SECTOR FLAG
-READOP	EQU	RSFLAG+1	; 1 IF READ OPERATION
-WRTYPE	EQU	READOP+1	; WRITE OPERATION TYPE
-DMAADR	EQU	WRTYPE+1	; LAST DMA ADDRESS
-FORM	EQU	DMAADR+2	; POINTER TO FORMAT BLOCK
-CFORM	EQU	FORM+2		; CURRENT FORMAT
-EOTV	EQU	CFORM+1		; LAST SECTOR ON TRACK
-DRNO	EQU	EOTV+1		; HIGHEST DRIVE NO
-	IFDEF	REL14
-DSKNO	EQU	DRNO+1		; CURRENT DISK (NO HD PARTITION VARS)
-	ENDIF
-	IFDEF	REL22PLUS
-DSKNO	EQU	DRNO+1		; CURRENT DISK
-	ENDIF
-	IFDEF	REL20
-UNK1	EQU	DRNO+1		; HD PARTITION BOUNDARY 1
-UNK2	EQU	UNK1+1		; HD PARTITION SIZE 1
-UNK3	EQU	UNK2+1		; HD PARTITION SIZE 2
-UNK4	EQU	UNK3+1		; HD PARTITION SIZE 3
-DSKNO	EQU	UNK4+1		; CURRENT DISK
-	ENDIF
-	IFDEF	REL21
-UNK1	EQU	DRNO+1		; HD PARTITION BOUNDARY 1
-UNK2	EQU	UNK1+1		; HD PARTITION SIZE 1
-UNK3	EQU	UNK2+1		; HD PARTITION SIZE 2
-UNK4	EQU	UNK3+1		; HD PARTITION SIZE 3
-DSKNO	EQU	UNK4+1		; CURRENT DISK
-	ENDIF
-DSKAD	EQU	DSKNO+1		; CURRENT DMA ADDRESS
-ACTRA	EQU	DSKAD+2		; ACTUAL (NOT CPM) TRACK NO IN READ/WRITE
-ACSEC	EQU	ACTRA+1		; ACTUAL (NOT CPM) SECTOR NO IN READ/WRITE
-REPET	EQU	ACSEC+1		; REPEAT COUNTER IN READ/WRITE
-RSTAB	EQU	REPET+1		; RESULT TABLE
-	IFDEF	HARDDISK
-MHDTSR	EQU	RSTAB+8		; MIRROW OF WD1000 STATUS REGISTER
-MHDERR	EQU	MHDTSR+1	; MIRROW OF WD1000 ERROR REGISTER
-HERRCT	EQU	MHDERR+1	; WD1000 ERROR COUNTER
-SP_SAV	EQU	HERRCT+2	; SYSTEM STACK POINTER SAVE AREA
-HD_FLG	EQU	SP_SAV+2	; WD1000 BUSY FLAG (0=BUSY)
-HD_OFL	EQU	HD_FLG+1	; OFFLINE/ONLINE FLAG (1=OFFLINE)
-FL_FLG	EQU	HD_OFL+1	; FLOPPY BUSY FLAG (0=BUSY)
-	IFNDEF	REL20
-WBFLAG	EQU	FL_FLG+1	; WARMBOOT FLAG (not in REL20)
-	ENDIF
-	ENDIF
-	IFDEF	REL14
-SP_SAV	EQU	RSTAB+8		; SYSTEM STACK POINTER SAVE AREA
-FL_FLG	EQU	SP_SAV+2	; FLOPPY BUSY FLAG (0=BUSY)
-	ENDIF
-
-	PAGE
-
-;========================================================
-;= ACTUAL FLOPPY SYSTEM PARAMETERS                      =
-;= INITIALIZED WHEN SELECT_DISK IS CALLED               =
-;========================================================
-	IFDEF	REL14
-DPBLCK	EQU	FL_FLG+1	; DISK PARAM BLOCK (NO HD FLAGS)
-	ENDIF
-	IFDEF	REL20
-DPBLCK	EQU	FL_FLG+1	; DISK PARAM BLOCK (NO WBFLAG IN REL20)
-	ENDIF
-	IFDEF	REL21
-DPBLCK	EQU	WBFLAG+1	; DISK PARAM BLOCK
-	ENDIF
-	IFDEF	REL22PLUS
-HDHFLG	EQU	WBFLAG+1	; HD HEAD SELECT FLAG (REL22 ONLY)
-DPBLCK	EQU	HDHFLG+1	; DISK PARAM BLOCK
-	ENDIF
-CPMRBP	EQU	DPBLCK+2	; CP/M RECORDS PR. BLOCK
-CPMSPT	EQU	CPMRBP+1	; CP/M SECTORS PR. TRACK
-SECMSK	EQU	CPMSPT+2	; SECTOR MASK
-SECSHF	EQU	SECMSK+1	; SECTOR SHIFT COUNT
-TRANTB	EQU	SECSHF+1	; SECTOR TRANSLATION TABLE
-DTLV	EQU	TRANTB+2	; DATA LENGTH
-DSKTYP	EQU	DTLV+1 		; DISK TYPE (0:=FLP, FF:=HARD)
-DUM	EQU	DSKTYP+6	; FILLER TO OBTAIN 16 BYTE LENGTH
+; Floppy driver variables, disk parameters, and REL30 ring buffers
+; defined in floppy variables DS block (after .DEPHASE)
 
 	IFDEF	REL30
 RXBUFSZ	EQU	256			; SIO RING BUFFER SIZE (POWER OF 2, MAX 256)
 RXMASK	EQU	RXBUFSZ-1		; WRAPPING MASK (0FFH FOR 256)
 RXTHHI	EQU	RXBUFSZ-8		; RCA: DE-ASSERT RTS WHEN USED >= THIS
 RXTHLO	EQU	RXBUFSZ-16		; READER: RE-ASSERT RTS WHEN USED < THIS
-RXHEAD	EQU	DUM+1			; SIO RING BUFFER HEAD (WRITE POSITION)
-RXTAIL	EQU	RXHEAD+1		; SIO RING BUFFER TAIL (READ POSITION)
-KBHEAD	EQU	RXTAIL+1		; KEYBOARD RING BUFFER HEAD
-KBTAIL	EQU	KBHEAD+1		; KEYBOARD RING BUFFER TAIL
-KBBUF	EQU	KBTAIL+1		; 16-BYTE KEYBOARD RING BUFFER
-RXBUF	EQU	(KBBUF+16+255) AND 0FF00H ; SIO RING BUFFER (PAGE-ALIGNED)
 	ENDIF
 
 	IFDEF	HARDDISK
@@ -400,55 +273,515 @@ CONVTA:
 	INCLUDE		PIO.MAC
 	ENDIF
 
-; ==== Work area layout (0xFFD0-0xFFFF, 48 bytes after 80x25 display RAM) ====
 ; Dephase first: INIPARMS.MAC opened a .PHASE block with no matching .DEPHASE
 	.DEPHASE
-; Display RAM occupies 0xF800-0xFFCF (2000 bytes); work area follows at 0xFFD0.
+
+; ==== Floppy driver variables (ENDPRG+1 upward) ====
 ; Labels defined by position; no code or data emitted into the binary here.
 
-	ORG	0FFD0H
+	ORG	ENDPRG+1
+;
+; ---- Disk buffers and allocation vectors ----
+;
+; CP/M BDOS requires per-drive allocation and check vectors, plus a shared
+; directory scratch area and a host sector buffer.  Sizes derive from the
+; DPB parameters (DSM, CKS) but are hardcoded here because the original
+; BIOS used fixed EQU chains.
+;
+HSTBUF:
+	DS	512		; HOST DISK DMA BUFFER (512 bytes)
+				; Holds one physical 512-byte sector.  All disk I/O
+				; passes through this buffer: FILHST/SECRD read into
+				; it, RWMOVE copies between it and the CP/M DMA area.
+				; Also used by HARDDSK (DMA0WR/DMA0RD).
+DIRBF:
+	DS	128		; SCRATCH DIRECTORY AREA (128 bytes)
+				; Temporary buffer for BDOS directory operations.
+				; Referenced by DPH entries in DISKTAB.MAC.
+ALL0:
+	DS	71		; ALLOCATION VECTOR DRIVE 0
+				; Bitmap: 1 bit per block, set=allocated, clear=free.
+				; Size = (DSM/8)+1.  Referenced by DISKTAB DPH.
+CHK0:
+	DS	32		; CHECK VECTOR DRIVE 0
+				; Media-change detection: BDOS checksums directory
+				; sectors and compares on each access.
+				; Size = CKS from DPB.  Referenced by DISKTAB DPH.
+ALL1:
+	DS	71		; ALLOCATION VECTOR DRIVE 1
+CHK1:
+	DS	32		; CHECK VECTOR DRIVE 1
+	IFDEF	HARDDISK
+ALVHD:
+	DS	71+(4*63)	; ALLOCATION VECTORS FOR 5 LOG. HARD DISK UNITS
+				; Base 71 bytes + 4 × 63 bytes = 323 bytes.
+				; Each 63-byte section covers one logical HD partition.
+				; Referenced by DISKTAB DPH entries for HD units.
+	IFDEF	REL22PLUS
+	DS	28		; 28 EXTRA BYTES IN REL22+
+	ENDIF
+	ENDIF
+;
+; ---- CP/M requested disk/track/sector (set by BDOS calls) ----
+;
+; These are set by the BIOS entry points SELDSK, SETTRK, SETSEC before
+; a READ or WRITE call.  They represent the CP/M logical view of the disk.
+;
+SEKDSK:
+	DS	1		; SEEK DISK NUMBER (0-3 = drive A-D)
+				; Set by SELD.  Compared against HSTDSK to detect
+				; disk change, and against UNADSK for unalloc tracking.
+SEKTRK:
+	DS	2		; SEEK TRACK NUMBER (0-76 typical)
+				; Set by SETT.  CP/M logical track number.
+SEKSEC:
+	DS	2		; SEEK SECTOR NUMBER (CP/M 128-byte sector index)
+				; Set by SETS.  Right-shifted by SECSHF to get
+				; the physical host sector (stored in SEKHST).
+;
+; ---- Host buffer state (what is currently in HSTBUF) ----
+;
+; These track which physical sector is cached in HSTBUF.  When a new
+; READ/WRITE targets a different sector, the buffer is flushed (if dirty)
+; and reloaded.  MATCH compares SEK* against HST* to detect cache hits.
+;
+HSTDSK:
+	DS	1		; HOST DISK NUMBER — drive currently in buffer
+HSTTRK:
+	DS	2		; HOST TRACK NUMBER — track currently in buffer
+HSTSEC:
+	DS	2		; HOST SECTOR NUMBER — sector currently in buffer
+;
+; ---- Last seek position (FDC optimization) ----
+;
+; SEEKT/CHKTRK compare against these to skip redundant FDC SEEK commands
+; when consecutive operations hit the same cylinder.
+;
+LSTDSK:
+	DS	1		; LAST DISK SEEKED — avoids re-selecting same drive
+LSTTRK:
+	DS	2		; LAST TRACK SEEKED — avoids re-seeking same cylinder
+;
+; ---- Sector translation intermediate ----
+;
+SEKHST:
+	DS	2		; SEEK SHR SECSHF — SEKSEC right-shifted by SECSHF
+				; Intermediate result: physical host sector number.
+				; Computed in SETSH, compared against HSTSEC in MATCH.
+;
+; ---- Buffer status flags ----
+;
+HSTACT:
+	DS	1		; HOST ACTIVE FLAG (0=empty/invalid, 1=valid)
+				; Set to 1 after SECRD loads a sector into HSTBUF.
+				; Cleared when buffer is invalidated (FILHST).
+				; NOMATC checks this to decide if flush is needed.
+HSTWRT:
+	DS	1		; HOST WRITTEN FLAG (0=clean, 1=dirty)
+				; Set to 1 by RWMOVE after writing into HSTBUF.
+				; Cleared after WRTHST flushes buffer to disk.
+				; NOMATC/XHOME check this to flush before invalidating.
+;
+; ---- Unallocated sector tracking ----
+;
+; CP/M BDOS writes to newly allocated blocks one 128-byte record at a
+; time.  To avoid reading each physical 512-byte sector before writing
+; the first record, BIOS tracks sequential writes within a block.
+; UNACNT counts remaining records; UNADSK/UNATRK/UNASEC track position.
+; When UNACNT>0 and addresses match, RSFLAG is cleared (skip pre-read).
+;
+UNACNT:
+	DS	1		; UNALLOCATED RECORD COUNT (0=none pending)
+				; Set to CPMRBP (records/block) on first write to
+				; unallocated block.  Decremented per record written.
+UNADSK:
+	DS	1		; UNALLOCATED DISK — drive for pending unalloc writes
+UNATRK:
+	DS	2		; UNALLOCATED TRACK — track for pending unalloc writes
+UNASEC:
+	DS	2		; UNALLOCATED SECTOR — next sector for unalloc writes
+				; Incremented after each record; wraps at CPMSPT.
+UNAMSK:
+	DS	1		; UNALLOCATED MASK FLAG (0 or 1)
+				; 1 = sector position within host buffer requires
+				; a pre-read (partial block write to allocated sector).
+				; 0 = write can proceed without pre-read.
+;
+; ---- I/O operation control flags ----
+;
+ERFLAG:
+	DS	1		; ERROR FLAG (0=OK, non-zero=error)
+				; Set by ISR (FLITR/HDITR) or status checks on failure.
+				; Checked by RWOPER to determine operation success.
+				; Reset to 0 at cold boot.
+RSFLAG:
+	DS	1		; READ SECTOR FLAG (0=skip pre-read, 1=pre-read needed)
+				; Set to 1 for allocated sector writes (must read
+				; existing data first).  Cleared for unallocated writes
+				; where entire block will be overwritten.
+READOP:
+	DS	1		; READ OPERATION FLAG (0=write, 1=read)
+				; Controls LDIR direction in RWMOVE:
+				; 1 = HSTBUF → DMA (read), 0 = DMA → HSTBUF (write).
+WRTYPE:
+	DS	1		; WRITE OPERATION TYPE
+				; 0=WRALL (normal allocated), 1=WRDIR (directory),
+				; 2=WRUAL (unallocated).  WRDIR forces immediate flush
+				; of host buffer; WRUAL skips pre-read.
+;
+; ---- DMA and format state ----
+;
+DMAADR:
+	DS	2		; LAST DMA ADDRESS — CP/M user data area pointer
+				; Set by SETD (SETDMA entry).  RWMOVE uses this as
+				; source (write) or destination (read) for LDIR.
+FORM:
+	DS	2		; POINTER TO FORMAT BLOCK (FDF1/FDF2/FDF3/...)
+				; Points to 8-byte format descriptor for current drive:
+				; DMA count, MF flag, N value, EOT, gap, track count.
+				; Set by SELN during drive select.  Used by SECRD/SECWR
+				; and HARDDSK for physical I/O parameters.
+CFORM:
+	DS	1		; CURRENT FORMAT INDEX (format_type * 8)
+				; Cached to avoid redundant format lookups in SELD.
+				; Values: 0, 8, 16, 24, ... (offset into format table).
+EOTV:
+	DS	1		; END-OF-TRACK VALUE — sectors per side on track 0
+				; Set by SELN.  CHKTRK compares HSTSEC against EOTV
+				; to determine head number for track 0 multi-density:
+				; sector < EOTV → head 0, sector >= EOTV → head 1.
+DRNO:
+	DS	1		; HIGHEST DRIVE NUMBER (0=A only, 1=A+B, 2=A+B+C, 3=A+B+C+D)
+				; Initialized from disk format table by INIT.
+				; SELD checks SEKDSK <= DRNO to validate drive select.
+;
+; ---- Hard disk partition parameters (REL20/REL21 only) ----
+;
+	IFDEF	HARDDISK
+	IFNDEF	REL22PLUS
+UNK1:
+	DS	1		; HD PARTITION BOUNDARY 1 — first partition start cyl
+				; Read by STSKFL to map logical HD units to physical
+				; cylinders.  Initialized by INIT from HD config.
+UNK2:
+	DS	1		; HD PARTITION SIZE 1 — cylinders in partition 1
+UNK3:
+	DS	1		; HD PARTITION SIZE 2 — cylinders in partition 2
+UNK4:
+	DS	1		; HD PARTITION SIZE 3 — cylinders in partition 3
+				; UNK1-4 removed in REL22+ (partition mapping changed).
+	ENDIF
+	ENDIF
+;
+; ---- Physical disk control ----
+;
+DSKNO:
+	DS	1		; CURRENT DISK — drive + head select bits for FDC
+				; Bits 0-1: physical drive (0-3).
+				; Bit 2: side select (0=side 0, 1=side 1).
+				; Set by CHKTRK based on track geometry.
+				; Sent to FDC in SPECIFY/SELECT commands.
+DSKAD:
+	DS	2		; CURRENT DMA ADDRESS — copied from DMAADR by CHKTRK
+				; Used by FDC DMA operations for actual transfers.
+ACTRA:
+	DS	1		; ACTUAL TRACK NUMBER — physical cylinder sent to FDC
+				; Equals HSTTRK for tracks >= 1.  May differ on track 0
+				; for multi-density formats.  Used by FLO7/GNCOM.
+ACSEC:
+	DS	1		; ACTUAL SECTOR NUMBER — physical sector sent to FDC
+				; Translated from logical sector via TRANTB table.
+				; 1-based (FDC convention).  Used by GNCOM.
+REPET:
+	DS	1		; REPEAT COUNTER — retry count for I/O errors
+				; Initialized to 10 by SECRD/SECWR.  Decremented on
+				; each failed attempt.  At 0, error is reported.
+RSTAB:
+	DS	8		; FDC RESULT TABLE (7-8 bytes)
+				; Filled by SENSE INTERRUPT / result phase after each
+				; FDC command: ST0, ST1, ST2, C, H, R, N.
+				; WFITR checks ST0/ST1 bits to detect errors.
+;
+; ---- Hard disk status (HARDDISK only) ----
+;
+	IFDEF	HARDDISK
+MHDTSR:
+	DS	1		; MIRROR OF WD1000 STATUS REGISTER
+				; Saved by HDITR (HD ISR) so status can be read after
+				; interrupt completes.  Bit 0 = error flag.
+MHDERR:
+	DS	1		; MIRROR OF WD1000 ERROR REGISTER
+				; Saved by HDITR for post-interrupt error analysis.
+HERRCT:
+	DS	2		; WD1000 ERROR COUNTER (16-bit)
+				; Incremented by HDITR on each HD error.
+				; Diagnostic/statistics use.
+;
+; ---- Interrupt support and status flags ----
+;
+SP_SAV:
+	DS	2		; SYSTEM STACK POINTER SAVE AREA
+				; Each ISR (FLITR, HDITR, DSPITR, KEYIT, SIO handlers)
+				; saves SP here, then loads SP with ISTACK.
+				; Restored on interrupt exit.  Single shared variable
+				; — safe because interrupts are not re-entrant.
+HD_FLG:
+	DS	1		; WD1000 BUSY FLAG (0=busy/waiting, 0xFF=complete)
+				; Set to 0 at start of HD command.  Set to 0xFF by
+				; HDITR when operation completes.  WAITHD spins on
+				; this flag.
+HD_OFL:
+	DS	1		; HD OFFLINE FLAG (0=online, 1=offline)
+				; Set to 1 at boot.  Cleared when HD init succeeds.
+				; Checked to skip HD operations if drive absent.
+FL_FLG:
+	DS	1		; FLOPPY BUSY FLAG (0=busy/waiting, 0xFF=complete)
+				; Set to 0 before FDC command (CLFIT).  Set to 0xFF
+				; by floppy ISR (FLITR).  WATIR spins on this flag.
+	IFNDEF	REL20
+WBFLAG:
+	DS	1		; WARM BOOT FLAG (0=cold boot, 1=warm boot)
+				; Set to 0 at cold boot (BOOT).  Used by GOCPM to
+				; distinguish cold vs warm boot behavior.
+				; Not present in REL20.
+	ENDIF
+	ENDIF
+	IFDEF	REL14
+SP_SAV:
+	DS	2		; SYSTEM STACK POINTER SAVE AREA (REL14, no HD)
+FL_FLG:
+	DS	1		; FLOPPY BUSY FLAG (REL14, no HD flags)
+	ENDIF
+;
+; ---- Floppy system parameters (16-byte block, initialized by SELDSK) ----
+;
+; SELN copies a 16-byte format parameter block (FSPA0x) into DPBLCK..DUM
+; when SELECT_DISK selects a drive.  These describe the current drive's
+; geometry for the read/write routines.
+;
+	IFDEF	REL22PLUS
+HDHFLG:
+	DS	1		; HD HEAD SELECT FLAG (REL22+ only)
+				; Controls alternate head selection logic in STSKFL
+				; for multi-headed HD operations.
+	ENDIF
+DPBLCK:
+	DS	2		; DISK PARAMETER BLOCK POINTER
+				; Points to current drive's DPB (SPT, BSH, BLM, EXM,
+				; DSM, DRM, AL0, AL1, CKS, OFF).  Set by SELN from
+				; format table.  Read by XHOME and FLOPPY routines.
+CPMRBP:
+	DS	1		; CP/M RECORDS PER BLOCK (BLS/128)
+				; Typically 4 (mini) or 8 (maxi).  XWRITE sets
+				; UNACNT to this value for unallocated block writes.
+CPMSPT:
+	DS	2		; CP/M SECTORS PER TRACK
+				; Logical 128-byte sectors per track.  CHKUNA uses
+				; this for sector overflow wrap (UNASEC >= CPMSPT).
+SECMSK:
+	DS	1		; SECTOR MASK (BLKSIZ/128 - 1)
+				; Masks low bits to extract record position within
+				; host sector.  E.g. 0x03 for 4 records/sector.
+				; Used by CHKUNA and MATCH.
+SECSHF:
+	DS	1		; SECTOR SHIFT COUNT
+				; Right-shift count: SEKSEC >> SECSHF = host sector.
+				; E.g. 2 for 512-byte sectors (4 records/sector).
+TRANTB:
+	DS	2		; SECTOR TRANSLATION TABLE POINTER
+				; Points to logical→physical sector mapping table
+				; (MXTRANS for maxi, MITRANS for mini, 0=no xlat).
+				; Used by CHKTRK for sector interleaving.
+DTLV:
+	DS	1		; DATA LENGTH VALUE — FDC N parameter
+				; Sector size code sent to FDC: 0xFF=128B, 0x01=256B,
+				; 0x02=512B.  Used by GNCOM in FDC command sequence.
+DSKTYP:
+	DS	6		; DISK TYPE (1 byte) + FILLER (5 bytes)
+				; Byte 0: 0x00=floppy, 0xFF=hard disk.
+				; Routes I/O: WRTHST/RDHST (floppy) vs HWRHST/HRDHST
+				; (hard disk).  5 filler bytes pad to 16-byte total
+				; for the FSPA parameter block.
+DUM:
+				; END OF FLOPPY SYSTEM PARAMETERS
+;
+; ---- REL30: serial and keyboard ring buffers ----
+;
+	IFDEF	REL30
+;
+; Ring buffer system for interrupt-driven serial (SIO Ch.A) and keyboard
+; (PIO) input.  Both use head/tail pointers with circular buffers.
+; SIO buffer has RTS flow control with hysteresis (RXTHHI/RXTHLO).
+;
+; Producer (ISR) writes at HEAD, consumer reads at TAIL.
+; Buffer empty: HEAD == TAIL.  Buffer full: (HEAD+1) == TAIL.
+; Initialized to 0 by BOOT (CPMBOOT.MAC).
+;
+	DS	1		; GAP (DUM+1)
+RXHEAD:
+	DS	1		; SIO RX RING BUFFER HEAD (write position)
+				; Advanced by RCA ISR after storing each received byte.
+				; If buffer full ((HEAD+1)==TAIL), RTS is deasserted
+				; and the byte is discarded.
+RXTAIL:
+	DS	1		; SIO RX RING BUFFER TAIL (read position)
+				; Advanced by READER after consuming each byte.
+				; When (HEAD-TAIL) drops below RXTHLO, RTS is
+				; reasserted to resume flow.
+KBHEAD:
+	DS	1		; KEYBOARD RING BUFFER HEAD (write position)
+				; Advanced by KEYIT ISR.  Wraps at 16 (AND 0FH).
+				; Overflow silently discards the keystroke.
+KBTAIL:
+	DS	1		; KEYBOARD RING BUFFER TAIL (read position)
+				; Advanced by CONIN.  Wraps at 16 (AND 0FH).
+KBBUF:
+	DS	16		; 16-BYTE KEYBOARD RING BUFFER
+				; Raw key codes from PIO.  CONIN maps through INCONV
+				; table before returning to caller.
+
+; --- pad to next page boundary for SIO ring buffer ---
+; KBBUF ends at 0xF38F, RXBUF needs page alignment at 0xF400.
+; This wastes 113 bytes. Could be reclaimed by moving KBBUF
+; adjacent to RXBUF (i.e. at 0xF3F0) or shrinking RXBUFSZ.
+
+	DS	(($ + 255) AND 0FF00H) - $
+RXBUF:
+	DS	RXBUFSZ		; SIO RX RING BUFFER (256 bytes, page-aligned)
+				; Page alignment lets RCA ISR use INC L to advance
+				; the write pointer without carry, wrapping naturally
+				; at the 256-byte page boundary.
+	ENDIF
+
+; ==== Upper memory layout (0xF500-0xFFFF) ====
+; Background bitmap, stacks, conversion tables, display RAM, work area.
+; Labels defined by position; no code or data emitted into the binary here.
+
+	ORG	0F500H
+;
+; ---- Background bitmap and stack areas (0xF500-0xF67F) ----
+;
+BGSTAR:
+	DS	250		; 0xF500-0xF5F9: background position bitmap (250 bytes)
+				; 1 bit per screen cell (80×25/8 = 250 bytes).
+				; ESC S (background mode) marks each written char;
+				; ESC C (clear foreground) erases only marked positions.
+	DS	38		; 0xF5FA-0xF61F: gap (unused, separates bitmap from stacks)
+ISTACK:
+				; 0xF620: interrupt stack top (SP loaded here by ISRs).
+				; Stack grows downward into the gap above (~38 bytes).
+				; CTC Ch.2 (50 Hz tick) and floppy ISR use this stack.
+	DS	96		; 0xF620-0xF67F: BIOS driver stack space (96 bytes)
+STACK:
+				; 0xF680: BIOS driver stack top (SP loaded here).
+				; Stack grows downward into ISTACK area above.
+				; Used by SELDSK, READ, WRITE, and other BIOS entries.
+;
+; ---- Character conversion tables (copied from CONVTA by INIT) ----
+;
+OUTCON:
+	DS	128		; 0xF680-0xF6FF: output conversion table (128 bytes)
+				; Maps character codes to display codes for DISPL.
+				; Copied from CONVTA at boot by INIT.
+INCONV:
+	DS	128		; 0xF700-0xF77F: input conversion table (128 bytes)
+				; Maps keyboard scan codes to ASCII for PIO handler.
+				; Copied from CONVTA+128 at boot by INIT.
+	DS	128		; 0xF780-0xF7FF: unused (copied but not referenced)
+DSPSTR:
+	DS	2000		; 0xF800-0xFFCF: DISPLAY REFRESH MEMORY (80x25)
+				; Intel 8275 CRT buffer. Init to 0x20 (space).
 	DS	1		; 0xFFD0: unused (first byte after display RAM)
+;
+; ---- Display state (cursor, addressing) ----
+;
 CCTAD:
-	DS	1		; 0xFFD1: COLUMN COUNT
+	DS	1		; 0xFFD1: cursor column (0-79)
 RCTAD:
-	DS	2		; 0xFFD2: ROW COUNT (word)
+	DS	2		; 0xFFD2: cursor row as byte offset into DSPSTR
+				; (0, 80, 160, ... 1920 for rows 0-24).
+				; RCTAD = CURSY * 80. Updated together with CURSY.
 CURSY:
-	DS	1		; 0xFFD4: CURSOR Y POSITION
+	DS	1		; 0xFFD4: cursor row number (0-24), sent to 8275
+				; cursor position register
 LOCBUF:
-	DS	2		; 0xFFD5: DISPLAY BUFFER LOCATION (word)
+	DS	2		; 0xFFD5: absolute address for FILL procedure
+				; (fills 80 bytes with spaces starting at LOCBUF).
+				; Set to DSPSTR+1920 (last line) during scroll,
+				; or DSPSTR+row during DELETE_LINE/INSERT_LINE.
 XFLG:
-	DS	1		; 0xFFD7: XY ADDRESSING MODE FLAG
+	DS	1		; 0xFFD7: ESC = XY addressing state machine
+				; (0=inactive, 2=awaiting 1st coord, 1=awaiting 2nd;
+				; decremented as each coordinate byte arrives)
 LOCAD:
-	DS	2		; 0xFFD8: LOCATION OF CHAR (word)
+	DS	2		; 0xFFD8: character position as offset into DSPSTR
+				; (RCTAD+CCTAD, range 0-1999). Computed in DISPL,
+				; then used for: (DSPSTR+LOCAD) = write char,
+				; LOCAD/8 = BGSTAR byte, LOCAD%8 = bit number.
 USHER:
-	DS	1		; 0xFFDA: OUTPUT CHARACTER POSITION
+	DS	1		; 0xFFDA: character being processed by CONOUT.
+				; Saved from C reg at CONOUT entry. Read by XYADD
+				; (masks to 7-bit, subtracts 32 for coordinate),
+				; DISPL (maps through OUTCON table, writes to screen),
+				; SPECC (dispatches control chars 0x00-0x1F).
+;
+; ---- Background bitmap state (ESC S/F/C selective clear) ----
+;
 BGFLG:
-	DS	1		; 0xFFDB: BACKGROUND FLAG (0=after clear, 1=after set fg, 2=after set bg)
-				; Tracks mode for selective-clear via ESC C (clears only positions marked
-				; in the BGSTAR bitmap during background mode)
+	DS	1		; 0xFFDB: background mode flag
+				; 0=off (after clear-screen), 1=foreground (ESC F),
+				; 2=background (ESC S). In mode 2 each output char
+				; sets a bit in BGSTAR; ESC C clears only those positions.
 LOCBBU:
-	DS	2		; 0xFFDC: POINTER INTO BGSTAR BITMAP (word)
+	DS	2		; 0xFFDC: absolute address into BGSTAR bitmap
+				; for the current line being operated on. Set to
+				; BGSTAR+240 (last line, 10 bytes per row) during
+				; scroll; BGSTAR+offset during delete/insert line.
+				; FILL clears 10 bytes (80 bits) at this address.
+;
+; ---- XY addressing scratch ----
+;
 ADR0:
-	DS	1		; 0xFFDE: FIRST BYTE OF ADDRESS IN XY ADDRESSING
+	DS	1		; 0xFFDE: first coordinate of ESC = Y X sequence.
+				; Stored as (byte AND 7Fh) - 20h. When the second
+				; byte arrives, ADRMOD selects XY vs YX order:
+				; ADRMOD=0: ADR0=column, 2nd=row (default).
+				; ADRMOD=1: ADR0=row, 2nd=column.
+;
+; ---- Timers (all decremented by CTC ch.2 interrupt handler) ----
+;
 EXCNT0:
-	DS	2		; 0xFFDF: EXIT ROUTINE 0 COUNT (word)
+	DS	2		; 0xFFDF: exit routine timer — when it reaches 0,
+				; calls the JP at EXROUT. Set by EXIT in CPMBOOT
+				; for application-defined timeouts.
 EXCNT1:
-	DS	2		; 0xFFE1: EXIT ROUTINE 1 COUNT (word)
+	DS	2		; 0xFFE1: floppy motor-off timer — when it reaches 0,
+				; calls FDSTOP. Reloaded from FDTIMO by FDSTAR.
 DELCNT:
-	DS	2		; 0xFFE3: DELAY COUNT (word)
+	DS	2		; 0xFFE3: general delay timer, in 20ms ticks.
+				; WAITD loads HL into DELCNT, then busy-waits
+				; while the CTC ch.2 ISR decrements it to 0.
+				; e.g. WAITD(50) = 50*20ms = 1 second.
 EXROUT:
-	DS	2		; 0xFFE5: JMP TO EXIT ROUTINE 1 (word)
+	DS	2		; 0xFFE5: exit routine JP target address,
+				; called when EXCNT0 expires. Set by EXIT in CPMBOOT.
 FDTIMO:
-	DS	1		; 0xFFE7: LOAD VALUE OF EXCNT1
+	DS	1		; 0xFFE7: motor-off reload value, in 20ms ticks.
+				; Loaded once at boot from STPTIM (default 250 = 5s).
+				; FDSTAR copies this to EXCNT1 each time the motor
+				; is needed; FDSTOP is called when EXCNT1 reaches 0.
 	DS	20		; 0xFFE8-0xFFFB: unused
+;
+; ---- Real-time clock (4-byte counter, incremented by CTC ch.2 ISR) ----
+;
 RTC0:
-	DS	1		; 0xFFFC: REAL TIME CLOCK BYTE 0
-RTC1:
-	DS	1		; 0xFFFD: REAL TIME CLOCK BYTE 1
+	DS	2		; 0xFFFC: RTC low word (LSB at FFFC, incremented by ISR)
 RTC2:
-	DS	1		; 0xFFFE: REAL TIME CLOCK BYTE 2
-RTC3:
-	DS	1		; 0xFFFF: REAL TIME CLOCK BYTE 3
+	DS	2		; 0xFFFE: RTC high word (carries from RTC0)
+				; 32-bit counter at 50 Hz (20ms/tick). Read/set via
+				; BIOS CLOCK: A!=0 reads DE=(RTC0) HL=(RTC2),
+				; A=0 sets from DE and HL. Wraps after ~994 days.
+				; ISR increments byte-by-byte via LD HL,RTC0.
 
 END
 

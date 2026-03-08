@@ -80,6 +80,47 @@ def checksum(data, init=0):
     return (-s) & 0xFF
 
 
+class ThroughputMonitor:
+    """Tracks bytes sent/received per second and writes to CSV."""
+
+    def __init__(self, log_file="/tmp/serial_monitor.csv"):
+        self.log_file = log_file
+        self.tx_bytes = 0
+        self.rx_bytes = 0
+        self.second = 0
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(self):
+        with open(self.log_file, "w") as f:
+            f.write("second,tx_bytes,rx_bytes\n")
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._running = False
+
+    def add_tx(self, n):
+        with self._lock:
+            self.tx_bytes += n
+
+    def add_rx(self, n):
+        with self._lock:
+            self.rx_bytes += n
+
+    def _run(self):
+        while self._running:
+            time.sleep(1.0)
+            self.second += 1
+            with self._lock:
+                tx, rx = self.tx_bytes, self.rx_bytes
+                self.tx_bytes = 0
+                self.rx_bytes = 0
+            with open(self.log_file, "a") as f:
+                f.write(f"{self.second},{tx},{rx}\n")
+
+
 class SerialConnection:
     """Manages TCP connection to MAME null_modem using DRI binary protocol."""
 
@@ -87,17 +128,20 @@ class SerialConnection:
         self.host = host
         self.port = port
         self.sock = None
+        self.monitor = ThroughputMonitor()
 
     def connect(self):
         """Connect to MAME null_modem TCP socket."""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((self.host, self.port))
         self.sock.settimeout(30.0)
+        self.monitor.start()
         print(f"Connected to {self.host}:{self.port}")
 
     def send_byte(self, b):
         """Send a single byte."""
         self.sock.sendall(bytes([b]))
+        self.monitor.add_tx(1)
 
     def recv_byte(self, timeout=30.0):
         """Receive a single byte with timeout. timeout=None blocks forever."""
@@ -106,6 +150,7 @@ class SerialConnection:
             data = self.sock.recv(1)
             if not data:
                 raise ConnectionError("Connection closed")
+            self.monitor.add_rx(1)
             return data[0]
         except socket.timeout:
             return None
@@ -365,8 +410,8 @@ class CPNetServer:
         if not drive_dir:
             return None
         # CP/M filename: 8.3 format, space-padded
-        fname = name[:8].rstrip().decode('ascii', errors='replace')
-        ext = name[8:11].rstrip().decode('ascii', errors='replace')
+        fname = name[:8].rstrip(b'\x00 ').decode('ascii', errors='replace')
+        ext = name[8:11].rstrip(b'\x00 ').decode('ascii', errors='replace')
         if ext:
             return os.path.join(drive_dir, f"{fname}.{ext}")
         return os.path.join(drive_dir, fname)
@@ -731,14 +776,16 @@ class CPNetServer:
         try:
             open(path, 'ab').close()  # Create if not exists
             print(f"  Make: {path}")
-            resp = bytearray(payload[:33])
+            # Response: retcode(1) + FCB[0..32](33) = 34 bytes
+            resp = bytearray(34)
             resp[0] = 0  # directory code (success)
-            resp[12] = 0  # EX
-            resp[13] = 0  # S1
-            resp[14] = 0  # S2
-            resp[15] = 0  # RC
-            if len(resp) > 32:
-                resp[32] = 0  # CR
+            resp[1:13] = payload[1:13]  # drive + FCB[1..11] (name + ext)
+            resp[13] = 0  # FCB[12] = EX
+            resp[14] = 0  # FCB[13] = S1
+            resp[15] = 0  # FCB[14] = S2
+            resp[16] = 0  # FCB[15] = RC
+            # resp[17..32] = allocation map (zeros)
+            resp[33] = 0  # FCB[32] = CR
             return bytes(resp)
         except OSError as e:
             print(f"  Make failed: {e}")
@@ -1106,6 +1153,7 @@ def main():
         print(f"Connection from {addr}")
         conn.sock = client_sock
         conn.sock.settimeout(30.0)
+        conn.monitor.start()
         srv.close()
     else:
         try:

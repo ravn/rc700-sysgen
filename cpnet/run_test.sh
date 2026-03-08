@@ -166,18 +166,13 @@ fi
 
 if $INJECT; then
     echo "Injecting CP/NET files into disk image..."
-    CPMTOOLS="${HOME}/git/cpmtools3"
     FORMAT="rc702-8dd"
-    # cpmcp looks for 'diskdefs' in CWD or /usr/local/share/; run it from cpmtools3 dir
-    cpinject() {
-        (cd "$CPMTOOLS" && src/cpmcp -f "$FORMAT" -T imd "$WORK_IMAGE" "$1" "0:$2")
-    }
-    cpinject "$SNIOS_SPR"    SNIOS.SPR
-    cpinject "$NDOS_SPR"     NDOS.SPR
-    cpinject "$CCP_SPR"      CCP.SPR
-    cpinject "$CPNETLDR_COM" CPNETLDR.COM
-    cpinject "$NETWORK_COM"  NETWORK.COM
-    cpinject "$CHKSUM_CIM"   CHKSUM.COM
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$SNIOS_SPR"    "0:SNIOS.SPR"
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$NDOS_SPR"     "0:NDOS.SPR"
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$CCP_SPR"      "0:CCP.SPR"
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$CPNETLDR_COM" "0:CPNETLDR.COM"
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$NETWORK_COM"  "0:NETWORK.COM"
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$CHKSUM_CIM"   "0:CHKSUM.COM"
     # Generate $$$.SUB: CP/M auto-runs these commands on boot (reverse execution order)
     python3 -c "
 def rec(cmd):
@@ -186,7 +181,7 @@ def rec(cmd):
 data = rec('DIR H:') + rec('NETWORK H:=B:') + rec('CPNETLDR')
 open('/tmp/cpnet_sub.tmp', 'wb').write(data)
 "
-    (cd "$CPMTOOLS" && src/cpmcp -f "$FORMAT" -T imd "$WORK_IMAGE" /tmp/cpnet_sub.tmp '0:$$$.SUB')
+    cpmcp -f "$FORMAT" "$WORK_IMAGE" /tmp/cpnet_sub.tmp '0:$$$.SUB'
     echo 'Injection complete ($$$.SUB: CPNETLDR -> NETWORK H:=B: -> DIR H:).'
 fi
 
@@ -254,7 +249,7 @@ MAME_ARGS=(
     -flop "$WORK_IMAGE"
     -rs232a null_modem
     -bitb "socket.localhost:${SERIAL_PORT}"
-    -skip_gameinfo -window -nomaximize
+    -skip_gameinfo -window -nomaximize -resolution0 1100x720
     -autoboot_script "$LUA_SCRIPT"
 )
 
@@ -264,6 +259,12 @@ if $HEADLESS; then
 else
     $FAST && MAME_ARGS+=(-nothrottle)
     echo "Starting MAME rc702 with null_modem on port ${SERIAL_PORT}..."
+fi
+
+# ── Start live throughput graph in a new terminal window ──
+# server.py writes /tmp/serial_monitor.csv; serial_graph.py displays it
+if ! $HEADLESS; then
+    osascript -e "tell app \"Terminal\" to do script \"exec python3 '${SCRIPT_DIR}/serial_graph.py'\"" >/dev/null 2>&1 || true
 fi
 
 "$MAME" "${MAME_ARGS[@]}"

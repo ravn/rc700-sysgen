@@ -3,6 +3,28 @@
 ;========================================================
 ;= FLOPPY DISK DRIVER                                   =
 ;========================================================
+;
+; This module implements the CP/M 2.2 blocking/deblocking algorithm
+; from Digital Research Application Note "CP/M 2.0 Alteration Guide"
+; (Section 6.2, "Sector Blocking and Deblocking").
+;
+; CP/M BDOS addresses disk in 128-byte logical sectors, but the RC702
+; uses 512-byte physical sectors (N=2).  The standard algorithm caches
+; one physical sector in HSTBUF and maps 128-byte CP/M records into it.
+;
+; The standard DRI algorithm covers:
+;   XREAD, XWRITE, CHKUNA, RWOPER, TRKCMP, MATCH, RWMOVE, RRWOP
+;   (lines marked [DRI STD] below)
+;
+; RC702-specific extensions are marked [RC702] and include:
+;   - SELD: multi-format drive select with format table lookup
+;   - CHKTRK: multi-density track 0 head selection, sector translation
+;   - WRTHST/RDHST: dispatch to floppy or hard disk driver
+;   - SECRD/SECWR: µPD765 FDC read/write via DMA
+;   - FDSTAR/FDSTOP: mini floppy motor control
+;   - FLO2-FLO7, GNCOM: µPD765 FDC command sequences
+;   - FLITR: FDC interrupt handler
+;   - XHOME: home with HD support and floppy recalibrate
 
 WRALL	EQU	0		; WRITE TO ALLOCATED SECTOR.
 WRDIR	EQU	1		; WRITE TO DIRECTORY SECTOR.
@@ -15,8 +37,11 @@ WRUAL	EQU	2		; WRITE TO UNALLOCATED SECTOR (FIRST SECTOR
 ;= PROCEDURE SECTION                            =
 ;================================================
 
-	;SELECT DISK DRIVE
-	;ENTRY: C=DRIVE NUMBER  
+	;SELECT DISK DRIVE                        [RC702]
+	; RC702 extension: multi-format drive select with format table
+	; lookup (CFORM/FSPA/FDF tables), DPB pointer update, and
+	; track offset per drive.  Standard DRI SELDSK is trivial.
+	;ENTRY: C=DRIVE NUMBER
 	;EXIT : HL=DISK PARAMETER HEADER
 SELD:	LD	HL,0		; PROCEDURE SELECT_DISK;
 	ADD	HL,SP		;
@@ -114,28 +139,30 @@ GFPA:	LD	HL,FDF1		;
 	ADD	HL,DE		;
 	RET			;
 
-;SETTRACK
+;SETTRACK                                         [DRI STD]
 ;ENTRY: BC=TRACK NUMBER
 SETT:	LD	H,B		;
 	LD	L,C		;
 	LD	(SEKTRK),HL	;
 	RET			;
 
-;SETSECTOR
+;SETSECTOR                                        [DRI STD]
 ;ENTRY: BC=SECTOR NUMBER
 SETS:	LD	L,C		;
 	LD	H,B		;
 	LD	(SEKSEC),HL	;
 	RET			;
 
-;SET DMA ADDRESS
+;SET DMA ADDRESS                                  [DRI STD]
 ;ENTRY: BC=DMA ADDRESS
 SETD:	LD	H,B		;
 	LD	L,C		;
 	LD	(DMAADR),HL	;
 	RET			;
 
-;TRANSLATE SECTOR NUMBER
+;TRANSLATE SECTOR NUMBER                          [DRI STD]
+; Returns HL=BC (no-op).  Actual sector translation is done
+; in CHKTRK via TRANTB table (RC702 extension).
 ;ENTRY: BC=SECTOR NUMBER
 SECTRA:	LD	H,B		;
 	LD	L,C		;
@@ -143,7 +170,7 @@ SECTRA:	LD	H,B		;
 
 	PAGE
 
-;READ THE SELECTED CP/M SECTOR
+;READ THE SELECTED CP/M SECTOR                   [DRI STD]
 ;ENTRY:
 ;EXIT : A=RESULT (0 OK,1 HARD ERROR)
 
@@ -156,7 +183,7 @@ XREAD:	XOR	A		;PATCHES FROM DIGITAL
 	LD	(WRTYPE),A	; TREAT AS UNALLOCATED
 	JP	RWOPER		; TO PERFORM THE READ
 
-;WRITE THE SELECTED CP/M SECTOR
+;WRITE THE SELECTED CP/M SECTOR                  [DRI STD]
 ;ENTRY:
 ;EXIT : C=WRITETYPE A=RESULT
 
@@ -178,7 +205,7 @@ XWRITE:	XOR	A		;
 	LD	HL,(SEKSEC)	; UNASEC := SEKSEC;
 	LD	(UNASEC),HL	;
 
-;CHECK FOR WRITE TO UNALLOCATED SECTOR
+;CHECK FOR WRITE TO UNALLOCATED SECTOR            [DRI STD]
 
 CHKUNA:	LD	A,(UNACNT)	; ANY UNALLOCATED REMAIN?
 	OR	A		;
@@ -261,7 +288,7 @@ ALLOC:	XOR	A		;
 
 	PAGE  
 
-; COMMON CODE FOR READ AND WRITE FOLLOWS
+; COMMON CODE FOR READ AND WRITE FOLLOWS          [DRI STD]
 
 RWOPER:	LD	HL,0		;
 	ADD	HL,SP		;
@@ -403,7 +430,7 @@ RRWOP:	POP	HL		; RETURN:
 
 	PAGE
 
-;UTILITY SUBROUTINE FOR 16-BIT COMPARE
+;UTILITY SUBROUTINE FOR 16-BIT COMPARE            [DRI STD]
 ;HL=UNATRK OR HSTTRK, COMPARE WITH SEKTRK
 
 TRKCMP:	EX	DE,HL		;
@@ -422,8 +449,11 @@ TRKCMP:	EX	DE,HL		;
 
 	PAGE
 
-;==========================================================
+;==========================================================  [RC702]
 ;= WRITEHOST performs the physical write to the host disk.=
+;= RC702: dispatches to HD (HWRHST) or floppy (CHKTRK+  =
+;= SECWR) based on DSKTYP.  Standard DRI just calls the  =
+;= physical write routine directly.                       =
 ;==========================================================
 WRTHST:
 	IFDEF	HARDDISK
@@ -434,8 +464,11 @@ WRTHST:
 	CALL	CHKTRK		;
 	JP	SECWR		;
 
-;==========================================================
-;= READHOST performs the physical read fhom the host disk =
+;==========================================================  [RC702]
+;= READHOST performs the physical read from the host disk =
+;= RC702: dispatches to HD (HRDHST) or floppy (CHKTRK+  =
+;= SECRD) based on DSKTYP.  Standard DRI just calls the  =
+;= physical read routine directly.                        =
 ;==========================================================
 RDHST:	LD	A,(UNAMSK)	;
 	OR	A		;
@@ -453,8 +486,12 @@ RCHECK:
 	PAGE
 
 ;=============================================================================
-;= CHECK HOST DISK AND TRACK EQUAL TO LAST HOST AND DISK                     = 
-;=                                                                           =
+;= CHECK HOST DISK AND TRACK EQUAL TO LAST HOST AND DISK               [RC702]
+;=                                                                            =
+;= RC702 extension: multi-density track 0 head selection (EOTV split),        =
+;= sector translation via TRANTB table, and LSTDSK/LSTTRK seek optimization. =
+;= Standard DRI algorithm does not have this — it assumes uniform geometry.   =
+;=                                                                            =
 ;=   S U P P O R T S   O N L Y   2 5 6   S E C T O R S   A N D   T R A C K S =
 ;=============================================================================
 CHKTRK:	LD	A,(HSTSEC)	;
@@ -519,6 +556,7 @@ RECA:	CALL	CLFIT		;
 
 	PAGE
 
+					; [RC702] µPD765 FDC read with DMA and retry
 SECRD:	LD	A,10		;
 	LD	(REPET),A	;
 RPSC:	CALL	FDSTAR		;
@@ -556,6 +594,7 @@ SCR1:	LD	A,C		;
 
 	PAGE
 
+					; [RC702] µPD765 FDC write with DMA and retry
 SECWR:	LD	A,10		;
 	LD	(REPET),A	;
 RPSW:	CALL	FDSTAR		;
@@ -579,6 +618,7 @@ WFDAT:	LD	A,5		;
 
 	PAGE
 
+					; [RC702] mini floppy motor control via SW1 port
 FDSTAR:	IN	A,(SW1)		; PROCEDURE START_FLOPPY_MOTOR;
 	AND	80H		; BEGIN
 	RET	Z		;   IF MINI_DRIVE THEN BEGIN
@@ -612,6 +652,7 @@ WAIT10:	LD	HL,(DELCNT)	;
 
 	PAGE
 
+					; [RC702] home with HD seek support + floppy recalibrate
 XHOME:	LD	A,(HSTWRT)	;PATCH FROM DIG. CHECK FOR PENDING WRITE
 	OR	A		;
 	JR	NZ,XHOM01	;
@@ -653,6 +694,7 @@ XHOM20:	CALL	FDSTAR		; ELSE:
 	RET			;
 		PAGE
 
+				; [RC702] µPD765 FDC low-level command sequences
 				; PROCEDURE WAIT_READY_WRITE;
 FLO2:	IN	A,(FDC)		;
 	AND	0C0H		;
@@ -760,7 +802,8 @@ WATIR:	LD	A,(FL_FLG)	; PROCEDURE WAIT_FD_INTERRUPT;
 	JP	Z,WATIR		;
 	RET			;
 
-FLPR:	LD	A,5		; PROCEDURE START_DMA_READ;  
+				; [RC702] Am9517A DMA controller setup for FDC transfers
+FLPR:	LD	A,5		; PROCEDURE START_DMA_READ;
 	DI			;
 	OUT	(DMAMAS),A	; SET_CH1_MASK;
 	LD	A,49H		; MODE:=READ;
@@ -787,6 +830,7 @@ FLPW:	LD	A,5		; PROCEDURE START_DMA_WRITE;
 
 	PAGE
 
+				; [RC702] µPD765 9-byte read/write command sequence
 GNCOM:	PUSH	AF		; PROCEDURE GENERAL_COMMAND;
 	DI			;
 	CALL	FLO2		; WAIT_READY_WRITE;
@@ -829,8 +873,10 @@ GNCOM:	PUSH	AF		; PROCEDURE GENERAL_COMMAND;
 
 	PAGE
 
-;========================================================
-;= UP765 FLOPPY DISK CONTROLLER INTERRUPT ROUTINE       =
+;========================================================  [RC702]
+;= µPD765 FLOPPY DISK CONTROLLER INTERRUPT ROUTINE      =
+;= Saves SP, switches to ISTACK, sets FL_FLG=0xFF,      =
+;= then reads FDC result (SENSE or full result phase).   =
 ;========================================================
 
 FLITR:	LD	(SP_SAV),SP	; SAVE ACCUMULATOR AND FLAGS

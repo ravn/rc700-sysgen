@@ -61,3 +61,14 @@ module files for that name to confirm it is not already a code label. When a sym
 has different roles across variants (code label in REL201, RAM variable in REL220),
 use a conditional EQU alias in the variant-specific section rather than an
 unconditional DS label.
+
+## 2026-03-08: Always read AGENT.md and MEMORY.md at session start
+
+**Context**: Started a session without reading the mandatory files. Used relative
+paths for zmac which failed, then had to retry with absolute paths — a mistake
+already documented in MEMORY.md line 38.
+
+**Lesson**: The first action in every session must be reading `AGENT.md` and the
+memory files. The auto-loaded MEMORY.md snippet in system context is truncated
+(200 lines) and easy to skim past. Explicitly reading the files ensures full
+coverage and primes the correct workflows.
