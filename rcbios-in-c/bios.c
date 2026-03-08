@@ -8,7 +8,7 @@
  * interrupts.  The CRT ISR must run with interrupts disabled to protect
  * DMA programming and the shared sp_sav variable.
  *
- * CONOUT switches to BIOS stack (0xF680) and dispatches: escape state
+ * CONOUT switches to BIOS stack (0xF500) and dispatches: escape state
  * (XY addressing), control characters (cursor, scroll, clear), or
  * printable characters (OUTCON conversion, display, advance cursor).
  * BGSTAR (background bitmap) is omitted — saves ~382 bytes.
@@ -806,8 +806,8 @@ uint8_t bios_const(void) __naked
         ld a, (_kbtail)
         ld hl, #_kbhead
         sub a, (hl)
-        ret z                   ; 0 = no key
-        ld l, #0xFF
+        ret z                   ; A=0 = no key (CP/M reads A)
+        ld a, #0xFF             ; A=0xFF = key available
         ret
     __endasm;
 #else
@@ -839,7 +839,7 @@ uint8_t bios_conin(void) __naked
         ld hl, #0xF700          ; INCONV table
         ld b, #0
         add hl, bc
-        ld l, (hl)
+        ld a, (hl)              ; return in A (CP/M reads A, not L)
         ret
     __endasm;
 #else
@@ -1179,7 +1179,7 @@ void bios_conout(uint8_t c) __naked
         push hl
         ld hl, #0
         add hl, sp              ; HL = caller SP (after push hl)
-        ld sp, #0xF680          ; switch to BIOS stack
+        ld sp, #0xF500          ; switch to BIOS stack
         ei
         push hl                 ; save caller SP on BIOS stack
         push af
@@ -1225,7 +1225,7 @@ uint8_t bios_reader(void) __naked
 {
 #ifndef HOST_TEST
     __asm
-        ld l, #0x1A             ; return ^Z (EOF)
+        ld a, #0x1A             ; return ^Z (EOF) — CP/M reads A
         ret
     __endasm;
 #else
@@ -1238,15 +1238,19 @@ void bios_home(void) __naked
     /* CP/M calls HOME before SELDSK — flush pending writes, recalibrate */
 #ifndef HOST_TEST
     __asm
+        di
         push hl
         ld hl, #0
         add hl, sp
-        ld sp, #0xF680
+        ld sp, #0xF500
+        ei
         push hl
         call _bios_home_c
         pop hl
+        di
         ld sp, hl
         pop hl
+        ei
         ret
     __endasm;
 #endif
@@ -1274,19 +1278,23 @@ uint16_t bios_seldsk(uint8_t disk) __naked
     (void)disk;
 #ifndef HOST_TEST
     __asm
+        di
         push bc
         ld hl, #0
         add hl, sp
-        ld sp, #0xF680          ; switch to BIOS stack
+        ld sp, #0xF500          ; switch to BIOS stack
+        ei
         push hl                 ; save caller SP
         ld a, c                 ; drive number in A (sdcccall 1)
         call _bios_seldsk_c    ; returns DPH in DE (sdcccall 1)
         ex de, hl               ; HL = DPH (for CP/M), DE = garbage
         pop de                  ; DE = saved caller SP
+        di
         ex de, hl               ; save HL (return val), HL = caller SP
         ld sp, hl               ; restore caller stack
         ex de, hl               ; HL = return value
         pop bc
+        ei
         ret
     __endasm;
 #else
@@ -1451,22 +1459,26 @@ uint8_t bios_read(void) __naked
 {
 #ifndef HOST_TEST
     __asm
+        di
         push bc
         push de
         push hl
         ld hl, #0
         add hl, sp
-        ld sp, #0xF680
+        ld sp, #0xF500
+        ei
         push hl
         call _xread
         pop de
+        di
         ex de, hl
         ld sp, hl
         ex de, hl
-        pop de                  ; discard saved HL
+        pop hl
         pop de
         pop bc
-        ret                     ; L = return value
+        ei
+        ret                     ; A = return value
     __endasm;
 #else
     return 0;
@@ -1479,23 +1491,27 @@ uint8_t bios_write(uint8_t type) __naked
     (void)type;
 #ifndef HOST_TEST
     __asm
+        di
         push bc
         push de
         push hl
         ld hl, #0
         add hl, sp
-        ld sp, #0xF680
+        ld sp, #0xF500
+        ei
         push hl
         ld a, c                 ; write type from C register
         call _xwrite
         pop de
+        di
         ex de, hl
         ld sp, hl
         ex de, hl
-        pop de
+        pop hl
         pop de
         pop bc
-        ret                     ; L = return value
+        ei
+        ret                     ; A = return value
     __endasm;
 #else
     return 0;
@@ -1506,7 +1522,7 @@ uint8_t bios_listst(void) __naked
 {
 #ifndef HOST_TEST
     __asm
-        ld l, #0xFF             ; list device ready
+        ld a, #0xFF             ; list device ready (CP/M reads A)
         ret
     __endasm;
 #else
@@ -1544,7 +1560,7 @@ uint8_t bios_reads(void) __naked
 {
 #ifndef HOST_TEST
     __asm
-        ld l, #0                ; not ready
+        xor a                   ; A=0 = not ready (CP/M reads A)
         ret
     __endasm;
 #else
@@ -1666,22 +1682,25 @@ void isr_crt(void) __naked
 {
 #ifndef HOST_TEST
     __asm
+        ; Save SP and switch stack FIRST (original BIOS pattern).
+        ; Only the hardware-pushed return address (2 bytes) touches
+        ; the interrupted stack.
+        ld (_sp_sav), sp
+        ld sp, #0xF620
         push af
         push bc
         push de
         push hl
         push ix
         push iy
-        ld (_sp_sav), sp
-        ld sp, #0xF620
         call _isr_crt_body
-        ld sp, (_sp_sav)
         pop iy
         pop ix
         pop hl
         pop de
         pop bc
         pop af
+        ld sp, (_sp_sav)
         ei
         reti
     __endasm;
@@ -1710,22 +1729,22 @@ void isr_pio_kbd(void) __naked
 {
 #ifndef HOST_TEST
     __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
         push af
         push bc
         push de
         push hl
         push ix
         push iy
-        ld (_sp_sav), sp
-        ld sp, #0xF620
         call _isr_pio_kbd_body
-        ld sp, (_sp_sav)
         pop iy
         pop ix
         pop hl
         pop de
         pop bc
         pop af
+        ld sp, (_sp_sav)
         ei
         reti
     __endasm;
@@ -1756,22 +1775,22 @@ void isr_floppy(void) __naked
 {
 #ifndef HOST_TEST
     __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
         push af
         push bc
         push de
         push hl
         push ix
         push iy
-        ld (_sp_sav), sp
-        ld sp, #0xF620
         call _isr_floppy_body
-        ld sp, (_sp_sav)
         pop iy
         pop ix
         pop hl
         pop de
         pop bc
         pop af
+        ld sp, (_sp_sav)
         ei
         reti
     __endasm;
