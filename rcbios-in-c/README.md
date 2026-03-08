@@ -7,14 +7,22 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1b: CRT ISR + keyboard** — COMPLETE
+**Phase 1d: Console output** — COMPLETE
 
 - Phase 1a (skeleton): correct binary layout, all stubs in place
-- Phase 1b (display): CRT ISR programs DMA for 8275 display refresh,
-  increments 32-bit RTC, decrements timers (exit routine, motor-off, delay)
+- Phase 1b (CRT ISR): DMA programming for 8275 display refresh,
+  32-bit RTC, three timer decrements (exit routine, motor-off, delay)
 - Keyboard ISR stores keys in 16-byte ring buffer (REL30)
 - CONST/CONIN read from keyboard ring buffer with INCONV table conversion
-- Current size: 2343 bytes (fits both mini and maxi)
+- Phase 1d (CONOUT): full display driver with escape sequences
+  - Stack-switching wrapper (DI/EI around SP swap, matches original)
+  - Control characters: cursor movement, clear screen, erase EOL/EOS,
+    delete/insert line, tab, bell, carriage return, home
+  - XY cursor addressing (ctrl-F + two coordinate bytes, XY/YX modes)
+  - Printable character display with OUTCON conversion table
+  - Graphical mode flag (sticky, set by chars 128-191)
+  - BGSTAR (background bitmap) intentionally omitted — saves ~382 bytes
+- Current size: 3141 bytes (fits both mini and maxi)
 
 ## Building
 
@@ -58,8 +66,7 @@ their bodies are empty or trivial.
 
 ## Next steps
 
-- Phase 1b: CRT display refresh ISR (DMA programming for 8275)
-- Phase 1c: Keyboard input (PIO ISR + ring buffer)
-- Phase 1d: Console output (CONOUT with escape sequences)
 - Phase 1e: Floppy disk driver (blocking/deblocking)
 - Phase 1f: Boot sequence (load CCP+BDOS, signon message)
+- Serial driver (READER/PUNCH/LIST, ring buffer, RTS flow control)
+- Tables (DPB, CLOCK, SETWARM, LINSEL)

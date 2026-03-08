@@ -72,7 +72,7 @@ mame-mini: bios
 	$(PATCH) /tmp/bios_c_mini.imd bios.cim
 	$(MAME_BIN) rc702mini -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_mini.imd \
-		-window -resolution 1100x720
+		-skip_gameinfo -window -resolution 1100x720
 
 # MAME boot test (maxi)
 mame-maxi: bios
@@ -80,7 +80,7 @@ mame-maxi: bios
 	$(PATCH) /tmp/bios_c_maxi.imd bios.cim
 	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_maxi.imd \
-		-window -resolution 1100x720
+		-skip_gameinfo -window -resolution 1100x720
 
 # Host tests (TODO)
 test:
@@ -88,7 +88,5 @@ test:
 
 clean:
 	rm -f bios bios.cim bios_CODE.bin bios.map bios.lis
-	rm -f *.o *.sym *.def *.lis
-	rm -f bios_*.bin
-	rm -f zcc_opt.def
+	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd
