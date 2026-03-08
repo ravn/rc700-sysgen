@@ -22,6 +22,9 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
   - Printable character display with OUTCON conversion table
   - Graphical mode flag (sticky, set by chars 128-191)
   - BGSTAR (background bitmap) intentionally omitted — saves ~382 bytes
+  - All 25 control character / escape sequence tests pass in MAME
+- Boot/wboot stubs use EI + HALT loop (not DI + HALT) so CRT ISR
+  keeps refreshing the display while waiting
 - Current size: 3141 bytes (fits both mini and maxi)
 
 ## Building

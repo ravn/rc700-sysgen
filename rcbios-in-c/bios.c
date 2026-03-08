@@ -151,19 +151,15 @@ void bios_boot(void) __naked
 
 void bios_boot_c(void)
 {
-    /* Phase 1b: halt */
-    __asm
-        di
-        halt
-    __endasm;
+    /* Phase 1d: halt with interrupts enabled (CRT ISR keeps display alive) */
+    for (;;)
+        __asm__("halt");
 }
 
 void bios_wboot(void)
 {
-    __asm
-        di
-        halt
-    __endasm;
+    for (;;)
+        __asm__("halt");
 }
 
 /* ----------------------------------------------------------------
