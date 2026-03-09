@@ -15,6 +15,50 @@ could be rewritten in C.
 | Boot entry (SP setup + jump) | 2 | No |
 | HALT spin loop | 1 | No |
 
+## `__naked` keyword
+
+`__naked` tells sdcc to generate no prologue, no epilogue, no RET. The
+function body is entirely hand-written asm. Without it, sdcc adds register
+saves and calling-convention return sequences.
+
+### Experimentally verified: `__naked` is NOT needed for 8-bit returns
+
+sdcccall(1) returns 8-bit in A, matching CP/M. Normal C functions returning
+uint8_t generate **identical code** to `__naked` asm versions:
+
+```
+/* Normal C — generates: ld a,0xff; ret (3 bytes) */
+uint8_t bios_listst(void) { return 0xFF; }
+
+/* __naked asm — generates: ld a,#0xFF; ret (3 bytes) */
+uint8_t bios_listst(void) __naked { __asm ld a,#0xFF \n ret __endasm; }
+```
+
+Empty void stubs are even better as normal C — sdcc optimizes them to share
+a single `l_ret` return point (0 bytes per stub).
+
+### Where `__naked` IS needed
+
+1. **ISR wrappers** — must control DI/EI placement, stack switching, RETI
+2. **BIOS entries with stack switching** — SP must change before C code runs
+3. **CP/M BC parameter entries** — `bios_settrk/setsec/setdma` receive in BC
+   (sdcccall(1) expects HL), need `ld (var),bc` which C can't express
+4. **16-bit returns to CP/M** — `bios_seldsk` must return in HL, but
+   sdcccall(1) returns 16-bit in DE (`__z88dk_fastcall` solves this)
+
+### Functions that could drop `__naked` (pure C)
+
+| Function | Current | C equivalent | Notes |
+|----------|---------|-------------|-------|
+| `bios_const` | 7 asm instructions | `return (kbtail != kbhead) ? 0xFF : 0;` | 8-bit return in A matches |
+| `bios_listst` | `ld a,#0xFF; ret` | `return 0xFF;` | Identical codegen |
+| `bios_reads` | `xor a; ret` | `return 0;` | Identical codegen |
+| `bios_wfitr` | `ret` | `void bios_wfitr(void) {}` | Smaller (shared l_ret) |
+| `bios_linsel` | `ret` | `void bios_linsel(void) {}` | Smaller |
+| `bios_exit` | `ret` | `void bios_exit(void) {}` | Smaller |
+| `bios_clock` | `ret` | `void bios_clock(void) {}` | Smaller |
+| `bios_hrdfmt` | `ret` | `void bios_hrdfmt(void) {}` | Smaller |
+
 ## Cannot be C
 
 ### ISR wrappers (`isr_crt`, `isr_pio_kbd`, `isr_floppy`)
