@@ -150,14 +150,14 @@ static void fdstar(void)
     }
 }
 
-/* FDC low-level */
-static void fdc_wait_write(void)
+/* FDC low-level — inlined for speed on hot path (saves 27 T-states per call) */
+static inline void fdc_wait_write(void)
 {
     while ((_port_fdc_status & 0xC0) != 0x80)
         ;
 }
 
-static void fdc_wait_read(void)
+static inline void fdc_wait_read(void)
 {
     while ((_port_fdc_status & 0xC0) != 0xC0)
         ;
