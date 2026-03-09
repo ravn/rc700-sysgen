@@ -625,10 +625,10 @@ void bios_hw_init(void)
         ;
     _port_fdc_data = 0x28;      /* head load 40ms, DMA mode */
 
-    /* Clear display buffer (fill 0xF800-0xFFCF with spaces) */
+    /* Clear display buffer (DSPROW(0) to SCRNEND with spaces) */
 #ifndef HOST_TEST
     __asm
-        ld hl, #0xF800
+        ld hl, #0xF800          ; DSPROW(0)
         ld de, #0xF801
         ld bc, #0x07CF
         ld (hl), #0x20
@@ -901,7 +901,7 @@ uint8_t bios_conin(void) __naked
 static uint8_t graph;           /* graphical mode flag (sticky) */
 
 /* Update 8275 cursor position from curx/cursy */
-static void wp75(void)
+static void cursorxy(void)
 {
     _port_crt_cmd = 0x80;       /* load cursor position command */
     _port_crt_param = curx;     /* X position */
@@ -909,62 +909,62 @@ static void wp75(void)
 }
 
 /* Reset cursor to top-left (does NOT update 8275) */
-static void es0h(void)
+static void goto00(void)
 {
     cury = 0;
     curx = 0;
     cursy = 0;
 }
 
-/* Fill 80 bytes at addr with spaces */
+/* Fill one row (SCRN_COLS bytes) at addr with spaces */
 static void fill_line(uint8_t *addr)
 {
-    for (uint8_t i = 0; i < 80; i++)
+    for (uint8_t i = 0; i < SCRN_COLS; i++)
         addr[i] = ' ';
 }
 
 /* Move cursor down one row */
 static void rowdn(void)
 {
-    cury += 80;
+    cury += SCRN_COLS;
     cursy++;
-    wp75();
+    cursorxy();
 }
 
 /* Move cursor up one row */
 static void rowup(void)
 {
-    cury -= 80;
+    cury -= SCRN_COLS;
     cursy--;
-    wp75();
+    cursorxy();
 }
 
-/* Scroll display up one line: copy 1920 bytes, fill last line */
+/* Scroll display up one line: copy ROW1..ROW24 to ROW0..ROW23, fill ROW24 */
 static void scroll(void)
 {
 #ifndef HOST_TEST
     __asm
-        ld hl, #0xF850          ; DSPSTR + 80
-        ld de, #0xF800          ; DSPSTR
-        ld bc, #1920
+        ld hl, #0xF850          ; DSPROW(1)
+        ld de, #0xF800          ; DSPROW(0)
+        ld bc, #(24 * 80)       ; ROW1..ROW24 = 1920 bytes
         ldir
     __endasm;
 #endif
-    fill_line((uint8_t *)(DSPSTR + 1920));
+    fill_line((uint8_t *)DSPROW(ROW24));
 }
 
 /* Cursor right — advance column, wrap to next line or scroll */
 static void cursor_right(void)
 {
-    if (curx < 79) {
+    if (curx < COLUMN79) {
         curx++;
-        wp75();
+        cursorxy();
     } else {
-        curx = 0;
-        if (cury != 1920) {
+        curx = COLUMN0;
+        if (cury != ROW24_OFF) {
             rowdn();
         } else {
-            wp75();
+            cursorxy();
             scroll();
         }
     }
@@ -973,17 +973,17 @@ static void cursor_right(void)
 /* Cursor left — wrap to previous line if at column 0 */
 static void cursor_left(void)
 {
-    if (curx != 0) {
+    if (curx != COLUMN0) {
         curx--;
-        wp75();
+        cursorxy();
     } else {
-        curx = 79;
-        if (cury != 0) {
+        curx = COLUMN79;
+        if (cury != ROW0_OFF) {
             rowup();
         } else {
-            cury = 1920;
-            cursy = 24;
-            wp75();
+            cury = ROW24_OFF;
+            cursy = ROW24;
+            cursorxy();
         }
     }
 }
@@ -991,7 +991,7 @@ static void cursor_left(void)
 /* Cursor down — scroll if on last row */
 static void cursor_down(void)
 {
-    if (cury != 1920)
+    if (cury != ROW24_OFF)
         rowdn();
     else
         scroll();
@@ -1000,20 +1000,20 @@ static void cursor_down(void)
 /* Cursor up — wrap to bottom if on first row */
 static void cursor_up(void)
 {
-    if (cury != 0) {
+    if (cury != ROW0_OFF) {
         rowup();
     } else {
-        cury = 1920;
-        cursy = 24;
-        wp75();
+        cury = ROW24_OFF;
+        cursy = ROW24;
+        cursorxy();
     }
 }
 
 /* Carriage return — column 0, update cursor */
 static void carriage_return(void)
 {
-    curx = 0;
-    wp75();
+    curx = COLUMN0;
+    cursorxy();
 }
 
 /* Tab — 4 cursor rights */
@@ -1028,8 +1028,8 @@ static void tab(void)
 /* Home — top-left + update cursor */
 static void home(void)
 {
-    es0h();
-    wp75();
+    goto00();
+    cursorxy();
 }
 
 /* Clear screen — fill display with spaces, home */
@@ -1037,22 +1037,22 @@ static void clear_screen(void)
 {
 #ifndef HOST_TEST
     __asm
-        ld hl, #0xF800          ; DSPSTR
+        ld hl, #0xF800          ; DSPROW(0)
         ld de, #0xF801
         ld (hl), #0x20
-        ld bc, #1999
+        ld bc, #(2000 - 1)      ; SCRN_SIZE - 1
         ldir
     __endasm;
 #endif
-    es0h();
-    wp75();
+    goto00();
+    cursorxy();
 }
 
 /* Erase from cursor to end of line */
 static void erase_to_eol(void)
 {
     uint8_t *row = (uint8_t *)(DSPSTR + cury);
-    for (uint8_t i = curx; i < 80; i++)
+    for (uint8_t i = curx; i < SCRN_COLS; i++)
         row[i] = ' ';
 }
 
@@ -1061,33 +1061,33 @@ static void erase_to_eos(void)
 {
     uint16_t pos = cury + curx;
     uint8_t *p = (uint8_t *)(DSPSTR + pos);
-    uint16_t count = 2000 - pos;
+    uint16_t count = SCRN_SIZE - pos;
     while (count--)
         *p++ = ' ';
 }
 
-/* Delete line — shift lines up, fill last line */
+/* Delete line — shift lines up from cury+1 to ROW24, fill ROW24 */
 static void delete_line(void)
 {
     uint16_t row_off = cury;
-    uint16_t count = 1920 - row_off;
+    uint16_t count = ROW24_OFF - row_off;
     if (count != 0) {
 #ifndef HOST_TEST
         __asm
             ld hl, (_cury)
-            ld de, #0xF800      ; DSPSTR
-            add hl, de          ; HL = DSPSTR + cury (dest)
+            ld de, #0xF800      ; DSPROW(0)
+            add hl, de          ; HL = DSPROW(0) + cury (dest)
             push hl
-            ld de, #80
-            add hl, de          ; HL = DSPSTR + cury + 80 (src)
-            ex de, hl           ; DE = src ... wait, LDIR: HL=src, DE=dst
-            pop hl              ; HL = dst
+            ld de, #80          ; SCRN_COLS
+            add hl, de          ; HL = DSPROW(0) + cury + 80 (src = next row)
+            ex de, hl
+            pop hl
             ex de, hl           ; DE = dst, HL = src
             ld bc, (_cury)
             push hl
-            ld hl, #1920
+            ld hl, #(24 * 80)   ; ROW24_OFF
             or a
-            sbc hl, bc          ; HL = 1920 - cury = count
+            sbc hl, bc          ; HL = ROW24_OFF - cury = count
             ld b, h
             ld c, l
             pop hl
@@ -1095,26 +1095,26 @@ static void delete_line(void)
         __endasm;
 #endif
     }
-    fill_line((uint8_t *)(DSPSTR + 1920));
+    fill_line((uint8_t *)DSPROW(ROW24));
 }
 
-/* Insert line — shift lines down, fill current line */
+/* Insert line — shift lines down from cury to ROW23, fill current line */
 static void insert_line(void)
 {
     uint16_t row_off = cury;
-    uint16_t count = 1920 - row_off;
+    uint16_t count = ROW24_OFF - row_off;
     if (count != 0) {
 #ifndef HOST_TEST
         __asm
-            ; LDDR from DSPSTR+1919 to DSPSTR+1999
+            ; LDDR: copy ROW0..ROW23 down by one row
             ld bc, (_cury)
-            ld hl, #1920
+            ld hl, #(24 * 80)   ; ROW24_OFF
             or a
-            sbc hl, bc          ; HL = count = 1920 - cury
+            sbc hl, bc          ; HL = ROW24_OFF - cury = count
             ld b, h
             ld c, l
-            ld hl, #(0xF800 + 1919)  ; DSPSTR + 1919 (src end)
-            ld de, #(0xF800 + 1999)  ; DSPSTR + 1999 (dst end)
+            ld hl, #(0xF800 + 24 * 80 - 1)  ; last byte of ROW23 (src end)
+            ld de, #(0xF800 + 25 * 80 - 1)  ; last byte of ROW24 (dst end)
             lddr
         __endasm;
 #endif
@@ -1141,12 +1141,12 @@ static void xyadd(void)
         y_val = adr0;
     }
     /* Modular arithmetic (matches original CHKDC) */
-    while (x_val >= 80) x_val -= 80;
-    while (y_val >= 25) y_val -= 25;
+    while (x_val >= SCRN_COLS) x_val -= SCRN_COLS;
+    while (y_val >= SCRN_ROWS) y_val -= SCRN_ROWS;
     curx = x_val;
     cursy = y_val;
-    cury = (uint16_t)y_val * 80;
-    wp75();
+    cury = (uint16_t)y_val * SCRN_COLS;
+    cursorxy();
 }
 
 /* Display printable character — convert, write, advance cursor */
@@ -1178,7 +1178,7 @@ static void specc(void)
     case 0x02: delete_line(); break;
     case 0x05:                  /* ENQ = cursor left (same as BS) */
     case 0x08: cursor_left(); break;
-    case 0x06: es0h(); xflg = 2; break;  /* start XY addressing */
+    case 0x06: goto00(); xflg = 2; break;  /* start XY addressing */
     case 0x07: _port_bell = 0; break;    /* bell */
     case 0x09: tab(); break;
     case 0x0A: cursor_down(); break;

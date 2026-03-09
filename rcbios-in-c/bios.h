@@ -17,6 +17,17 @@
 #define SCRN_ROWS   25
 #define SCRN_SIZE   (SCRN_COLS * SCRN_ROWS)  /* 2000 bytes */
 
+/* Display row addresses: DSPROW0 = 0xF800, DSPROW1 = 0xF850, ... DSPROW24 = 0xFF80 */
+#define DSPROW(n)   (DSPSTR + (n) * SCRN_COLS)
+
+/* Cursor coordinate limits */
+#define COLUMN0     0
+#define COLUMN79    (SCRN_COLS - 1)
+#define ROW0        0
+#define ROW24       (SCRN_ROWS - 1)
+#define ROW0_OFF    0               /* cury byte offset for row 0 */
+#define ROW24_OFF   (ROW24 * SCRN_COLS)  /* cury byte offset for row 24 = 1920 */
+
 #define OUTCON_ADDR 0xF680      /* output conversion table */
 #define INCONV_ADDR 0xF700      /* input conversion table */
 #define ISTACK_ADDR 0xF620      /* interrupt stack top */
