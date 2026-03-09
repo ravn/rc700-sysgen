@@ -14,7 +14,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- Current size: ~7137 bytes (fits maxi 9984, over mini 6144 by ~993)
+- Current size: 7251 bytes (fits maxi 9984, over mini 6144 by ~1107)
 
 ## Building
 
@@ -34,6 +34,10 @@ make clean   # remove build artifacts
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O for Z80)
 - **danish.bin**: Character conversion tables (384 bytes, extracted from assembled BIOS)
 - **peephole.def**: SDCC peephole optimizer rules
+- **SDCCCALL.md**: Calling conventions, register allocation, inlining guide
+- **STACK_ANALYSIS.md**: Call graph, no-recursion proof, stack depth
+- **STACK_BUG_ANALYSIS.md**: Warm boot stack corruption bug and fix
+- **test_sdcccall.c**: Experimental verification of sdcccall(1) register usage
 
 ### z88dk notes
 
@@ -70,11 +74,23 @@ Use `run_mame.sh -t` to run both commands automatically and dump the screen.
 - **PL/M and ASM sources**: `~/Downloads/cpm2-plm/`
 - **Build instructions**: https://www.jbox.dk/rc702/cpm.shtm
 
+## Compiler optimization
+
+All compiler tuning options are documented in `SDCCCALL.md`. Summary:
+
+- **No recursion** → all locals are `static` → no IX/IY frame pointer usage
+- **Makefile build guard** fails if `ix[+-]` or `iy[+-]` appear in listing
+- **Makefile build guard** fails if sdcccall(0) library functions are linked
+- **FDC wait loops inlined** (`static inline`) for 27 T-states/call saving
+- **`--max-allocs-per-node 1000000`** for aggressive register allocation
+- **`--std-sdcc99`** enables `inline` keyword
+- sdcc has no automatic inlining — `inline` keyword is the only mechanism
+
 ## Stack requirements
 
 The C BIOS uses significantly more stack than the original assembly BIOS
 (~80 bytes vs ~16 bytes at peak). No recursion exists in the codebase, so
-all local variables could theoretically be made static. See `STACK_ANALYSIS.md`.
+all local variables are declared `static`. See `STACK_ANALYSIS.md`.
 
 The warm boot stack must be outside the CCP+BDOS area (0xC400-0xD9FF) being
 loaded. Both `bios_boot` and `bios_wboot` use SP=0xF500 (the BIOS private
@@ -83,5 +99,5 @@ stack, 5KB above BSS). See `STACK_BUG_ANALYSIS.md` for the original bug.
 ## Next steps
 
 - SIO serial ring buffer with RTS flow control
-- MINI (5.25") support (currently over limit by ~993 bytes)
+- MINI (5.25") support (currently over limit by ~1107 bytes)
 - Tables (CLOCK, SETWARM, LINSEL)

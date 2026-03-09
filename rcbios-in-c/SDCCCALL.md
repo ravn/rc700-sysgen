@@ -139,10 +139,48 @@ Each inlined call saves 27 T-states (CALL=17 + RET=10) but costs ~6 bytes
 | `fdc_wait_write` + `fdc_wait_read` | 18 | +70 bytes |
 | 6 small functions | ~40 | +159 bytes |
 
-### Guidelines
+### Per-function inlining analysis
 
-- **Inline hot-path busy loops** (e.g., FDC wait loops) where 27 T-states/call matters
-- **Don't inline functions called many times** unless speed justifies the size cost
-- **Don't inline functions with static locals** — defeats the purpose
-- Functions called only once are already effectively inlined by the linker (CALL+RET
-  overhead is negligible)
+Each function was evaluated for inlining based on: body size (bytes), number of
+call sites, whether it's on a hot path (disk I/O), and net size impact.
+
+**Inlined (speed-critical hot path):**
+
+| Function | Body | Calls | Why inline |
+|----------|------|-------|------------|
+| `fdc_wait_write` | 9B | 15 | FDC status polling loop, called before every register write. 27 T-states saved per FDC access. +70B total for both. |
+| `fdc_wait_read` | 9B | 3 | FDC status polling loop, called before every register read. Same reasoning. |
+
+**Not inlined (size cost too high or no speed benefit):**
+
+| Function | Body | Calls | Why not |
+|----------|------|-------|---------|
+| `clfit` | 7B | 11 | 3 instructions (DI, store, EI). 11 call sites × ~4B = +44B for negligible speed gain — not on a tight loop. |
+| `watir` | 5B | 3 | Busy-wait on `fl_flg`. Only 3 calls, but the wait itself dominates — saving 27T on entry is meaningless vs thousands of loops. |
+| `wfitr` | 6B | 8 | Calls `watir` + `clfit`. Inlining would expand both, compounding size cost. |
+| `fdstop` | 8B | 1 | Called once — no benefit from inlining. |
+| `fdc_recalibrate` | ~20B | 2 | Too large to inline, and not called in the sector read/write hot path. |
+| `fdc_sense_int` | ~30B | 2 | Too large, contains a loop. |
+| `flp_dma_setup` | ~40B | 2 | Large function with many port writes. |
+| `wrthst`/`rdhst` | ~15B | 4/1 | Wrappers that call other functions — inlining saves nothing. |
+
+**Decision rule:** Only inline functions where (a) the body is smaller than ~10 bytes,
+(b) the function is called in a tight timing-critical loop, and (c) the CALL/RET
+overhead (27 T-states) is significant relative to the function body execution time.
+
+### Other compiler tuning (already maxed out)
+
+| Setting | Value | Notes |
+|---------|-------|-------|
+| `--max-allocs-per-node` | 1000000 | Register allocator search depth (default 3000). Diminishing returns above ~200000. |
+| `-SO3` | max | Highest z88dk optimization level. |
+| `--fomit-frame-pointer` | on | Avoids IX as frame pointer. |
+| `--allow-unsafe-read` | on | Enables some memory access optimizations. |
+| `--opt-code-size` | on | Prefers smaller sequences (subroutine calls for stack frame setup). |
+| `--std-sdcc99` | on | Enables `inline` keyword support. |
+| Unity build | yes | All code in single `bios.c` gives sdcc full cross-function visibility. |
+
+sdcc has no `-finline-functions`, no inline threshold, no automatic inlining at
+any optimization level. The `inline` keyword is the only mechanism.
+
+`--stack-auto` has no effect on Z80 (8051-only feature).
