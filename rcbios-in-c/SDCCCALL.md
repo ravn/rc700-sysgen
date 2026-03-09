@@ -86,6 +86,65 @@ static uint16_t dbg_p2;
 void dbg_trace4(uint8_t type, uint8_t p1);
 ```
 
+## CP/M BIOS ABI vs sdcccall(1)
+
+CP/M passes BIOS parameters in BC and expects returns in A (8-bit) or HL
+(16-bit). This creates mismatches with sdcccall(1):
+
+| | CP/M | sdcccall(1) | Match? |
+|---|---|---|---|
+| 8-bit param | C (or E) | **A** | No |
+| 16-bit param | BC | **HL** | No |
+| 8-bit return | A | **A** | **Yes** |
+| 16-bit return | HL | **DE** | No |
+
+### `__z88dk_fastcall` — bridge for 16-bit returns
+
+`__z88dk_fastcall` passes a single param in HL and returns in HL. This
+matches CP/M's 16-bit return convention:
+
+```c
+/* sdcccall(1): returns in DE — needs EX DE,HL glue */
+uint16_t bios_seldsk_c(uint8_t drive);
+
+/* __z88dk_fastcall: returns in HL — matches CP/M directly */
+uint16_t seldsk_fc(uint8_t drive) __z88dk_fastcall {
+    /* drive arrives in L, return value goes in HL */
+    return dpbase_addr;   /* HL = DPH pointer, matches CP/M */
+}
+```
+
+Experimentally verified: `__z88dk_fastcall` with sdcccall(1) returns 16-bit
+values in HL (not DE). The compiler even optimizes identity functions like
+`return param` to a bare RET (HL passes through).
+
+**However**, CP/M params arrive in BC, not HL. So for entries that receive
+BC *and* return HL (e.g., `bios_seldsk`, `bios_sectran`), a small asm stub
+is still needed to move BC→HL before calling the `__z88dk_fastcall` function,
+or to move BC to a global and let the C code ignore the param register.
+
+### Implications for asm stubs
+
+| BIOS entry | Params | Return | Asm needed? |
+|------------|--------|--------|-------------|
+| `bios_const` | none | A | No (8-bit return matches) |
+| `bios_conin` | none | A | Ring buffer logic + HALT |
+| `bios_listst` | none | A | No (8-bit return matches) |
+| `bios_reads` | none | A | No (8-bit return matches) |
+| `bios_settrk` | BC→var | none | Yes (BC≠HL) |
+| `bios_setsec` | BC→var | none | Yes (BC≠HL) |
+| `bios_setdma` | BC→var | none | Yes (BC≠HL) |
+| `bios_seldsk` | C=drive | HL=DPH | Yes (BC param + HL return) |
+| `bios_sectran` | BC=sec | HL=sec | Yes (BC→HL identity) |
+| `bios_read` | none | A | Stack switch needed |
+| `bios_write` | C=type | A | Stack switch needed |
+| Stubs (5) | none | none | Bare RET |
+
+Functions returning only 8-bit in A with no params (`bios_const`, `bios_listst`,
+`bios_reads`) could theoretically be plain C — sdcccall(1) 8-bit return is in A,
+matching CP/M. But `bios_const` needs volatile access patterns and `bios_listst`/
+`bios_reads` are single-instruction stubs where C adds overhead.
+
 ## sdcccall(0) — Stack-based (legacy, NOT used)
 
 All parameters passed on the stack, right-to-left.

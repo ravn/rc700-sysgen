@@ -35,8 +35,22 @@ is: DI, save SP to `sp_sav`, set SP to 0xF500, call C body, restore SP, EI, RET.
 ### CP/M ABI glue
 
 CP/M passes parameters in BC and expects return values in A (8-bit) or HL
-(16-bit), not in the sdcccall(1) registers. These tiny stubs bridge the gap:
+(16-bit). sdcccall(1) uses A/HL for params and A/DE for returns. See
+`SDCCCALL.md` "CP/M BIOS ABI vs sdcccall(1)" for the full mismatch table.
 
+**8-bit returns (A) match** — `bios_const`, `bios_listst`, `bios_reads`
+could theoretically be pure C since sdcccall(1) returns 8-bit in A. But
+they're 1–3 instruction stubs where C adds prologue overhead.
+
+**16-bit returns (HL) don't match** — sdcccall(1) returns 16-bit in DE.
+`__z88dk_fastcall` returns in HL (matching CP/M) but takes params in HL
+(not BC). So `bios_seldsk` and `bios_sectran` still need asm glue.
+
+**16-bit params (BC) don't match** — sdcccall(1) expects first param in HL.
+`bios_settrk/setsec/setdma` store BC directly (2 instructions). A C version
+would need an extra `ld hl, bc` equivalent that the compiler can't generate.
+
+Stubs in this category:
 - `bios_const`: return 0 or 0xFF in A (keyboard status)
 - `bios_conin`: wait loop + ring buffer read + INCONV lookup, return in A
 - `bios_settrk/setsec/setdma`: store BC to variable (2 instructions each)
@@ -45,9 +59,7 @@ CP/M passes parameters in BC and expects return values in A (8-bit) or HL
 - `bios_reads`: return 0 in A
 - `bios_wfitr/linsel/exit/clock/hrdfmt`: bare RET stubs
 
-These are 1–3 instructions each. Writing them in C would add function
-prologue/epilogue overhead and require `__naked` anyway to control the
-return register. **No benefit from C rewrite.**
+**No benefit from C rewrite** — all are 1–3 instructions.
 
 ### HALT
 
