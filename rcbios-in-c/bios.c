@@ -841,52 +841,18 @@ void bios_wboot(void) __naked
  * Console I/O — keyboard ring buffer (REL30)
  * ---------------------------------------------------------------- */
 
-uint8_t bios_const(void) __naked
+uint8_t bios_const(void)
 {
-#ifndef HOST_TEST
-    __asm
-        ld a, (_kbtail)
-        ld hl, #_kbhead
-        sub a, (hl)
-        ret z                   ; A=0 = no key (CP/M reads A)
-        ld a, #0xFF             ; A=0xFF = key available
-        ret
-    __endasm;
-#else
-    return 0;
-#endif
+    return (kbtail != kbhead) ? 0xFF : 0x00;
 }
 
-uint8_t bios_conin(void) __naked
+uint8_t bios_conin(void)
 {
-#ifndef HOST_TEST
-    __asm
-    conin_wait$:
-        ld a, (_kbtail)
-        ld hl, #_kbhead
-        sub a, (hl)
-        jr z, conin_wait$       ; spin while empty
-
-        ld hl, #_kbbuf
-        ld a, (_kbtail)
-        add a, l
-        ld l, a                 ; HL = &kbbuf[tail]
-        ld c, (hl)              ; read raw key
-
-        ld a, (_kbtail)
-        inc a
-        and a, #0x0F            ; wrap at 16
-        ld (_kbtail), a
-
-        ld hl, #0xF700          ; INCONV table
-        ld b, #0
-        add hl, bc
-        ld a, (hl)              ; return in A (CP/M reads A, not L)
-        ret
-    __endasm;
-#else
-    return 0;
-#endif
+    while (kbtail == kbhead)
+        __asm__("halt");
+    uint8_t raw = kbbuf[kbtail];
+    kbtail = (kbtail + 1) & (KBBUFSZ - 1);
+    return *((volatile uint8_t *)(INCONV_ADDR + raw));
 }
 
 /* ================================================================
@@ -1571,16 +1537,9 @@ uint8_t bios_write(uint8_t type) __naked
 #endif
 }
 
-uint8_t bios_listst(void) __naked
+uint8_t bios_listst(void)
 {
-#ifndef HOST_TEST
-    __asm
-        ld a, #0xFF             ; list device ready (CP/M reads A)
-        ret
-    __endasm;
-#else
     return 0xFF;
-#endif
 }
 
 uint16_t bios_sectran(uint16_t sector) __naked
@@ -1600,62 +1559,12 @@ uint16_t bios_sectran(uint16_t sector) __naked
 
 /* Extended entries */
 
-void bios_wfitr(void) __naked
-{
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
-}
-
-uint8_t bios_reads(void) __naked
-{
-#ifndef HOST_TEST
-    __asm
-        xor a                   ; A=0 = not ready (CP/M reads A)
-        ret
-    __endasm;
-#else
-    return 0;
-#endif
-}
-
-void bios_linsel(void) __naked
-{
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
-}
-
-void bios_exit(void) __naked
-{
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
-}
-
-void bios_clock(void) __naked
-{
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
-}
-
-void bios_hrdfmt(void) __naked
-{
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
-}
+void bios_wfitr(void) { }
+uint8_t bios_reads(void) { return 0; }
+void bios_linsel(void) { }
+void bios_exit(void) { }
+void bios_clock(void) { }
+void bios_hrdfmt(void) { }
 
 /* ================================================================
  * Interrupt service routines
