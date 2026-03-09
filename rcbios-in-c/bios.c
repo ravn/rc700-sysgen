@@ -14,6 +14,7 @@
  * BGSTAR (background bitmap) is omitted — saves ~382 bytes.
  */
 
+#include <string.h>
 #include "hal.h"
 #include "bios.h"
 #include "builddate.h"
@@ -584,19 +585,14 @@ void bios_hw_init(void)
     _port_ctc3 = *((&mode0) + 6);  /* ch3 mode (floppy) */
     _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
 
-    /* SIO: program via OTIR — use inline asm for the block output */
-#ifndef HOST_TEST
-    __asm
-        ld hl, _psioa
-        ld b, #9
-        ld c, #0x0A
-        otir
-        ld hl, _psiob
-        ld b, #11
-        ld c, #0x0B
-        otir
-    __endasm;
-#endif
+    /* SIO: program channels A and B */
+    {
+        uint8_t i;
+        for (i = 0; i < 9; i++)
+            _port_sio_a_ctrl = psioa[i];
+        for (i = 0; i < 11; i++)
+            _port_sio_b_ctrl = psiob[i];
+    }
 
     /* SIO: read initial status registers */
     (void)_port_sio_a_ctrl;     /* read RR0-A */
@@ -626,26 +622,10 @@ void bios_hw_init(void)
     _port_fdc_data = 0x28;      /* head load 40ms, DMA mode */
 
     /* Clear display buffer (DSPROW(0) to SCRNEND with spaces) */
-#ifndef HOST_TEST
-    __asm
-        ld hl, #0xF800          ; DSPROW(0)
-        ld de, #0xF801
-        ld bc, #0x07CF
-        ld (hl), #0x20
-        ldir
-    __endasm;
-#endif
+    memset((void *)DSPSTR, ' ', SCRNEND - DSPSTR + 1);
 
     /* Clear work area (0xFFD1-0xFFFF with zeros) */
-#ifndef HOST_TEST
-    __asm
-        ld hl, #0xFFD1
-        ld de, #0xFFD2
-        ld (hl), #0
-        ld bc, #0x002E
-        ldir
-    __endasm;
-#endif
+    memset((void *)0xFFD1, 0, 0x002F);
 
     /* CRT 8275: reset and program */
     _port_crt_cmd = 0x00;       /* reset */
@@ -882,13 +862,6 @@ static void goto00(void)
     cursy = 0;
 }
 
-/* Fill one row (SCRN_COLS bytes) at addr with spaces */
-static void fill_line(uint8_t *addr)
-{
-    for (uint8_t i = 0; i < SCRN_COLS; i++)
-        addr[i] = ' ';
-}
-
 /* Move cursor down one row */
 static void rowdn(void)
 {
@@ -908,15 +881,8 @@ static void rowup(void)
 /* Scroll display up one line: copy ROW1..ROW24 to ROW0..ROW23, fill ROW24 */
 static void scroll(void)
 {
-#ifndef HOST_TEST
-    __asm
-        ld hl, #0xF850          ; DSPROW(1)
-        ld de, #0xF800          ; DSPROW(0)
-        ld bc, #(24 * 80)       ; ROW1..ROW24 = 1920 bytes
-        ldir
-    __endasm;
-#endif
-    fill_line((uint8_t *)DSPROW(ROW24));
+    memcpy((void *)DSPROW(0), (void *)DSPROW(1), ROW24_OFF);
+    memset((void *)DSPROW(ROW24), ' ', SCRN_COLS);
 }
 
 /* Cursor right — advance column, wrap to next line or scroll */
@@ -1001,15 +967,7 @@ static void home(void)
 /* Clear screen — fill display with spaces, home */
 static void clear_screen(void)
 {
-#ifndef HOST_TEST
-    __asm
-        ld hl, #0xF800          ; DSPROW(0)
-        ld de, #0xF801
-        ld (hl), #0x20
-        ld bc, #(2000 - 1)      ; SCRN_SIZE - 1
-        ldir
-    __endasm;
-#endif
+    memset((void *)DSPSTR, ' ', SCRN_SIZE);
     goto00();
     cursorxy();
 }
@@ -1035,57 +993,34 @@ static void erase_to_eos(void)
 /* Delete line — shift lines up from cury+1 to ROW24, fill ROW24 */
 static void delete_line(void)
 {
-    uint16_t row_off = cury;
-    uint16_t count = ROW24_OFF - row_off;
-    if (count != 0) {
-#ifndef HOST_TEST
-        __asm
-            ld hl, (_cury)
-            ld de, #0xF800      ; DSPROW(0)
-            add hl, de          ; HL = DSPROW(0) + cury (dest)
-            push hl
-            ld de, #80          ; SCRN_COLS
-            add hl, de          ; HL = DSPROW(0) + cury + 80 (src = next row)
-            ex de, hl
-            pop hl
-            ex de, hl           ; DE = dst, HL = src
-            ld bc, (_cury)
-            push hl
-            ld hl, #(24 * 80)   ; ROW24_OFF
-            or a
-            sbc hl, bc          ; HL = ROW24_OFF - cury = count
-            ld b, h
-            ld c, l
-            pop hl
-            ldir
-        __endasm;
-#endif
-    }
-    fill_line((uint8_t *)DSPROW(ROW24));
+    static uint16_t count;
+    static uint8_t *dst;
+    count = ROW24_OFF - cury;
+    dst = (uint8_t *)(DSPSTR + cury);
+    if (count != 0)
+        memcpy(dst, dst + SCRN_COLS, count);
+    memset((void *)DSPROW(ROW24), ' ', SCRN_COLS);
 }
 
-/* Insert line — shift lines down from cury to ROW23, fill current line */
+/* Insert line — shift lines down from cury to ROW23, fill current line.
+ * Uses LDDR (backward block copy) since dst overlaps src.
+ * sdcc cannot optimize backward loops into LDDR, so this stays as asm. */
+static uint16_t insl_count;   /* insert_line LDDR byte count */
+
 static void insert_line(void)
 {
-    uint16_t row_off = cury;
-    uint16_t count = ROW24_OFF - row_off;
-    if (count != 0) {
+    insl_count = ROW24_OFF - cury;
+    if (insl_count != 0) {
 #ifndef HOST_TEST
         __asm
-            ; LDDR: copy ROW0..ROW23 down by one row
-            ld bc, (_cury)
-            ld hl, #(24 * 80)   ; ROW24_OFF
-            or a
-            sbc hl, bc          ; HL = ROW24_OFF - cury = count
-            ld b, h
-            ld c, l
+            ld bc, (_insl_count)
             ld hl, #(0xF800 + 24 * 80 - 1)  ; last byte of ROW23 (src end)
             ld de, #(0xF800 + 25 * 80 - 1)  ; last byte of ROW24 (dst end)
             lddr
         __endasm;
 #endif
     }
-    fill_line((uint8_t *)(DSPSTR + cury));
+    memset((void *)(DSPSTR + cury), ' ', SCRN_COLS);
 }
 
 /* XY cursor addressing — called for each byte after ctrl-F */
