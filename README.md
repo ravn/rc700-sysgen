@@ -86,3 +86,15 @@ may be due to delimiter out of place or non-numeric operand.
 
 /ravn 2023-04-28
 
+## Providing PDF content to Claude Code
+
+Claude Code can read PDF files directly with the Read tool (max 20 pages per
+request). For PDFs that fail to parse (scanned images, DRM, unusual encoding):
+
+1. **Copy-paste the relevant section** into the chat message prefixed with
+   `pdf says:` or similar context.
+2. **Use a PDF-to-text tool** first, then paste: `pdftotext file.pdf - | pbcopy`
+3. **Screenshot a page** and provide the image path — Claude Code can read images.
+4. **For large reference docs**, extract only the relevant pages:
+   `pdftk input.pdf cat 42-45 output extract.pdf`
+

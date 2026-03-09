@@ -112,3 +112,37 @@ can be declared `static`. This eliminates stack-allocated locals entirely:
 
 The Makefile enforces this with a build guard that fails if any `ix[+-]` or
 `iy[+-]` patterns appear in the compiler listing.
+
+## Inlining
+
+sdcc has **no automatic inlining** at any optimization level. Functions are only
+inlined when explicitly marked `static inline` and compiled with `--std-sdcc99`.
+
+Via z88dk: `-Cs"--std-sdcc99"`
+
+### Behavior
+
+- `static inline` expands the function body at each call site
+- The original function is eliminated if all calls are inlined
+- `__sdcccall(1)` conventions are irrelevant for inlined code (parameters become
+  ordinary variables handled by the register allocator)
+- `--opt-code-size` does **not** suppress inline expansion
+
+### Cost/benefit (experimentally verified)
+
+Each inlined call saves 27 T-states (CALL=17 + RET=10) but costs ~6 bytes
+(inline body minus the eliminated CALL instruction, plus the RET is gone).
+
+| What was inlined | Calls | Size delta |
+|------------------|-------|------------|
+| `clfit` + `watir` | 14 | +60 bytes |
+| `fdc_wait_write` + `fdc_wait_read` | 18 | +70 bytes |
+| 6 small functions | ~40 | +159 bytes |
+
+### Guidelines
+
+- **Inline hot-path busy loops** (e.g., FDC wait loops) where 27 T-states/call matters
+- **Don't inline functions called many times** unless speed justifies the size cost
+- **Don't inline functions with static locals** — defeats the purpose
+- Functions called only once are already effectively inlined by the linker (CALL+RET
+  overhead is negligible)
