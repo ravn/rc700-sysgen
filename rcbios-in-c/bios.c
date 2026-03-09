@@ -231,16 +231,19 @@ static void wfitr(void)
  * CHKTRK sets dskad = HSTBUF address before calling secrd/secwr.
  * write=1 means FDC reads from memory (FLPR), write=0 means FDC writes to memory (FLPW)
  */
-static void flp_dma_setup(uint16_t count, uint8_t write)
+static uint16_t dma_count;      /* parameter: byte count for DMA */
+static uint8_t  dma_write;      /* parameter: 0=read(FDC→mem), 1=write(mem→FDC) */
+
+static void flp_dma_setup(void)
 {
     __asm__("di");
     _port_dma_smsk = 0x05;          /* mask ch1 */
-    _port_dma_mode = write ? 0x49 : 0x45;
+    _port_dma_mode = dma_write ? 0x49 : 0x45;
     _port_dma_clbp = 0;
     _port_dma_ch1_addr = (uint8_t)dskad;
     _port_dma_ch1_addr = (uint8_t)(dskad >> 8);
-    _port_dma_ch1_wc = (uint8_t)count;
-    _port_dma_ch1_wc = (uint8_t)(count >> 8);
+    _port_dma_ch1_wc = (uint8_t)dma_count;
+    _port_dma_ch1_wc = (uint8_t)(dma_count >> 8);
     _port_dma_smsk = 0x01;          /* unmask ch1 */
     __asm__("ei");
 }
@@ -325,7 +328,6 @@ static void chktrk(void)
 static void secrd(void)
 {
     uint8_t *fp;
-    uint16_t dma_count;
 
     repet = 10;
     for (;;) {
@@ -336,7 +338,8 @@ static void secrd(void)
         fp = (uint8_t *)form;
         dma_count = fp[0] | ((uint16_t)fp[1] << 8);
 
-        flp_dma_setup(dma_count, 0);    /* write to memory */
+        dma_write = 0;
+        flp_dma_setup();                /* FDC → memory */
         fdc_general_cmd(6, fp + 2);     /* READ DATA, skip DMA count */
         watir();
 
@@ -381,7 +384,6 @@ fail:
 static void secwr(void)
 {
     uint8_t *fp;
-    uint16_t dma_count;
 
     repet = 10;
     for (;;) {
@@ -391,7 +393,8 @@ static void secwr(void)
         fp = (uint8_t *)form;
         dma_count = fp[0] | ((uint16_t)fp[1] << 8);
 
-        flp_dma_setup(dma_count, 1);    /* read from memory */
+        dma_write = 1;
+        flp_dma_setup();                /* memory → FDC */
         fdc_general_cmd(5, fp + 2);     /* WRITE DATA, skip DMA count */
         watir();
 
@@ -428,7 +431,7 @@ static void wrthst(void)
 }
 
 /* Debug: dump N bytes from addr as hex */
-static void dbg_hexdump(uint8_t *p, uint8_t n)
+static void dbg_hexdump(uint8_t n, uint8_t *p)
 {
     uint8_t i;
     for (i = 0; i < n; i++) {
@@ -447,15 +450,17 @@ static uint8_t wboot_count;
 #define DBG_BUFSZ 252
 static uint8_t dbg_idx;
 static uint8_t dbg_buf[DBG_BUFSZ];
+static uint16_t dbg_p2;            /* 3rd parameter for dbg_trace4 */
 
-static void dbg_trace4(uint8_t type, uint8_t p1, uint16_t p2)
+static void dbg_trace4(uint8_t type, uint8_t p1)
 {
-    uint8_t idx = dbg_idx;
+    static uint8_t idx;
+    idx = dbg_idx;
     if (idx < DBG_BUFSZ) {
         dbg_buf[idx] = type;
         dbg_buf[idx + 1] = p1;
-        dbg_buf[idx + 2] = (uint8_t)p2;
-        dbg_buf[idx + 3] = (uint8_t)(p2 >> 8);
+        dbg_buf[idx + 2] = (uint8_t)dbg_p2;
+        dbg_buf[idx + 3] = (uint8_t)(dbg_p2 >> 8);
         dbg_idx = idx + 4;
     }
 }
@@ -480,10 +485,10 @@ static uint8_t trkcmp(uint16_t *p)
 /* Core blocking/deblocking algorithm (DRI standard) */
 static uint8_t rwoper(void)
 {
-    uint8_t shift, i;
-    uint16_t hs;
-    uint8_t *src, *dst;
-    uint16_t offset;
+    static uint8_t shift, i;
+    static uint16_t hs;
+    static uint8_t *src, *dst;
+    static uint16_t offset;
 
     /* compute host sector: sekhst = seksec >> (secshf-1)
      * Original asm: DEC B first, then shift if nonzero.
@@ -727,12 +732,15 @@ static void puts_p(const char *s)
         putch(*s++);
 }
 
-static void put_hex(uint16_t val)
+static void put_hex(uint16_t v)
 {
-    uint8_t i;
-    char buf[5];
+    static uint8_t i;
+    static uint8_t nib;
+    static char buf[5];
+    static uint16_t val;
+    val = v;
     for (i = 0; i < 4; i++) {
-        uint8_t nib = (val >> 12) & 0xF;
+        nib = (val >> 12) & 0xF;
         buf[i] = nib < 10 ? '0' + nib : 'A' + nib - 10;
         val <<= 4;
     }
@@ -1292,7 +1300,7 @@ void bios_home(void) __naked
 
 static void bios_home_c(void)
 {
-    dbg_trace4('H', sekdsk, 0);
+    dbg_p2 = 0; dbg_trace4('H', sekdsk);
     if (hstwrt) {
         wrthst();
     } else {
@@ -1342,7 +1350,7 @@ static uint16_t bios_seldsk_c(uint8_t drive)
     uint8_t fmt, *fp;
     uint16_t dph_offset;
 
-    dbg_trace4('S', drive, 0);
+    dbg_p2 = 0; dbg_trace4('S', drive);
     if (drive > drno)
         return 0;               /* invalid drive */
 
@@ -1447,17 +1455,19 @@ static uint8_t xread(void)
     rsflag = 1;
     wrtype = WRUAL;
     {
-        uint8_t rc = rwoper();
-        uint8_t *d = (uint8_t *)dmaadr;
-        dbg_trace4('R', (uint8_t)sektrk, seksec);
-        dbg_trace4('D', (uint8_t)(dmaadr >> 8), (uint16_t)(d[0] | (d[1] << 8)));
+        static uint8_t rc;
+        static uint8_t *d;
+        rc = rwoper();
+        d = (uint8_t *)dmaadr;
+        dbg_p2 = seksec; dbg_trace4('R', (uint8_t)sektrk);
+        dbg_p2 = (uint16_t)(d[0] | (d[1] << 8)); dbg_trace4('D', (uint8_t)(dmaadr >> 8));
         return rc;
     }
 }
 
 static uint8_t xwrite(uint8_t wt)
 {
-    dbg_trace4('W', wt, seksec);
+    dbg_p2 = seksec; dbg_trace4('W', wt);
     readop = 0;
     wrtype = wt;
 

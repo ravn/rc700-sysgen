@@ -65,6 +65,13 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h danish.bin peephole.def
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
 	@cp bios.rom bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
+	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \
+		echo "ERROR: IX/IY-relative addressing found in compiled code!"; \
+		echo "Local variables must be static (no recursion in BIOS)."; \
+		grep 'ix[+-]\|iy[+-]' bios.c.lis; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
 	@if grep -qE '__div[us]|__mod[us]|__mul[us]' bios.map 2>/dev/null; then \
 		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
 		echo "These will silently produce WRONG RESULTS (warning 296 scenario)."; \
