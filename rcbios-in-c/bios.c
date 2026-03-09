@@ -427,6 +427,37 @@ static void wrthst(void)
     secwr();
 }
 
+/* Debug: dump N bytes from addr as hex */
+static void dbg_hexdump(uint8_t *p, uint8_t n)
+{
+    uint8_t i;
+    for (i = 0; i < n; i++) {
+        put_hex(p[i]);
+        putch(' ');
+    }
+}
+
+static uint8_t wboot_count;
+
+/* Debug trace ring buffer in BSS (safe location)
+ * 32 entries × 4 bytes = 128 bytes
+ * Each entry: [track_lo, sector_lo, dma_lo, dma_hi]
+ */
+static uint8_t dbg_idx;
+static uint8_t dbg_buf[252];  /* 63 entries × 4 bytes */
+
+static void dbg_trace_read(void)
+{
+    uint8_t idx = dbg_idx;
+    if (idx < 252) {
+        dbg_buf[idx] = (uint8_t)sektrk;
+        dbg_buf[idx + 1] = (uint8_t)seksec;
+        dbg_buf[idx + 2] = (uint8_t)dmaadr;
+        dbg_buf[idx + 3] = (uint8_t)(dmaadr >> 8);
+        dbg_idx = idx + 4;
+    }
+}
+
 /* Read host buffer from disk */
 static void rdhst(void)
 {
@@ -436,6 +467,7 @@ static void rdhst(void)
         unacnt = 0;
     chktrk();
     secrd();
+
 }
 
 /* 16-bit track compare: *(uint16_t *)p == sektrk */
@@ -451,6 +483,8 @@ static uint8_t rwoper(void)
     uint16_t hs;
     uint8_t *src, *dst;
     uint16_t offset;
+
+    dbg_trace_read();
 
     /* compute host sector: sekhst = seksec >> (secshf-1)
      * Original asm: DEC B first, then shift if nonzero.
@@ -740,6 +774,7 @@ static void wboot_c(void)
 {
     uint8_t sec;
 
+    wboot_count++;
     hal_ei();
     bios_seldsk_c(0);
 
@@ -1290,9 +1325,9 @@ uint16_t bios_seldsk(uint8_t disk) __naked
         ex de, hl               ; HL = DPH (for CP/M), DE = garbage
         pop de                  ; DE = saved caller SP
         di
-        ex de, hl               ; save HL (return val), HL = caller SP
+        ex de, hl               ; save DPH in DE, HL = caller SP
         ld sp, hl               ; restore caller stack
-        ex de, hl               ; HL = return value
+        ex de, hl               ; HL = DPH (return value for CP/M)
         pop bc
         ei
         ret

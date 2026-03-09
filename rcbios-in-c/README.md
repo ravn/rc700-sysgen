@@ -7,25 +7,15 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1d: Console output** — COMPLETE
+**Phase 1f: Boot sequence** — CP/M boots to A> on MAXI 8". DIR works. Debugging file I/O.
 
-- Phase 1a (skeleton): correct binary layout, all stubs in place
-- Phase 1b (CRT ISR): DMA programming for 8275 display refresh,
-  32-bit RTC, three timer decrements (exit routine, motor-off, delay)
-- Keyboard ISR stores keys in 16-byte ring buffer (REL30)
-- CONST/CONIN read from keyboard ring buffer with INCONV table conversion
+- Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
+- Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
 - Phase 1d (CONOUT): full display driver with escape sequences
-  - Stack-switching wrapper (DI/EI around SP swap, matches original)
-  - Control characters: cursor movement, clear screen, erase EOL/EOS,
-    delete/insert line, tab, bell, carriage return, home
-  - XY cursor addressing (ctrl-F + two coordinate bytes, XY/YX modes)
-  - Printable character display with OUTCON conversion table
-  - Graphical mode flag (sticky, set by chars 128-191)
-  - BGSTAR (background bitmap) intentionally omitted — saves ~382 bytes
-  - All 25 control character / escape sequence tests pass in MAME
-- Boot/wboot stubs use EI + HALT loop (not DI + HALT) so CRT ISR
-  keeps refreshing the display while waiting
-- Current size: 3141 bytes (fits both mini and maxi)
+- Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
+- Phase 1f (boot): cold boot, warm boot, signon message
+- **BUG**: TYPE/STAT/ASM produce no output (see `tasks/todo.md` for details)
+- Current size: ~7033 bytes (fits maxi 9984, over mini 6144 by ~889)
 
 ## Building
 
@@ -69,7 +59,7 @@ their bodies are empty or trivial.
 
 ## Next steps
 
-- Phase 1e: Floppy disk driver (blocking/deblocking)
-- Phase 1f: Boot sequence (load CCP+BDOS, signon message)
-- Serial driver (READER/PUNCH/LIST, ring buffer, RTS flow control)
-- Tables (DPB, CLOCK, SETWARM, LINSEL)
+- Fix file I/O bug (TYPE/STAT/ASM silent failure)
+- SIO serial ring buffer with RTS flow control
+- MINI (5.25") support (currently over limit by ~889 bytes)
+- Tables (CLOCK, SETWARM, LINSEL)
