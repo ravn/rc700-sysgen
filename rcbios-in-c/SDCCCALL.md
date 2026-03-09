@@ -98,10 +98,30 @@ CP/M passes BIOS parameters in BC and expects returns in A (8-bit) or HL
 | 8-bit return | A | **A** | **Yes** |
 | 16-bit return | HL | **DE** | No |
 
-### `__z88dk_fastcall` — bridge for 16-bit returns
+### `__z88dk_fastcall` — single param in HL, return in HL
 
-`__z88dk_fastcall` passes a single param in HL and returns in HL. This
-matches CP/M's 16-bit return convention:
+`__z88dk_fastcall` overrides the sdcccall convention for a single function.
+It accepts exactly one parameter and passes it in HL (8-bit in L, 16-bit in
+HL, 32-bit in DEHL). Return values also use HL (not DE as in sdcccall(1)).
+
+```c
+uint16_t foo(uint16_t x) __z88dk_fastcall;
+/* param: HL, return: HL */
+
+uint8_t bar(uint8_t x) __z88dk_fastcall;
+/* param: L, return: L (note: NOT A as in sdcccall(1)) */
+```
+
+**Experimentally verified** (z88dk sdcc 4.5.0):
+- 16-bit return is in HL (not DE) — matches CP/M convention
+- Identity functions (`return param`) optimize to a bare RET
+- Only one parameter allowed — additional params cause a compile error
+- 8-bit return is in L (not A) — does NOT match CP/M for 8-bit returns
+
+#### Use for CP/M 16-bit returns
+
+CP/M expects 16-bit BIOS returns in HL. sdcccall(1) returns in DE.
+`__z88dk_fastcall` returns in HL, bridging the gap:
 
 ```c
 /* sdcccall(1): returns in DE — needs EX DE,HL glue */
@@ -114,14 +134,14 @@ uint16_t seldsk_fc(uint8_t drive) __z88dk_fastcall {
 }
 ```
 
-Experimentally verified: `__z88dk_fastcall` with sdcccall(1) returns 16-bit
-values in HL (not DE). The compiler even optimizes identity functions like
-`return param` to a bare RET (HL passes through).
-
-**However**, CP/M params arrive in BC, not HL. So for entries that receive
+**Limitation**: CP/M params arrive in BC, not HL. For entries that receive
 BC *and* return HL (e.g., `bios_seldsk`, `bios_sectran`), a small asm stub
 is still needed to move BC→HL before calling the `__z88dk_fastcall` function,
 or to move BC to a global and let the C code ignore the param register.
+
+**Warning for 8-bit returns**: `__z88dk_fastcall` returns 8-bit in L, not A.
+CP/M reads A. Do not use `__z88dk_fastcall` for functions like `bios_const`
+that return 8-bit status — use normal sdcccall(1) which returns in A.
 
 ### Implications for asm stubs
 
