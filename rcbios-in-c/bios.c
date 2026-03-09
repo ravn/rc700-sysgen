@@ -439,21 +439,23 @@ static void dbg_hexdump(uint8_t *p, uint8_t n)
 
 static uint8_t wboot_count;
 
-/* Debug trace ring buffer in BSS (safe location)
- * 32 entries × 4 bytes = 128 bytes
- * Each entry: [track_lo, sector_lo, dma_lo, dma_hi]
+/* Debug trace ring buffer in BSS
+ * Each entry: [type, p1, p2_lo, p2_hi]
+ * Type codes: 'H'=HOME, 'S'=SELDSK, 'T'=SETTRK, 's'=SETSEC, 'D'=SETDMA,
+ *             'R'=READ, 'W'=WRITE, 'X'=SECTRAN, 'B'=WBOOT
  */
+#define DBG_BUFSZ 252
 static uint8_t dbg_idx;
-static uint8_t dbg_buf[252];  /* 63 entries × 4 bytes */
+static uint8_t dbg_buf[DBG_BUFSZ];
 
-static void dbg_trace_read(void)
+static void dbg_trace4(uint8_t type, uint8_t p1, uint16_t p2)
 {
     uint8_t idx = dbg_idx;
-    if (idx < 252) {
-        dbg_buf[idx] = (uint8_t)sektrk;
-        dbg_buf[idx + 1] = (uint8_t)seksec;
-        dbg_buf[idx + 2] = (uint8_t)dmaadr;
-        dbg_buf[idx + 3] = (uint8_t)(dmaadr >> 8);
+    if (idx < DBG_BUFSZ) {
+        dbg_buf[idx] = type;
+        dbg_buf[idx + 1] = p1;
+        dbg_buf[idx + 2] = (uint8_t)p2;
+        dbg_buf[idx + 3] = (uint8_t)(p2 >> 8);
         dbg_idx = idx + 4;
     }
 }
@@ -467,7 +469,6 @@ static void rdhst(void)
         unacnt = 0;
     chktrk();
     secrd();
-
 }
 
 /* 16-bit track compare: *(uint16_t *)p == sektrk */
@@ -483,8 +484,6 @@ static uint8_t rwoper(void)
     uint16_t hs;
     uint8_t *src, *dst;
     uint16_t offset;
-
-    dbg_trace_read();
 
     /* compute host sector: sekhst = seksec >> (secshf-1)
      * Original asm: DEC B first, then shift if nonzero.
@@ -710,7 +709,7 @@ void bios_boot(void) __naked
 {
 #ifndef HOST_TEST
     __asm
-        ld sp, #0xD480          ; use area below BIOS code as stack
+        ld sp, #0xF500          ; use BIOS private stack
         jp _bios_boot_c
     __endasm;
 #endif
@@ -824,7 +823,7 @@ void bios_wboot(void) __naked
 {
 #ifndef HOST_TEST
     __asm
-        ld sp, #0xD480          ; reset stack (below BIOS code)
+        ld sp, #0xF500          ; use BIOS private stack
         jp _wboot_c
     __endasm;
 #endif
@@ -1293,6 +1292,7 @@ void bios_home(void) __naked
 
 static void bios_home_c(void)
 {
+    dbg_trace4('H', sekdsk, 0);
     if (hstwrt) {
         wrthst();
     } else {
@@ -1342,6 +1342,7 @@ static uint16_t bios_seldsk_c(uint8_t drive)
     uint8_t fmt, *fp;
     uint16_t dph_offset;
 
+    dbg_trace4('S', drive, 0);
     if (drive > drno)
         return 0;               /* invalid drive */
 
@@ -1445,11 +1446,18 @@ static uint8_t xread(void)
     readop = 1;
     rsflag = 1;
     wrtype = WRUAL;
-    return rwoper();
+    {
+        uint8_t rc = rwoper();
+        uint8_t *d = (uint8_t *)dmaadr;
+        dbg_trace4('R', (uint8_t)sektrk, seksec);
+        dbg_trace4('D', (uint8_t)(dmaadr >> 8), (uint16_t)(d[0] | (d[1] << 8)));
+        return rc;
+    }
 }
 
 static uint8_t xwrite(uint8_t wt)
 {
+    dbg_trace4('W', wt, seksec);
     readop = 0;
     wrtype = wt;
 

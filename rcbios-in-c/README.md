@@ -7,15 +7,14 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1f: Boot sequence** — CP/M boots to A> on MAXI 8". DIR works. Debugging file I/O.
+**Phase 1f: Boot sequence** — CP/M boots to A> on MAXI 8". DIR and TYPE work.
 
 - Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
 - Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- **BUG**: TYPE/STAT/ASM produce no output (see `tasks/todo.md` for details)
-- Current size: ~7033 bytes (fits maxi 9984, over mini 6144 by ~889)
+- Current size: ~7137 bytes (fits maxi 9984, over mini 6144 by ~993)
 
 ## Building
 
@@ -57,9 +56,32 @@ disabled to protect DMA programming and the shared `sp_sav` variable.
 Simple ISRs (flag-set only, stubs) use `__interrupt` which is safe since
 their bodies are empty or trivial.
 
+## Testing
+
+Two CCP built-in commands exercise the BIOS file I/O path:
+
+- **`DIR *.ASM`** — traverses directory sectors, returns 2 files on SW1711 (`direct:` at line 539 in OS2CCP.ASM)
+- **`TYPE DUMP.ASM`** — opens file and reads data sectors (`type:` at line 625 in OS2CCP.ASM)
+
+Use `run_mame.sh -t` to run both commands automatically and dump the screen.
+
+### CP/M source reference
+
+- **PL/M and ASM sources**: `~/Downloads/cpm2-plm/`
+- **Build instructions**: https://www.jbox.dk/rc702/cpm.shtm
+
+## Stack requirements
+
+The C BIOS uses significantly more stack than the original assembly BIOS
+(~80 bytes vs ~16 bytes at peak). No recursion exists in the codebase, so
+all local variables could theoretically be made static. See `STACK_ANALYSIS.md`.
+
+The warm boot stack must be outside the CCP+BDOS area (0xC400-0xD9FF) being
+loaded. Both `bios_boot` and `bios_wboot` use SP=0xF500 (the BIOS private
+stack, 5KB above BSS). See `STACK_BUG_ANALYSIS.md` for the original bug.
+
 ## Next steps
 
-- Fix file I/O bug (TYPE/STAT/ASM silent failure)
 - SIO serial ring buffer with RTS flow control
-- MINI (5.25") support (currently over limit by ~889 bytes)
+- MINI (5.25") support (currently over limit by ~993 bytes)
 - Tables (CLOCK, SETWARM, LINSEL)

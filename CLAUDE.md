@@ -199,3 +199,7 @@ The autoload PROM (ROA375) bootstraps the system:
 5. Read Track 0 (mixed density) to 0x0000
 6. Disable ROM via port 0x14
 7. Jump to 0x0000 (CP/M cold boot)
+
+## Documentation Preference
+- When asked to document findings, write them into the project repo (so they go into git), NOT into `.claude/` memory files.
+- Memory files are only for cross-session working notes, not for analysis results or project documentation.
