@@ -1,4 +1,4 @@
--- MAME Lua autotest for BGSTAR semi-graphics
+-- MAME Lua autotest for BGSTAR foreground/background
 
 local frame = 0
 local done = false

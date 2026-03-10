@@ -149,7 +149,7 @@ mame-test: bios
 	@echo "--- Expected ---"
 	@cat /tmp/expected_checksums.txt
 
-# BGSTAR semi-graphics autotest (maxi, with Lua script)
+# BGSTAR foreground/background autotest (maxi, with Lua script)
 ZMAC = ../zmac/bin/zmac
 CPMCP = /Users/ravn/.local/bin/cpmcp
 

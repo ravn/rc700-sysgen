@@ -1,4 +1,4 @@
-; BGSTAR semi-graphics test for RC702 BIOS
+; BGSTAR foreground/background test for RC702 BIOS
 ; Tests background/foreground/clear, insert/delete line, erase ops.
 
 	.z80

@@ -7,7 +7,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1j: BGSTAR semi-graphics** — CP/M boots to A> on MAXI 8". All BIOS features working.
+**Phase 1j: BGSTAR foreground/background** — CP/M boots to A> on MAXI 8". All BIOS features working.
 
 - Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
 - Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
@@ -17,7 +17,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1g (SIO): serial ring buffer, RTS flow control, READER/PUNCH/LIST
 - Phase 1h (BSS): separate code/data from uninitialized variables (BSS not on disk)
 - Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
-- Phase 1j (BGSTAR): background/foreground semi-graphics bitmap (250 bytes at 0xF500)
+- Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
 - Current size: 6784 bytes (fits maxi 9984, over mini 6144 by 640 bytes)
 
 ## Building
@@ -38,7 +38,7 @@ make clean   # remove build artifacts
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
 - **danish.bin**: Character conversion tables (384 bytes, extracted from assembled BIOS)
 - **peephole.def**: SDCC peephole optimizer rules
-- **bgstar_test.asm**: BGSTAR semi-graphics test (draw, insert/delete line, clear FG)
+- **bgstar_test.asm**: BGSTAR foreground/background test (draw, insert/delete line, clear FG)
 - **mame_bgstar_test.lua**: Automated MAME test for bgstar_test.asm (verifies screen contents)
 - **gdb_bgstar.py**: GDB RSP debug client for tracing bg_set_bit and specc breakpoints
 - **conout_test.asm**: CONOUT control code exerciser (insert/delete line, scroll, erase)
@@ -115,7 +115,7 @@ TYPE FILEX.PRN   → listing ends at 0x0932 with END START
 
 Reference addresses are saved to `filex_ref.txt`.
 
-`make bgstar-test` runs the BGSTAR semi-graphics test: assembles bgstar_test.asm,
+`make bgstar-test` runs the BGSTAR foreground/background test: assembles bgstar_test.asm,
 injects BGTEST.COM into a disk image, boots in MAME with mame_bgstar_test.lua,
 and verifies that background drawing, insert/delete line, and clear foreground
 all produce correct screen output.
