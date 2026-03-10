@@ -95,6 +95,18 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h danish.bin peephole.def
 		rm -f bios.cim; \
 		exit 1; \
 	fi
+	@# Verify fixed-address symbols (CONFI block, JTVARS, IVT)
+	@FAIL=0; \
+	for pair in _psioa=D508 _psiob=D511 _pchsav=DA6F _itrtab=DB00; do \
+		SYM=$${pair%%=*}; EXPECT=$${pair##*=}; \
+		ACTUAL=$$(grep "^$$SYM " bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
+		if [ -z "$$ACTUAL" ]; then \
+			echo "ERROR: Symbol $$SYM not found in map!"; FAIL=1; \
+		elif [ "$$ACTUAL" != "$$EXPECT" ]; then \
+			printf "ERROR: %s at 0x%s, expected 0x%s!\n" "$$SYM" "$$ACTUAL" "$$EXPECT"; FAIL=1; \
+		fi; \
+	done; \
+	if [ $$FAIL -ne 0 ]; then rm -f bios.cim; exit 1; fi
 
 # Size check
 size: bios

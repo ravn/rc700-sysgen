@@ -44,8 +44,12 @@ typedef uint16_t word;
 #define BDOS_BASE   0xCC06      /* BDOS entry */
 #define BIOS_BASE   0xDA00      /* BIOS jump table */
 #define BUFF        0x0080      /* default DMA buffer */
-#define IOBYTE_ADDR 0x0003
-#define CDISK_ADDR  0x0004
+static volatile byte __at(0x0000) wboot_jp;   /* JP opcode */
+static volatile word __at(0x0001) wboot_vec;  /* JP WBOOT address */
+static volatile byte __at(0x0003) iobyte;
+static volatile byte __at(0x0004) cdisk;
+static volatile byte __at(0x0005) bdos_jp;    /* JP opcode */
+static volatile word __at(0x0006) bdos_vec;   /* JP BDOS address */
 #define NSECTS      44          /* CCP+BDOS length in 128-byte sectors (0x1600/128) */
 
 /* I/O port numbers (for reference; actual I/O via hal.h __sfr) */
@@ -206,8 +210,8 @@ extern word trkoff[];
 
 /* CONFI config block (in crt0.asm, fixed layout on Track 0) */
 extern byte mode0, count0;
-extern byte psioa[];        /* 9 bytes */
-extern byte psiob[];        /* 11 bytes */
+extern byte psioa[9];
+extern byte psiob[11];
 extern byte par1, par2, par3, par4;
 extern byte fdprog[];
 extern byte xyflg;

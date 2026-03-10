@@ -589,14 +589,11 @@ void bios_hw_init(void)
     _port_ctc3 = *((&mode0) + 6);  /* ch3 mode (floppy) */
     _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
 
-    /* SIO: program channels A and B */
-    {
-        byte i;
-        for (i = 0; i < 9; i++)
-            _port_sio_a_ctrl = psioa[i];
-        for (i = 0; i < 11; i++)
-            _port_sio_b_ctrl = psiob[i];
-    }
+    /* SIO: program channels A and B from CONFI init blocks */
+    for (byte *p = psioa; p < psioa + sizeof(psioa); p++)
+        _port_sio_a_ctrl = *p;
+    for (byte *p = psiob; p < psiob + sizeof(psiob); p++)
+        _port_sio_b_ctrl = *p;
 
     /* SIO: read initial status registers */
     (void)_port_sio_a_ctrl;     /* read RR0-A */
@@ -730,7 +727,7 @@ void bios_boot_c(void)
     puts_p("\x0C"                       /* form feed = clear screen */
            "RC700 56k CP/M 2.2 bios " BUILDDATE "\r\n");
 
-    *(volatile byte *)CDISK_ADDR = 0;
+    cdisk = 0;
     hstact = 0;
     erflag = 0;
     hstwrt = 0;
@@ -751,7 +748,7 @@ static void wboot_c(void)
     bios_seldsk_c(0);
 
     unacnt = 0;
-    *(volatile byte *)IOBYTE_ADDR = 0;
+    iobyte = 0;
     dskno = 0;
 
     bios_home_c();
@@ -774,10 +771,10 @@ static void wboot_c(void)
 
     /* Set up JP vectors at page zero */
 #ifndef HOST_TEST
-    *(volatile byte *)0x0000 = 0xC3;        /* JP opcode */
-    *(volatile word *)0x0001 = BIOS_BASE + 3;  /* WBOOT entry */
-    *(volatile byte *)0x0005 = 0xC3;        /* JP opcode */
-    *(volatile word *)0x0006 = BDOS_BASE;
+    wboot_jp  = 0xC3;                        /* JP opcode */
+    wboot_vec = BIOS_BASE + 3;              /* WBOOT entry */
+    bdos_jp   = 0xC3;                        /* JP opcode */
+    bdos_vec  = BDOS_BASE;
 
     /* Re-select drive to ensure clean state for CCP */
     bios_seldsk_c(0);
@@ -1805,7 +1802,7 @@ void bios_clock(void) __naked
  * Input: A=size/drive/head, B=write precomp, C=sector count,
  *        DE=cylinder, DMAADR→format spec data.
  * Returns: A=0 success, A=1 error.
- * Stub — hard disk not supported in this BIOS. */
+ * TODO(harddisk): Postponed until BIOS fits on mini (5.25") disk. */
 void bios_hrdfmt(void) { }
 
 /* ================================================================
@@ -1819,9 +1816,57 @@ void bios_hrdfmt(void) { }
  * Simple ISRs (flag-set only, stubs) use __interrupt.
  * ================================================================ */
 
-/* ISR wrappers below use __naked with explicit register save/restore
- * and stack switch to ISTACK (0xF620).  IY saved because sdcc_iy
- * library uses it as a global register. */
+/* ISR stack switch helpers.
+ * All ISRs switch SP to ISTACK (0xF620) to avoid overflowing the
+ * interrupted program's stack.  Two variants:
+ *   isr_enter / isr_exit: save/restore AF only (for simple flag-set
+ *     ISRs whose C body only touches __sfr ports and static bytes)
+ *   isr_enter_full / isr_exit_full: save/restore AF,BC,DE,HL (for
+ *     ISRs with C body code that may clobber all registers) */
+
+static inline void isr_enter(void) __naked
+{
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+}
+
+static inline void isr_exit(void) __naked
+{
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+}
+
+static inline void isr_enter_full(void) __naked
+{
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+        push bc
+        push de
+        push hl
+    __endasm;
+}
+
+static inline void isr_exit_full(void) __naked
+{
+    __asm
+        pop hl
+        pop de
+        pop bc
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+}
 
 /*
  * CRT display refresh ISR body (CTC ch.2)
@@ -1833,17 +1878,7 @@ void bios_hrdfmt(void) { }
 void isr_crt(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ; Save SP and switch stack FIRST (original BIOS pattern).
-        ; Only the hardware-pushed return address (2 bytes) touches
-        ; the interrupted stack.
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-        push bc
-        push de
-        push hl
-    __endasm;
+    isr_enter_full();
 
     /* Read CRT status register to acknowledge interrupt */
     (void)_port_crt_cmd;
@@ -1894,29 +1929,14 @@ void isr_crt(void) __naked
     if (delcnt != 0)
         delcnt--;
 
-    __asm
-        pop hl
-        pop de
-        pop bc
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit_full();
 #endif
 }
 
 void isr_pio_kbd(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-        push bc
-        push de
-        push hl
-    __endasm;
+    isr_enter_full();
 
     /* Read keystroke from PIO (clears interrupt even if buffer full) */
     {
@@ -1929,29 +1949,14 @@ void isr_pio_kbd(void) __naked
         }
     }
 
-    __asm
-        pop hl
-        pop de
-        pop bc
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit_full();
 #endif
 }
 
 void isr_floppy(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-        push bc
-        push de
-        push hl
-    __endasm;
+    isr_enter_full();
 
     /* Floppy completion: set flag, read FDC result or sense interrupt */
     {
@@ -1965,19 +1970,11 @@ void isr_floppy(void) __naked
             fdc_sense_int();
     }
 
-    __asm
-        pop hl
-        pop de
-        pop bc
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit_full();
 #endif
 }
 
-/* HD ISR stub */
+/* HD ISR stub — TODO(harddisk): Postponed until BIOS fits on mini. */
 void isr_hd(void) __interrupt {}
 
 /* SIO Channel B ISRs (printer port) */
@@ -1986,21 +1983,12 @@ void isr_hd(void) __interrupt {}
 void isr_sio_b_tx(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    isr_enter();
 
     _port_sio_b_ctrl = 0x28;   /* reset TX interrupt pending */
     prtflg = 0xFF;              /* printer ready */
 
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit();
 #endif
 }
 
@@ -2008,21 +1996,12 @@ void isr_sio_b_tx(void) __naked
 void isr_sio_b_ext(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    isr_enter();
 
     rr0_b = _port_sio_b_ctrl;  /* read RR0 */
     _port_sio_b_ctrl = 0x10;   /* reset ext/status interrupts */
 
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit();
 #endif
 }
 
@@ -2030,22 +2009,13 @@ void isr_sio_b_ext(void) __naked
 void isr_sio_b_spec(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    isr_enter();
 
     _port_sio_b_ctrl = 0x01;   /* select RR1 */
     rr1_b = _port_sio_b_ctrl;  /* read RR1 */
     _port_sio_b_ctrl = 0x30;   /* error reset */
 
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit();
 #endif
 }
 
@@ -2055,21 +2025,12 @@ void isr_sio_b_spec(void) __naked
 void isr_sio_a_tx(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    isr_enter();
 
     _port_sio_a_ctrl = 0x28;   /* reset TX interrupt pending */
     ptpflg = 0xFF;              /* punch ready */
 
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit();
 #endif
 }
 
@@ -2077,21 +2038,12 @@ void isr_sio_a_tx(void) __naked
 void isr_sio_a_ext(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    isr_enter();
 
     rr0_a = _port_sio_a_ctrl;  /* read RR0 */
     _port_sio_a_ctrl = 0x10;   /* reset ext/status interrupts */
 
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit();
 #endif
 }
 
@@ -2099,13 +2051,7 @@ void isr_sio_a_ext(void) __naked
 void isr_sio_a_rx(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-        push bc
-        push hl
-    __endasm;
+    isr_enter_full();
 
     {
         byte ch, new_head, used;
@@ -2131,14 +2077,7 @@ void isr_sio_a_rx(void) __naked
     done: ;
     }
 
-    __asm
-        pop hl
-        pop bc
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit_full();
 #endif
 }
 
@@ -2146,11 +2085,7 @@ void isr_sio_a_rx(void) __naked
 void isr_sio_a_spec(void) __naked
 {
 #ifndef HOST_TEST
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    isr_enter();
 
     _port_sio_a_ctrl = 0x01;   /* select RR1 */
     rr1_a = _port_sio_a_ctrl;  /* read RR1 */
@@ -2158,12 +2093,7 @@ void isr_sio_a_spec(void) __naked
     rxhead = 0;                 /* flush ring buffer */
     rxtail = 0;
 
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    isr_exit();
 #endif
 }
 

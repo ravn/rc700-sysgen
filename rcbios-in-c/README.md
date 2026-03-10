@@ -7,7 +7,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1j: BGSTAR foreground/background** — CP/M boots to A> on MAXI 8". All BIOS features working.
+**Phase 1k: ISR refactoring** — CP/M boots to A> on MAXI 8". All floppy BIOS features working.
 
 - Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
 - Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
@@ -18,7 +18,14 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1h (BSS): separate code/data from uninitialized variables (BSS not on disk)
 - Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
 - Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
-- Current size: 6784 bytes (fits maxi 9984, over mini 6144 by 640 bytes)
+- Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
+- Current size: 6872 bytes (fits maxi 9984, over mini 6144 by 728 bytes)
+
+### Missing features
+
+- **Hard disk support** (WD1000 controller): HRDFMT stub and HD ISR stub present.
+  Postponed until the BIOS fits comfortably on the mini (5.25") disk (need to
+  shrink by ~728 bytes first).
 
 ## Building
 
