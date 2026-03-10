@@ -52,8 +52,35 @@ c) **Custom sdcc patch**: Add BC to the sdcccall(1) register set.
 ### Verdict
 
 No clean solution within current z88dk/sdcc. The `__naked` wrappers
-are the smallest possible bridge. Patching sdcc is possible but not
-worthwhile for 4 trivial functions.
+are the smallest possible bridge.
+
+### Deep analysis of ralloc.c
+
+The register allocator (`sdcc/src/z80/ralloc.c`, 1330 lines) **already
+knows about BC**. The `z80_regs[]` table (line 102) lists all GPRs
+including B and C as `REG_GPR`. ralloc.c is now mostly a front-end for
+the modern allocator `z80_ralloc2_cc()` (in `ralloc2.cc`).
+
+**The BC parameter restriction is NOT in ralloc.c.** It's in:
+- `gen.c` — `genReceive()` maps incoming params to registers
+- `SDCCsymt.c` — ABI tables define sdcccall(1) register assignments
+- The z88dk patch (`sdcc-15248-z88dk.patch`) modifies `gen.c`/`main.c`
+
+Adding BC as a 3rd parameter register would require:
+1. Extending the ABI table in `SDCCsymt.c` to include BC positions
+2. Modifying `genReceive()` in `gen.c` to load from BC
+3. Modifying call-site code generation to place values in BC
+4. Adding a z88dk patch entry (or a new `sdcccall(2)` variant)
+
+The register allocator would handle BC for internal variable
+allocation automatically — no changes needed in ralloc.c itself.
+
+**Risk assessment**: Medium-high. The ABI change could break library
+interoperability. A safer approach would be a new calling convention
+attribute (`__z88dk_bccall` or similar) rather than modifying
+sdcccall(1).
+
+Not recommended for 4 trivial wrapper functions.
 
 ## 2. Stack Switching from C
 
