@@ -81,6 +81,12 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h danish.bin peephole.def
 		rm -f bios.cim; \
 		exit 1; \
 	fi
+	@CODE_END=$$((0xD480 + $$(wc -c < bios.cim | tr -d ' ') - 1)); \
+	if [ $$CODE_END -ge $$((0xF500)) ]; then \
+		printf "ERROR: Code (ends 0x%04X) overlaps ISTACK (0xF500)!\n" $$CODE_END; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
 
 # Size check
 size: bios
