@@ -1544,8 +1544,21 @@ void bios_hrdfmt(void) { }
  * Programs the DMA controller to refresh the display from DSPSTR (0xF800).
  * Also increments the 32-bit RTC and decrements timers.
  */
-static void isr_crt_body(void)
+void isr_crt(void) __naked
 {
+#ifndef HOST_TEST
+    __asm
+        ; Save SP and switch stack FIRST (original BIOS pattern).
+        ; Only the hardware-pushed return address (2 bytes) touches
+        ; the interrupted stack.
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+        push bc
+        push de
+        push hl
+    __endasm;
+
     /* Read CRT status register to acknowledge interrupt */
     (void)_port_crt_cmd;
 
@@ -1594,26 +1607,8 @@ static void isr_crt_body(void)
     /* General delay timer */
     if (delcnt != 0)
         delcnt--;
-}
 
-void isr_crt(void) __naked
-{
-#ifndef HOST_TEST
     __asm
-        ; Save SP and switch stack FIRST (original BIOS pattern).
-        ; Only the hardware-pushed return address (2 bytes) touches
-        ; the interrupted stack.
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-        push bc
-        push de
-        push hl
-        push ix
-        push iy
-        call _isr_crt_body
-        pop iy
-        pop ix
         pop hl
         pop de
         pop bc
@@ -1623,24 +1618,6 @@ void isr_crt(void) __naked
         reti
     __endasm;
 #endif
-}
-
-/*
- * Keyboard ISR body (PIO ch.A)
- * Reads keystroke from PIO and stores in 16-byte ring buffer.
- * Must read PIO data port to clear the interrupt even if buffer is full.
- */
-static void isr_pio_kbd_body(void)
-{
-    byte key, new_head;
-
-    key = _port_pio_a_data;     /* read key (clears PIO interrupt) */
-    new_head = (kbhead + 1) & KBMASK;
-    if (new_head != kbtail) {   /* not full */
-        kbbuf[kbhead] = key;
-        kbhead = new_head;
-    }
-    /* if full, keystroke is discarded */
 }
 
 void isr_pio_kbd(void) __naked
@@ -1653,11 +1630,20 @@ void isr_pio_kbd(void) __naked
         push bc
         push de
         push hl
-        push ix
-        push iy
-        call _isr_pio_kbd_body
-        pop iy
-        pop ix
+    __endasm;
+
+    /* Read keystroke from PIO (clears interrupt even if buffer full) */
+    {
+        byte key, new_head;
+        key = _port_pio_a_data;
+        new_head = (kbhead + 1) & KBMASK;
+        if (new_head != kbtail) {
+            kbbuf[kbhead] = key;
+            kbhead = new_head;
+        }
+    }
+
+    __asm
         pop hl
         pop de
         pop bc
@@ -1667,26 +1653,6 @@ void isr_pio_kbd(void) __naked
         reti
     __endasm;
 #endif
-}
-
-/*
- * Floppy completion ISR (CTC ch.3)
- * Sets fl_flg, then reads FDC result or SENSE INTERRUPT STATUS.
- */
-static void isr_floppy_body(void)
-{
-    byte delay;
-
-    fl_flg = 0xFF;
-
-    /* brief delay for FDC status stabilization */
-    for (delay = 5; delay; delay--)
-        ;
-
-    if (_port_fdc_status & 0x10)
-        fdc_result();           /* result phase — read full result */
-    else
-        fdc_sense_int();        /* seek/recal — sense interrupt status */
 }
 
 void isr_floppy(void) __naked
@@ -1699,11 +1665,21 @@ void isr_floppy(void) __naked
         push bc
         push de
         push hl
-        push ix
-        push iy
-        call _isr_floppy_body
-        pop iy
-        pop ix
+    __endasm;
+
+    /* Floppy completion: set flag, read FDC result or sense interrupt */
+    {
+        byte delay;
+        fl_flg = 0xFF;
+        for (delay = 5; delay; delay--)
+            ;
+        if (_port_fdc_status & 0x10)
+            fdc_result();
+        else
+            fdc_sense_int();
+    }
+
+    __asm
         pop hl
         pop de
         pop bc

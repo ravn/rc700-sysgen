@@ -14,7 +14,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- Current size: 7345 bytes (fits maxi 9984, over mini 6144 by ~1201)
+- Current size: 7316 bytes (fits maxi 9984, over mini 6144 by ~1172)
 
 ## Building
 
@@ -64,11 +64,15 @@ generates efficient direct-address code and saved 33 bytes vs individual `__at()
 
 ### ISR design
 
-ISRs needing stack switching use `__naked` wrappers with explicit register
-save/restore (PUSH AF/BC/DE/HL/IY, SP switch, CALL body, restore, EI, RETI).
+ISRs use `__naked` wrappers with asm prologue (SP switch, PUSH AF/BC/DE/HL),
+C body code directly in the wrapper, and asm epilogue (POP, EI, RETI).
+IX/IY are not pushed since no ISR body uses them (verified via listing).
 This is necessary because sdcc's `__interrupt` puts EI at the *start* of the
 function, enabling nested interrupts.  The CRT ISR must run with interrupts
 disabled to protect DMA programming and the shared `sp_sav` variable.
+Using `static inline` body functions causes sdcc to emit dead standalone
+copies that z88dk's linker cannot strip, so the body code is placed directly
+in the `__naked` function between `__asm` blocks instead.
 
 Simple ISRs (flag-set only, stubs) use `__interrupt` which is safe since
 their bodies are empty or trivial.
@@ -134,7 +138,7 @@ stack, 5KB above BSS). See `STACK_BUG_ANALYSIS.md` for the original bug.
 All block memory operations (scroll, clear, insert/delete line) are now pure C
 using `memcpy`/`memset`/loops. The remaining asm blocks are:
 
-- **ISR wrappers** (3): stack switch to ISTACK, save all regs, EI+RETI
+- **ISR prologues/epilogues** (3): SP switch to ISTACK, PUSH AF/BC/DE/HL, POP, EI+RETI
 - **BIOS stack-switch entries** (7): SP switch to 0xF500 before calling C body
 - **CP/M ABI glue** (4): `settrk`/`setsec`/`setdma` store BC, `sectran` BC→HL
 - **DI/EI/HALT**: `hal_di()`, `hal_ei()`, `hal_halt()` macros in hal.h
