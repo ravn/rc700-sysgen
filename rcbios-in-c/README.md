@@ -55,6 +55,38 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
   `return 0`/`return 0xFF` if the function weren't `__naked`.
 - **`wboot_c` tail** (1 block) — load cdisk, mask, JP to CCP. Non-returning jump.
 
+### Pointer-to-C-idiom cleanup candidates
+
+Analysis of remaining raw pointer patterns that could use cleaner C constructs:
+
+**Priority 1 — CTC config** (`bios_hw_init`, lines 585-590):
+`*((&mode0) + 2)` etc. — taking address of scalar then offsetting. The 8 CTC bytes
+are contiguous in crt0.asm. Declaring as `extern byte ctc_config[8]` allows
+`ctc_config[2]` indexing.
+
+**Priority 2 — DPH struct** (`bios_hw_init` lines 663-672, `bios_seldsk` lines 1434-1438):
+`dpbase[d * 8]` with magic offsets 0-7 could be a proper CP/M DPH struct:
+```c
+typedef struct { word xlt, scratch[3], dirbf, dpb, chk, alv; } DPH;
+```
+Eliminates magic numbers; compile-time layout checking.
+
+**Priority 3 — INCONV lookup** (`conin_translate`, line 817):
+`*((volatile byte *)(INCONV_ADDR + raw))` → define `INCONV` as array macro,
+use `INCONV[raw]`.
+
+**Priority 4 — Static variable groups** (multiple functions):
+Functions like `bg_clear_from`, `insert_line`, `delete_line` have 5-9 scattered
+`static` variables. Packing into structs enables HL-relative addressing (sdcc
+generates shorter code for struct member access than individual absolute loads).
+
+**Priority 5 — warmjp callback** (`isr_crt`, line 1917):
+`((void (*)(void))warmjp)()` → macro `CALL_WARMJP()` for readability.
+
+**Already idiomatic** (no changes needed): display buffer overlays (`screen`,
+`DSPROW`, `bgstar` macros), WorkArea struct at 0xFFD0, SIO init loops with
+`sizeof`, ring buffer arithmetic, backward copy loops.
+
 ## Building
 
 Requires z88dk installed at `../z88dk/`.
