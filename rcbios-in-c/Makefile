@@ -46,7 +46,7 @@ IMG_MAXI = $(HOME)/Downloads/SW1711-I8.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi test
+.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test test
 
 all: bios size
 
@@ -148,6 +148,28 @@ mame-test: bios
 	@cat /tmp/screen.txt
 	@echo "--- Expected ---"
 	@cat /tmp/expected_checksums.txt
+
+# BGSTAR semi-graphics autotest (maxi, with Lua script)
+ZMAC = ../zmac/bin/zmac
+CPMCP = /Users/ravn/.local/bin/cpmcp
+
+bgstar-test: bios bgstar_test.asm mame_bgstar_test.lua
+	$(ZMAC) -z --dri bgstar_test.asm
+	cp $(IMG_MAXI) /tmp/bios_c_bgtest.imd
+	$(PATCH) /tmp/bios_c_bgtest.imd bios.cim
+	$(CPMCP) -f rc702-8dd /tmp/bios_c_bgtest.imd zout/bgstar_test.cim 0:BGTEST.COM
+	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_bgtest.imd /tmp/bios_c_bgtest.mfi >/dev/null 2>&1
+	rm -f /tmp/bios_c_bgtest.imd
+	$(eval KBBUF_ADDR := $(shell grep '_kbbuf ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
+	$(eval KBHEAD_ADDR := $(shell grep '_kbhead ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
+	sed 's/KBBUF_ADDR/$(KBBUF_ADDR)/g; s/KBHEAD_ADDR/$(KBHEAD_ADDR)/g' mame_bgstar_test.lua > /tmp/bios_c_bgstar_test.lua
+	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_bgtest.mfi \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-nothrottle \
+		-autoboot_script /tmp/bios_c_bgstar_test.lua
+	@echo "--- BGSTAR test results ---"
+	@cat /tmp/bgstar_screens.txt
 
 # Host tests (TODO)
 test:

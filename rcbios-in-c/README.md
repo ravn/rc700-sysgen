@@ -7,7 +7,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1g: SIO serial** — CP/M boots to A> on MAXI 8". DIR, TYPE, serial I/O work.
+**Phase 1j: BGSTAR semi-graphics** — CP/M boots to A> on MAXI 8". All BIOS features working.
 
 - Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
 - Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
@@ -17,7 +17,8 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1g (SIO): serial ring buffer, RTS flow control, READER/PUNCH/LIST
 - Phase 1h (BSS): separate code/data from uninitialized variables (BSS not on disk)
 - Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
-- Current size: 5932 bytes (fits both mini 6144 and maxi 9984)
+- Phase 1j (BGSTAR): background/foreground semi-graphics bitmap (250 bytes at 0xF500)
+- Current size: 6784 bytes (fits maxi 9984, over mini 6144 by 640 bytes)
 
 ## Building
 
@@ -37,6 +38,9 @@ make clean   # remove build artifacts
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
 - **danish.bin**: Character conversion tables (384 bytes, extracted from assembled BIOS)
 - **peephole.def**: SDCC peephole optimizer rules
+- **bgstar_test.asm**: BGSTAR semi-graphics test (draw, insert/delete line, clear FG)
+- **mame_bgstar_test.lua**: Automated MAME test for bgstar_test.asm (verifies screen contents)
+- **gdb_bgstar.py**: GDB RSP debug client for tracing bg_set_bit and specc breakpoints
 - **conout_test.asm**: CONOUT control code exerciser (insert/delete line, scroll, erase)
 - **SDCCCALL.md**: Calling conventions, register allocation, inlining guide
 - **ASM_BLOCKS.md**: Analysis of all inline asm blocks and C convertibility
@@ -83,10 +87,11 @@ their bodies are empty or trivial.
 ### Code/BSS separation
 
 The binary on disk contains only code and initialized data. Uninitialized variables
-(buffers, driver state) are in a BSS section at 0xEC00, not written to the floppy
+(buffers, driver state) are in a BSS section at 0xEF00, not written to the floppy
 image. The cold boot code zeroes BSS using `__bss_compiler_head`/`__bss_compiler_size`
 linker symbols. Section ordering is declared explicitly in crt0.asm to ensure all
-code/data sections precede BSS.
+code/data sections precede BSS. The `code_string` section (containing `memset`) must
+be declared before BSS to avoid linker placement errors.
 
 ### Disk data tables
 
@@ -109,6 +114,25 @@ TYPE FILEX.PRN   → listing ends at 0x0932 with END START
 ```
 
 Reference addresses are saved to `filex_ref.txt`.
+
+`make bgstar-test` runs the BGSTAR semi-graphics test: assembles bgstar_test.asm,
+injects BGTEST.COM into a disk image, boots in MAME with mame_bgstar_test.lua,
+and verifies that background drawing, insert/delete line, and clear foreground
+all produce correct screen output.
+
+### Writing test programs
+
+Test programs can be written in C using z88dk (same toolchain as the BIOS) or
+in Z80 assembly using zmac. Compiled programs are injected into disk images
+using `cpmcp -f rc702-8dd` and run under CP/M in MAME.
+
+### GDB RSP debugging
+
+MAME's gdbstub provides source-level debugging via the GDB Remote Serial
+Protocol. Launch MAME with `-debugger gdbstub -debugger_port 23946`, then
+connect with `gdb_bgstar.py` (or any GDB RSP client). This supports breakpoints,
+single-step, register/memory read/write — useful for tracing BIOS internals
+without modifying the binary.
 
 ### MAME disk format
 
@@ -159,4 +183,4 @@ See `ASM_BLOCKS.md` for full analysis.
 
 ## Next steps
 
-- MINI (5.25") support (now fits, 212 bytes to spare)
+- MINI (5.25") support (currently 640 bytes over mini limit, needs size reduction)

@@ -11,7 +11,9 @@
  * CONOUT switches to BIOS stack (0xF500) and dispatches: escape state
  * (XY addressing), control characters (cursor, scroll, clear), or
  * printable characters (OUTCON conversion, display, advance cursor).
- * BGSTAR (background bitmap) is omitted — saves ~382 bytes.
+ * BGSTAR (background bitmap) at 0xF500: 250-byte position bitmap
+ * (1 bit per screen cell). Ctrl-S enters background mode; Ctrl-T
+ * returns to foreground; Ctrl-U clears only foreground characters.
  */
 
 #include <string.h>
@@ -824,9 +826,20 @@ byte bios_conin(void)
  * Implements the RC702 display protocol: control characters 0x00-0x1F
  * dispatch via jump table, ESC = X Y for cursor addressing, printable
  * characters go through OUTCON conversion table to display memory.
- * BGSTAR (background bitmap) is intentionally omitted.
+ *
+ * BGSTAR: 250-byte bitmap, one bit per screen cell (80×25/8).
+ * Ctrl-S (0x13) enters background mode, marking each written position.
+ * Ctrl-T (0x14) returns to foreground mode.
+ * Ctrl-U (0x15) clears foreground: erases only positions NOT marked.
+ * Fixed at 0xF500 (same as original BIOS). ISR stack at 0xF620 has 38 bytes
+ * above BGSTAR end (0xF5FA) — sufficient for 4 PUSHes + C body calls.
  * ================================================================ */
 
+#define BGSTAR_SIZE 250         /* 80*25/8 = 250 bytes */
+#define BG_ROW_BYTES 10         /* 80 bits / 8 = 10 bytes per row */
+
+#define bgstar      ((byte *)0xF500)
+static byte bgflg;             /* 0=off, 1=foreground, 2=background */
 static byte graph;           /* graphical mode flag (sticky) */
 
 /* Update 8275 cursor position from curx/cursy */
@@ -861,11 +874,29 @@ static void rowup(void)
     cursorxy();
 }
 
+/* Set a bit in BGSTAR for screen position `pos` (0-1999) */
+static void bg_set_bit(word pos)
+{
+    static byte byteoff, bitno, mask, val;
+    byteoff = (byte)(pos >> 3);
+    bitno = (byte)(pos & 7);
+    mask = 0x80;
+    while (bitno--)
+        mask >>= 1;
+    val = bgstar[byteoff];
+    val |= mask;
+    bgstar[byteoff] = val;
+}
+
 /* Scroll display up one line: copy ROW1..ROW24 to ROW0..ROW23, fill ROW24 */
 static void scroll(void)
 {
     memcpy(DSPROW(0), DSPROW(1), ROW24_OFF);
     memset(DSPROW(ROW24), ' ', SCRN_COLS);
+    if (bgflg) {
+        memcpy(bgstar, bgstar + BG_ROW_BYTES, BGSTAR_SIZE - BG_ROW_BYTES);
+        memset(bgstar + BGSTAR_SIZE - BG_ROW_BYTES, 0, BG_ROW_BYTES);
+    }
 }
 
 /* Cursor right — advance column, wrap to next line or scroll */
@@ -953,6 +984,56 @@ static void clear_screen(void)
     memset(screen, ' ', SCRN_SIZE);
     goto00();
     cursorxy();
+    if (bgflg) {
+        bgflg = 0;
+        memset(bgstar, 0, BGSTAR_SIZE);
+    }
+}
+
+/* Clear BGSTAR bits from position `pos` for `count` bits.
+ * Parameters passed via static variables to avoid IX frame pointer. */
+static word bgcl_pos, bgcl_count;
+
+static void bg_clear_from(void)
+{
+    static byte byteoff, bitno, whole, tail, mask, val, shift;
+    static byte *ptr;
+    if (!bgflg)
+        return;
+    byteoff = (byte)(bgcl_pos >> 3);
+    bitno = (byte)(bgcl_pos & 7);
+    /* Clear remaining bits in the first byte */
+    if (bitno) {
+        mask = 0xFF;
+        shift = bitno;
+        while (shift--)
+            mask >>= 1;
+        ptr = bgstar +byteoff;
+        val = *ptr;
+        val &= ~mask;
+        *ptr = val;
+        byteoff++;
+        bgcl_count = (bgcl_count > (byte)(8 - bitno)) ? bgcl_count - (8 - bitno) : 0;
+    }
+    /* Clear whole bytes */
+    whole = (byte)(bgcl_count >> 3);
+    if (whole) {
+        ptr = bgstar +byteoff;
+        memset(ptr, 0, whole);
+        byteoff += whole;
+    }
+    /* Clear leading bits of last byte */
+    tail = (byte)(bgcl_count & 7);
+    if (tail) {
+        mask = 0xFF;
+        shift = 8 - tail;
+        while (shift--)
+            mask <<= 1;
+        ptr = bgstar +byteoff;
+        val = *ptr;
+        val &= ~mask;
+        *ptr = val;
+    }
 }
 
 /* Erase from cursor to end of line */
@@ -961,16 +1042,29 @@ static void erase_to_eol(void)
     byte *row = screen + cury;
     for (byte i = curx; i < SCRN_COLS; i++)
         row[i] = ' ';
+    if (bgflg) {
+        bgcl_pos = cury + curx;
+        bgcl_count = SCRN_COLS - curx;
+        bg_clear_from();
+    }
 }
 
 /* Erase from cursor to end of screen */
 static void erase_to_eos(void)
 {
-    word pos = cury + curx;
-    byte *p = screen + pos;
-    word count = SCRN_SIZE - pos;
+    static word pos;
+    static byte *p;
+    static word count;
+    pos = cury + curx;
+    p = screen + pos;
+    count = SCRN_SIZE - pos;
     while (count--)
         *p++ = ' ';
+    if (bgflg) {
+        bgcl_pos = pos;
+        bgcl_count = SCRN_SIZE - pos;
+        bg_clear_from();
+    }
 }
 
 /* Delete line — shift lines up from cury+1 to ROW24, fill ROW24 */
@@ -983,6 +1077,14 @@ static void delete_line(void)
     if (count != 0)
         memcpy(dst, dst + SCRN_COLS, count);
     memset(DSPROW(ROW24), ' ', SCRN_COLS);
+    if (bgflg) {
+        static byte dl_off, dl_bgcount;
+        dl_off = (byte)(cury >> 3);  /* cury is row*80, /8 = row*10 */
+        dl_bgcount = BGSTAR_SIZE - BG_ROW_BYTES - dl_off;
+        if (dl_bgcount)
+            memcpy(bgstar + dl_off, bgstar + dl_off + BG_ROW_BYTES, dl_bgcount);
+        memset(bgstar + BGSTAR_SIZE - BG_ROW_BYTES, 0, BG_ROW_BYTES);
+    }
 }
 
 /* Insert line — shift lines down from cury to ROW23, fill current line.
@@ -1002,6 +1104,19 @@ static void insert_line(void)
             *dst-- = *src--;
     }
     memset(screen + cury, ' ', SCRN_COLS);
+    if (bgflg) {
+        static byte il_off, il_bgcount, il_i;
+        il_off = (byte)(cury >> 3);
+        il_bgcount = BGSTAR_SIZE - BG_ROW_BYTES - il_off;
+        if (il_bgcount) {
+            /* Backward copy for overlapping shift-down */
+            src = bgstar +BGSTAR_SIZE - BG_ROW_BYTES - 1;
+            dst = bgstar +BGSTAR_SIZE - 1;
+            for (il_i = 0; il_i < il_bgcount; il_i++)
+                *dst-- = *src--;
+        }
+        memset(bgstar + il_off, 0, BG_ROW_BYTES);
+    }
 }
 
 /* XY cursor addressing — called for each byte after ctrl-F */
@@ -1048,7 +1163,30 @@ static void displ(void)
     }
 
     screen[locad] = ch;
+    if (bgflg == 2)
+        bg_set_bit(locad);
     cursor_right();
+}
+
+/* Clear foreground: erase screen positions where BGSTAR bit is NOT set */
+static void clear_foreground(void)
+{
+    static word i;
+    static byte *p;
+    static byte *bg;
+    static byte bits, mask;
+    p = screen;
+    bg = bgstar;
+    for (i = 0; i < BGSTAR_SIZE; i++) {
+        bits = *bg++;
+        mask = 0x80;
+        while (mask) {
+            if (!(bits & mask))
+                *p = ' ';
+            p++;
+            mask >>= 1;
+        }
+    }
 }
 
 /* Control character dispatch (0x00-0x1F) */
@@ -1066,6 +1204,9 @@ static void specc(void)
     case 0x0A: cursor_down(); break;
     case 0x0C: clear_screen(); break;
     case 0x0D: carriage_return(); break;
+    case 0x13: bgflg = 2; memset(bgstar, 0, BGSTAR_SIZE); break;  /* set background */
+    case 0x14: bgflg = 1; break;                                   /* set foreground */
+    case 0x15: clear_foreground(); break;                           /* clear foreground */
     case 0x18: cursor_right(); break;
     case 0x1A: cursor_up(); break;
     case 0x1D: home(); break;

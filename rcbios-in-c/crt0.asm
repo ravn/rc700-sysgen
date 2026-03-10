@@ -327,13 +327,14 @@ defc _stack  = 0xF680       ; BIOS driver stack top
     SECTION data_compiler
     SECTION code_l_sccz80
     SECTION code_clib
+    SECTION code_string
 
 ; ====================================================================
 ; BSS section — uninitialized data, not stored in disk image
-; Zeroed by cold boot code above. Must stay below ISTACK (0xF500).
+; Zeroed by cold boot code above. Must end below stack (0xF500).
 ; ====================================================================
 
     SECTION BSS
-    org 0xEC00
+    org 0xEF00
 
     SECTION bss_compiler
