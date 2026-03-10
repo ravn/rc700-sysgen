@@ -7,14 +7,15 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1f: Boot sequence** — CP/M boots to A> on MAXI 8". DIR and TYPE work.
+**Phase 1g: SIO serial** — CP/M boots to A> on MAXI 8". DIR, TYPE, serial I/O work.
 
 - Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
 - Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- Current size: 6566 bytes (fits maxi 9984, over mini 6144 by ~422)
+- Phase 1g (SIO): serial ring buffer, RTS flow control, READER/PUNCH/LIST
+- Current size: 7030 bytes (fits maxi 9984, over mini 6144 by ~886)
 
 ## Building
 
@@ -118,7 +119,7 @@ All compiler tuning options are documented in `SDCCCALL.md`. Summary:
 - **No recursion** → all locals are `static` → no IX/IY frame pointer usage
 - **Makefile build guard** fails if `ix[+-]` or `iy[+-]` appear in listing
 - **Makefile build guard** fails if sdcccall(0) library functions are linked
-- **FDC wait loops inlined** (`static inline`) for 27 T-states/call saving
+- **FDC wait loops non-inline** (callable) — compactness over speed for wait loops
 - **`--max-allocs-per-node 1000000`** for aggressive register allocation
 - **`--std-sdcc99`** enables `inline` keyword
 - sdcc has no automatic inlining — `inline` keyword is the only mechanism
@@ -138,7 +139,7 @@ stack, 5KB above BSS). See `STACK_BUG_ANALYSIS.md` for the original bug.
 All block memory operations (scroll, clear, insert/delete line) are now pure C
 using `memcpy`/`memset`/loops. The remaining asm blocks are:
 
-- **ISR prologues/epilogues** (3): SP switch to ISTACK, PUSH AF/BC/DE/HL, POP, EI+RETI
+- **ISR prologues/epilogues** (10): SP switch to ISTACK, PUSH AF/BC/DE/HL, POP, EI+RETI
 - **BIOS stack-switch entries** (7): SP switch to 0xF500 before calling C body
 - **CP/M ABI glue** (4): `settrk`/`setsec`/`setdma` store BC, `sectran` BC→HL
 - **DI/EI/HALT**: `hal_di()`, `hal_ei()`, `hal_halt()` macros in hal.h
@@ -148,6 +149,5 @@ See `ASM_BLOCKS.md` for full analysis.
 
 ## Next steps
 
-- SIO serial ring buffer with RTS flow control
-- MINI (5.25") support (currently over limit by ~1201 bytes)
+- MINI (5.25") support (currently over limit by ~886 bytes)
 - Tables (CLOCK, SETWARM, LINSEL)

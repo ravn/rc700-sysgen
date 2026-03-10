@@ -92,6 +92,22 @@ static byte kbbuf[KBBUFSZ];
 static volatile byte kbhead;   /* write index (ISR updates) */
 static volatile byte kbtail;   /* read index (CONIN updates) */
 
+/* SIO serial ring buffer (REL30)
+ * 256-byte page-aligned buffer for SIO Ch.A receiver.
+ * Page alignment lets the ISR use H=page, L=index for O(1) addressing.
+ * RTS flow control: deassert at RXTHHI used, reassert at RXTHLO used. */
+static byte rxbuf[RXBUFSZ];
+static volatile byte rxhead;   /* write index (RCA ISR updates) */
+static volatile byte rxtail;   /* read index (READER updates) */
+
+/* SIO status flags (0xFF = ready/not busy, 0x00 = busy) */
+static volatile byte prtflg = 0xFF;  /* printer (Ch.B TX) ready */
+static volatile byte ptpflg = 0xFF;  /* punch (Ch.A TX) ready */
+
+/* SIO status register snapshots */
+static byte rr0_a, rr1_a;
+static byte rr0_b, rr1_b;
+
 /* ================================================================
  * Floppy disk driver — variables and buffers
  * ================================================================ */
@@ -693,6 +709,17 @@ static void puts_p(const char *s)
 }
 
 
+/* Arm SIO Channel A receiver: enable RTS, DTR, TX, and interrupts */
+static void readi(void)
+{
+    hal_di();
+    _port_sio_a_ctrl = 0x05;            /* select WR5 */
+    _port_sio_a_ctrl = wr5a + 0x8A;     /* DTR=1, TX enable, RTS=1 */
+    _port_sio_a_ctrl = 0x01;            /* select WR1 */
+    _port_sio_a_ctrl = 0x1B;            /* enable RX, TX, ext status ints */
+    hal_ei();
+}
+
 static void wboot_c(void);
 
 void bios_boot_c(void)
@@ -707,7 +734,9 @@ void bios_boot_c(void)
     hstwrt = 0;
     kbhead = 0;
     kbtail = 0;
-    /* TODO: READI — arm SIO Ch.A receiver for serial ring buffer */
+    rxhead = 0;
+    rxtail = 0;
+    readi();
 
     wboot_c();
 }
@@ -1096,19 +1125,58 @@ void bios_conout(byte c) __naked
 #endif
 }
 
+/* LIST: transmit character on SIO Channel B (printer) */
 void bios_list(byte c)
 {
-    (void)c;
+    while (!prtflg)
+        ;                       /* wait for TX ready */
+    hal_di();
+    prtflg = 0;                 /* mark busy */
+    _port_sio_b_ctrl = 0x05;    /* select WR5 */
+    _port_sio_b_ctrl = wr5b + 0x8A;  /* DTR=1, TX enable, RTS=1 */
+    _port_sio_b_ctrl = 0x01;    /* select WR1 */
+    _port_sio_b_ctrl = 0x07;    /* TX int, ext status, status affects vector */
+    _port_sio_b_data = c;
+    hal_ei();
 }
 
+/* PUNCH: transmit character on SIO Channel A */
 void bios_punch(byte c)
 {
-    (void)c;
+    while (!ptpflg)
+        ;                       /* wait for TX ready */
+    hal_di();
+    ptpflg = 0;                 /* mark busy */
+    _port_sio_a_ctrl = 0x05;    /* select WR5 */
+    _port_sio_a_ctrl = wr5a + 0x8A;  /* DTR=1, TX enable, RTS=1 */
+    _port_sio_a_ctrl = 0x01;    /* select WR1 */
+    _port_sio_a_ctrl = 0x1B;    /* RX, TX, ext status ints */
+    _port_sio_a_data = c;
+    hal_ei();
 }
 
+/* READER: read character from SIO Channel A ring buffer with RTS flow control */
 byte bios_reader(void)
 {
-    return 0x1A;    /* ^Z (EOF) — sdcccall(1) returns 8-bit in A, matches CP/M */
+    byte ch, new_tail, used;
+
+    /* wait for data in ring buffer */
+    while (rxtail == rxhead)
+        ;
+
+    /* read character and advance tail */
+    new_tail = (rxtail + 1) & RXMASK;
+    ch = rxbuf[rxtail];
+    rxtail = new_tail;
+
+    /* reassert RTS if buffer has drained below low watermark */
+    used = (rxhead - new_tail) & RXMASK;
+    if (used < RXTHLO) {
+        _port_sio_a_ctrl = 0x05;        /* select WR5 */
+        _port_sio_a_ctrl = wr5a + 0x8A; /* DTR=1, TX enable, RTS=1 */
+    }
+
+    return ch;
 }
 
 void bios_home(void) __naked
@@ -1384,7 +1452,7 @@ byte bios_write(byte type) __naked
 
 byte bios_listst(void)
 {
-    return 0xFF;
+    return prtflg;
 }
 
 word bios_sectran(word sector) __naked
@@ -1583,14 +1651,192 @@ void isr_floppy(void) __naked
 /* HD ISR stub */
 void isr_hd(void) __interrupt {}
 
-/* SIO ISR stubs */
-void isr_sio_b_tx(void) __interrupt {}
-void isr_sio_b_ext(void) __interrupt {}
-void isr_sio_b_spec(void) __interrupt {}
-void isr_sio_a_tx(void) __interrupt {}
-void isr_sio_a_ext(void) __interrupt {}
-void isr_sio_a_rx(void) __interrupt {}
-void isr_sio_a_spec(void) __interrupt {}
+/* SIO Channel B ISRs (printer port) */
+
+/* TXB: Ch.B transmit complete — reset TX int, mark printer ready */
+void isr_sio_b_tx(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+
+    _port_sio_b_ctrl = 0x28;   /* reset TX interrupt pending */
+    prtflg = 0xFF;              /* printer ready */
+
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
+
+/* EXTSTB: Ch.B external status change — read and acknowledge */
+void isr_sio_b_ext(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+
+    rr0_b = _port_sio_b_ctrl;  /* read RR0 */
+    _port_sio_b_ctrl = 0x10;   /* reset ext/status interrupts */
+
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
+
+/* SPECB: Ch.B special receive condition — read error, reset */
+void isr_sio_b_spec(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+
+    _port_sio_b_ctrl = 0x01;   /* select RR1 */
+    rr1_b = _port_sio_b_ctrl;  /* read RR1 */
+    _port_sio_b_ctrl = 0x30;   /* error reset */
+
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
+
+/* SIO Channel A ISRs (reader/punch port) */
+
+/* TXA: Ch.A transmit complete — reset TX int, mark punch ready */
+void isr_sio_a_tx(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+
+    _port_sio_a_ctrl = 0x28;   /* reset TX interrupt pending */
+    ptpflg = 0xFF;              /* punch ready */
+
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
+
+/* EXTSTA: Ch.A external status change — read and acknowledge */
+void isr_sio_a_ext(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+
+    rr0_a = _port_sio_a_ctrl;  /* read RR0 */
+    _port_sio_a_ctrl = 0x10;   /* reset ext/status interrupts */
+
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
+
+/* RCA: Ch.A receive — store in ring buffer with RTS flow control */
+void isr_sio_a_rx(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+        push bc
+        push hl
+    __endasm;
+
+    {
+        byte ch, new_head, used;
+
+        ch = _port_sio_a_data;       /* read char (clears interrupt) */
+        new_head = (rxhead + 1) & RXMASK;
+
+        if (new_head == rxtail)
+            goto rts_off;            /* buffer full — deassert RTS */
+
+        rxbuf[rxhead] = ch;
+        rxhead = new_head;
+
+        /* check if buffer is nearly full */
+        used = (new_head - rxtail) & RXMASK;
+        if (used < RXTHHI)
+            goto done;               /* plenty of room */
+
+    rts_off:
+        /* deassert RTS to pause sender */
+        _port_sio_a_ctrl = 0x05;         /* select WR5 */
+        _port_sio_a_ctrl = wr5a + 0x88;  /* DTR=1, TX enable, RTS=0 */
+    done: ;
+    }
+
+    __asm
+        pop hl
+        pop bc
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
+
+/* SPECA: Ch.A special receive condition — error reset, flush buffer */
+void isr_sio_a_spec(void) __naked
+{
+#ifndef HOST_TEST
+    __asm
+        ld (_sp_sav), sp
+        ld sp, #0xF620
+        push af
+    __endasm;
+
+    _port_sio_a_ctrl = 0x01;   /* select RR1 */
+    rr1_a = _port_sio_a_ctrl;  /* read RR1 */
+    _port_sio_a_ctrl = 0x30;   /* error reset */
+    rxhead = 0;                 /* flush ring buffer */
+    rxtail = 0;
+
+    __asm
+        pop af
+        ld sp, (_sp_sav)
+        ei
+        reti
+    __endasm;
+#endif
+}
 
 /* PIO ch.B (parallel output) ISR — not used on RC702 */
 void isr_pio_par(void) __interrupt {}
