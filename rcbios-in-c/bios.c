@@ -207,16 +207,16 @@ static void fdstar(void)
 {
     if (!(_port_sw1 & 0x80))    /* maxi: no motor control */
         return;
-    __asm__("di");
+    hal_di();
     if (timer2 == 0) {
         /* motor was stopped — start and wait for spinup */
         timer2 = (word)fdtimo_var;
-        __asm__("ei");
+        hal_ei();
         _port_sw1 = 0x01;
         waitd(50);              /* 50 * 20ms = 1 second */
     } else {
         timer2 = (word)fdtimo_var;
-        __asm__("ei");
+        hal_ei();
     }
 }
 
@@ -281,9 +281,9 @@ static void fdc_result(void)
 /* Interrupt flag */
 static void clfit(void)
 {
-    __asm__("di");
+    hal_di();
     fl_flg = 0;
-    __asm__("ei");
+    hal_ei();
 }
 
 static void watir(void)
@@ -307,7 +307,7 @@ static byte  dma_write;      /* parameter: 0=read(FDC→mem), 1=write(mem→FDC)
 
 static void flp_dma_setup(void)
 {
-    __asm__("di");
+    hal_di();
     _port_dma_smsk = 0x05;          /* mask ch1 */
     _port_dma_mode = dma_write ? 0x49 : 0x45;
     _port_dma_clbp = 0;
@@ -316,7 +316,7 @@ static void flp_dma_setup(void)
     _port_dma_ch1_wc = (byte)dma_count;
     _port_dma_ch1_wc = (byte)(dma_count >> 8);
     _port_dma_smsk = 0x01;          /* unmask ch1 */
-    __asm__("ei");
+    hal_ei();
 }
 
 /* General FDC command (9-byte read/write sequence)
@@ -325,7 +325,7 @@ static void flp_dma_setup(void)
  */
 static void fdc_general_cmd(byte cmd, byte *fdfp)
 {
-    __asm__("di");
+    hal_di();
     fdc_write(cmd + fdfp[0]);       /* command + MF flag */
     fdc_write(dskno);              /* drive + head */
     fdc_write(actra);              /* cylinder */
@@ -335,7 +335,7 @@ static void fdc_general_cmd(byte cmd, byte *fdfp)
     fdc_write(fdfp[2]);            /* EOT (final sector) */
     fdc_write(fdfp[3]);            /* gap length */
     fdc_write(dtlv);               /* data length */
-    __asm__("ei");
+    hal_ei();
 }
 
 /* CHKTRK: multi-density track dispatch + sector translation + seek */
