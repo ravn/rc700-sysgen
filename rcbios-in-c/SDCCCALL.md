@@ -165,6 +165,36 @@ Functions returning only 8-bit in A with no params (`bios_const`, `bios_listst`,
 matching CP/M. But `bios_const` needs volatile access patterns and `bios_listst`/
 `bios_reads` are single-instruction stubs where C adds overhead.
 
+### Impact: functions that require asm wrappers
+
+Of 14 `__naked` BIOS entry points, the reasons for asm break down as:
+
+**BC parameter mismatch (4 functions)** — would be pure C if sdcccall accepted BC:
+- `bios_settrk` — `{ sektrk = track; }` (currently `ld (sektrk),bc; ret`)
+- `bios_setsec` — `{ seksec = sector; }` (currently `ld (seksec),bc; ret`)
+- `bios_setdma` — `{ dmaadr = addr; }` (currently `ld (dmaadr),bc; ret`)
+- `bios_sectran` — `{ return sector; }` (currently `ld h,b; ld l,c; ret`)
+
+**Stack switch required (5 functions)** — must run on BIOS stack (0xF500), not
+caller's stack. Even with BC as a parameter, these need asm for the SP swap:
+- `bios_conout` — stack switch + `ld a,c` (char from C register)
+- `bios_seldsk` — stack switch + `ld a,c` (drive from C register)
+- `bios_write` — stack switch + `ld a,c` (write type from C register)
+- `bios_home` — stack switch only (no params)
+- `bios_read` — stack switch only (no params)
+
+**Non-returning entry points (2 functions)** — set SP then JP, no return:
+- `bios_boot` — `ld sp,#0xF500; jp _bios_boot_c`
+- `bios_wboot` — `ld sp,#0xF500; jp _wboot_c`
+
+**Other ABI mismatches (3 functions)** — params/returns in unusual registers:
+- `bios_linsel` — params in A (port) and B (line), not sdcccall registers
+- `bios_exit` — params in HL (callback) and DE (timer), 2×16-bit non-standard
+- `bios_clock` — params/returns in DE+HL, conditional on A
+
+The 5 stack-switch wrappers are the largest source of asm (~100 bytes total).
+A compiler extension for "run on alternate stack" would eliminate them entirely.
+
 ## sdcccall(0) — Stack-based (legacy, NOT used)
 
 All parameters passed on the stack, right-to-left.
