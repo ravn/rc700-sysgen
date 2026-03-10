@@ -15,7 +15,9 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
 - Phase 1g (SIO): serial ring buffer, RTS flow control, READER/PUNCH/LIST
-- Current size: 7030 bytes (fits maxi 9984, over mini 6144 by ~886)
+- Phase 1h (BSS): separate code/data from uninitialized variables (BSS not on disk)
+- Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
+- Current size: 5932 bytes (fits both mini 6144 and maxi 9984)
 
 ## Building
 
@@ -77,6 +79,14 @@ in the `__naked` function between `__asm` blocks instead.
 
 Simple ISRs (flag-set only, stubs) use `__interrupt` which is safe since
 their bodies are empty or trivial.
+
+### Code/BSS separation
+
+The binary on disk contains only code and initialized data. Uninitialized variables
+(buffers, driver state) are in a BSS section at 0xEC00, not written to the floppy
+image. The cold boot code zeroes BSS using `__bss_compiler_head`/`__bss_compiler_size`
+linker symbols. Section ordering is declared explicitly in crt0.asm to ensure all
+code/data sections precede BSS.
 
 ### Disk data tables
 
@@ -149,5 +159,4 @@ See `ASM_BLOCKS.md` for full analysis.
 
 ## Next steps
 
-- MINI (5.25") support (currently over limit by ~886 bytes)
-- Tables (CLOCK, SETWARM, LINSEL)
+- MINI (5.25") support (now fits, 212 bytes to spare)

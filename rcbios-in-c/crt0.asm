@@ -157,6 +157,14 @@ _cboot:
     ld bc, 0xF800 - 0xD480 + 1  ; copy through DSPSTR (same as original)
     ldir
 
+    ; Zero BSS (uninitialized static variables, not in binary)
+    EXTERN __bss_compiler_head, __bss_compiler_size
+    ld hl, __bss_compiler_head
+    ld (hl), 0
+    ld de, __bss_compiler_head + 1
+    ld bc, __bss_compiler_size - 1
+    ldir
+
     ; Copy conversion tables to runtime position
     ld hl, _convta          ; source (relocated)
     ld de, 0xF680           ; dest = OUTCON
@@ -308,8 +316,24 @@ defc _inconv = 0xF700       ; input conversion table (128+128 bytes)
 defc _istack = 0xF620       ; interrupt stack top
 defc _stack  = 0xF680       ; BIOS driver stack top
 
-; ---- Disk data tables, buffers, driver variables ----
-; Disk tables (tran*, dpb*, fdf[], fspa[], trkoff[]) are defined as
-; C globals in bios.c.  DPBASE, allocation/check vectors, and driver
-; variables are also C globals (linker places after code).
-; No fixed addresses needed — just must stay below 0xF500.
+; ====================================================================
+; Section ordering — declare all code/data sections before BSS so the
+; linker places them contiguously in the binary, with BSS last (not
+; stored in disk image).  Sections without org pack after previous.
+; ====================================================================
+
+    SECTION code_compiler
+    SECTION rodata_compiler
+    SECTION data_compiler
+    SECTION code_l_sccz80
+    SECTION code_clib
+
+; ====================================================================
+; BSS section — uninitialized data, not stored in disk image
+; Zeroed by cold boot code above. Must stay below ISTACK (0xF500).
+; ====================================================================
+
+    SECTION BSS
+    org 0xEC00
+
+    SECTION bss_compiler

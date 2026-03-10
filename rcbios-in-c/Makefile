@@ -83,8 +83,15 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h danish.bin peephole.def
 		exit 1; \
 	fi
 	@CODE_END=$$((0xD480 + $$(wc -c < bios.cim | tr -d ' ') - 1)); \
-	if [ $$CODE_END -ge $$((0xF500)) ]; then \
-		printf "ERROR: Code (ends 0x%04X) overlaps ISTACK (0xF500)!\n" $$CODE_END; \
+	BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
+	BSS_TAIL=$$(grep '__bss_compiler_tail' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
+	if [ $$CODE_END -ge $$((0x$$BSS_HEAD)) ]; then \
+		printf "ERROR: Code (ends 0x%04X) overlaps BSS (0x%s)!\n" $$CODE_END $$BSS_HEAD; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi; \
+	if [ $$((0x$$BSS_TAIL)) -ge $$((0xF500)) ]; then \
+		printf "ERROR: BSS (ends 0x%s) overlaps ISTACK (0xF500)!\n" $$BSS_TAIL; \
 		rm -f bios.cim; \
 		exit 1; \
 	fi

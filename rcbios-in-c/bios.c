@@ -1470,13 +1470,154 @@ word bios_sectran(word sector) __naked
 #endif
 }
 
-/* Extended entries */
+/* ================================================================
+ * Extended BIOS entries (DA4A+)
+ * These use register-based calling conventions that differ from
+ * sdcccall(1), so most need __naked wrappers with inline asm.
+ * ================================================================ */
 
-void bios_wfitr(void) { }
-byte bios_reads(void) { return 0; }
-void bios_linsel(void) { }
-void bios_exit(void) { }
-void bios_clock(void) { }
+/* WFITR (DA4A): Wait for FDC interrupt, return result.
+ * Returns: B=ST0 (rstab[0]), C=ST1 (rstab[1]).
+ * Used by format utilities (SYSGEN, FORMAT.COM). */
+void bios_wfitr(void) __naked
+{
+    while (!fl_flg)
+        ;
+    __asm
+        ld a, (_rstab)
+        ld b, a
+        ld a, (_rstab + 1)
+        ld c, a
+    __endasm;
+    hal_di();
+    fl_flg = 0;
+    hal_ei();
+    __asm
+        ret
+    __endasm;
+}
+
+/* READS (DA4D): Reader status — 0xFF if data available, 0 if empty. */
+byte bios_reads(void)
+{
+    return (rxtail != rxhead) ? 0xFF : 0x00;
+}
+
+/* LINSEL (DA50): Line selection for RC791 V.24 multiplexer.
+ * Input: A=port (0=terminal SIO-A, 1=printer SIO-B), B=line (0=release, 1=A, 2=B).
+ * Returns: A=0xFF if CTS active, 0 if not (and line released). */
+void bios_linsel(void) __naked
+{
+    __asm
+        ; A=port offset, B=line number
+        add a, #0x0A            ; A += SIOAC port
+        ld c, a                 ; C = SIO ctrl port
+
+        ; Release line: wait for all-sent (RR1 bit 0)
+    _linsel_reslin:
+        di
+        ld a, #1
+        out (c), a              ; select RR1
+        in a, (c)               ; read RR1
+        ei
+        and #0x01               ; all-sent bit
+        jr z, _linsel_reslin
+
+        ; Delay between line release and new select
+        push bc
+    __endasm;
+    waitd(2);
+    __asm
+        pop bc
+
+        ld d, #5                ; WR5 register number
+        ld a, #0                ; DTR=0, RTS=0
+        di
+        out (c), d              ; select WR5
+        out (c), a              ; clear all signals
+        ei
+
+        dec b                   ; B=0 means release only
+        ret m                   ; done if B was 0
+
+        ; Select line: B=1→DTR only, B=2→DTR+RTS
+        sla b                   ; B *= 2 (bit 1 = RTS)
+        or b                    ; A = 0 | B (RTS bit)
+        di
+        out (c), d              ; select WR5
+        out (c), a              ; set RTS (if B=2)
+        ei
+        or #0x80                ; set DTR (bit 7)
+        di
+        out (c), d              ; select WR5
+        out (c), a              ; set DTR + RTS
+        ei
+
+        ; Wait for CTS to come up
+        push bc
+    __endasm;
+    waitd(2);
+    __asm
+        pop bc
+
+        ; Check CTS (RR0 bit 5) for the selected channel
+        ld a, c
+        cp #0x0A                ; SIOAC?
+        ld a, (_rr0_a)
+        jr z, _linsel_chkcts
+        ld a, (_rr0_b)
+    _linsel_chkcts:
+        and #0x20               ; CTS bit
+        jr z, _linsel_nocts     ; no CTS → release line
+        ld a, #0xFF             ; CTS active
+        ret
+
+    _linsel_nocts:
+        ; Release: DTR=0, RTS=0
+        di
+        out (c), d              ; select WR5
+        xor a
+        out (c), a              ; clear signals
+        ei
+        ret                     ; A=0
+    __endasm;
+}
+
+/* EXIT (DA53): Register application timeout callback.
+ * Input: HL=routine address, DE=countdown (20ms ticks).
+ * CRT ISR decrements timer1 (0xFFDF); when 0, calls warmjp (0xFFE5). */
+void bios_exit(void) __naked
+{
+    __asm
+        ld (0xFFE5), hl         ; warmjp = callback address
+        ex de, hl
+        ld (0xFFDF), hl         ; timer1 = countdown
+        ret
+    __endasm;
+}
+
+/* CLOCK (DA56): Read or set 32-bit real-time clock.
+ * Input: A=0 → set (DE=low, HL=high), A≠0 → read.
+ * Returns (read): DE=low, HL=high. */
+void bios_clock(void) __naked
+{
+    __asm
+        or a
+        jr z, _clock_set
+        ; Read clock
+        di
+        ld de, (0xFFFC)         ; rtc0
+        ld hl, (0xFFFE)         ; rtc2
+        ei
+        ret
+    _clock_set:
+        ; Set clock
+        ld (0xFFFC), de         ; rtc0
+        ld (0xFFFE), hl         ; rtc2
+        ret
+    __endasm;
+}
+
 void bios_hrdfmt(void) { }
 
 /* ================================================================
