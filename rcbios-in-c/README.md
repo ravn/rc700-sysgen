@@ -27,6 +27,31 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
   Postponed until the BIOS fits comfortably on the mini (5.25") disk (need to
   shrink by ~728 bytes first).
 
+### Remaining inline assembly
+
+23 `__asm` blocks remain in bios.c. Categorized by whether they can move to C:
+
+**Must stay in asm** (ABI / hardware constraints):
+- ISR stack switch helpers (`isr_enter`/`isr_exit`, 4 blocks) — SP manipulation, EI+RETI
+- `bios_boot` / `bios_wboot` (2) — set SP then JP, no return
+- `bios_settrk` / `bios_setsec` / `bios_setdma` (3) — CP/M passes value in BC, single `ld (var),bc` + ret
+- `bios_sectran` (1) — return BC in HL, single instruction + ret
+- `bios_wfitr` tail (1) — load rstab[0]→B, rstab[1]→C for CP/M ABI
+- `bios_linsel` entry (1) — store A→ls_port, B→ls_line (ABI bridge)
+
+**Could move to C** (best candidates first):
+- **5 stack-switch wrappers** (`bios_conout`, `bios_home`, `bios_seldsk`, `bios_read`,
+  `bios_write`) — all do the same DI/save-SP/switch-to-BIOS-stack/EI/call-C-body/
+  restore-SP pattern (~15 lines each). A shared inline helper would eliminate
+  duplication. The C body functions already exist.
+- **`bios_exit`** (1 block) — stores HL→warmjp, DE→timer1. Two assignments, but
+  needs `__naked` to receive HL/DE from CP/M ABI.
+- **`bios_clock`** (1 block) — reads/sets rtc0+rtc2 with DI/EI. Return convention
+  (DE+HL) makes pure C awkward.
+- **`bios_linsel` returns** (3 blocks) — `xor a; ret` / `ld a,#0xFF; ret`. Could be
+  `return 0`/`return 0xFF` if the function weren't `__naked`.
+- **`wboot_c` tail** (1 block) — load cdisk, mask, JP to CCP. Non-returning jump.
+
 ## Building
 
 Requires z88dk installed at `../z88dk/`.
