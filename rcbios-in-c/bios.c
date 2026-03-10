@@ -21,14 +21,14 @@
 
 /* Forward declarations */
 static void conout_body(void);
-static void putch(uint8_t c);
+static void putch(byte c);
 static void puts_p(const char *s);
 static void put_hex(uint16_t val);
 static void put_dec(uint16_t val);
-static uint16_t bios_seldsk_c(uint8_t drive);
+static uint16_t bios_seldsk_c(byte drive);
 static void bios_home_c(void);
-static uint8_t xread(void);
-static uint8_t xwrite(uint8_t wt);
+static byte xread(void);
+static byte xwrite(byte wt);
 
 /* ================================================================
  * ISR shared state
@@ -37,81 +37,81 @@ static uint8_t xwrite(uint8_t wt);
 static uint16_t sp_sav;           /* saved SP during ISR stack switch */
 
 /* Keyboard ring buffer (REL30) */
-static uint8_t kbbuf[KBBUFSZ];
-static volatile uint8_t kbhead;   /* write index (ISR updates) */
-static volatile uint8_t kbtail;   /* read index (CONIN updates) */
+static byte kbbuf[KBBUFSZ];
+static volatile byte kbhead;   /* write index (ISR updates) */
+static volatile byte kbtail;   /* read index (CONIN updates) */
 
 /* ================================================================
  * Floppy disk driver — variables and buffers
  * ================================================================ */
 
 /* Host sector buffer (512 bytes) and directory scratch (128 bytes) */
-static uint8_t hstbuf[512];
-static uint8_t dirbf[128];
+static byte hstbuf[512];
+static byte dirbf[128];
 
 /* Allocation and check vectors (2 drives) */
-static uint8_t all0[71], chk0[32];
-static uint8_t all1[71], chk1[32];
+static byte all0[71], chk0[32];
+static byte all1[71], chk1[32];
 
 /* CP/M requested disk/track/sector (set by BDOS calls) */
-static uint8_t  sekdsk;
+static byte  sekdsk;
 static uint16_t sektrk;
 static uint16_t seksec;
 
 /* Host buffer state (what's cached in hstbuf) */
-static uint8_t  hstdsk;
+static byte  hstdsk;
 static uint16_t hsttrk;
 static uint16_t hstsec;
 
 /* Last seek position (skip redundant FDC seeks) */
-static uint8_t  lstdsk;
+static byte  lstdsk;
 static uint16_t lsttrk;
 
 /* Intermediate: seksec >> secshf */
 static uint16_t sekhst;
 
 /* Buffer status */
-static uint8_t  hstact;     /* 0=empty, 1=valid */
-static uint8_t  hstwrt;     /* 0=clean, 1=dirty */
+static byte  hstact;     /* 0=empty, 1=valid */
+static byte  hstwrt;     /* 0=clean, 1=dirty */
 
 /* Unallocated sector tracking */
-static uint8_t  unacnt;
-static uint8_t  unadsk;
+static byte  unacnt;
+static byte  unadsk;
 static uint16_t unatrk;
 static uint16_t unasec;
-static uint8_t  unamsk;
+static byte  unamsk;
 
 /* I/O operation control */
-static uint8_t  erflag;
-static uint8_t  rsflag;
-static uint8_t  readop;
-static uint8_t  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
+static byte  erflag;
+static byte  rsflag;
+static byte  readop;
+static byte  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
 
 /* DMA and format state */
 static uint16_t dmaadr;  /* CP/M DMA address */
 static uint16_t form;    /* pointer to FDF block */
-static uint8_t  cform;   /* current format index */
-static uint8_t  eotv;        /* sectors per side on track 0 */
-static uint8_t  drno;        /* highest drive number */
+static byte  cform;   /* current format index */
+static byte  eotv;        /* sectors per side on track 0 */
+static byte  drno;        /* highest drive number */
 
 /* Physical disk control */
-static uint8_t  dskno;       /* drive + head select bits */
+static byte  dskno;       /* drive + head select bits */
 static uint16_t dskad;       /* DMA address for FDC */
-static uint8_t  actra;       /* actual track */
-static uint8_t  acsec;       /* actual sector (1-based) */
-static uint8_t  repet;       /* retry counter */
-static volatile uint8_t rstab[8];    /* FDC result table */
-static volatile uint8_t fl_flg;      /* floppy completion flag */
+static byte  actra;       /* actual track */
+static byte  acsec;       /* actual sector (1-based) */
+static byte  repet;       /* retry counter */
+static volatile byte rstab[8];    /* FDC result table */
+static volatile byte fl_flg;      /* floppy completion flag */
 
 /* FSPA working copy (set by SELDSK) */
 static uint16_t dpblck;      /* DPB pointer */
-static uint8_t  cpmrbp;      /* records per block */
+static byte  cpmrbp;      /* records per block */
 static uint16_t cpmspt;      /* CP/M sectors per track */
-static uint8_t  secmsk;      /* sector mask */
-static uint8_t  secshf;      /* sector shift count */
+static byte  secmsk;      /* sector mask */
+static byte  secshf;      /* sector shift count */
 static uint16_t trantb;      /* translation table pointer */
-static uint8_t  dtlv;        /* data length value */
-static uint8_t  dsktyp;      /* 0=floppy, 0xFF=HD */
+static byte  dtlv;        /* data length value */
+static byte  dsktyp;      /* 0=floppy, 0xFF=HD */
 
 /* Disk Parameter Headers — 2 drives × 16 bytes (8 words) each
  * DPH layout: XLT(2), scratch(6), DIRBF(2), DPB(2), CHK(2), ALV(2)
@@ -196,9 +196,9 @@ static void fdc_seek(void)
 
 static void fdc_result(void)
 {
-    uint8_t i;
+    byte i;
     for (i = 0; i < 7; i++) {
-        uint8_t delay;
+        byte delay;
         fdc_wait_read();
         rstab[i] = _port_fdc_data;
         for (delay = 4; delay; delay--)
@@ -233,7 +233,7 @@ static void wfitr(void)
  * write=1 means FDC reads from memory (FLPR), write=0 means FDC writes to memory (FLPW)
  */
 static uint16_t dma_count;      /* parameter: byte count for DMA */
-static uint8_t  dma_write;      /* parameter: 0=read(FDC→mem), 1=write(mem→FDC) */
+static byte  dma_write;      /* parameter: 0=read(FDC→mem), 1=write(mem→FDC) */
 
 static void flp_dma_setup(void)
 {
@@ -241,10 +241,10 @@ static void flp_dma_setup(void)
     _port_dma_smsk = 0x05;          /* mask ch1 */
     _port_dma_mode = dma_write ? 0x49 : 0x45;
     _port_dma_clbp = 0;
-    _port_dma_ch1_addr = (uint8_t)dskad;
-    _port_dma_ch1_addr = (uint8_t)(dskad >> 8);
-    _port_dma_ch1_wc = (uint8_t)dma_count;
-    _port_dma_ch1_wc = (uint8_t)(dma_count >> 8);
+    _port_dma_ch1_addr = (byte)dskad;
+    _port_dma_ch1_addr = (byte)(dskad >> 8);
+    _port_dma_ch1_wc = (byte)dma_count;
+    _port_dma_ch1_wc = (byte)(dma_count >> 8);
     _port_dma_smsk = 0x01;          /* unmask ch1 */
     __asm__("ei");
 }
@@ -253,7 +253,7 @@ static void flp_dma_setup(void)
  * fdfp points past DMA count bytes, at the MF field:
  *   fdfp[0]=MF, fdfp[1]=N, fdfp[2]=EOT, fdfp[3]=gap
  */
-static void fdc_general_cmd(uint8_t cmd, uint8_t *fdfp)
+static void fdc_general_cmd(byte cmd, byte *fdfp)
 {
     __asm__("di");
     fdc_wait_write();
@@ -280,10 +280,10 @@ static void fdc_general_cmd(uint8_t cmd, uint8_t *fdfp)
 /* CHKTRK: multi-density track dispatch + sector translation + seek */
 static void chktrk(void)
 {
-    uint8_t sec, ev;
-    uint8_t *tp;
+    byte sec, ev;
+    byte *tp;
 
-    sec = (uint8_t)hstsec;
+    sec = (byte)hstsec;
     ev = eotv;
     dskno = hstdsk;
 
@@ -294,9 +294,9 @@ static void chktrk(void)
     }
 
     /* sector translation */
-    tp = (uint8_t *)trantb;
+    tp = (byte *)trantb;
     acsec = tp[sec];
-    actra = (uint8_t)hsttrk;
+    actra = (byte)hsttrk;
     dskad = (uint16_t)&hstbuf[0];
 
     /* check if seek needed */
@@ -328,7 +328,7 @@ static void chktrk(void)
 /* Sector read with retry */
 static void secrd(void)
 {
-    uint8_t *fp;
+    byte *fp;
 
     repet = 10;
     for (;;) {
@@ -336,7 +336,7 @@ static void secrd(void)
         clfit();
 
         /* form points to FDF start: [dma_count_lo, dma_count_hi, MF, N, EOT, gap] */
-        fp = (uint8_t *)form;
+        fp = (byte *)form;
         dma_count = fp[0] | ((uint16_t)fp[1] << 8);
 
         dma_write = 0;
@@ -384,14 +384,14 @@ fail:
 /* Sector write with retry */
 static void secwr(void)
 {
-    uint8_t *fp;
+    byte *fp;
 
     repet = 10;
     for (;;) {
         fdstar();
         clfit();
 
-        fp = (uint8_t *)form;
+        fp = (byte *)form;
         dma_count = fp[0] | ((uint16_t)fp[1] << 8);
 
         dma_write = 1;
@@ -432,16 +432,16 @@ static void wrthst(void)
 }
 
 /* Debug: dump N bytes from addr as hex */
-static void dbg_hexdump(uint8_t n, uint8_t *p)
+static void dbg_hexdump(byte n, byte *p)
 {
-    uint8_t i;
+    byte i;
     for (i = 0; i < n; i++) {
         put_hex(p[i]);
         putch(' ');
     }
 }
 
-static uint8_t wboot_count;
+static byte wboot_count;
 
 /* Debug trace ring buffer in BSS
  * Each entry: [type, p1, p2_lo, p2_hi]
@@ -449,19 +449,19 @@ static uint8_t wboot_count;
  *             'R'=READ, 'W'=WRITE, 'X'=SECTRAN, 'B'=WBOOT
  */
 #define DBG_BUFSZ 252
-static uint8_t dbg_idx;
-static uint8_t dbg_buf[DBG_BUFSZ];
+static byte dbg_idx;
+static byte dbg_buf[DBG_BUFSZ];
 static uint16_t dbg_p2;            /* 3rd parameter for dbg_trace4 */
 
-static void dbg_trace4(uint8_t type, uint8_t p1)
+static void dbg_trace4(byte type, byte p1)
 {
-    static uint8_t idx;
+    static byte idx;
     idx = dbg_idx;
     if (idx < DBG_BUFSZ) {
         dbg_buf[idx] = type;
         dbg_buf[idx + 1] = p1;
-        dbg_buf[idx + 2] = (uint8_t)dbg_p2;
-        dbg_buf[idx + 3] = (uint8_t)(dbg_p2 >> 8);
+        dbg_buf[idx + 2] = (byte)dbg_p2;
+        dbg_buf[idx + 3] = (byte)(dbg_p2 >> 8);
         dbg_idx = idx + 4;
     }
 }
@@ -478,17 +478,17 @@ static void rdhst(void)
 }
 
 /* 16-bit track compare: *(uint16_t *)p == sektrk */
-static uint8_t trkcmp(uint16_t *p)
+static byte trkcmp(uint16_t *p)
 {
     return *p == sektrk;
 }
 
 /* Core blocking/deblocking algorithm (DRI standard) */
-static uint8_t rwoper(void)
+static byte rwoper(void)
 {
-    static uint8_t shift, i;
+    static byte shift, i;
     static uint16_t hs;
-    static uint8_t *src, *dst;
+    static byte *src, *dst;
     static uint16_t offset;
 
     /* compute host sector: sekhst = seksec >> (secshf-1)
@@ -523,7 +523,7 @@ match:
     /* compute offset into host buffer */
     offset = (uint16_t)(seksec & secmsk) << 7;
     src = &hstbuf[offset];
-    dst = (uint8_t *)dmaadr;
+    dst = (byte *)dmaadr;
 
     if (readop) {
         /* read: copy from host buffer to DMA area */
@@ -548,16 +548,16 @@ match:
     }
 
     {
-        uint8_t err = erflag;
+        byte err = erflag;
         erflag = 0;
         return err;
     }
 }
 
 /* GFPA: get format parameter address from CFORM */
-static uint8_t *gfpa(void)
+static byte *gfpa(void)
 {
-    return (uint8_t *)&fdf1 + (cform & 0xF8);
+    return (byte *)&fdf1 + (cform & 0xF8);
 }
 
 /* ================================================================
@@ -587,7 +587,7 @@ void bios_hw_init(void)
 
     /* SIO: program channels A and B */
     {
-        uint8_t i;
+        byte i;
         for (i = 0; i < 9; i++)
             _port_sio_a_ctrl = psioa[i];
         for (i = 0; i < 11; i++)
@@ -622,7 +622,7 @@ void bios_hw_init(void)
     _port_fdc_data = 0x28;      /* head load 40ms, DMA mode */
 
     /* Clear display buffer (DSPROW(0) to SCRNEND with spaces) */
-    memset((void *)DSPSTR, ' ', SCRNEND - DSPSTR + 1);
+    memset(DSPROW(0), ' ', SCRNEND - DSPSTR + 1);
 
     /* Clear work area (0xFFD1-0xFFFF with zeros) */
     memset((void *)0xFFD1, 0, 0x002F);
@@ -649,16 +649,16 @@ void bios_hw_init(void)
 
     /* Initialize disk subsystem */
     {
-        uint8_t d;
+        byte d;
 
         /* Copy initial drive format from config block */
-        *(&fd0 + 0) = infd0;       /* drive A format */
-        *(&fd0 + 1) = 0xFF;        /* end of drive table */
+        fd0[0] = infd0;            /* drive A format */
+        fd0[1] = 0xFF;             /* end of drive table */
 
         /* Count configured drives from fd0 table */
         drno = 0;
         for (d = 0; d < 16; d++) {
-            if (*(&fd0 + d) == 0xFF)
+            if (fd0[d] == 0xFF)
                 break;
             drno = d;
         }
@@ -700,7 +700,7 @@ void bios_boot(void) __naked
 #endif
 }
 
-static void putch(uint8_t c)
+static void putch(byte c)
 {
     usession = c;
     conout_body();
@@ -714,8 +714,8 @@ static void puts_p(const char *s)
 
 static void put_hex(uint16_t v)
 {
-    static uint8_t i;
-    static uint8_t nib;
+    static byte i;
+    static byte nib;
     static char buf[5];
     static uint16_t val;
     val = v;
@@ -730,12 +730,12 @@ static void put_hex(uint16_t v)
 
 static void put_dec(uint16_t val)
 {
-    uint8_t d;
+    byte d;
     if (val >= 10000) { d = 0; while (val >= 10000) { val -= 10000; d++; } putch('0' + d); }
     if (val >= 1000)  { d = 0; while (val >= 1000)  { val -= 1000;  d++; } putch('0' + d); }
     if (val >= 100)   { d = 0; while (val >= 100)   { val -= 100;   d++; } putch('0' + d); }
     if (val >= 10)    { d = 0; while (val >= 10)     { val -= 10;    d++; } putch('0' + d); }
-    putch('0' + (uint8_t)val);
+    putch('0' + (byte)val);
 }
 
 static void wboot_c(void);
@@ -746,7 +746,7 @@ void bios_boot_c(void)
     puts_p("\x0C"                       /* form feed = clear screen */
            "RC700   56k CP/M 2.2 bios " BUILDDATE "\r\n");
 
-    *(volatile uint8_t *)CDISK_ADDR = 0;
+    *(volatile byte *)CDISK_ADDR = 0;
     hstact = 0;
     erflag = 0;
     hstwrt = 0;
@@ -759,14 +759,14 @@ void bios_boot_c(void)
 
 static void wboot_c(void)
 {
-    uint8_t sec;
+    byte sec;
 
     wboot_count++;
     hal_ei();
     bios_seldsk_c(0);
 
     unacnt = 0;
-    *(volatile uint8_t *)IOBYTE_ADDR = 0;
+    *(volatile byte *)IOBYTE_ADDR = 0;
     dskno = 0;
 
     bios_home_c();
@@ -789,9 +789,9 @@ static void wboot_c(void)
 
     /* Set up JP vectors at page zero */
 #ifndef HOST_TEST
-    *(volatile uint8_t *)0x0000 = 0xC3;        /* JP opcode */
+    *(volatile byte *)0x0000 = 0xC3;        /* JP opcode */
     *(volatile uint16_t *)0x0001 = BIOS_BASE + 3;  /* WBOOT entry */
-    *(volatile uint8_t *)0x0005 = 0xC3;        /* JP opcode */
+    *(volatile byte *)0x0005 = 0xC3;        /* JP opcode */
     *(volatile uint16_t *)0x0006 = BDOS_BASE;
 
     /* Re-select drive to ensure clean state for CCP */
@@ -821,18 +821,18 @@ void bios_wboot(void) __naked
  * Console I/O — keyboard ring buffer (REL30)
  * ---------------------------------------------------------------- */
 
-uint8_t bios_const(void)
+byte bios_const(void)
 {
     return (kbtail != kbhead) ? 0xFF : 0x00;
 }
 
-uint8_t bios_conin(void)
+byte bios_conin(void)
 {
     while (kbtail == kbhead)
         __asm__("halt");
-    uint8_t raw = kbbuf[kbtail];
+    byte raw = kbbuf[kbtail];
     kbtail = (kbtail + 1) & (KBBUFSZ - 1);
-    return *((volatile uint8_t *)(INCONV_ADDR + raw));
+    return *((volatile byte *)(INCONV_ADDR + raw));
 }
 
 /* ================================================================
@@ -844,7 +844,7 @@ uint8_t bios_conin(void)
  * BGSTAR (background bitmap) is intentionally omitted.
  * ================================================================ */
 
-static uint8_t graph;           /* graphical mode flag (sticky) */
+static byte graph;           /* graphical mode flag (sticky) */
 
 /* Update 8275 cursor position from curx/cursy */
 static void cursorxy(void)
@@ -881,8 +881,8 @@ static void rowup(void)
 /* Scroll display up one line: copy ROW1..ROW24 to ROW0..ROW23, fill ROW24 */
 static void scroll(void)
 {
-    memcpy((void *)DSPROW(0), (void *)DSPROW(1), ROW24_OFF);
-    memset((void *)DSPROW(ROW24), ' ', SCRN_COLS);
+    memcpy(DSPROW(0), DSPROW(1), ROW24_OFF);
+    memset(DSPROW(ROW24), ' ', SCRN_COLS);
 }
 
 /* Cursor right — advance column, wrap to next line or scroll */
@@ -967,7 +967,7 @@ static void home(void)
 /* Clear screen — fill display with spaces, home */
 static void clear_screen(void)
 {
-    memset((void *)DSPSTR, ' ', SCRN_SIZE);
+    memset(screen, ' ', SCRN_SIZE);
     goto00();
     cursorxy();
 }
@@ -975,8 +975,8 @@ static void clear_screen(void)
 /* Erase from cursor to end of line */
 static void erase_to_eol(void)
 {
-    uint8_t *row = (uint8_t *)(DSPSTR + cury);
-    for (uint8_t i = curx; i < SCRN_COLS; i++)
+    byte *row = screen + cury;
+    for (byte i = curx; i < SCRN_COLS; i++)
         row[i] = ' ';
 }
 
@@ -984,7 +984,7 @@ static void erase_to_eol(void)
 static void erase_to_eos(void)
 {
     uint16_t pos = cury + curx;
-    uint8_t *p = (uint8_t *)(DSPSTR + pos);
+    byte *p = screen + pos;
     uint16_t count = SCRN_SIZE - pos;
     while (count--)
         *p++ = ' ';
@@ -994,46 +994,44 @@ static void erase_to_eos(void)
 static void delete_line(void)
 {
     static uint16_t count;
-    static uint8_t *dst;
+    static byte *dst;
     count = ROW24_OFF - cury;
-    dst = (uint8_t *)(DSPSTR + cury);
+    dst = screen + cury;
     if (count != 0)
         memcpy(dst, dst + SCRN_COLS, count);
-    memset((void *)DSPROW(ROW24), ' ', SCRN_COLS);
+    memset(DSPROW(ROW24), ' ', SCRN_COLS);
 }
 
 /* Insert line — shift lines down from cury to ROW23, fill current line.
- * Uses LDDR (backward block copy) since dst overlaps src.
- * sdcc cannot optimize backward loops into LDDR, so this stays as asm. */
-static uint16_t insl_count;   /* insert_line LDDR byte count */
-
+ * Backward copy (dst > src, overlapping) — memmove library hangs,
+ * so use an explicit backward loop. */
 static void insert_line(void)
 {
-    insl_count = ROW24_OFF - cury;
-    if (insl_count != 0) {
-#ifndef HOST_TEST
-        __asm
-            ld bc, (_insl_count)
-            ld hl, #(0xF800 + 24 * 80 - 1)  ; last byte of ROW23 (src end)
-            ld de, #(0xF800 + 25 * 80 - 1)  ; last byte of ROW24 (dst end)
-            lddr
-        __endasm;
-#endif
+    static uint16_t count;
+    static byte *src;
+    static byte *dst;
+
+    count = ROW24_OFF - cury;
+    if (count != 0) {
+        src = screen + ROW24_OFF - 1;           /* last byte of ROW23 */
+        dst = screen + ROW24_OFF + SCRN_COLS - 1; /* last byte of ROW24 */
+        while (count--)
+            *dst-- = *src--;
     }
-    memset((void *)(DSPSTR + cury), ' ', SCRN_COLS);
+    memset(screen + cury, ' ', SCRN_COLS);
 }
 
 /* XY cursor addressing — called for each byte after ctrl-F */
 static void xyadd(void)
 {
-    uint8_t val = (usession & 0x7F) - 32;
+    byte val = (usession & 0x7F) - 32;
     xflg--;
     if (xflg != 0) {
         adr0 = val;             /* save first coordinate */
         return;
     }
     /* Second byte: compute final position */
-    uint8_t x_val, y_val;
+    byte x_val, y_val;
     if (adrmod == 0) {
         x_val = adr0;           /* XY mode: first=X, second=Y */
         y_val = val;
@@ -1053,7 +1051,7 @@ static void xyadd(void)
 /* Display printable character — convert, write, advance cursor */
 static void displ(void)
 {
-    uint8_t ch = usession;
+    byte ch = usession;
 
     locad = cury + curx;
 
@@ -1063,10 +1061,10 @@ static void displ(void)
     if (ch >= 128) {
         graph = ch & 4;         /* set/clear graphical mode */
     } else if (!graph) {
-        ch = *((uint8_t *)(OUTCON_ADDR + ch));  /* OUTCON conversion */
+        ch = *((byte *)(OUTCON_ADDR + ch));  /* OUTCON conversion */
     }
 
-    *((uint8_t *)(DSPSTR + locad)) = ch;
+    screen[locad] = ch;
     cursor_right();
 }
 
@@ -1113,7 +1111,7 @@ static void conout_body(void)
  * Matches the original CONOUT: DI, save SP, switch stack, EI, work,
  * DI, restore SP, EI, RET.
  */
-void bios_conout(uint8_t c) __naked
+void bios_conout(byte c) __naked
 {
     (void)c;
 #ifndef HOST_TEST
@@ -1129,7 +1127,7 @@ void bios_conout(uint8_t c) __naked
         push bc
         push de
         ld a, c                 ; get char from C register
-        ld (_usession), a
+        ld (0xFFDA), a          ; usession
         call _conout_body
         pop de
         pop bc
@@ -1144,36 +1142,19 @@ void bios_conout(uint8_t c) __naked
 #endif
 }
 
-void bios_list(uint8_t c) __naked
+void bios_list(byte c)
 {
     (void)c;
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
 }
 
-void bios_punch(uint8_t c) __naked
+void bios_punch(byte c)
 {
     (void)c;
-#ifndef HOST_TEST
-    __asm
-        ret
-    __endasm;
-#endif
 }
 
-uint8_t bios_reader(void) __naked
+byte bios_reader(void)
 {
-#ifndef HOST_TEST
-    __asm
-        ld a, #0x1A             ; return ^Z (EOF) — CP/M reads A
-        ret
-    __endasm;
-#else
-    return 0x1A;
-#endif
+    return 0x1A;    /* ^Z (EOF) — sdcccall(1) returns 8-bit in A, matches CP/M */
 }
 
 void bios_home(void) __naked
@@ -1216,7 +1197,7 @@ static void bios_home_c(void)
     wfitr();
 }
 
-uint16_t bios_seldsk(uint8_t disk) __naked
+uint16_t bios_seldsk(byte disk) __naked
 {
     /* CP/M passes drive in C register, expects DPH in HL */
     (void)disk;
@@ -1246,9 +1227,9 @@ uint16_t bios_seldsk(uint8_t disk) __naked
 #endif
 }
 
-static uint16_t bios_seldsk_c(uint8_t drive)
+static uint16_t bios_seldsk_c(byte drive)
 {
-    uint8_t fmt, *fp;
+    byte fmt, *fp;
     uint16_t dph_offset;
 
     dbg_p2 = 0; dbg_trace4('S', drive);
@@ -1258,7 +1239,7 @@ static uint16_t bios_seldsk_c(uint8_t drive)
     sekdsk = drive;
 
     /* look up format from fd0 table */
-    fp = &fd0 + drive;
+    fp = &fd0[drive];
     fmt = *fp;
 
     /* if format changed, flush dirty buffer */
@@ -1272,17 +1253,17 @@ static uint16_t bios_seldsk_c(uint8_t drive)
     cform = fmt;
 
     /* get format descriptor (FDF) pointer */
-    form = (uint16_t)((uint8_t *)&fdf1 + (fmt & 0xF8));
+    form = (uint16_t)((byte *)&fdf1 + (fmt & 0xF8));
 
     /* get EOTV from format block: byte at offset 4 from FDF start is EOT */
     {
-        uint8_t *fdfp = (uint8_t *)form;
+        byte *fdfp = (byte *)form;
         eotv = fdfp[4];        /* EOT value (end-of-track) */
     }
 
     /* copy FSPA format parameters to working area */
     {
-        uint8_t *src = &fspa00[((fmt & 0xF8) >> 3) * 16];
+        byte *src = &fspa00[((fmt & 0xF8) >> 3) * 16];
         dpblck = src[0] | (src[1] << 8);
         cpmrbp = src[2];
         cpmspt = src[3] | (src[4] << 8);
@@ -1298,7 +1279,7 @@ static uint16_t bios_seldsk_c(uint8_t drive)
 
     /* update DPB pointer in DPH (offset 10 = word 5) */
     {
-        uint16_t *dph = (uint16_t *)((uint8_t *)dpbase + dph_offset);
+        uint16_t *dph = (uint16_t *)((byte *)dpbase + dph_offset);
         dph[5] = dpblck;
     }
 
@@ -1310,7 +1291,7 @@ static uint16_t bios_seldsk_c(uint8_t drive)
         (void)off;
     }
 
-    return (uint16_t)((uint8_t *)dpbase + dph_offset);
+    return (uint16_t)((byte *)dpbase + dph_offset);
 }
 
 void bios_settrk(uint16_t track) __naked
@@ -1349,24 +1330,24 @@ void bios_setdma(uint16_t addr) __naked
 #endif
 }
 
-static uint8_t xread(void)
+static byte xread(void)
 {
     unacnt = 0;
     readop = 1;
     rsflag = 1;
     wrtype = WRUAL;
     {
-        static uint8_t rc;
-        static uint8_t *d;
+        static byte rc;
+        static byte *d;
         rc = rwoper();
-        d = (uint8_t *)dmaadr;
-        dbg_p2 = seksec; dbg_trace4('R', (uint8_t)sektrk);
-        dbg_p2 = (uint16_t)(d[0] | (d[1] << 8)); dbg_trace4('D', (uint8_t)(dmaadr >> 8));
+        d = (byte *)dmaadr;
+        dbg_p2 = seksec; dbg_trace4('R', (byte)sektrk);
+        dbg_p2 = (uint16_t)(d[0] | (d[1] << 8)); dbg_trace4('D', (byte)(dmaadr >> 8));
         return rc;
     }
 }
 
-static uint8_t xwrite(uint8_t wt)
+static byte xwrite(byte wt)
 {
     dbg_p2 = seksec; dbg_trace4('W', wt);
     readop = 0;
@@ -1409,7 +1390,7 @@ alloc:
     return rwoper();
 }
 
-uint8_t bios_read(void) __naked
+byte bios_read(void) __naked
 {
 #ifndef HOST_TEST
     __asm
@@ -1439,7 +1420,7 @@ uint8_t bios_read(void) __naked
 #endif
 }
 
-uint8_t bios_write(uint8_t type) __naked
+byte bios_write(byte type) __naked
 {
     /* CP/M passes write type in C */
     (void)type;
@@ -1472,7 +1453,7 @@ uint8_t bios_write(uint8_t type) __naked
 #endif
 }
 
-uint8_t bios_listst(void)
+byte bios_listst(void)
 {
     return 0xFF;
 }
@@ -1495,7 +1476,7 @@ uint16_t bios_sectran(uint16_t sector) __naked
 /* Extended entries */
 
 void bios_wfitr(void) { }
-uint8_t bios_reads(void) { return 0; }
+byte bios_reads(void) { return 0; }
 void bios_linsel(void) { }
 void bios_exit(void) { }
 void bios_clock(void) { }
@@ -1611,7 +1592,7 @@ void isr_crt(void) __naked
  */
 static void isr_pio_kbd_body(void)
 {
-    uint8_t key, new_head;
+    byte key, new_head;
 
     key = _port_pio_a_data;     /* read key (clears PIO interrupt) */
     new_head = (kbhead + 1) & KBMASK;
@@ -1654,7 +1635,7 @@ void isr_pio_kbd(void) __naked
  */
 static void isr_floppy_body(void)
 {
-    uint8_t delay;
+    byte delay;
 
     fl_flg = 0xFF;
 

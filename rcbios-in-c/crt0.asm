@@ -219,16 +219,14 @@ _cboot:
     EXTERN _bios_wfitr, _bios_reads, _bios_linsel
     EXTERN _bios_exit, _bios_clock, _bios_hrdfmt
 
-PUBLIC _adrmod, _wr5a, _wr5b, _mtype
-PUBLIC _fd0, _bootd
-
-_adrmod:    defb 0          ; 0xDA33: addressing mode (0=XY, 1=YX)
-_wr5a:      defb 0          ; 0xDA34: SIO-A WR5 bits/char
-_wr5b:      defb 0          ; 0xDA35: SIO-B WR5 bits/char
-_mtype:     defb 0          ; 0xDA36: machine type (0=RC700)
-_fd0:       defs 16         ; 0xDA37-0xDA46: drive format table
-            defb 0xFF       ; 0xDA47: terminator
-_bootd:     defb 0          ; 0xDA48: boot disk (0=floppy)
+; JTVARS storage (labels/PUBLIC now in bios.h via __at)
+    defb 0          ; 0xDA33: adrmod
+    defb 0          ; 0xDA34: wr5a
+    defb 0          ; 0xDA35: wr5b
+    defb 0          ; 0xDA36: mtype
+    defs 16         ; 0xDA37-0xDA46: fd0 (drive format table)
+    defb 0xFF       ; 0xDA47: terminator
+    defb 0          ; 0xDA48: bootd
 
 ; ====================================================================
 ; Extended jump table (0xDA49+)
@@ -297,36 +295,11 @@ _isr_dummy:
 
 ; ====================================================================
 ; Fixed-address variables (0xFFD0-0xFFFF)
-; Defined via DEFC so C code can access them as extern globals.
-; These are NOT in the binary — they're in display/work RAM.
+; Now defined in bios.h via __at(). These DEFCs are no longer needed.
 ; ====================================================================
 
-PUBLIC _curx, _cury, _cursy, _locbuf, _xflg, _locad, _usession
-
-defc _curx   = 0xFFD1       ; cursor column (0-79)
-defc _cury   = 0xFFD2       ; cursor row offset (row * 80, word)
-defc _cursy  = 0xFFD4       ; cursor row number (0-24)
-defc _locbuf = 0xFFD5       ; scroll source pointer (word)
-defc _xflg   = 0xFFD7       ; escape state (0=normal)
-defc _locad  = 0xFFD8       ; screen position offset (word)
-defc _usession = 0xFFDA     ; character being output
-
-PUBLIC _adr0, _timer1, _timer2, _delcnt, _warmjp, _fdtimo_var
-PUBLIC _stptim_var, _clktim, _rtc0, _rtc2
-
-defc _adr0       = 0xFFDE   ; XY escape first coordinate
-defc _timer1     = 0xFFDF   ; warm-boot countdown (word)
-defc _timer2     = 0xFFE1   ; motor stop countdown (word)
-defc _delcnt     = 0xFFE3   ; general delay timer (word)
-defc _warmjp     = 0xFFE5   ; exit routine JP target (word)
-defc _fdtimo_var = 0xFFE7   ; motor-off reload value
-defc _stptim_var = 0xFFEA   ; motor timer reload (word)
-defc _clktim     = 0xFFEC   ; clock/screen-blank timer (word)
-defc _rtc0       = 0xFFFC   ; RTC low word
-defc _rtc2       = 0xFFFE   ; RTC high word
-
 ; ====================================================================
-; Other fixed addresses
+; Other fixed addresses (still needed by crt0.asm code)
 ; ====================================================================
 
 defc _dspstr = 0xF800       ; display refresh memory (80x25)

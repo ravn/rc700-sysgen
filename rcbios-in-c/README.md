@@ -14,7 +14,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- Current size: 7251 bytes (fits maxi 9984, over mini 6144 by ~1107)
+- Current size: 7321 bytes (fits maxi 9984, over mini 6144 by ~1177)
 
 ## Building
 
@@ -28,16 +28,29 @@ make clean   # remove build artifacts
 
 ## Architecture
 
-- **crt0.asm**: Binary layout, JP table, IVT, fixed-address variables (DEFC)
-- **bios.c**: All BIOS entry points and ISRs in C
-- **bios.h**: Constants, memory layout, extern declarations
+- **crt0.asm**: Binary layout, JP table, IVT, disk tables, CONFI config block
+- **bios.c**: All BIOS entry points and ISRs in C (uses `byte` typedef for `uint8_t`)
+- **bios.h**: Constants, memory layout, `WorkArea` and `JTVars` structs
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O for Z80)
 - **danish.bin**: Character conversion tables (384 bytes, extracted from assembled BIOS)
 - **peephole.def**: SDCC peephole optimizer rules
+- **conout_test.asm**: CONOUT control code exerciser (insert/delete line, scroll, erase)
 - **SDCCCALL.md**: Calling conventions, register allocation, inlining guide
+- **ASM_BLOCKS.md**: Analysis of all inline asm blocks and C convertibility
 - **STACK_ANALYSIS.md**: Call graph, no-recursion proof, stack depth
 - **STACK_BUG_ANALYSIS.md**: Warm boot stack corruption bug and fix
 - **test_sdcccall.c**: Experimental verification of sdcccall(1) register usage
+
+### Memory-mapped variables
+
+Fixed-address hardware variables are defined as C structs with pointer casts:
+
+- **`WorkArea`** at 0xFFD0: cursor state, timers, ISR variables (cleared at boot)
+- **`JTVars`** at 0xDA33: CONFI configuration, drive format table (in binary)
+
+Accessed via macros (`curx`, `cury`, `timer1`, `fd0[n]`, etc.) that expand to
+`W.field` or `JT.field` where `W`/`JT` are volatile struct pointers. This
+generates efficient direct-address code and saved 33 bytes vs individual `__at()`.
 
 ### z88dk notes
 
@@ -96,8 +109,22 @@ The warm boot stack must be outside the CCP+BDOS area (0xC400-0xD9FF) being
 loaded. Both `bios_boot` and `bios_wboot` use SP=0xF500 (the BIOS private
 stack, 5KB above BSS). See `STACK_BUG_ANALYSIS.md` for the original bug.
 
+## Remaining inline assembly
+
+All block memory operations (scroll, clear, insert/delete line) are now pure C
+using `memcpy`/`memset`/loops. The remaining asm blocks are:
+
+- **ISR wrappers** (3): stack switch to ISTACK, save all regs, EI+RETI
+- **BIOS stack-switch entries** (7): SP switch to 0xF500 before calling C body
+- **CP/M ABI glue** (4): `settrk`/`setsec`/`setdma` store BC, `sectran` BC→HL
+- **DI/EI/HALT intrinsics**: interrupt control, wait-for-interrupt
+- **CCP jump**: load CDISK, jump to CCP at warm boot
+
+See `ASM_BLOCKS.md` for full analysis.
+
 ## Next steps
 
 - SIO serial ring buffer with RTS flow control
-- MINI (5.25") support (currently over limit by ~1107 bytes)
+- MINI (5.25") support (currently over limit by ~1177 bytes)
 - Tables (CLOCK, SETWARM, LINSEL)
+- Replace `__asm__("di")`/`__asm__("ei")`/`__asm__("halt")` with z88dk intrinsics

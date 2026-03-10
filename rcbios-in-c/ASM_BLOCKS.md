@@ -178,18 +178,39 @@ Could be `return (kbtail != kbhead) ? 0xFF : 0x00;` but the CP/M convention
 requires the result in A, not in the sdcccall(1) return register. With
 `__naked`, we'd still need asm for the return. **Keep asm.**
 
-## Conclusion
+## Conversions completed
 
-The asm blocks fall into three groups:
+All block memory operations and bare stubs have been converted to C:
 
-1. **Hardware primitives** (ISR wrappers, DI/EI, RETI, HALT, IN/OUT): must stay asm.
-2. **CP/M ABI glue** (BC params, A returns): must stay asm (1–3 instructions each).
-3. **Block memory ops** (LDIR/LDDR, OTIR): could be C but would be slower and
-   not significantly smaller.
+| Original asm | C replacement | Notes |
+|-------------|---------------|-------|
+| `scroll()` LDIR | `memcpy(DSPROW(0), DSPROW(1), ...)` | Compiles to LDIR |
+| `clear_screen()` LDIR fill | `memset(screen, ' ', SCRN_SIZE)` | Compiles to LDIR |
+| `delete_line()` LDIR | `memcpy(dst, dst + 80, count)` | Compiles to LDIR |
+| `insert_line()` LDDR | Backward byte loop | sdcc can't generate LDDR; memmove library hangs |
+| `init_bios()` LDIR fills | `memset(...)` | Compiles to LDIR |
+| `init_bios()` SIO OTIR | C `for` loop | Runs once at boot |
+| `bios_list`, `bios_punch` | Empty `void` functions | Share `l_ret` (0 bytes) |
+| `bios_reader` | `return 0x1A` | sdcccall(1) 8-bit return in A matches CP/M |
+| `bios_const` | `return (kbtail != kbhead) ? 0xFF : 0` | 8-bit return matches |
+| `bios_conin` | C with `__asm__("halt")` | Ring buffer in C |
+| `bios_listst`, `bios_reads` | `return 0xFF` / `return 0` | Trivial C |
+| 5 void stubs | Empty C functions | `wfitr`, `linsel`, `exit`, `clock`, `hrdfmt` |
 
-The only blocks where C rewrite would *improve clarity* without significant
-penalty:
-- `init_bios()` SIO OTIR → C loop (runs once, same size)
-- `init_bios()` memory clears → C loops (run once)
+### memmove library bug
 
-These are low-priority since they only execute during cold boot.
+The z88dk `memmove_callee` library function hangs when used for overlapping
+backward copies (insert_line). Verified in MAME: the function never returns.
+`memcpy` works correctly for non-overlapping forward copies (scroll, delete).
+`insert_line` uses an explicit backward byte loop as a workaround.
+
+## Remaining asm (cannot be C)
+
+1. **ISR wrappers** (3): stack switch to ISTACK, register save/restore, EI+RETI
+2. **BIOS stack-switch entries** (7): SP to 0xF500 before calling C body
+3. **CP/M ABI glue** (4): BC param store, BC→HL identity translation
+4. **DI/EI/HALT intrinsics**: `__asm__("di")`, `__asm__("ei")`, `__asm__("halt")`
+5. **CCP jump**: load CDISK from 0x0004, jump to CCP
+
+z88dk provides `intrinsic_di()`, `intrinsic_ei()`, `intrinsic_halt()` in
+`<intrinsic.h>` as potential replacements for the single-instruction asm blocks.

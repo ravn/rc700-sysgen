@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 
+typedef uint8_t byte;
+
 /* Memory layout constants */
 #define DSPSTR      0xF800      /* display refresh memory base */
 #define SCRNEND     0xFFCF      /* last byte of display RAM */
@@ -17,8 +19,11 @@
 #define SCRN_ROWS   25
 #define SCRN_SIZE   (SCRN_COLS * SCRN_ROWS)  /* 2000 bytes */
 
-/* Display row addresses: DSPROW0 = 0xF800, DSPROW1 = 0xF850, ... DSPROW24 = 0xFF80 */
-#define DSPROW(n)   (DSPSTR + (n) * SCRN_COLS)
+/* Display buffer as a typed array at the hardware address */
+#define screen      ((byte *)DSPSTR)
+
+/* Pointer to start of row n */
+#define DSPROW(n)   (screen + (n) * SCRN_COLS)
 
 /* Cursor coordinate limits */
 #define COLUMN0     0
@@ -68,42 +73,92 @@
 #define KBMASK      (KBBUFSZ-1)
 
 /*
- * Fixed-address variables (defined in crt0.asm via DEFC)
- * On Z80: these are at absolute addresses in the 0xFFD0-0xFFFF work area.
- * On host: regular globals in hal_host.c.
+ * Work area struct at 0xFFD0-0xFFFF.
+ * Layout matches original BIOS ORG+DS block. Gaps are reserved bytes.
  */
-extern volatile uint8_t  curx;          /* 0xFFD1: cursor column */
-extern volatile uint16_t cury;          /* 0xFFD2: cursor row offset */
-extern volatile uint8_t  cursy;         /* 0xFFD4: cursor row number */
-extern volatile uint16_t locbuf;        /* 0xFFD5: scroll source pointer */
-extern volatile uint8_t  xflg;          /* 0xFFD7: escape state */
-extern volatile uint16_t locad;         /* 0xFFD8: screen position */
-extern volatile uint8_t  usession;      /* 0xFFDA: char being output */
+typedef struct {
+    byte  _pad0;            /* 0xFFD0: reserved */
+    byte  curx;             /* 0xFFD1: cursor column (0-79) */
+    uint16_t cury;          /* 0xFFD2: cursor row offset (row * 80) */
+    byte  cursy;            /* 0xFFD4: cursor row number (0-24) */
+    uint16_t locbuf;        /* 0xFFD5: scroll source pointer */
+    byte  xflg;             /* 0xFFD7: escape state (0=normal) */
+    uint16_t locad;         /* 0xFFD8: screen position offset */
+    byte  usession;         /* 0xFFDA: character being output */
+    byte  _pad1[3];         /* 0xFFDB-0xFFDD: gap */
+    byte  adr0;             /* 0xFFDE: XY escape first coordinate */
+    uint16_t timer1;        /* 0xFFDF: warm-boot countdown */
+    uint16_t timer2;        /* 0xFFE1: motor stop countdown */
+    uint16_t delcnt;        /* 0xFFE3: delay timer */
+    uint16_t warmjp;        /* 0xFFE5: exit routine JP target */
+    byte  fdtimo_var;       /* 0xFFE7: motor-off reload value */
+    byte  _pad2[2];         /* 0xFFE8-0xFFE9: gap */
+    uint16_t stptim_var;    /* 0xFFEA: motor timer reload */
+    uint16_t clktim;        /* 0xFFEC: clock/screen-blank timer */
+    byte  _pad3[14];        /* 0xFFEE-0xFFFB: gap */
+    uint16_t rtc0;          /* 0xFFFC: RTC low word */
+    uint16_t rtc2;          /* 0xFFFE: RTC high word */
+} WorkArea;
 
-extern volatile uint8_t  adr0;          /* 0xFFDE: XY escape coordinate */
-extern volatile uint16_t timer1;        /* 0xFFDF: warm-boot countdown */
-extern volatile uint16_t timer2;        /* 0xFFE1: motor stop countdown */
-extern volatile uint16_t delcnt;        /* 0xFFE3: delay timer */
-extern volatile uint16_t warmjp;        /* 0xFFE5: exit routine address */
-extern volatile uint8_t  fdtimo_var;    /* 0xFFE7: motor-off reload */
-extern volatile uint16_t stptim_var;    /* 0xFFEA: motor timer reload */
-extern volatile uint16_t clktim;        /* 0xFFEC: clock timer */
-extern volatile uint16_t rtc0;          /* 0xFFFC: RTC low word */
-extern volatile uint16_t rtc2;          /* 0xFFFE: RTC high word */
+#ifndef HOST_TEST
+#define W (*(volatile WorkArea *)0xFFD0)
+#else
+extern volatile WorkArea _workarea;
+#define W _workarea
+#endif
 
-/* JTVARS (fixed at 0xDA33+, defined in crt0.asm) */
-extern uint8_t  adrmod;        /* 0xDA33 */
-extern uint8_t  wr5a;          /* 0xDA34 */
-extern uint8_t  wr5b;          /* 0xDA35 */
-extern uint8_t  mtype;         /* 0xDA36 */
-extern uint8_t  fd0;           /* 0xDA37 (16-byte array) */
-extern uint8_t  bootd;         /* 0xDA48 */
+/* Convenience accessors */
+#define curx        W.curx
+#define cury        W.cury
+#define cursy       W.cursy
+#define locbuf      W.locbuf
+#define xflg        W.xflg
+#define locad       W.locad
+#define usession    W.usession
+#define adr0        W.adr0
+#define timer1      W.timer1
+#define timer2      W.timer2
+#define delcnt      W.delcnt
+#define warmjp      W.warmjp
+#define fdtimo_var  W.fdtimo_var
+#define stptim_var  W.stptim_var
+#define clktim      W.clktim
+#define rtc0        W.rtc0
+#define rtc2        W.rtc2
+
+/*
+ * JTVARS — configuration at 0xDA33+ (storage in crt0.asm binary).
+ * CONFI.COM and external programs depend on these positions.
+ */
+typedef struct {
+    byte  adrmod;           /* 0xDA33: addressing mode (0=XY, 1=YX) */
+    byte  wr5a;             /* 0xDA34: SIO-A WR5 bits/char */
+    byte  wr5b;             /* 0xDA35: SIO-B WR5 bits/char */
+    byte  mtype;            /* 0xDA36: machine type (0=RC700) */
+    byte  fd0[16];          /* 0xDA37-0xDA46: drive format table */
+    byte  fd0_term;         /* 0xDA47: terminator (0xFF) */
+    byte  bootd;            /* 0xDA48: boot disk (0=floppy) */
+} JTVars;
+
+#ifndef HOST_TEST
+#define JT (*(volatile JTVars *)0xDA33)
+#else
+extern volatile JTVars _jtvars;
+#define JT _jtvars
+#endif
+
+#define adrmod      JT.adrmod
+#define wr5a        JT.wr5a
+#define wr5b        JT.wr5b
+#define mtype       JT.mtype
+#define fd0         JT.fd0
+#define bootd       JT.bootd
 
 /* Disk tables (in crt0.asm CODE section) */
-extern uint8_t tran0[], tran8[], tran16[], tran24[];
-extern uint8_t dpb0[], dpb8[], dpb16[], dpb24[];
-extern uint8_t fspa00[];            /* 4 × 16-byte format parameter blocks */
-extern uint8_t fdf1[];              /* format descriptor FDF1 */
+extern byte tran0[], tran8[], tran16[], tran24[];
+extern byte dpb0[], dpb8[], dpb16[], dpb24[];
+extern byte fspa00[];            /* 4 × 16-byte format parameter blocks */
+extern byte fdf1[];              /* format descriptor FDF1 */
 extern uint16_t trkoff[];           /* track offset table */
 
 /* Write type constants */
@@ -112,13 +167,13 @@ extern uint16_t trkoff[];           /* track offset table */
 #define WRUAL   2   /* write to unallocated sector */
 
 /* CONFI config block (in crt0.asm, fixed layout on Track 0) */
-extern uint8_t mode0, count0;
-extern uint8_t psioa[];        /* 9 bytes */
-extern uint8_t psiob[];        /* 11 bytes */
-extern uint8_t par1, par2, par3, par4;
-extern uint8_t fdprog[];
-extern uint8_t xyflg;
+extern byte mode0, count0;
+extern byte psioa[];        /* 9 bytes */
+extern byte psiob[];        /* 11 bytes */
+extern byte par1, par2, par3, par4;
+extern byte fdprog[];
+extern byte xyflg;
 extern uint16_t cfgstptim;
-extern uint8_t infd0;
+extern byte infd0;
 
 #endif /* BIOS_H */
