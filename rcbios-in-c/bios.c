@@ -1613,13 +1613,24 @@ word bios_sectran(word sector) __naked
 
 /* ================================================================
  * Extended BIOS entries (DA4A+)
+ *
+ * RC700-specific extensions beyond the standard CP/M 2.2 BIOS.
+ * Documented in CP/M User's Guide section 4.4 "Extended BIOS Functions".
  * These use register-based calling conventions that differ from
  * sdcccall(1), so most need __naked wrappers with inline asm.
+ *
+ *   DA4A  JP WFITR    Wait for FDC interrupt, return result
+ *   DA4D  JP READS    Reader status (0xFF=data, 0=empty)
+ *   DA50  JP LINSEL   RC791 line selector control
+ *   DA53  JP EXIT     Register application timeout callback
+ *   DA56  JP CLOCK    Read/set 32-bit real-time clock
+ *   DA59  JP HRDFMT   Format hard disk track (stub)
  * ================================================================ */
 
-/* WFITR (DA4A): Wait for FDC interrupt, return result.
+/* WFITR (DA4A): PROCEDURE WAIT_CLEAR_FD_INTERRUPT
+ * Waits for FDC interrupt flag, then returns result status.
  * Returns: B=ST0 (rstab[0]), C=ST1 (rstab[1]).
- * Used by format utilities (SYSGEN, FORMAT.COM). */
+ * Used by FORMAT.COM (RC700 FORMAT UTILITY VERS 1.2). */
 void bios_wfitr(void) __naked
 {
     wfitr();
@@ -1632,20 +1643,38 @@ void bios_wfitr(void) __naked
     __endasm;
 }
 
-/* READS (DA4D): Reader status — 0xFF if data available, 0 if empty. */
+/* READS (DA4D): Reader status.
+ * Returns: A=0xFF if character available in RX ring buffer,
+ *          A=0x00 if buffer empty. */
 byte bios_reads(void)
 {
     return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 
-/* LINSEL (DA50): Line selection for RC791 V.24 multiplexer.
- * Input: A=port (0=terminal SIO-A, 1=printer SIO-B), B=line (0=release, 1=A, 2=B).
- * Returns: A=0xFF if CTS active, 0 if not (and line released).
+/* LINSEL (DA50): PROCEDURE LINE_SELECT
+ * Controls the RC791 Line Selector (Linieselektor), a V.24 multiplexer
+ * that routes 8 V.24 inputs to 2 outputs.
  *
- * SIO register access requires OUT (C),r with variable port address.
- * Two code paths (SIO-A / SIO-B) use fixed __sfr ports instead. */
+ * Input:  A = port (0=terminal SIO-A, 1=printer SIO-B)
+ *         B = line (0=release, 1=select line A, 2=select line B)
+ *         C = irrelevant
+ * Returns: A = 0xFF if selection OK (CTS active)
+ *          A = 0x00 if line busy (CTS not active, line released)
+ *
+ * Protocol (from original source):
+ *   1. Wait for all-sent (RR1 bit 0)
+ *   2. Delay between line release and new select
+ *   3. DTR:=FALSE; RTS:=FALSE
+ *   4. IF B<>0 THEN
+ *        DTR:=FALSE; RTS:=(B=2)    (* wait at least 100 ns *)
+ *        DTR:=TRUE                 (* wait 1-2 timer periods *)
+ *        IF CTS THEN A:=0FFH
+ *        ELSE A:=0; DTR:=FALSE; RTS:=FALSE
+ *
+ * The original asm uses OUT (C),r with a variable port in the C register.
+ * This C version uses two code paths (SIO-A / SIO-B) with fixed ports. */
 
-/* SIO register access via fixed ports (two code paths for A/B) */
+/* SIO WR5 access via fixed ports (two code paths for A/B) */
 static byte ls_port;    /* 0=SIO-A, 1=SIO-B */
 
 static void sio_wr5(byte val)
@@ -1668,8 +1697,6 @@ static byte sio_rd1(void)
     _port_sio_a_ctrl = 1;
     return _port_sio_a_ctrl;
 }
-
-static byte ls_line;
 
 static byte ls_line;
 
@@ -1733,9 +1760,13 @@ void bios_linsel(void) __naked
     __endasm;
 }
 
-/* EXIT (DA53): Register application timeout callback.
- * Input: HL=routine address, DE=countdown (20ms ticks).
- * CRT ISR decrements timer1 (0xFFDF); when 0, calls warmjp (0xFFE5). */
+/* EXIT (DA53): PROCEDURE DEF_EXIT_ROUTINE
+ * Registers an application timeout callback.
+ * Input: HL = callback routine address
+ *        DE = countdown in 20ms ticks
+ * The CRT ISR decrements the counter every 20ms; when it reaches zero,
+ * the callback at HL is invoked with interrupts disabled.
+ * The callback must NOT enable interrupts and must return via RET. */
 void bios_exit(void) __naked
 {
     __asm
@@ -1746,28 +1777,35 @@ void bios_exit(void) __naked
     __endasm;
 }
 
-/* CLOCK (DA56): Read or set 32-bit real-time clock.
- * Input: A=0 → set (DE=low, HL=high), A≠0 → read.
- * Returns (read): DE=low, HL=high. */
+/* CLOCK (DA56): PROCEDURE CLOCK
+ * Reads or sets the 32-bit real-time clock (incremented every 20ms
+ * by the CRT ISR, stored at 0xFFFC-0xFFFF).
+ * Input:  A=0  → SET clock from DE (low word) and HL (high word)
+ *         A≠0  → GET clock
+ * Returns (GET): DE = clock bits 0-15, HL = clock bits 16-31 */
 void bios_clock(void) __naked
 {
     __asm
-        or a
-        jr z, _clock_set
-        ; Read clock
-        di
-        ld de, (0xFFFC)         ; rtc0
-        ld hl, (0xFFFE)         ; rtc2
+        or a                    ; PROCEDURE CLOCK;
+        jr z, _clock_set        ; BEGIN
+        ; Read clock              ;   IF A<>0 THEN
+        di                      ;     READ_CLOCK
+        ld de, (0xFFFC)         ;     rtc0
+        ld hl, (0xFFFE)         ;     rtc2
         ei
-        ret
+        ret                     ;   ELSE
     _clock_set:
-        ; Set clock
-        ld (0xFFFC), de         ; rtc0
-        ld (0xFFFE), hl         ; rtc2
+        ld (0xFFFC), de         ;     SET_CLOCK;
+        ld (0xFFFE), hl         ; END;
         ret
     __endasm;
 }
 
+/* HRDFMT (DA59): Format hard disk track (WD1000 controller).
+ * Input: A=size/drive/head, B=write precomp, C=sector count,
+ *        DE=cylinder, DMAADR→format spec data.
+ * Returns: A=0 success, A=1 error.
+ * Stub — hard disk not supported in this BIOS. */
 void bios_hrdfmt(void) { }
 
 /* ================================================================
