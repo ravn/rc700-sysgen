@@ -335,6 +335,6 @@ defc _stack  = 0xF680       ; BIOS driver stack top
 ; ====================================================================
 
     SECTION BSS
-    org 0xEF00
+    org 0xEF30
 
     SECTION bss_compiler

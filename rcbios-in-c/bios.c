@@ -1622,18 +1622,12 @@ word bios_sectran(word sector) __naked
  * Used by format utilities (SYSGEN, FORMAT.COM). */
 void bios_wfitr(void) __naked
 {
-    while (!fl_flg)
-        ;
+    wfitr();
     __asm
         ld a, (_rstab)
         ld b, a
         ld a, (_rstab + 1)
         ld c, a
-    __endasm;
-    hal_di();
-    fl_flg = 0;
-    hal_ei();
-    __asm
         ret
     __endasm;
 }
@@ -1646,81 +1640,96 @@ byte bios_reads(void)
 
 /* LINSEL (DA50): Line selection for RC791 V.24 multiplexer.
  * Input: A=port (0=terminal SIO-A, 1=printer SIO-B), B=line (0=release, 1=A, 2=B).
- * Returns: A=0xFF if CTS active, 0 if not (and line released). */
+ * Returns: A=0xFF if CTS active, 0 if not (and line released).
+ *
+ * SIO register access requires OUT (C),r with variable port address.
+ * Two code paths (SIO-A / SIO-B) use fixed __sfr ports instead. */
+
+/* SIO register access via fixed ports (two code paths for A/B) */
+static byte ls_port;    /* 0=SIO-A, 1=SIO-B */
+
+static void sio_wr5(byte val)
+{
+    if (ls_port) {
+        _port_sio_b_ctrl = 5;
+        _port_sio_b_ctrl = val;
+    } else {
+        _port_sio_a_ctrl = 5;
+        _port_sio_a_ctrl = val;
+    }
+}
+
+static byte sio_rd1(void)
+{
+    if (ls_port) {
+        _port_sio_b_ctrl = 1;
+        return _port_sio_b_ctrl;
+    }
+    _port_sio_a_ctrl = 1;
+    return _port_sio_a_ctrl;
+}
+
+static byte ls_line;
+
+static byte ls_line;
+
 void bios_linsel(void) __naked
 {
     __asm
-        ; A=port offset, B=line number
-        add a, #0x0A            ; A += SIOAC port
-        ld c, a                 ; C = SIO ctrl port
-
-        ; Release line: wait for all-sent (RR1 bit 0)
-    _linsel_reslin:
-        di
-        ld a, #1
-        out (c), a              ; select RR1
-        in a, (c)               ; read RR1
-        ei
-        and #0x01               ; all-sent bit
-        jr z, _linsel_reslin
-
-        ; Delay between line release and new select
-        push bc
+        ; A=port (0=SIO-A, 1=SIO-B), B=line (0-2)
+        ld (_ls_port), a
+        ld a, b
+        ld (_ls_line), a
     __endasm;
+
+    /* Wait for all-sent (RR1 bit 0) */
+    while (!(sio_rd1() & 0x01))
+        ;
+
     waitd(2);
-    __asm
-        pop bc
 
-        ld d, #5                ; WR5 register number
-        ld a, #0                ; DTR=0, RTS=0
-        di
-        out (c), d              ; select WR5
-        out (c), a              ; clear all signals
-        ei
+    /* Release: DTR=0, RTS=0 */
+    hal_di();
+    sio_wr5(0x00);
+    hal_ei();
 
-        dec b                   ; B=0 means release only
-        ret m                   ; done if B was 0
+    if (ls_line == 0) {
+        __asm
+            xor a
+            ret
+        __endasm;
+    }
 
-        ; Select line: B=1→DTR only, B=2→DTR+RTS
-        sla b                   ; B *= 2 (bit 1 = RTS)
-        or b                    ; A = 0 | B (RTS bit)
-        di
-        out (c), d              ; select WR5
-        out (c), a              ; set RTS (if B=2)
-        ei
-        or #0x80                ; set DTR (bit 7)
-        di
-        out (c), d              ; select WR5
-        out (c), a              ; set DTR + RTS
-        ei
+    /* Select line: line=1→DTR only, line=2→DTR+RTS */
+    {
+        static byte wr5val;
+        wr5val = (byte)(ls_line << 1);      /* RTS bit position */
+        hal_di();
+        sio_wr5(wr5val);
+        hal_ei();
+        wr5val |= 0x80;                     /* add DTR */
+        hal_di();
+        sio_wr5(wr5val);
+        hal_ei();
+    }
 
-        ; Wait for CTS to come up
-        push bc
-    __endasm;
     waitd(2);
+
+    /* Check CTS (RR0 bit 5) — cached by ISR */
+    if ((ls_port ? rr0_b : rr0_a) & 0x20) {
+        __asm
+            ld a, #0xFF
+            ret
+        __endasm;
+    }
+
+    /* No CTS — release line */
+    hal_di();
+    sio_wr5(0x00);
+    hal_ei();
     __asm
-        pop bc
-
-        ; Check CTS (RR0 bit 5) for the selected channel
-        ld a, c
-        cp #0x0A                ; SIOAC?
-        ld a, (_rr0_a)
-        jr z, _linsel_chkcts
-        ld a, (_rr0_b)
-    _linsel_chkcts:
-        and #0x20               ; CTS bit
-        jr z, _linsel_nocts     ; no CTS → release line
-        ld a, #0xFF             ; CTS active
-        ret
-
-    _linsel_nocts:
-        ; Release: DTR=0, RTS=0
-        di
-        out (c), d              ; select WR5
         xor a
-        out (c), a              ; clear signals
-        ei
-        ret                     ; A=0
+        ret
     __endasm;
 }
 
