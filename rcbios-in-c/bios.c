@@ -23,8 +23,6 @@
 static void conout_body(void);
 static void putch(byte c);
 static void puts_p(const char *s);
-static void put_hex(word val);
-static void put_dec(word val);
 static word bios_seldsk_c(byte drv);
 static void bios_home_c(void);
 static byte xread(void);
@@ -396,17 +394,6 @@ static void secrd(void)
         if (!(rstab[0] & 0xF8))
             return;                     /* success */
 
-        /* debug: show result bytes on first error */
-        if (repet == 10) {
-            putch('(');
-            put_hex(rstab[0]);
-            putch(' ');
-            put_hex(rstab[1]);
-            putch(' ');
-            put_hex(rstab[2]);
-            putch(')');
-        }
-
         if (rstab[0] & 0x08)            /* write protected — no retry */
             goto fail;
 
@@ -475,41 +462,6 @@ static void wrthst(void)
 {
     chktrk();
     secwr();
-}
-
-/* Debug: dump N bytes from addr as hex */
-static void dbg_hexdump(byte n, byte *p)
-{
-    byte i;
-    for (i = 0; i < n; i++) {
-        put_hex(p[i]);
-        putch(' ');
-    }
-}
-
-static byte wboot_count;
-
-/* Debug trace ring buffer in BSS
- * Each entry: [type, p1, p2_lo, p2_hi]
- * Type codes: 'H'=HOME, 'S'=SELDSK, 'T'=SETTRK, 's'=SETSEC, 'D'=SETDMA,
- *             'R'=READ, 'W'=WRITE, 'X'=SECTRAN, 'B'=WBOOT
- */
-#define DBG_BUFSZ 252
-static byte dbg_idx;
-static byte dbg_buf[DBG_BUFSZ];
-static word dbg_p2;            /* 3rd parameter for dbg_trace4 */
-
-static void dbg_trace4(byte type, byte p1)
-{
-    static byte idx;
-    idx = dbg_idx;
-    if (idx < DBG_BUFSZ) {
-        dbg_buf[idx] = type;
-        dbg_buf[idx + 1] = p1;
-        dbg_buf[idx + 2] = (byte)dbg_p2;
-        dbg_buf[idx + 3] = (byte)(dbg_p2 >> 8);
-        dbg_idx = idx + 4;
-    }
 }
 
 /* Read host buffer from disk */
@@ -758,31 +710,6 @@ static void puts_p(const char *s)
         putch(*s++);
 }
 
-static void put_hex(word v)
-{
-    static byte i;
-    static byte nib;
-    static char buf[5];
-    static word val;
-    val = v;
-    for (i = 0; i < 4; i++) {
-        nib = (val >> 12) & 0xF;
-        buf[i] = nib < 10 ? '0' + nib : 'A' + nib - 10;
-        val <<= 4;
-    }
-    buf[4] = 0;
-    puts_p(buf);
-}
-
-static void put_dec(word val)
-{
-    byte d;
-    if (val >= 10000) { d = 0; while (val >= 10000) { val -= 10000; d++; } putch('0' + d); }
-    if (val >= 1000)  { d = 0; while (val >= 1000)  { val -= 1000;  d++; } putch('0' + d); }
-    if (val >= 100)   { d = 0; while (val >= 100)   { val -= 100;   d++; } putch('0' + d); }
-    if (val >= 10)    { d = 0; while (val >= 10)     { val -= 10;    d++; } putch('0' + d); }
-    putch('0' + (byte)val);
-}
 
 static void wboot_c(void);
 
@@ -807,7 +734,6 @@ static void wboot_c(void)
 {
     byte sec;
 
-    wboot_count++;
     hal_ei();
     bios_seldsk_c(0);
 
@@ -1228,7 +1154,6 @@ void bios_home(void) __naked
 
 static void bios_home_c(void)
 {
-    dbg_p2 = 0; dbg_trace4('H', sekdsk);
     if (hstwrt) {
         wrthst();
     } else {
@@ -1281,7 +1206,6 @@ static word bios_seldsk_c(byte drv)
     static word dph_offset;
 
     drive = drv;
-    dbg_p2 = 0; dbg_trace4('S', drive);
     if (drive > drno)
         return 0;               /* invalid drive */
 
@@ -1376,20 +1300,11 @@ static byte xread(void)
     readop = 1;
     rsflag = 1;
     wrtype = WRUAL;
-    {
-        static byte rc;
-        static byte *d;
-        rc = rwoper();
-        d = (byte *)dmaadr;
-        dbg_p2 = seksec; dbg_trace4('R', (byte)sektrk);
-        dbg_p2 = (word)(d[0] | (d[1] << 8)); dbg_trace4('D', (byte)(dmaadr >> 8));
-        return rc;
-    }
+    return rwoper();
 }
 
 static byte xwrite(byte wt)
 {
-    dbg_p2 = seksec; dbg_trace4('W', wt);
     readop = 0;
     wrtype = wt;
 

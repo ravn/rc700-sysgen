@@ -14,7 +14,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- Current size: 7316 bytes (fits maxi 9984, over mini 6144 by ~1172)
+- Current size: 6566 bytes (fits maxi 9984, over mini 6144 by ~422)
 
 ## Building
 
