@@ -36,6 +36,7 @@ IMDINFO = python3 ../rcbios/imdinfo.py
 # MAME
 MAME = /Users/ravn/git/mame
 MAME_BIN = $(MAME)/regnecentralen
+FLOPTOOL = $(MAME)/floptool
 
 # Disk images for testing
 IMG_MINI = $(HOME)/Downloads/CPM_med_COMAL80.imd
@@ -104,19 +105,24 @@ size: bios
 	fi
 
 # MAME boot test (mini)
+# IMD is read-only in MAME; convert to MFI (writable) for testing.
 mame-mini: bios
 	cp $(IMG_MINI) /tmp/bios_c_mini.imd
 	$(PATCH) /tmp/bios_c_mini.imd bios.cim
+	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_mini.imd /tmp/bios_c_mini.mfi >/dev/null 2>&1
+	rm -f /tmp/bios_c_mini.imd
 	$(MAME_BIN) rc702mini -rompath $(MAME)/roms \
-		-flop1 /tmp/bios_c_mini.imd \
+		-flop1 /tmp/bios_c_mini.mfi \
 		-skip_gameinfo -window -resolution 1100x720
 
 # MAME boot test (maxi)
 mame-maxi: bios
 	cp $(IMG_MAXI) /tmp/bios_c_maxi.imd
 	$(PATCH) /tmp/bios_c_maxi.imd bios.cim
+	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_maxi.imd /tmp/bios_c_maxi.mfi >/dev/null 2>&1
+	rm -f /tmp/bios_c_maxi.imd
 	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
-		-flop1 /tmp/bios_c_maxi.imd \
+		-flop1 /tmp/bios_c_maxi.mfi \
 		-skip_gameinfo -window -resolution 1100x720
 
 # Automated MAME disk test (maxi, with Lua script)

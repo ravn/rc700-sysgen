@@ -21,6 +21,7 @@ void hal_di(void);
 #define __interrupt
 #define __sdcccall(x)
 #define __asm__(x) ((void)0)
+#define hal_halt() ((void)0)
 
 /* Port I/O as regular volatile globals */
 extern volatile uint8_t _port_crt_param, _port_crt_cmd;
@@ -107,8 +108,9 @@ __sfr __at 0x66 _port_hd_sdh;
 __sfr __at 0x67 _port_hd_status;
 
 /* Inline helpers */
-#define hal_ei()  __asm__("ei")
-#define hal_di()  __asm__("di")
+#define hal_ei()    __asm__("ei")
+#define hal_di()    __asm__("di")
+#define hal_halt()  __asm__("halt")
 
 /* DMA channel address/word count (two consecutive port writes) */
 #define hal_dma_ch1_addr(addr) do { \

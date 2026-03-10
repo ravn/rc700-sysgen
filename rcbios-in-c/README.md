@@ -14,7 +14,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1d (CONOUT): full display driver with escape sequences
 - Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
 - Phase 1f (boot): cold boot, warm boot, signon message
-- Current size: 7321 bytes (fits maxi 9984, over mini 6144 by ~1177)
+- Current size: 7345 bytes (fits maxi 9984, over mini 6144 by ~1201)
 
 ## Building
 
@@ -28,10 +28,10 @@ make clean   # remove build artifacts
 
 ## Architecture
 
-- **crt0.asm**: Binary layout, JP table, IVT, disk tables, CONFI config block
-- **bios.c**: All BIOS entry points and ISRs in C (uses `byte` typedef for `uint8_t`)
-- **bios.h**: Constants, memory layout, `WorkArea` and `JTVars` structs
-- **hal.h**: Hardware abstraction (`__sfr __at` port I/O for Z80)
+- **crt0.asm**: Binary layout, JP table, IVT, CONFI config block
+- **bios.c**: All BIOS entry points, ISRs, and disk data tables in C
+- **bios.h**: Constants, memory layout, `WorkArea`/`JTVars`/`DPB`/`FSPA`/`FDF` structs, `byte`/`word` typedefs
+- **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
 - **danish.bin**: Character conversion tables (384 bytes, extracted from assembled BIOS)
 - **peephole.def**: SDCC peephole optimizer rules
 - **conout_test.asm**: CONOUT control code exerciser (insert/delete line, scroll, erase)
@@ -73,14 +73,34 @@ disabled to protect DMA programming and the shared `sp_sav` variable.
 Simple ISRs (flag-set only, stubs) use `__interrupt` which is safe since
 their bodies are empty or trivial.
 
+### Disk data tables
+
+Translation tables (`tran0`–`tran24`), Disk Parameter Blocks (`dpb0`–`dpb24`),
+Floppy Disk Format descriptors (`fdf[4]`), Floppy System Parameters (`fspa[4]`),
+and track offsets (`trkoff[]`) are defined as typed C arrays/structs in bios.c.
+The `form` pointer (`const FDF *`) provides struct-based access to FDF fields
+(`form->dma_count`, `&form->mf`), replacing raw byte offset arithmetic.
+
 ## Testing
 
-Two CCP built-in commands exercise the BIOS file I/O path:
+`run_mame.sh -t` runs the automated test: assembles FILEX.ASM with CP/M's
+ASM.COM, then verifies the output via STAT and TYPE. This exercises the full
+BIOS file I/O path (sequential read, sequential write, directory operations).
 
-- **`DIR *.ASM`** — traverses directory sectors, returns 2 files on SW1711 (`direct:` at line 539 in OS2CCP.ASM)
-- **`TYPE DUMP.ASM`** — opens file and reads data sectors (`type:` at line 625 in OS2CCP.ASM)
+```
+ASM FILEX        → 910-line source, 009H USE FACTOR, 0 errors
+STAT FILEX.PRN   → 266 records, 34K
+TYPE FILEX.PRN   → listing ends at 0x0932 with END START
+```
 
-Use `run_mame.sh -t` to run both commands automatically and dump the screen.
+Reference addresses are saved to `filex_ref.txt`.
+
+### MAME disk format
+
+MAME cannot write back to IMD disk images (`supports_save()` returns false).
+All MAME launch modes convert IMD→MFI (MAME Floppy Image) for writable disks.
+Disk changes persist between interactive MAME sessions. Use `-f` to force a
+fresh image from the IMD source.
 
 ### CP/M source reference
 
@@ -117,7 +137,7 @@ using `memcpy`/`memset`/loops. The remaining asm blocks are:
 - **ISR wrappers** (3): stack switch to ISTACK, save all regs, EI+RETI
 - **BIOS stack-switch entries** (7): SP switch to 0xF500 before calling C body
 - **CP/M ABI glue** (4): `settrk`/`setsec`/`setdma` store BC, `sectran` BC→HL
-- **DI/EI/HALT intrinsics**: interrupt control, wait-for-interrupt
+- **DI/EI/HALT**: `hal_di()`, `hal_ei()`, `hal_halt()` macros in hal.h
 - **CCP jump**: load CDISK, jump to CCP at warm boot
 
 See `ASM_BLOCKS.md` for full analysis.
@@ -125,6 +145,5 @@ See `ASM_BLOCKS.md` for full analysis.
 ## Next steps
 
 - SIO serial ring buffer with RTS flow control
-- MINI (5.25") support (currently over limit by ~1177 bytes)
+- MINI (5.25") support (currently over limit by ~1201 bytes)
 - Tables (CLOCK, SETWARM, LINSEL)
-- Replace `__asm__("di")`/`__asm__("ei")`/`__asm__("halt")` with z88dk intrinsics

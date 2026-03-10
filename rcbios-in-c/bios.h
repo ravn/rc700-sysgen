@@ -10,7 +10,8 @@
 
 #include <stdint.h>
 
-typedef uint8_t byte;
+typedef uint8_t  byte;
+typedef uint16_t word;
 
 /* Memory layout constants */
 #define DSPSTR      0xF800      /* display refresh memory base */
@@ -79,25 +80,25 @@ typedef uint8_t byte;
 typedef struct {
     byte  _pad0;            /* 0xFFD0: reserved */
     byte  curx;             /* 0xFFD1: cursor column (0-79) */
-    uint16_t cury;          /* 0xFFD2: cursor row offset (row * 80) */
+    word cury;          /* 0xFFD2: cursor row offset (row * 80) */
     byte  cursy;            /* 0xFFD4: cursor row number (0-24) */
-    uint16_t locbuf;        /* 0xFFD5: scroll source pointer */
+    word locbuf;        /* 0xFFD5: scroll source pointer */
     byte  xflg;             /* 0xFFD7: escape state (0=normal) */
-    uint16_t locad;         /* 0xFFD8: screen position offset */
+    word locad;         /* 0xFFD8: screen position offset */
     byte  usession;         /* 0xFFDA: character being output */
     byte  _pad1[3];         /* 0xFFDB-0xFFDD: gap */
     byte  adr0;             /* 0xFFDE: XY escape first coordinate */
-    uint16_t timer1;        /* 0xFFDF: warm-boot countdown */
-    uint16_t timer2;        /* 0xFFE1: motor stop countdown */
-    uint16_t delcnt;        /* 0xFFE3: delay timer */
-    uint16_t warmjp;        /* 0xFFE5: exit routine JP target */
+    word timer1;        /* 0xFFDF: warm-boot countdown */
+    word timer2;        /* 0xFFE1: motor stop countdown */
+    word delcnt;        /* 0xFFE3: delay timer */
+    word warmjp;        /* 0xFFE5: exit routine JP target */
     byte  fdtimo_var;       /* 0xFFE7: motor-off reload value */
     byte  _pad2[2];         /* 0xFFE8-0xFFE9: gap */
-    uint16_t stptim_var;    /* 0xFFEA: motor timer reload */
-    uint16_t clktim;        /* 0xFFEC: clock/screen-blank timer */
+    word stptim_var;    /* 0xFFEA: motor timer reload */
+    word clktim;        /* 0xFFEC: clock/screen-blank timer */
     byte  _pad3[14];        /* 0xFFEE-0xFFFB: gap */
-    uint16_t rtc0;          /* 0xFFFC: RTC low word */
-    uint16_t rtc2;          /* 0xFFFE: RTC high word */
+    word rtc0;          /* 0xFFFC: RTC low word */
+    word rtc2;          /* 0xFFFE: RTC high word */
 } WorkArea;
 
 #ifndef HOST_TEST
@@ -154,12 +155,49 @@ extern volatile JTVars _jtvars;
 #define fd0         JT.fd0
 #define bootd       JT.bootd
 
-/* Disk tables (in crt0.asm CODE section) */
-extern byte tran0[], tran8[], tran16[], tran24[];
-extern byte dpb0[], dpb8[], dpb16[], dpb24[];
-extern byte fspa00[];            /* 4 × 16-byte format parameter blocks */
-extern byte fdf1[];              /* format descriptor FDF1 */
-extern uint16_t trkoff[];           /* track offset table */
+/* CP/M Disk Parameter Block */
+typedef struct {
+    word spt;               /* sectors per track */
+    byte  bsh;                  /* block shift factor */
+    byte  blm;                  /* block mask */
+    byte  exm;                  /* extent mask */
+    word dsm;               /* disk size - 1 (in blocks) */
+    word drm;               /* directory entries - 1 */
+    byte  al0, al1;             /* allocation bitmap */
+    word cks;               /* check vector size */
+    word off;               /* track offset */
+} DPB;
+
+/* Floppy System Parameters (16 bytes each) */
+typedef struct {
+    DPB  *dpb;                  /* DPB pointer */
+    byte  cpmrbp;               /* records per block */
+    word cpmspt;            /* CP/M sectors per track */
+    byte  secmsk;               /* sector mask */
+    byte  secshf;               /* sector shift */
+    byte *trantb;               /* translation table pointer */
+    byte  dtlv;                 /* data length value */
+    byte  dsktyp;               /* disk type (0=floppy) */
+    byte  _pad[5];              /* filler to 16 bytes */
+} FSPA;
+
+/* Floppy Disk Format descriptor (8 bytes each) */
+typedef struct {
+    byte  phys_spt;             /* physical sectors per track */
+    word dma_count;         /* DMA byte count */
+    byte  mf;                   /* MF flag (0=FM, 64=MFM) */
+    byte  n;                    /* sector size code (0=128, 1=256, 2=512) */
+    byte  eot;                  /* end of track (last sector number) */
+    byte  gap;                  /* gap length */
+    byte  tracks;               /* total tracks */
+} FDF;
+
+/* Disk tables (defined in bios.c) */
+extern const byte tran0[], tran8[], tran16[], tran24[];
+extern const DPB dpb0, dpb8, dpb16, dpb24;
+extern const FSPA fspa[4];
+extern const FDF fdf[4];
+extern word trkoff[];
 
 /* Write type constants */
 #define WRALL   0   /* write to allocated sector */
@@ -173,7 +211,7 @@ extern byte psiob[];        /* 11 bytes */
 extern byte par1, par2, par3, par4;
 extern byte fdprog[];
 extern byte xyflg;
-extern uint16_t cfgstptim;
+extern word cfgstptim;
 extern byte infd0;
 
 #endif /* BIOS_H */
