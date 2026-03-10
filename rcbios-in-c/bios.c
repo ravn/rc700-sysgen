@@ -202,47 +202,49 @@ static void fdstar(void)
     }
 }
 
-/* FDC low-level — inlined for speed on hot path (saves 27 T-states per call) */
-static inline void fdc_wait_write(void)
+/* FDC Main Status Register bits:
+ *   7: RQM  — Request for Master (1 = ready for CPU access)
+ *   6: DIO  — Data direction (0 = CPU→FDC write, 1 = FDC→CPU read)
+ *   5: EXM  — Execution mode (1 = in execution phase)
+ *   4: CB   — Controller Busy (1 = command in progress)
+ *   3-0:    — Drive seek status (D3-D0 busy flags)
+ */
+
+/* Wait for FDC ready, then write command/parameter byte (RQM=1, DIO=0) */
+static void fdc_write(byte val)
 {
-    while ((_port_fdc_status & 0xC0) != 0x80)
+    while ((_port_fdc_status & 0xC0) != 0x80)  /* RQM+DIO mask */
         ;
+    _port_fdc_data = val;
 }
 
-static inline void fdc_wait_read(void)
+/* Wait for FDC result byte available (RQM=1, DIO=1), return data */
+static byte fdc_read(void)
 {
-    while ((_port_fdc_status & 0xC0) != 0xC0)
+    while ((_port_fdc_status & 0xC0) != 0xC0)  /* RQM+DIO mask */
         ;
+    return _port_fdc_data;
 }
 
 static void fdc_recalibrate(void)
 {
-    fdc_wait_write();
-    _port_fdc_data = 0x07;      /* RECALIBRATE */
-    fdc_wait_write();
-    _port_fdc_data = dskno & 3; /* drive */
+    fdc_write(0x07);            /* RECALIBRATE */
+    fdc_write(dskno & 3);      /* drive */
 }
 
 static void fdc_sense_int(void)
 {
-    fdc_wait_write();
-    _port_fdc_data = 0x08;      /* SENSE INTERRUPT STATUS */
-    fdc_wait_read();
-    rstab[0] = _port_fdc_data;
-    if ((rstab[0] & 0xC0) != 0x80) {
-        fdc_wait_read();
-        rstab[1] = _port_fdc_data;
-    }
+    fdc_write(0x08);            /* SENSE INTERRUPT STATUS */
+    rstab[0] = fdc_read();
+    if ((rstab[0] & 0xC0) != 0x80)
+        rstab[1] = fdc_read();
 }
 
 static void fdc_seek(void)
 {
-    fdc_wait_write();
-    _port_fdc_data = 0x0F;      /* SEEK */
-    fdc_wait_write();
-    _port_fdc_data = dskno & 3; /* drive + head */
-    fdc_wait_write();
-    _port_fdc_data = actra;     /* cylinder */
+    fdc_write(0x0F);            /* SEEK */
+    fdc_write(dskno & 3);      /* drive + head */
+    fdc_write(actra);          /* cylinder */
 }
 
 static void fdc_result(void)
@@ -250,11 +252,10 @@ static void fdc_result(void)
     byte i;
     for (i = 0; i < 7; i++) {
         byte delay;
-        fdc_wait_read();
-        rstab[i] = _port_fdc_data;
+        rstab[i] = fdc_read();
         for (delay = 4; delay; delay--)
             ;
-        if (!(_port_fdc_status & 0x10))
+        if (!(_port_fdc_status & 0x10))  /* CB: more result bytes? */
             return;
     }
 }
@@ -307,24 +308,15 @@ static void flp_dma_setup(void)
 static void fdc_general_cmd(byte cmd, byte *fdfp)
 {
     __asm__("di");
-    fdc_wait_write();
-    _port_fdc_data = cmd + fdfp[0]; /* command + MF flag */
-    fdc_wait_write();
-    _port_fdc_data = dskno;         /* drive + head */
-    fdc_wait_write();
-    _port_fdc_data = actra;         /* cylinder */
-    fdc_wait_write();
-    _port_fdc_data = (dskno >> 2) & 3;  /* head number */
-    fdc_wait_write();
-    _port_fdc_data = acsec;         /* sector */
-    fdc_wait_write();
-    _port_fdc_data = fdfp[1];       /* N (sector size code) */
-    fdc_wait_write();
-    _port_fdc_data = fdfp[2];       /* EOT (final sector) */
-    fdc_wait_write();
-    _port_fdc_data = fdfp[3];       /* gap length */
-    fdc_wait_write();
-    _port_fdc_data = dtlv;          /* data length */
+    fdc_write(cmd + fdfp[0]);       /* command + MF flag */
+    fdc_write(dskno);              /* drive + head */
+    fdc_write(actra);              /* cylinder */
+    fdc_write((dskno >> 2) & 3);   /* head number */
+    fdc_write(acsec);              /* sector */
+    fdc_write(fdfp[1]);            /* N (sector size code) */
+    fdc_write(fdfp[2]);            /* EOT (final sector) */
+    fdc_write(fdfp[3]);            /* gap length */
+    fdc_write(dtlv);               /* data length */
     __asm__("ei");
 }
 
@@ -484,18 +476,15 @@ static byte trkcmp(word *p)
 /* Core blocking/deblocking algorithm (DRI standard) */
 static byte rwoper(void)
 {
-    static byte shift, i;
+    static byte i;
     static word hs;
     static byte *src, *dst;
-    static word offset;
 
     /* compute host sector: sekhst = seksec >> (secshf-1)
-     * Original asm: DEC B first, then shift if nonzero.
      * secshf=3 → 2 shifts (divide by 4, for 512B sectors).
      * secshf=1 → 0 shifts (128B sectors, no deblocking). */
-    shift = secshf;
     hs = seksec;
-    for (i = 1; i < shift; i++)
+    for (i = 1; i < secshf; i++)
         hs >>= 1;
     sekhst = hs;
 
@@ -519,8 +508,7 @@ static byte rwoper(void)
 
 match:
     /* compute offset into host buffer */
-    offset = (word)(seksec & secmsk) << 7;
-    src = &hstbuf[offset];
+    src = &hstbuf[(word)(seksec & secmsk) << 7];
     dst = (byte *)dmaadr;
 
     if (readop) {
@@ -607,17 +595,11 @@ void bios_hw_init(void)
     _port_dma_mode = 0x4B;      /* ch3 mode (display) */
 
     /* FDC: send SPECIFY command */
-    while ((_port_fdc_status & 0x1F) != 0)
-        ;  /* wait for FDC ready */
-    while ((_port_fdc_status & 0xC0) != 0x80)
-        ;
-    _port_fdc_data = 0x03;      /* SPECIFY command */
-    while ((_port_fdc_status & 0xC0) != 0x80)
-        ;
-    _port_fdc_data = 0xDF;      /* step rate 3ms, head unload 240ms */
-    while ((_port_fdc_status & 0xC0) != 0x80)
-        ;
-    _port_fdc_data = 0x28;      /* head load 40ms, DMA mode */
+    while (_port_fdc_status & 0x1F)
+        ;  /* wait for all drives not seeking and not busy */
+    fdc_write(0x03);            /* SPECIFY command */
+    fdc_write(0xDF);            /* step rate 3ms, head unload 240ms */
+    fdc_write(0x28);            /* head load 40ms, DMA mode */
 
     /* Clear display buffer (DSPROW(0) to SCRNEND with spaces) */
     memset(DSPROW(0), ' ', SCRNEND - DSPSTR + 1);
@@ -1202,8 +1184,6 @@ static word bios_seldsk_c(byte drv)
 {
     static byte drive;
     static byte fmt;
-    static byte *fp;
-    static word dph_offset;
 
     drive = drv;
     if (drive > drno)
@@ -1212,8 +1192,7 @@ static word bios_seldsk_c(byte drv)
     sekdsk = drive;
 
     /* look up format from fd0 table */
-    fp = &fd0[drive];
-    fmt = *fp;
+    fmt = fd0[drive];
 
     /* if format changed, flush dirty buffer */
     if (fmt != cform) {
@@ -1227,12 +1206,10 @@ static word bios_seldsk_c(byte drv)
 
     /* get format descriptor (FDF) and system parameters (FSPA) */
     {
-        static byte fi;
         static const FSPA *sp;
-        fi = (fmt >> 3) & 3;           /* format index 0-3 */
-        sp = &fspa[fi];
+        sp = &fspa[(fmt >> 3) & 3];
 
-        form = &fdf[fi];
+        form = &fdf[(fmt >> 3) & 3];
         eotv = form->eot;
 
         /* copy FSPA format parameters to working area */
@@ -1246,16 +1223,13 @@ static word bios_seldsk_c(byte drv)
         dsktyp = sp->dsktyp;
     }
 
-    /* compute DPH offset */
-    dph_offset = (word)drive * 16;
-
     /* update DPB pointer in DPH (offset 10 = word 5) */
     {
-        word *dph = (word *)((byte *)dpbase + dph_offset);
+        word *dph = (word *)((byte *)dpbase + (word)drive * 16);
         dph[5] = dpblck;
     }
 
-    return (word)((byte *)dpbase + dph_offset);
+    return (word)((byte *)dpbase + (word)drive * 16);
 }
 
 void bios_settrk(word track) __naked
@@ -1588,7 +1562,7 @@ void isr_floppy(void) __naked
         fl_flg = 0xFF;
         for (delay = 5; delay; delay--)
             ;
-        if (_port_fdc_status & 0x10)
+        if (_port_fdc_status & 0x10)     /* CB: in result phase */
             fdc_result();
         else
             fdc_sense_int();
