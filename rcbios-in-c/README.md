@@ -25,6 +25,24 @@ order.  Added 4 conditional jump inversion peephole rules (`jr NZ/jp` → `jp Z`
 34 bytes across 17 call sites.  Extracted `start_xy()` for tail-call optimization.
 Size: 6702 → 6692 bytes.
 
+2026-03-11:  Code pattern optimization session.  Key changes:
+- Merged `secrd()`/`secwr()` into `sec_rw(cmd, dma_dir)` — eliminated 91 bytes of
+  duplicated retry/recalibrate logic (the largest single saving).
+- Replaced explicit shift loops (`while (n--) mask >>= 1`) with direct expressions
+  (`0x80 >> n`, `0xFF >> n`, `0xFF << n`) — sdcc generates tight inline shift loops
+  instead of round-tripping through static variables each iteration. Saved 79 bytes
+  across `bg_set_bit`, `bg_clear_from`, and `rwoper`.
+- Eliminated load-modify-store through temp variables (`val = *ptr; val &= ~mask;
+  *ptr = val` → `bgstar[byteoff] &= ~mask`) — compound assignment generates direct
+  read-modify-write. Saved 31 bytes in `bg_clear_from`.
+- Removed dead `gfpa()` function (24 bytes), inlined `trkcmp()` (10 bytes).
+- Computed SELDSK format index once instead of twice (5 bytes).
+- Changed `clear_foreground` loop counter from `word` to `byte` (9 bytes).
+- Added peephole rules for redundant `xor a,a` after `ld (var),a` (3 bytes).
+- Also: extracted `jump_ccp()` as `__naked` function, reordered `goto00`/`start_xy`,
+  made Makefile z88dk/zmac paths portable, added `lis.sh` listing navigation tool.
+Size: 6692 → 6439 bytes (253 bytes saved, 36% of gap to mini closed).
+
 
 ## Status
 
@@ -40,14 +58,14 @@ Size: 6702 → 6692 bytes.
 - Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
 - Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
-- Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array
-- Current size: 6692 bytes (fits maxi 9984, over mini 6144 by 548 bytes)
+- Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array,
+  direct shifts, compound assignments, function merging
+- Current size: 6439 bytes (fits maxi 9984, over mini 6144 by 295 bytes)
 
 ### Missing features
 
 - **Hard disk support** (WD1000 controller): HRDFMT stub and HD ISR stub present.
-  Postponed until the BIOS fits comfortably on the mini (5.25") disk (need to
-  shrink by ~548 bytes first).
+  Not a priority — target machine is maxi (8") without drives, using CP/NET.
 
 ### Inline assembly syntax
 

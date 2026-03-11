@@ -123,7 +123,7 @@ Stubs in this category:
 2. **`clear_screen()`** — LDIR fill 2000 bytes with 0x20. C: `memset` loop.
    Same timing argument as scroll. **Keep asm.**
 
-3. **`delete_line()`** — LDIR variable count (ROW24_OFF - cury bytes).
+3. **`delete_line()`** — LDIR variable count (ROW24_OFFSET - cury bytes).
    Complex address arithmetic in asm (13 instructions). C equivalent would be
    cleaner but slower. Count calculation uses `SBC HL,BC` which has no direct
    C equivalent that compiles efficiently. **Keep asm for speed**, but the
@@ -210,7 +210,7 @@ backward copies (insert_line). Verified in MAME: the function never returns.
 2. **BIOS stack-switch entries** (7): SP to 0xF500 before calling C body
 3. **CP/M ABI glue** (4): BC param store, BC→HL identity translation
 4. **DI/EI/HALT intrinsics**: `__asm__("di")`, `__asm__("ei")`, `__asm__("halt")`
-5. **CCP jump**: load CDISK from 0x0004, jump to CCP
+5. **CCP jump**: `jump_ccp()` moves drive from A to C, jumps to CCP_BASE
 
 z88dk provides `intrinsic_di()`, `intrinsic_ei()`, `intrinsic_halt()` in
 `<intrinsic.h>` as potential replacements for the single-instruction asm blocks.

@@ -37,7 +37,7 @@ typedef DisplayRow Display[25];
 #define ROW0        0
 #define ROW24       (SCRN_ROWS - 1)             /* 24 */
 #define ROW0_OFF    0                           /* cury byte offset for row 0 */
-#define ROW24_OFF   (ROW24 * SCRN_COLS)         /* cury byte offset for row 24 = 1920 */
+#define ROW24_OFFSET   (ROW24 * SCRN_COLS)         /* cury byte offset for row 24 = 1920 */
 
 #define OUTCON_ADDR 0xF680      /* output conversion table */
 #define INCONV_ADDR 0xF700      /* input conversion table */

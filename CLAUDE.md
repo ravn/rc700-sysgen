@@ -200,6 +200,10 @@ The autoload PROM (ROA375) bootstraps the system:
 6. Disable ROM via port 0x14
 7. Jump to 0x0000 (CP/M cold boot)
 
+## Collaboration Workflow
+- The user may use multiple helpers (GitHub CLI, other tools). Always check for changes by others (git fetch, check remote, review recent commits not by you) as part of normal workflow at session start and before major operations.
+- Look for new commits, branches, PRs, or issues that may affect current work.
+
 ## Documentation Preference
 - When asked to document findings, write them into the project repo (so they go into git), NOT into `.claude/` memory files.
 - Memory files are only for cross-session working notes, not for analysis results or project documentation.

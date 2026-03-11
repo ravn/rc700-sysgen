@@ -299,7 +299,7 @@ static void wfitr(void)
 }
 
 /* DMA setup for FDC transfers (channel 1)
- * CHKTRK sets dskad = HSTBUF address before calling secrd/secwr.
+ * CHKTRK sets dskad = HSTBUF address before calling sec_rw.
  * write=1 means FDC reads from memory (FLPR), write=0 means FDC writes to memory (FLPW)
  */
 static word dma_count;      /* parameter: byte count for DMA */
@@ -386,9 +386,13 @@ static void chktrk(void)
     fdc_sense_int();
 }
 
-/* Sector read with retry */
-static void secrd(void)
+/* Sector read/write with retry.
+ * cmd: 6=READ DATA, 5=WRITE DATA.  dma_dir: 0=read(FDC→mem), 1=write(mem→FDC). */
+static void sec_rw(byte cmd, byte dma_dir)
 {
+    static byte s_cmd, s_dma_dir;
+    s_cmd = cmd;
+    s_dma_dir = dma_dir;
     repet = 10;
     for (;;) {
         fdstar();
@@ -396,9 +400,9 @@ static void secrd(void)
 
         dma_count = form->dma_count;
 
-        dma_write = 0;
-        flp_dma_setup();                /* FDC → memory */
-        fdc_general_cmd(6, (byte *)&form->mf);  /* READ DATA */
+        dma_write = s_dma_dir;
+        flp_dma_setup();
+        fdc_general_cmd(s_cmd, (byte *)&form->mf);
         watir();
 
         if (!(rstab[0] & 0xF8))
@@ -427,51 +431,11 @@ fail:
     erflag = 1;
 }
 
-/* Sector write with retry */
-static void secwr(void)
-{
-    repet = 10;
-    for (;;) {
-        fdstar();
-        clfit();
-
-        dma_count = form->dma_count;
-
-        dma_write = 1;
-        flp_dma_setup();                /* memory → FDC */
-        fdc_general_cmd(5, (byte *)&form->mf);  /* WRITE DATA */
-        watir();
-
-        if (!(rstab[0] & 0xF8))
-            return;                     /* success */
-
-        if (rstab[0] & 0x08)            /* write protected */
-            goto fail;
-
-        if (--repet == 0)
-            goto fail;
-
-        if (repet == 5) {
-            clfit();
-            fdc_recalibrate();
-            wfitr();
-            fdc_sense_int();
-            clfit();
-            fdc_seek();
-            wfitr();
-            fdc_sense_int();
-        }
-    }
-fail:
-    hstact = 0;
-    erflag = 1;
-}
-
 /* Write host buffer to disk */
 static void wrthst(void)
 {
     chktrk();
-    secwr();
+    sec_rw(5, 1);               /* WRITE DATA, mem→FDC */
 }
 
 /* Read host buffer from disk */
@@ -482,33 +446,23 @@ static void rdhst(void)
     else
         unacnt = 0;
     chktrk();
-    secrd();
+    sec_rw(6, 0);               /* READ DATA, FDC→mem */
 }
 
-/* 16-bit track compare: *(word *)p == sektrk */
-static byte trkcmp(word *p)
-{
-    return *p == sektrk;
-}
 
 /* Core blocking/deblocking algorithm (DRI standard) */
 static byte rwoper(void)
 {
-    static byte i;
-    static word hs;
     static byte *src, *dst;
 
     /* compute host sector: sekhst = seksec >> (secshf-1)
      * secshf=3 → 2 shifts (divide by 4, for 512B sectors).
      * secshf=1 → 0 shifts (128B sectors, no deblocking). */
-    hs = seksec;
-    for (i = 1; i < secshf; i++)
-        hs >>= 1;
-    sekhst = hs;
+    sekhst = seksec >> (byte)(secshf - 1);
 
     /* check if host buffer is active and matches */
     if (hstact) {
-        if (sekdsk == hstdsk && trkcmp(&hsttrk) && sekhst == hstsec)
+        if (sekdsk == hstdsk && hsttrk == sektrk && sekhst == hstsec)
             goto match;
         /* not matching — flush if dirty */
         if (hstwrt)
@@ -556,11 +510,6 @@ match:
     }
 }
 
-/* GFPA: get format descriptor from CFORM */
-static const FDF *gfpa(void)
-{
-    return &fdf[(cform >> 3) & 3];
-}
 
 /* ================================================================
  * Hardware initialization (called from crt0.asm after relocation)
@@ -718,6 +667,7 @@ static void readi(void)
 }
 
 static void wboot_c(void);
+static void jump_ccp(byte drive) __naked;
 
 void bios_boot_c(void)
 {
@@ -787,19 +737,25 @@ static void wboot_c(void)
     /* Set up JP vectors at page zero */
 #ifndef HOST_TEST
     wboot_jp  = 0xC3;                        /* JP opcode */
+    bdos_jp   = 0xC3;                        /* JP opcode, here for the peep hole optimizer */
     wboot_vec = BIOS_BASE + 3;              /* WBOOT entry */
-    bdos_jp   = 0xC3;                        /* JP opcode */
     bdos_vec  = BDOS_BASE;
 
     /* Re-select drive to ensure clean state for CCP */
     bios_seldsk_c(0);
 
-    /* Jump to CCP with current disk in C */
-    __asm__("ld a, (#0x0004)       \n"  /* CDISK */
-            "and #0x0F             \n"  /* mask off user bits */
-            "ld c, a               \n"
-            "jp 0xC400             \n"); /* CCP_BASE */
+    /* Jump to CCP with current disk in register C */
+    jump_ccp(cdisk & 0x0F);
 #endif
+}
+
+/* Jump to CCP entry point — does not return.
+ * drive (in A via sdcccall(1)) is moved to C for CP/M convention. */
+static void jump_ccp(byte drive) __naked
+{
+    (void)drive;
+    __asm__("ld c, a               \n"
+            "jp 0xC400             \n"); /* CCP_BASE */
 }
 
 void bios_wboot(void) __naked
@@ -856,23 +812,22 @@ static void cursorxy(void)
     _port_crt_param = cursy;    /* Y position */
 }
 
-static void goto00(void);
-
-/* Start XY addressing: set xflg and reset cursor.
- * Placed immediately before goto00 so the tail call falls through.
- * TODO: tail call is not yet optimized, the JP to next location is not peep hole optimized */
-static void start_xy(void)
-{
-    xflg = 2;
-    goto00();
-}
-
 /* Reset cursor to top-left (does NOT update 8275) */
 static void goto00(void)
 {
     cury = 0;
     curx = 0;
     cursy = 0;
+}
+
+/* Start XY addressing: set xflg and reset cursor.
+ * Placed immediately before goto00 so the tail call falls through.
+ * TODO: tail call is not yet optimized, the JP to next location is not peep hole optimized, so
+ * moved back so the forward declaration could be removed for cleaner code */
+static void start_xy(void)
+{
+    xflg = 2;
+    goto00();
 }
 
 /* Move cursor down one row */
@@ -894,21 +849,15 @@ static void rowup(void)
 /* Set a bit in BGSTAR for screen position `pos` (0-1999) */
 static void bg_set_bit(word pos)
 {
-    static byte byteoff, bitno, mask, val;
+    static byte byteoff;
     byteoff = (byte)(pos >> 3);
-    bitno = (byte)(pos & 7);
-    mask = 0x80;
-    while (bitno--)
-        mask >>= 1;
-    val = bgstar[byteoff];
-    val |= mask;
-    bgstar[byteoff] = val;
+    bgstar[byteoff] |= (byte)0x80 >> (byte)(pos & 7);
 }
 
 /* Scroll display up one line: copy ROW1..ROW24 to ROW0..ROW23, fill ROW24 */
 static void scroll(void)
 {
-    memcpy(DISPLAY_ROW(0), DISPLAY_ROW(1), ROW24_OFF);
+    memcpy(DISPLAY_ROW(0), DISPLAY_ROW(1), sizeof(Display) - sizeof(DisplayRow));
     memset(DISPLAY_ROW(ROW24), ' ', SCRN_COLS);
     if (bgflg) {
         memcpy(bgstar, bgstar + BG_ROW_BYTES, BGSTAR_SIZE - BG_ROW_BYTES);
@@ -924,7 +873,7 @@ static void cursor_right(void)
         cursorxy();
     } else {
         curx = COLUMN0;
-        if (cury != ROW24_OFF) {
+        if (cury != ROW24_OFFSET) {
             rowdn();
         } else {
             cursorxy();
@@ -944,7 +893,7 @@ static void cursor_left(void)
         if (cury != ROW0_OFF) {
             rowup();
         } else {
-            cury = ROW24_OFF;
+            cury = ROW24_OFFSET;
             cursy = ROW24;
             cursorxy();
         }
@@ -954,7 +903,7 @@ static void cursor_left(void)
 /* Cursor down — scroll if on last row */
 static void cursor_down(void)
 {
-    if (cury != ROW24_OFF)
+    if (cury != ROW24_OFFSET)
         rowdn();
     else
         scroll();
@@ -966,7 +915,7 @@ static void cursor_up(void)
     if (cury != ROW0_OFF) {
         rowup();
     } else {
-        cury = ROW24_OFF;
+        cury = ROW24_OFFSET;
         cursy = ROW24;
         cursorxy();
     }
@@ -1013,43 +962,27 @@ static word bgcl_pos, bgcl_count;
 
 static void bg_clear_from(void)
 {
-    static byte byteoff, bitno, whole, tail, mask, val, shift;
-    static byte *ptr;
+    static byte byteoff, bitno, whole, tail;
     if (!bgflg)
         return;
     byteoff = (byte)(bgcl_pos >> 3);
     bitno = (byte)(bgcl_pos & 7);
     /* Clear remaining bits in the first byte */
     if (bitno) {
-        mask = 0xFF;
-        shift = bitno;
-        while (shift--)
-            mask >>= 1;
-        ptr = bgstar +byteoff;
-        val = *ptr;
-        val &= ~mask;
-        *ptr = val;
+        bgstar[byteoff] &= ~((byte)0xFF >> bitno);
         byteoff++;
         bgcl_count = (bgcl_count > (byte)(8 - bitno)) ? bgcl_count - (8 - bitno) : 0;
     }
     /* Clear whole bytes */
     whole = (byte)(bgcl_count >> 3);
     if (whole) {
-        ptr = bgstar +byteoff;
-        memset(ptr, 0, whole);
+        memset(bgstar + byteoff, 0, whole);
         byteoff += whole;
     }
     /* Clear leading bits of last byte */
     tail = (byte)(bgcl_count & 7);
     if (tail) {
-        mask = 0xFF;
-        shift = 8 - tail;
-        while (shift--)
-            mask <<= 1;
-        ptr = bgstar +byteoff;
-        val = *ptr;
-        val &= ~mask;
-        *ptr = val;
+        bgstar[byteoff] &= ~((byte)0xFF << (byte)(8 - tail));
     }
 }
 
@@ -1086,7 +1019,7 @@ static void delete_line(void)
 {
     static word count;
     static byte *dst;
-    count = ROW24_OFF - cury;
+    count = ROW24_OFFSET - cury;
     dst = screen + cury;
     if (count != 0)
         memcpy(dst, dst + SCRN_COLS, count);
@@ -1110,10 +1043,10 @@ static void insert_line(void)
     static byte *src;
     static byte *dst;
 
-    count = ROW24_OFF - cury;
+    count = ROW24_OFFSET - cury;
     if (count != 0) {
-        src = screen + ROW24_OFF - 1;           /* last byte of ROW23 */
-        dst = screen + ROW24_OFF + SCRN_COLS - 1; /* last byte of ROW24 */
+        src = screen + ROW24_OFFSET - 1;           /* last byte of ROW23 */
+        dst = screen + ROW24_OFFSET + SCRN_COLS - 1; /* last byte of ROW24 */
         while (count--)
             *dst-- = *src--;
     }
@@ -1185,7 +1118,7 @@ static void displ(void)
 /* Clear foreground: erase screen positions where BGSTAR bit is NOT set */
 static void clear_foreground(void)
 {
-    static word i;
+    static byte i;
     static byte *p;
     static byte bits, mask;
     p = screen;
@@ -1417,10 +1350,12 @@ static word bios_seldsk_c(byte drv)
 
     /* get format descriptor (FDF) and system parameters (FSPA) */
     {
+        static byte idx;
         static const FSPA *sp;
-        sp = &fspa[(fmt >> 3) & 3];
+        idx = (fmt >> 3) & 3;
+        sp = &fspa[idx];
 
-        form = &fdf[(fmt >> 3) & 3];
+        form = &fdf[idx];
         eotv = form->eot;
 
         /* copy FSPA format parameters to working area */
@@ -1434,13 +1369,13 @@ static word bios_seldsk_c(byte drv)
         dsktyp = sp->dsktyp;
     }
 
-    /* update DPB pointer in DPH (offset 10 = word 5) */
+    /* update DPB pointer in DPH (offset 10 = word 5) and return it */
     {
-        word *dph = (word *)((byte *)dpbase + (word)drive * 16);
+        static word *dph;
+        dph = (word *)((byte *)dpbase + (word)drive * 16);
         dph[5] = dpblck;
+        return (word)dph;
     }
-
-    return (word)((byte *)dpbase + (word)drive * 16);
 }
 
 void bios_settrk(word track) __naked

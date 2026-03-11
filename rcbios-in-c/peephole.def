@@ -16,6 +16,38 @@
 	xor	a, a
 	out	(%1), a
 
+	xor	a,a
+	ld	(%1),a
+	xor	a,a
+=
+	xor	a,a
+	ld	(%1),a
+
+	xor	a, a
+	ld	(%1),a
+	xor	a, a
+=
+	xor	a, a
+	ld	(%1),a
+
+	xor	a,a
+	ld	(%1),a
+	ld	(%2),a
+	xor	a,a
+=
+	xor	a,a
+	ld	(%1),a
+	ld	(%2),a
+
+	xor	a, a
+	ld	(%1),a
+	ld	(%2),a
+	xor	a, a
+=
+	xor	a, a
+	ld	(%1),a
+	ld	(%2),a
+
 	jp	_%1
 	jp	_%2
 =

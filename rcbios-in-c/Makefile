@@ -9,7 +9,12 @@ CC = cc
 CFLAGS = -Wall -Wextra -std=c99 -DHOST_TEST
 
 # z88dk toolchain
+# Prefer repository sibling ../z88dk (common layout), fall back to z88dk
+ifneq ($(wildcard ../z88dk),)
 Z88DK = ../z88dk
+else
+Z88DK = z88dk
+endif
 ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
@@ -95,6 +100,7 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 		rm -f bios.cim; \
 		exit 1; \
 	fi
+	# Verify fixed-address symbols
 	@# Verify fixed-address symbols (CONFI block, JTVARS, IVT)
 	@FAIL=0; \
 	for pair in _psioa=D508 _psiob=D511 _pchsav=DA6F _itrtab=DB00; do \
@@ -162,7 +168,12 @@ mame-test: bios
 	@cat /tmp/expected_checksums.txt
 
 # BGSTAR foreground/background autotest (maxi, with Lua script)
+# Prefer repository sibling ../zmac (common layout), fall back to zmac in PATH
+ifneq ($(wildcard ../zmac/bin/zmac),)
 ZMAC = ../zmac/bin/zmac
+else
+ZMAC = zmac
+endif
 CPMCP = /Users/ravn/.local/bin/cpmcp
 
 bgstar-test: bios bgstar_test.asm mame_bgstar_test.lua

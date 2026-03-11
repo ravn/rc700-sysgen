@@ -15,32 +15,47 @@ This project aims to make the RC702 family fully usable in MAME with preservatio
 1. **MAME Bug Fixes** - Make RC702 family emulation in MAME bug-free so preservation disk images (e.g., from ddhf.dk) run identically to original hardware
 
 2. **Firmware Refactoring** - Refactor original firmware and BIOS from CP/M-80 into:
-   - Byte-exact Z80 assembly equivalents (complete)
-   - C implementations using z88dk compiler (ongoing)
+   - Byte-exact Z80 assembly equivalents (complete for all 13 BIOS variants)
+   - C implementations using z88dk compiler (ongoing — boots CP/M on maxi)
 
 3. **Software Archaeology** - Establish timeline of how original software was developed
 
-4. **MEMDISK Recovery** - Understand and restore MEMDISK functionality (RAM-based disk)
+4. **CP/NET Networking** - Implement CP/NET for transparent file transfers:
+   - Phase 1: Serial port transport (SIO, ~3.8 KB/s at 38400 baud) — working
+   - Phase 2: DRI binary protocol — working, testing with CpnetSerialServer.jar pending
+   - Phase 3: Parallel port transport (PIO Mode 2, ~150 KB/s) — future
+   - Phase 4: Z80 bus connector (J10, ~500 KB/s) — long-term hardware project
 
-5. **CP/NET Networking** - Implement CP/NET for transparent file transfers:
-   - Phase 1: Serial port transport
-   - Phase 2: Parallel port transport
-
-6. **Native Hardware Support** - Run refactored code on original RC702 hardware against a server (platform TBD)
-
-7. **Diskless Client** - Create CP/NOS (diskless client):
+5. **CP/NOS Diskless Client** - Create CP/NOS for the maxi (8") machine (no drives attached):
    - Boot PROM1 with minimal code
-   - Download remaining OS from CP/NET server at runtime
+   - Download CCP+BDOS+BIOS from CP/NET server at runtime over serial
+
+6. **Native Hardware Support** - Run refactored code on original RC702 maxi hardware:
+   - Connect via serial port to host server
+   - Validate MAME emulation against real hardware behavior
+   - Target machine: maxi drive model (without drives attached)
+
+7. **Parallel Port CP/NET** - Bidirectional PIO transfers (~40x faster than serial):
+   - Move keyboard from PIO Port A to Port B (Mode 2 bidirectional is Port A only)
+   - New NIOS driver for parallel transport
+   - Custom cable + server-side parallel port driver
+   - See `cpnet/PARALLEL_TRANSPORT.md` for technical details
+
+8. **J10 Bus Interface** - Direct Z80 bus access for maximum bandwidth:
+   - Custom hardware on J10 connector (bus-speed memdisk-like device)
+   - Requires hardware development and bus timing analysis
+
+9. **MEMDISK Recovery** - Understand and restore MEMDISK functionality (deferred)
 
 ## Build & Verification Commands
 
 ### SYSGEN Assembly (`sysgen/`)
 ```bash
 # Assemble with zmac (primary method)
-zmac -z --dri SYSGEN.ASM        # Produces zout/SYSGEN.cim
+zmac -8 --dri SYSGEN.ASM        # Produces zout/SYSGEN.cim
 make verify                      # Compare against RCSYSGEN.COM reference
 ```
-⚠️ **Critical**: Use `-z --dri` flags (not `-8` which is 8080 mode). This is Z80 code.
+⚠️ **Critical**: Use `-8 --dri` flags — SYSGEN.ASM uses 8080 mnemonics (CPI, etc.). Use `-z` only for Z80-specific code (e.g. roa375).
 
 ### ROA375 PROM (`roa375/`)
 ```bash
