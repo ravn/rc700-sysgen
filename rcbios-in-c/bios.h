@@ -20,11 +20,15 @@ typedef uint16_t word;
 #define SCRN_ROWS   25
 #define SCRN_SIZE   (SCRN_COLS * SCRN_ROWS)  /* 2000 bytes */
 
-/* Display buffer as a typed array at the hardware address */
+/* Display buffer as a 25×80 array at the hardware address.
+ * dspstr[row] gives a pointer to 80 characters.
+ * screen is a flat byte pointer for offset-based access (cury+curx). */
+typedef byte ScreenRow[SCRN_COLS];
+#define dspstr      ((ScreenRow *)DSPSTR)
 #define screen      ((byte *)DSPSTR)
 
 /* Pointer to start of row n */
-#define DSPROW(n)   (screen + (n) * SCRN_COLS)
+#define DSPROW(n)   ((byte *)dspstr[n])
 
 /* Cursor coordinate limits */
 #define COLUMN0     0
