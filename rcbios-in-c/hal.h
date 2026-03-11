@@ -19,7 +19,7 @@ void hal_di(void);
 /* sdcc keywords → no-ops for clang */
 #define __naked
 #define __critical
-#define __interrupt
+#define __interrupt(n)
 #define __sdcccall(x)
 #define __asm__(x) ((void)0)
 #define hal_halt() ((void)0)

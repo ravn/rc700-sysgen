@@ -168,12 +168,14 @@ programmer writes everything in inline asm.  Required when the ISR must
 switch to a private stack (`sp_sav`/ISTACK) or when the compiler's
 register save set (5 pairs) is too heavy.
 
-sdcc supports `__interrupt(N)` where N is an internal interrupt number
-used only to prevent duplicate declarations.  It does NOT generate or
-affect the interrupt vector table — sdcc has no IVT generation for Z80.
-We omit the `(N)` since we have no duplicates and it simplifies the
-HOST_TEST stubs.  Our vector table is defined manually in crt0.asm
-(`itrtab` at 0xDB00).
+**The `(N)` in `__interrupt(N)` is mandatory.**  Without it, `__critical
+__interrupt` generates `RETN` instead of `EI; RETI`.  `RETN` leaves
+interrupts permanently disabled — a fatal error on the RC702 where all
+I/O (keyboard, floppy, serial) is interrupt-driven.  The number N is an
+sdcc-internal slot that prevents duplicate declarations; it does NOT
+generate or affect the interrupt vector table (sdcc has no IVT generation
+for Z80).  Our vector table is defined manually in crt0.asm (`itrtab`
+at 0xDB00).  Every `__interrupt` in this project must use `(N)`.
 
 #### Which ISRs use which form
 
