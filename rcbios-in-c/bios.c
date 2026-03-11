@@ -1735,10 +1735,11 @@ void bios_hrdfmt(void) { }
  * EI+RETI, leaving interrupts permanently disabled — fatal on
  * the RC702 where all I/O is interrupt-driven.
  *
+ * The RC702 requires interrupts disabled in ALL interrupt handlers.
+ * Nested interrupts are never safe on this hardware.
+ *
  * ISRs needing stack switch use __naked wrappers with explicit
- * register save/restore.  This avoids sdcc's __interrupt putting
- * EI at function entry (which would allow nested interrupts and
- * corrupt the shared sp_sav variable).
+ * register save/restore and EI only immediately before RETI.
  *
  * Simple ISRs (flag-set only, stubs) use __interrupt(N).
  * ================================================================ */

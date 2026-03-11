@@ -155,8 +155,8 @@ sdcc provides three ways to write interrupt service routines:
 
 **`__interrupt`** — puts `EI` at the *start* of the function (before the
 push/pop prologue), enabling nested interrupts immediately.  The epilogue
-ends with `RETI`.  This is wrong for ISRs that must run with interrupts
-disabled (e.g. to protect DMA programming or shared variables).
+ends with `RETI`.  **Never use this on the RC702** — the hardware requires
+interrupts to be disabled throughout all interrupt handlers.
 
 **`__critical __interrupt`** — keeps interrupts disabled throughout.  The
 prologue pushes AF, BC, DE, HL, IY; the epilogue pops them, then does

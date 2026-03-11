@@ -234,6 +234,10 @@ a second interrupt to fire immediately, before the first ISR has saved its
 context.  For ISRs that share `sp_sav` (the stack-switch variable) or
 program the DMA controller, nested interrupts corrupt state.
 
+**RC702 hardware requirement**: The RC702 requires interrupts to be disabled
+throughout all interrupt handlers — always.  There is no case where nested
+interrupts are safe.  Therefore `__critical` is mandatory on every ISR.
+
 **Correct pattern for this project**: `__critical __interrupt(N)` —
 interrupts disabled throughout, `EI; RETI` at the end.
 
