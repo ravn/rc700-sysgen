@@ -31,9 +31,20 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
   Postponed until the BIOS fits comfortably on the mini (5.25") disk (need to
   shrink by ~618 bytes first).
 
+### Inline assembly syntax
+
+All inline assembly uses the `__asm__("string")` form (sdcc 3.2.0+) instead of the
+older `__asm/__endasm` block form. This allows the host C compiler (clang/gcc) to
+parse `__naked` functions when `#define __asm__(x)` stubs out the asm content.
+Most `#ifndef HOST_TEST` guards around `__naked` functions have been removed.
+
+Build with `cc -DHOST_TEST -Wall -Wextra -fsyntax-only bios.c` to check for
+C-level errors. Remaining host warnings are expected (pointer/int cast size
+differences on 64-bit, unused functions in `#ifndef HOST_TEST` blocks).
+
 ### Remaining inline assembly
 
-24 `__asm` blocks remain in bios.c. Categorized by whether they can move to C:
+24 `__asm__()` blocks remain in bios.c. Categorized by whether they can move to C:
 
 **Must stay in asm** (ABI / hardware constraints):
 - ISR stack switch helpers (`isr_enter`/`isr_exit`, 4 blocks) — SP manipulation, EI+RETI
@@ -140,18 +151,52 @@ generates efficient direct-address code and saved 33 bytes vs individual `__at()
 
 ### ISR design
 
-ISRs use `__naked` wrappers with asm prologue (SP switch, PUSH AF/BC/DE/HL),
-C body code directly in the wrapper, and asm epilogue (POP, EI, RETI).
-IX/IY are not pushed since no ISR body uses them (verified via listing).
-This is necessary because sdcc's `__interrupt` puts EI at the *start* of the
-function, enabling nested interrupts.  The CRT ISR must run with interrupts
-disabled to protect DMA programming and the shared `sp_sav` variable.
-Using `static inline` body functions causes sdcc to emit dead standalone
-copies that z88dk's linker cannot strip, so the body code is placed directly
-in the `__naked` function between `__asm` blocks instead.
+sdcc provides three ways to write interrupt service routines:
 
-Simple ISRs (flag-set only, stubs) use `__interrupt` which is safe since
-their bodies are empty or trivial.
+**`__interrupt`** — puts `EI` at the *start* of the function (before the
+push/pop prologue), enabling nested interrupts immediately.  The epilogue
+ends with `RETI`.  This is wrong for ISRs that must run with interrupts
+disabled (e.g. to protect DMA programming or shared variables).
+
+**`__critical __interrupt`** — keeps interrupts disabled throughout.  The
+prologue pushes AF, BC, DE, HL, IY; the epilogue pops them, then does
+`EI; RETI`.  This is the correct pattern for non-nesting ISRs.  The
+function body is pure C — no inline assembly needed.
+
+**`__naked`** — no compiler-generated prologue or epilogue at all.  The
+programmer writes everything in inline asm.  Required when the ISR must
+switch to a private stack (`sp_sav`/ISTACK) or when the compiler's
+register save set (5 pairs) is too heavy.
+
+sdcc supports `__interrupt(N)` where N is an internal interrupt number
+used only to prevent duplicate declarations.  It does NOT generate or
+affect the interrupt vector table — sdcc has no IVT generation for Z80.
+We omit the `(N)` since we have no duplicates and it simplifies the
+HOST_TEST stubs.  Our vector table is defined manually in crt0.asm
+(`itrtab` at 0xDB00).
+
+#### Which ISRs use which form
+
+| ISR | Form | Why |
+|-----|------|-----|
+| `isr_crt` | `__naked` | Stack switch + DMA programming, must protect `sp_sav` |
+| `isr_pio_kbd` | `__naked` | Stack switch, ring buffer with local variables |
+| `isr_floppy` | `__naked` | Stack switch, calls `fdc_result()`/`fdc_sense_int()` |
+| `isr_sio_a_rx` | `__naked` | Stack switch, ring buffer + RTS flow control |
+| `isr_sio_b_tx` | `__critical __interrupt` | Trivial body (port write + flag) |
+| `isr_sio_b_ext` | `__critical __interrupt` | Trivial body (port read + store) |
+| `isr_sio_b_spec` | `__critical __interrupt` | Trivial body (error read + reset) |
+| `isr_sio_a_tx` | `__critical __interrupt` | Trivial body (port write + flag) |
+| `isr_sio_a_ext` | `__critical __interrupt` | Trivial body (port read + store) |
+| `isr_sio_a_spec` | `__critical __interrupt` | Trivial body (error reset + flush) |
+| `isr_hd` | `__interrupt` | Empty stub (hard disk not implemented) |
+| `isr_pio_par` | `__interrupt` | Empty stub (parallel port not used) |
+
+The 6 `__critical __interrupt` ISRs were originally `__naked` with a
+stack switch to ISTACK (0xF620).  The stack switch was removed because
+their bodies are trivial — the compiler pushes 5 register pairs (10 bytes)
+which fits safely on any interrupted code's stack.  If a body becomes
+non-trivial, it must revert to `__naked` with `isr_enter`/`isr_exit`.
 
 ### Code/BSS separation
 

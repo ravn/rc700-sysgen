@@ -107,8 +107,8 @@ static volatile byte prtflg = 0xFF;  /* printer (Ch.B TX) ready */
 static volatile byte ptpflg = 0xFF;  /* punch (Ch.A TX) ready */
 
 /* SIO status register snapshots */
-static byte rr0_a, rr1_a;
-static byte rr0_b, rr1_b;
+static volatile byte rr0_a, rr1_a;  /* written by SIO ISRs, read by bios_linsel */
+static volatile byte rr0_b, rr1_b;
 
 /* ================================================================
  * Floppy disk driver — variables and buffers
@@ -587,17 +587,15 @@ void bios_hw_init(void)
     _port_ctc3 = *((&mode0) + 6);  /* ch3 mode (floppy) */
     _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
 
-    /* SIO: program channels A and B from CONFI init blocks.  Apparently this is as compact as it gets! */
-    __asm
-        ld hl, #_psioa
-        ld b, #9
-        ld c, #0x0A
-        otir
-        ld hl, #_psiob
-        ld b, #11
-        ld c, #0x0B
-        otir
-    __endasm;
+    /* SIO: program channels A and B from CONFI init blocks */
+    __asm__("ld hl, #_psioa   \n"
+            "ld b, #9         \n"
+            "ld c, #0x0A      \n"
+            "otir             \n"
+            "ld hl, #_psiob   \n"
+            "ld b, #11        \n"
+            "ld c, #0x0B      \n"
+            "otir             \n");
 
     /* SIO: read initial status registers */
     (void)_port_sio_a_ctrl;     /* read RR0-A */
@@ -691,12 +689,8 @@ void bios_hw_init(void)
 
 void bios_boot(void) __naked
 {
-#ifndef HOST_TEST
-    __asm
-        ld sp, #0xF500          ; use BIOS private stack
-        jp _bios_boot_c
-    __endasm;
-#endif
+    __asm__("ld sp, #0xF500       \n"  /* use BIOS private stack */
+            "jp _bios_boot_c      \n");
 }
 
 static void putch(byte c)
@@ -784,23 +778,17 @@ static void wboot_c(void)
     bios_seldsk_c(0);
 
     /* Jump to CCP with current disk in C */
-    __asm
-        ld a, (#0x0004)             ; CDISK
-        and #0x0F                   ; mask off user bits
-        ld c, a
-        jp CCP_BASE
-    __endasm;
+    __asm__("ld a, (#0x0004)       \n"  /* CDISK */
+            "and #0x0F             \n"  /* mask off user bits */
+            "ld c, a               \n"
+            "jp 0xC400             \n"); /* CCP_BASE */
 #endif
 }
 
 void bios_wboot(void) __naked
 {
-#ifndef HOST_TEST
-    __asm
-        ld sp, #0xF500          ; use BIOS private stack
-        jp _wboot_c
-    __endasm;
-#endif
+    __asm__("ld sp, #0xF500       \n"  /* use BIOS private stack */
+            "jp _wboot_c          \n");
 }
 
 /* ----------------------------------------------------------------
@@ -1234,32 +1222,28 @@ static void conout_body(void)
 void bios_conout(byte c) __naked
 {
     (void)c;
-#ifndef HOST_TEST
-    __asm
-        di
-        push hl
-        ld hl, #0
-        add hl, sp              ; HL = caller SP (after push hl)
-        ld sp, #0xF500          ; switch to BIOS stack
-        ei
-        push hl                 ; save caller SP on BIOS stack
-        push af
-        push bc
-        push de
-        ld a, c                 ; get char from C register
-        ld (0xFFDA), a          ; usession
-        call _conout_body
-        pop de
-        pop bc
-        pop af
-        pop hl                  ; caller SP
-        di
-        ld sp, hl               ; restore caller stack
-        pop hl                  ; restore original HL
-        ei
-        ret
-    __endasm;
-#endif
+    __asm__("di                    \n"
+            "push hl               \n"
+            "ld hl, #0             \n"
+            "add hl, sp            \n"  /* HL = caller SP */
+            "ld sp, #0xF500        \n"  /* switch to BIOS stack */
+            "ei                    \n"
+            "push hl               \n"  /* save caller SP */
+            "push af               \n"
+            "push bc               \n"
+            "push de               \n"
+            "ld a, c               \n"  /* char from C register */
+            "ld (0xFFDA), a        \n"  /* usession */
+            "call _conout_body     \n"
+            "pop de                \n"
+            "pop bc                \n"
+            "pop af                \n"
+            "pop hl                \n"  /* caller SP */
+            "di                    \n"
+            "ld sp, hl             \n"  /* restore caller stack */
+            "pop hl                \n"
+            "ei                    \n"
+            "ret                   \n");
 }
 
 /* LIST: transmit character on SIO Channel B (printer) */
@@ -1319,24 +1303,20 @@ byte bios_reader(void)
 void bios_home(void) __naked
 {
     /* CP/M calls HOME before SELDSK — flush pending writes, recalibrate */
-#ifndef HOST_TEST
-    __asm
-        di
-        push hl
-        ld hl, #0
-        add hl, sp
-        ld sp, #0xF500
-        ei
-        push hl
-        call _bios_home_c
-        pop hl
-        di
-        ld sp, hl
-        pop hl
-        ei
-        ret
-    __endasm;
-#endif
+    __asm__("di                    \n"
+            "push hl               \n"
+            "ld hl, #0             \n"
+            "add hl, sp            \n"
+            "ld sp, #0xF500        \n"
+            "ei                    \n"
+            "push hl               \n"
+            "call _bios_home_c     \n"
+            "pop hl                \n"
+            "di                    \n"
+            "ld sp, hl             \n"
+            "pop hl                \n"
+            "ei                    \n"
+            "ret                   \n");
 }
 
 static void bios_home_c(void)
@@ -1359,30 +1339,24 @@ word bios_seldsk(byte disk) __naked
 {
     /* CP/M passes drive in C register, expects DPH in HL */
     (void)disk;
-#ifndef HOST_TEST
-    __asm
-        di
-        push bc
-        ld hl, #0
-        add hl, sp
-        ld sp, #0xF500          ; switch to BIOS stack
-        ei
-        push hl                 ; save caller SP
-        ld a, c                 ; drive number in A (sdcccall 1)
-        call _bios_seldsk_c    ; returns DPH in DE (sdcccall 1)
-        ex de, hl               ; HL = DPH (for CP/M), DE = garbage
-        pop de                  ; DE = saved caller SP
-        di
-        ex de, hl               ; save DPH in DE, HL = caller SP
-        ld sp, hl               ; restore caller stack
-        ex de, hl               ; HL = DPH (return value for CP/M)
-        pop bc
-        ei
-        ret
-    __endasm;
-#else
-    return 0;
-#endif
+    __asm__("di                    \n"
+            "push bc               \n"
+            "ld hl, #0             \n"
+            "add hl, sp            \n"
+            "ld sp, #0xF500        \n"  /* switch to BIOS stack */
+            "ei                    \n"
+            "push hl               \n"  /* save caller SP */
+            "ld a, c               \n"  /* drive number → A */
+            "call _bios_seldsk_c   \n"  /* returns DPH in DE */
+            "ex de, hl             \n"  /* HL = DPH (for CP/M) */
+            "pop de                \n"  /* DE = saved caller SP */
+            "di                    \n"
+            "ex de, hl             \n"  /* DPH in DE, SP in HL */
+            "ld sp, hl             \n"  /* restore caller stack */
+            "ex de, hl             \n"  /* HL = DPH for CP/M */
+            "pop bc                \n"
+            "ei                    \n"
+            "ret                   \n");
 }
 
 static word bios_seldsk_c(byte drv)
@@ -1439,38 +1413,23 @@ static word bios_seldsk_c(byte drv)
 
 void bios_settrk(word track) __naked
 {
-    /* CP/M passes track in BC */
     (void)track;
-#ifndef HOST_TEST
-    __asm
-        ld (_sektrk), bc
-        ret
-    __endasm;
-#endif
+    __asm__("ld (_sektrk), bc       \n"  /* CP/M passes track in BC */
+            "ret                     \n");
 }
 
 void bios_setsec(word sector) __naked
 {
-    /* CP/M passes sector in BC */
     (void)sector;
-#ifndef HOST_TEST
-    __asm
-        ld (_seksec), bc
-        ret
-    __endasm;
-#endif
+    __asm__("ld (_seksec), bc       \n"  /* CP/M passes sector in BC */
+            "ret                     \n");
 }
 
 void bios_setdma(word addr) __naked
 {
-    /* CP/M passes DMA address in BC */
     (void)addr;
-#ifndef HOST_TEST
-    __asm
-        ld (_dmaadr), bc
-        ret
-    __endasm;
-#endif
+    __asm__("ld (_dmaadr), bc       \n"  /* CP/M passes DMA address in BC */
+            "ret                     \n");
 }
 
 static byte xread(void)
@@ -1526,65 +1485,52 @@ alloc:
 
 byte bios_read(void) __naked
 {
-#ifndef HOST_TEST
-    __asm
-        di
-        push bc
-        push de
-        push hl
-        ld hl, #0
-        add hl, sp
-        ld sp, #0xF500
-        ei
-        push hl
-        call _xread
-        pop de
-        di
-        ex de, hl
-        ld sp, hl
-        ex de, hl
-        pop hl
-        pop de
-        pop bc
-        ei
-        ret                     ; A = return value
-    __endasm;
-#else
-    return 0;
-#endif
+    __asm__("di                    \n"
+            "push bc               \n"
+            "push de               \n"
+            "push hl               \n"
+            "ld hl, #0             \n"
+            "add hl, sp            \n"
+            "ld sp, #0xF500        \n"
+            "ei                    \n"
+            "push hl               \n"
+            "call _xread           \n"
+            "pop de                \n"
+            "di                    \n"
+            "ex de, hl             \n"
+            "ld sp, hl             \n"
+            "ex de, hl             \n"
+            "pop hl                \n"
+            "pop de                \n"
+            "pop bc                \n"
+            "ei                    \n"
+            "ret                   \n");  /* A = return value */
 }
 
 byte bios_write(byte type) __naked
 {
-    /* CP/M passes write type in C */
     (void)type;
-#ifndef HOST_TEST
-    __asm
-        di
-        push bc
-        push de
-        push hl
-        ld hl, #0
-        add hl, sp
-        ld sp, #0xF500
-        ei
-        push hl
-        ld a, c                 ; write type from C register
-        call _xwrite
-        pop de
-        di
-        ex de, hl
-        ld sp, hl
-        ex de, hl
-        pop hl
-        pop de
-        pop bc
-        ei
-        ret                     ; A = return value
-    __endasm;
-#else
-    return 0;
-#endif
+    __asm__("di                    \n"
+            "push bc               \n"
+            "push de               \n"
+            "push hl               \n"
+            "ld hl, #0             \n"
+            "add hl, sp            \n"
+            "ld sp, #0xF500        \n"
+            "ei                    \n"
+            "push hl               \n"
+            "ld a, c               \n"  /* write type from C register */
+            "call _xwrite          \n"
+            "pop de                \n"
+            "di                    \n"
+            "ex de, hl             \n"
+            "ld sp, hl             \n"
+            "ex de, hl             \n"
+            "pop hl                \n"
+            "pop de                \n"
+            "pop bc                \n"
+            "ei                    \n"
+            "ret                   \n");  /* A = return value */
 }
 
 byte bios_listst(void)
@@ -1595,16 +1541,9 @@ byte bios_listst(void)
 word bios_sectran(word sector) __naked
 {
     (void)sector;
-#ifndef HOST_TEST
-    __asm
-        ; return BC in HL (no translation)
-        ld h, b
-        ld l, c
-        ret
-    __endasm;
-#else
-    return 0;
-#endif
+    __asm__("ld h, b                \n"  /* return BC in HL (no translation) */
+            "ld l, c                \n"
+            "ret                    \n");
 }
 
 /* ================================================================
@@ -1630,13 +1569,11 @@ word bios_sectran(word sector) __naked
 void bios_wfitr(void) __naked
 {
     wfitr();
-    __asm
-        ld a, (_rstab)
-        ld b, a
-        ld a, (_rstab + 1)
-        ld c, a
-        ret
-    __endasm;
+    __asm__("ld a, (_rstab)         \n"
+            "ld b, a                \n"
+            "ld a, (_rstab + 1)     \n"
+            "ld c, a                \n"
+            "ret                    \n");
 }
 
 /* READS (DA4D): Reader status.
@@ -1698,12 +1635,9 @@ static byte ls_line;
 
 void bios_linsel(void) __naked
 {
-    __asm
-        ; A=port (0=SIO-A, 1=SIO-B), B=line (0-2)
-        ld (_ls_port), a
-        ld a, b
-        ld (_ls_line), a
-    __endasm;
+    __asm__("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */
+            "ld a, b                \n"
+            "ld (_ls_line), a       \n");  /* B=line (0-2) */
 
     /* Wait for all-sent (RR1 bit 0) */
     while (!(sio_rd1() & 0x01))
@@ -1717,10 +1651,8 @@ void bios_linsel(void) __naked
     hal_ei();
 
     if (ls_line == 0) {
-        __asm
-            xor a
-            ret
-        __endasm;
+        __asm__("xor a                \n"
+                "ret                  \n");
     }
 
     /* Select line: line=1→DTR only, line=2→DTR+RTS */
@@ -1740,20 +1672,16 @@ void bios_linsel(void) __naked
 
     /* Check CTS (RR0 bit 5) — cached by ISR */
     if ((ls_port ? rr0_b : rr0_a) & 0x20) {
-        __asm
-            ld a, #0xFF
-            ret
-        __endasm;
+        __asm__("ld a, #0xFF           \n"
+                "ret                  \n");
     }
 
     /* No CTS — release line */
     hal_di();
     sio_wr5(0x00);
     hal_ei();
-    __asm
-        xor a
-        ret
-    __endasm;
+    __asm__("xor a                  \n"
+            "ret                    \n");
 }
 
 /* EXIT (DA53): PROCEDURE DEF_EXIT_ROUTINE
@@ -1765,12 +1693,10 @@ void bios_linsel(void) __naked
  * The callback must NOT enable interrupts and must return via RET. */
 void bios_exit(void) __naked
 {
-    __asm
-        ld (0xFFE5), hl         ; warmjp = callback address
-        ex de, hl
-        ld (0xFFDF), hl         ; timer1 = countdown
-        ret
-    __endasm;
+    __asm__("ld (0xFFE5), hl        \n"  /* warmjp = callback address */
+            "ex de, hl              \n"
+            "ld (0xFFDF), hl        \n"  /* timer1 = countdown */
+            "ret                    \n");
 }
 
 /* CLOCK (DA56): PROCEDURE CLOCK
@@ -1781,20 +1707,17 @@ void bios_exit(void) __naked
  * Returns (GET): DE = clock bits 0-15, HL = clock bits 16-31 */
 void bios_clock(void) __naked
 {
-    __asm
-        or a                    ; PROCEDURE CLOCK;
-        jr z, _clock_set        ; BEGIN
-        ; Read clock              ;   IF A<>0 THEN
-        di                      ;     READ_CLOCK
-        ld de, (0xFFFC)         ;     rtc0
-        ld hl, (0xFFFE)         ;     rtc2
-        ei
-        ret                     ;   ELSE
-    _clock_set:
-        ld (0xFFFC), de         ;     SET_CLOCK;
-        ld (0xFFFE), hl         ; END;
-        ret
-    __endasm;
+    __asm__("or a                   \n"
+            "jr z, _clock_set       \n"
+            "di                     \n"  /* read clock */
+            "ld de, (0xFFFC)        \n"  /* rtc0 */
+            "ld hl, (0xFFFE)        \n"  /* rtc2 */
+            "ei                     \n"
+            "ret                    \n"
+            "_clock_set:            \n"
+            "ld (0xFFFC), de        \n"  /* set clock */
+            "ld (0xFFFE), hl        \n"
+            "ret                    \n");
 }
 
 /* HRDFMT (DA59): Format hard disk track (WD1000 controller).
@@ -1825,46 +1748,38 @@ void bios_hrdfmt(void) { }
 
 static inline void isr_enter(void) __naked
 {
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-    __endasm;
+    __asm__("ld (_sp_sav), sp     \n"
+            "ld sp, #0xF620       \n"
+            "push af              \n");
 }
 
 static inline void isr_exit(void) __naked
 {
-    __asm
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    __asm__("pop af               \n"
+            "ld sp, (_sp_sav)     \n"
+            "ei                   \n"
+            "reti                 \n");
 }
 
 static inline void isr_enter_full(void) __naked
 {
-    __asm
-        ld (_sp_sav), sp
-        ld sp, #0xF620
-        push af
-        push bc
-        push de
-        push hl
-    __endasm;
+    __asm__("ld (_sp_sav), sp     \n"
+            "ld sp, #0xF620       \n"
+            "push af              \n"
+            "push bc              \n"
+            "push de              \n"
+            "push hl              \n");
 }
 
 static inline void isr_exit_full(void) __naked
 {
-    __asm
-        pop hl
-        pop de
-        pop bc
-        pop af
-        ld sp, (_sp_sav)
-        ei
-        reti
-    __endasm;
+    __asm__("pop hl               \n"
+            "pop de               \n"
+            "pop bc               \n"
+            "pop af               \n"
+            "ld sp, (_sp_sav)     \n"
+            "ei                   \n"
+            "reti                 \n");
 }
 
 /*
@@ -1976,74 +1891,64 @@ void isr_floppy(void) __naked
 /* HD ISR stub — TODO(harddisk): Postponed until BIOS fits on mini. */
 void isr_hd(void) __interrupt {}
 
-/* SIO Channel B ISRs (printer port) */
+/*
+ * SIO Channel B ISRs (printer port)
+ *
+ * NOTE: The original asm BIOS switched SP to ISTACK (0xF620) in these
+ * ISRs.  The `__critical __interrupt` form does NOT switch stacks — it
+ * runs on whatever stack was active when the interrupt fired.  This is
+ * safe because:
+ *   - The bodies are trivial (port I/O + flag store), using only AF+HL
+ *   - The compiler pushes 5 register pairs = 10 bytes of stack
+ *   - CP/M guarantees at least 32 bytes of stack in the CCP/BDOS area
+ *   - No nested interrupts (__critical keeps DI until EI before RETI)
+ * If a future change makes any of these bodies non-trivial (calls,
+ * large locals), they must revert to __naked with isr_enter/isr_exit.
+ */
 
 /* TXB: Ch.B transmit complete — reset TX int, mark printer ready */
-void isr_sio_b_tx(void) __naked
+void isr_sio_b_tx(void) __critical __interrupt
 {
-#ifndef HOST_TEST
-    isr_enter();
-
     _port_sio_b_ctrl = 0x28;   /* reset TX interrupt pending */
     prtflg = 0xFF;              /* printer ready */
-
-    isr_exit();
-#endif
 }
 
 /* EXTSTB: Ch.B external status change — read and acknowledge */
-void isr_sio_b_ext(void) __naked
+void isr_sio_b_ext(void) __critical __interrupt
 {
-#ifndef HOST_TEST
-    isr_enter();
-
     rr0_b = _port_sio_b_ctrl;  /* read RR0 */
     _port_sio_b_ctrl = 0x10;   /* reset ext/status interrupts */
-
-    isr_exit();
-#endif
 }
 
 /* SPECB: Ch.B special receive condition — read error, reset */
-void isr_sio_b_spec(void) __naked
+void isr_sio_b_spec(void) __critical __interrupt
 {
-#ifndef HOST_TEST
-    isr_enter();
-
     _port_sio_b_ctrl = 0x01;   /* select RR1 */
     rr1_b = _port_sio_b_ctrl;  /* read RR1 */
     _port_sio_b_ctrl = 0x30;   /* error reset */
-
-    isr_exit();
-#endif
 }
 
-/* SIO Channel A ISRs (reader/punch port) */
+/*
+ * SIO Channel A ISRs (reader/punch port)
+ *
+ * NOTE: Same stack-switch omission as Channel B above — trivial bodies
+ * run safely on the interrupted code's stack.  isr_sio_a_rx is the
+ * exception: it uses local variables and ring buffer logic, so it
+ * keeps __naked with isr_enter_full/isr_exit_full for the stack switch.
+ */
 
 /* TXA: Ch.A transmit complete — reset TX int, mark punch ready */
-void isr_sio_a_tx(void) __naked
+void isr_sio_a_tx(void) __critical __interrupt
 {
-#ifndef HOST_TEST
-    isr_enter();
-
     _port_sio_a_ctrl = 0x28;   /* reset TX interrupt pending */
     ptpflg = 0xFF;              /* punch ready */
-
-    isr_exit();
-#endif
 }
 
 /* EXTSTA: Ch.A external status change — read and acknowledge */
-void isr_sio_a_ext(void) __naked
+void isr_sio_a_ext(void) __critical __interrupt
 {
-#ifndef HOST_TEST
-    isr_enter();
-
     rr0_a = _port_sio_a_ctrl;  /* read RR0 */
     _port_sio_a_ctrl = 0x10;   /* reset ext/status interrupts */
-
-    isr_exit();
-#endif
 }
 
 /* RCA: Ch.A receive — store in ring buffer with RTS flow control */
@@ -2081,19 +1986,13 @@ void isr_sio_a_rx(void) __naked
 }
 
 /* SPECA: Ch.A special receive condition — error reset, flush buffer */
-void isr_sio_a_spec(void) __naked
+void isr_sio_a_spec(void) __critical __interrupt
 {
-#ifndef HOST_TEST
-    isr_enter();
-
     _port_sio_a_ctrl = 0x01;   /* select RR1 */
     rr1_a = _port_sio_a_ctrl;  /* read RR1 */
     _port_sio_a_ctrl = 0x30;   /* error reset */
     rxhead = 0;                 /* flush ring buffer */
     rxtail = 0;
-
-    isr_exit();
-#endif
 }
 
 /* PIO ch.B (parallel output) ISR — not used on RC702 */

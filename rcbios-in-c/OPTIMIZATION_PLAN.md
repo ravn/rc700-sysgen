@@ -684,6 +684,26 @@ These run automatically. The 3 custom rules in our `peephole.def`
    so OTIR doesn't apply. Keep the current approach or restructure
    as 4 × 2-byte OTIR calls (one per channel).
 
+### Future: Investigate switching from `--no-crt` to z88dk C runtime
+
+Currently we use `--no-crt` with a hand-written `crt0.asm` that defines
+the binary layout, JP table, IVT, CONFI block, BSS, and section ordering.
+Investigate what switching to the z88dk standard CRT would provide:
+
+- Does the z88dk CRT for the RC700 target handle BSS zeroing, section
+  ordering, and ORG placement automatically?
+- Can it generate the Z80 Mode 2 interrupt vector table from
+  `__interrupt(N)` declarations, or is that still manual?
+- What startup code does it inject (stack init, global constructors)?
+  Would this conflict with our cold boot sequence?
+- Does it support `__critical __interrupt` ISR registration?
+- Size impact: how much overhead does the standard CRT add vs our
+  minimal crt0.asm?
+
+The main benefit would be: if the CRT handles IVT generation and BSS
+init, we can remove ~50 lines of hand-written asm from crt0.asm and
+let `__interrupt(N)` numbers map directly to vector table slots.
+
 ### Future: z88dk RC700 target extensions
 
 z88dk already has an RC700 target. Extend it with:
