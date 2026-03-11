@@ -43,6 +43,17 @@ Size: 6702 → 6692 bytes.
   made Makefile z88dk/zmac paths portable, added `lis.sh` listing navigation tool.
 Size: 6692 → 6439 bytes (253 bytes saved, 36% of gap to mini closed).
 
+2026-03-11:  Tail-call fall-through optimization and cleanup.  Converted INCONV/OUTCON
+from raw pointer arithmetic to C array indexing (size-neutral, cleaner code).  Documented
+8275 CRT semigraphics encoding in `displ()` (ch ≥ 192 folds to 0-63 via 7-bit char ROM).
+Reordered 6 function pairs so tail calls fall through: `displ`→`cursor_right`,
+`carriage_return`→`cursorxy`, `erase_to_eos`→`bg_clear_from`, `start_xy`→`goto00`,
+`rdhst`→`sec_rw`, `cursor_down`→`rowdn`.  Added 4 comment-aware peephole rules that
+match `jp target; ;comments; target:` patterns (sdcc inserts 3 separator comments between
+functions).  Generalized existing fall-through rule from `_%1` to `%1` (conditional jumps
+naturally excluded — labels can't contain commas).  Created PEEPHOLE.md documenting all
+22 peephole rules.  Added `make asm-test` target for automated FILEX integration test.
+Size: 6439 → 6402 bytes (37 bytes saved from 6 fall-through + conditional inversions).
 
 ## Status
 
@@ -60,7 +71,7 @@ Size: 6692 → 6439 bytes (253 bytes saved, 36% of gap to mini closed).
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
 - Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array,
   direct shifts, compound assignments, function merging
-- Current size: 6439 bytes (fits maxi 9984, over mini 6144 by 295 bytes)
+- Current size: 6402 bytes (fits maxi 9984, over mini 6144 by 258 bytes)
 
 ### Missing features
 

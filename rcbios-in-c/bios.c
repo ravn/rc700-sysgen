@@ -386,7 +386,29 @@ static void chktrk(void)
     fdc_sense_int();
 }
 
-/* Sector read/write with retry.
+/* Forward declaration — definition placed after rdhst for fall-through */
+static void sec_rw(byte cmd, byte dma_dir);
+
+/* Write host buffer to disk */
+static void wrthst(void)
+{
+    chktrk();
+    sec_rw(5, 1);               /* WRITE DATA, mem→FDC */
+}
+
+/* Read host buffer from disk */
+static void rdhst(void)
+{
+    if (unamsk)
+        ;                   /* force pre-read if unamsk set */
+    else
+        unacnt = 0;
+    chktrk();
+    sec_rw(6, 0);               /* READ DATA, FDC→mem */
+}
+
+/* Placed after rdhst so the tail call falls through (saves 3 bytes).
+ * Sector read/write with retry.
  * cmd: 6=READ DATA, 5=WRITE DATA.  dma_dir: 0=read(FDC→mem), 1=write(mem→FDC). */
 static void sec_rw(byte cmd, byte dma_dir)
 {
@@ -431,30 +453,10 @@ fail:
     erflag = 1;
 }
 
-/* Write host buffer to disk */
-static void wrthst(void)
-{
-    chktrk();
-    sec_rw(5, 1);               /* WRITE DATA, mem→FDC */
-}
-
-/* Read host buffer from disk */
-static void rdhst(void)
-{
-    if (unamsk)
-        ;                   /* force pre-read if unamsk set */
-    else
-        unacnt = 0;
-    chktrk();
-    sec_rw(6, 0);               /* READ DATA, FDC→mem */
-}
-
 
 /* Core blocking/deblocking algorithm (DRI standard) */
 static byte rwoper(void)
 {
-    static byte *src, *dst;
-
     /* compute host sector: sekhst = seksec >> (secshf-1)
      * secshf=3 → 2 shifts (divide by 4, for 512B sectors).
      * secshf=1 → 0 shifts (128B sectors, no deblocking). */
@@ -479,17 +481,17 @@ static byte rwoper(void)
     hstwrt = 0;
 
 match:
-    /* compute offset into host buffer */
-    src = &hstbuf[(word)(seksec & secmsk) << 7];
-    dst = (byte *)dmaadr;
-
+    /* Inline hstbuf offset + dmaadr in each memcpy call rather than storing
+     * in static src/dst variables.  sdcc stores statics to memory then
+     * immediately reloads them — inlining lets the compiler keep values
+     * in registers, saving 10 bytes despite the duplicated expression. */
     if (readop) {
         /* read: copy from host buffer to DMA area */
-        memcpy(dst, src, 128);
+        memcpy((byte *)dmaadr, &hstbuf[(word)(seksec & secmsk) << 7], 128);
     } else {
         /* write: copy from DMA area to host buffer */
         hstwrt = 1;
-        memcpy(src, dst, 128);
+        memcpy(&hstbuf[(word)(seksec & secmsk) << 7], (byte *)dmaadr, 128);
     }
 
     /* post-processing */
@@ -676,15 +678,12 @@ void bios_boot_c(void)
      * and are NOT carried in the BIOS binary.  Identity mapping is the
      * safe default — all characters pass through unchanged. */
     {
-        volatile byte *p;
         byte i;
-        p = (volatile byte *)OUTCON_ADDR;
         for (i = 0; i < 128; i++)
-            *p++ = i;
-        p = (volatile byte *)INCONV_ADDR;
+            outcon[i] = i;
         i = 0;
         do {
-            *p++ = i;
+            inconv[i] = i;
         } while (++i != 0);
     }
 
@@ -779,7 +778,7 @@ byte bios_conin(void)
         hal_halt();
     byte raw = kbbuf[kbtail];
     kbtail = (kbtail + 1) & (KBBUFSZ - 1);
-    return *((volatile byte *)(INCONV_ADDR + raw));
+    return inconv[raw];
 }
 
 /* ================================================================
@@ -804,15 +803,22 @@ byte bios_conin(void)
 static byte bgflg;             /* 0=off, 1=foreground, 2=background */
 static byte graph;           /* graphical mode flag (sticky) */
 
-/* Update 8275 cursor position from curx/cursy */
-static void cursorxy(void)
-{
-    _port_crt_cmd = 0x80;       /* load cursor position command */
-    _port_crt_param = curx;     /* X position */
-    _port_crt_param = cursy;    /* Y position */
-}
+/* Forward declarations — definitions placed for tail-call fall-through */
+static void cursor_right(void);
+static void cursorxy(void);
 
 /* Reset cursor to top-left (does NOT update 8275) */
+static void goto00(void);
+
+/* Start XY addressing: set xflg and reset cursor.
+ * Placed immediately before goto00 so the tail call falls through. */
+static void start_xy(void)
+{
+    xflg = 2;
+    goto00();
+}
+
+/* Placed after start_xy so the tail call falls through (saves 3 bytes) */
 static void goto00(void)
 {
     cury = 0;
@@ -820,23 +826,8 @@ static void goto00(void)
     cursy = 0;
 }
 
-/* Start XY addressing: set xflg and reset cursor.
- * Placed immediately before goto00 so the tail call falls through.
- * TODO: tail call is not yet optimized, the JP to next location is not peep hole optimized, so
- * moved back so the forward declaration could be removed for cleaner code */
-static void start_xy(void)
-{
-    xflg = 2;
-    goto00();
-}
-
-/* Move cursor down one row */
-static void rowdn(void)
-{
-    cury += SCRN_COLS;
-    cursy++;
-    cursorxy();
-}
+/* Forward declaration — definition placed after cursor_down for fall-through */
+static void rowdn(void);
 
 /* Move cursor up one row */
 static void rowup(void)
@@ -862,23 +853,6 @@ static void scroll(void)
     if (bgflg) {
         memcpy(bgstar, bgstar + BG_ROW_BYTES, BGSTAR_SIZE - BG_ROW_BYTES);
         memset(bgstar + BGSTAR_SIZE - BG_ROW_BYTES, 0, BG_ROW_BYTES);
-    }
-}
-
-/* Cursor right — advance column, wrap to next line or scroll */
-static void cursor_right(void)
-{
-    if (curx < COLUMN79) {
-        curx++;
-        cursorxy();
-    } else {
-        curx = COLUMN0;
-        if (cury != ROW24_OFFSET) {
-            rowdn();
-        } else {
-            cursorxy();
-            scroll();
-        }
     }
 }
 
@@ -909,6 +883,14 @@ static void cursor_down(void)
         scroll();
 }
 
+/* Placed after cursor_down so the tail call falls through */
+static void rowdn(void)
+{
+    cury += SCRN_COLS;
+    cursy++;
+    cursorxy();
+}
+
 /* Cursor up — wrap to bottom if on first row */
 static void cursor_up(void)
 {
@@ -926,6 +908,15 @@ static void carriage_return(void)
 {
     curx = COLUMN0;
     cursorxy();
+}
+
+/* Placed after carriage_return() so the tail call falls through (saves 3 bytes).
+ * CR is the hottest path — every output line ends with CR+LF. */
+static void cursorxy(void)
+{
+    _port_crt_cmd = 0x80;       /* load cursor position command */
+    _port_crt_param = curx;     /* X position */
+    _port_crt_param = cursy;    /* Y position */
 }
 
 /* Tab — 4 cursor rights */
@@ -956,35 +947,9 @@ static void clear_screen(void)
     }
 }
 
-/* Clear BGSTAR bits from position `pos` for `count` bits.
- * Parameters passed via static variables to avoid IX frame pointer. */
+/* Forward declaration — definition placed after erase_to_eos for fall-through */
 static word bgcl_pos, bgcl_count;
-
-static void bg_clear_from(void)
-{
-    static byte byteoff, bitno, whole, tail;
-    if (!bgflg)
-        return;
-    byteoff = (byte)(bgcl_pos >> 3);
-    bitno = (byte)(bgcl_pos & 7);
-    /* Clear remaining bits in the first byte */
-    if (bitno) {
-        bgstar[byteoff] &= ~((byte)0xFF >> bitno);
-        byteoff++;
-        bgcl_count = (bgcl_count > (byte)(8 - bitno)) ? bgcl_count - (8 - bitno) : 0;
-    }
-    /* Clear whole bytes */
-    whole = (byte)(bgcl_count >> 3);
-    if (whole) {
-        memset(bgstar + byteoff, 0, whole);
-        byteoff += whole;
-    }
-    /* Clear leading bits of last byte */
-    tail = (byte)(bgcl_count & 7);
-    if (tail) {
-        bgstar[byteoff] &= ~((byte)0xFF << (byte)(8 - tail));
-    }
-}
+static void bg_clear_from(void);
 
 /* Erase from cursor to end of line */
 static void erase_to_eol(void)
@@ -1014,15 +979,41 @@ static void erase_to_eos(void)
     }
 }
 
+/* Placed after erase_to_eos so the tail call falls through (saves 3 bytes).
+ * Clear BGSTAR bits from position `pos` for `count` bits.
+ * Parameters passed via static variables to avoid IX frame pointer. */
+static void bg_clear_from(void)
+{
+    static byte byteoff, bitno, whole, tail;
+    if (!bgflg)
+        return;
+    byteoff = (byte)(bgcl_pos >> 3);
+    bitno = (byte)(bgcl_pos & 7);
+    /* Clear remaining bits in the first byte */
+    if (bitno) {
+        bgstar[byteoff] &= ~((byte)0xFF >> bitno);
+        byteoff++;
+        bgcl_count = (bgcl_count > (byte)(8 - bitno)) ? bgcl_count - (8 - bitno) : 0;
+    }
+    /* Clear whole bytes */
+    whole = (byte)(bgcl_count >> 3);
+    if (whole) {
+        memset(bgstar + byteoff, 0, whole);
+        byteoff += whole;
+    }
+    /* Clear leading bits of last byte */
+    tail = (byte)(bgcl_count & 7);
+    if (tail) {
+        bgstar[byteoff] &= ~((byte)0xFF << (byte)(8 - tail));
+    }
+}
+
 /* Delete line — shift lines up from cury+1 to ROW24, fill ROW24 */
 static void delete_line(void)
 {
-    static word count;
-    static byte *dst;
-    count = ROW24_OFFSET - cury;
-    dst = screen + cury;
-    if (count != 0)
-        memcpy(dst, dst + SCRN_COLS, count);
+    /* Inline expressions rather than static temps — avoids store/reload overhead */
+    if (cury != ROW24_OFFSET)
+        memcpy(screen + cury, screen + cury + SCRN_COLS, ROW24_OFFSET - cury);
     memset(DISPLAY_ROW(ROW24), ' ', SCRN_COLS);
     if (bgflg) {
         static byte dl_off, dl_bgcount;
@@ -1045,6 +1036,7 @@ static void insert_line(void)
 
     count = ROW24_OFFSET - cury;
     if (count != 0) {
+        /* Constant start addresses — sdcc loads them directly */
         src = screen + ROW24_OFFSET - 1;           /* last byte of ROW23 */
         dst = screen + ROW24_OFFSET + SCRN_COLS - 1; /* last byte of ROW24 */
         while (count--)
@@ -1056,9 +1048,9 @@ static void insert_line(void)
         il_off = (byte)(cury >> 3);
         il_bgcount = BGSTAR_SIZE - BG_ROW_BYTES - il_off;
         if (il_bgcount) {
-            /* Backward copy for overlapping shift-down */
-            src = bgstar +BGSTAR_SIZE - BG_ROW_BYTES - 1;
-            dst = bgstar +BGSTAR_SIZE - 1;
+            /* Backward copy for overlapping shift-down (memmove hangs) */
+            src = bgstar + BGSTAR_SIZE - BG_ROW_BYTES - 1;
+            dst = bgstar + BGSTAR_SIZE - 1;
             for (il_i = 0; il_i < il_bgcount; il_i++)
                 *dst-- = *src--;
         }
@@ -1100,19 +1092,41 @@ static void displ(void)
 
     locad = cury + curx;
 
+    /* 8275 CRT character encoding:
+     * 192-255: fold to 0-63 (character ROM uses 7 address bits)
+     * 128-191: semigraphics control — bit 2 sets/clears sticky graph mode
+     * 0-127:   normal chars, through OUTCON unless graph mode is active */
     if (ch >= 192)
         ch -= 192;
 
     if (ch >= 128) {
-        graph = ch & 4;         /* set/clear graphical mode */
+        graph = ch & 4;         /* set/clear semigraphics mode (sticky) */
     } else if (!graph) {
-        ch = *((byte *)(OUTCON_ADDR + ch));  /* OUTCON conversion */
+        ch = outcon[ch];  /* national character conversion (CONFI.COM) */
     }
 
     screen[locad] = ch;
     if (bgflg == 2)
         bg_set_bit(locad);
     cursor_right();
+}
+
+/* Cursor right — advance column, wrap to next line or scroll.
+ * Placed immediately after displ() so the tail call can fall through. */
+static void cursor_right(void)
+{
+    if (curx < COLUMN79) {
+        curx++;
+        cursorxy();
+    } else {
+        curx = COLUMN0;
+        if (cury != ROW24_OFFSET) {
+            rowdn();
+        } else {
+            cursorxy();
+            scroll();
+        }
+    }
 }
 
 /* Clear foreground: erase screen positions where BGSTAR bit is NOT set */

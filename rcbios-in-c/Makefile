@@ -51,7 +51,7 @@ IMG_MAXI = $(HOME)/Downloads/SW1711-I8.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test test
+.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test asm-test test
 
 all: bios size
 
@@ -193,6 +193,11 @@ bgstar-test: bios bgstar_test.asm mame_bgstar_test.lua
 		-autoboot_script /tmp/bios_c_bgstar_test.lua
 	@echo "--- BGSTAR test results ---"
 	@cat /tmp/bgstar_screens.txt
+
+# ASM FILEX integration test: build, patch, boot MAME at full speed,
+# assemble FILEX.ASM, verify output.  Uses run_mame.sh -t.
+asm-test: bios
+	./run_mame.sh -t
 
 # Host tests (TODO)
 test:

@@ -39,8 +39,14 @@ typedef DisplayRow Display[25];
 #define ROW0_OFF    0                           /* cury byte offset for row 0 */
 #define ROW24_OFFSET   (ROW24 * SCRN_COLS)         /* cury byte offset for row 24 = 1920 */
 
-#define OUTCON_ADDR 0xF680      /* output conversion table */
-#define INCONV_ADDR 0xF700      /* input conversion table */
+#define OUTCON_ADDR 0xF680      /* output conversion table (128 bytes) */
+#define INCONV_ADDR 0xF700      /* input conversion table (256 bytes) */
+
+/* Array-style access to the conversion tables at fixed addresses.
+ * outcon[ch] and inconv[raw] compile to the same code as pointer
+ * arithmetic but read more naturally in C. */
+#define outcon      ((volatile byte *)OUTCON_ADDR)
+#define inconv      ((volatile byte *)INCONV_ADDR)
 #define ISTACK_ADDR 0xF620      /* interrupt stack top */
 #define STACK_ADDR  0xF680      /* BIOS driver stack top */
 
