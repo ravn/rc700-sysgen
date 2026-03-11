@@ -13,30 +13,31 @@
 typedef uint8_t  byte;
 typedef uint16_t word;
 
-/* Memory layout constants */
+/* Display memory: 25 rows × 80 columns at 0xF800, refreshed by 8275 CRT.
+ * The array type is the single source of truth for all screen dimensions. */
 #define DSPSTR      0xF800      /* display refresh memory base */
-#define SCRNEND     0xFFCF      /* last byte of display RAM */
-#define SCRN_COLS   80
-#define SCRN_ROWS   25
-#define SCRN_SIZE   (SCRN_COLS * SCRN_ROWS)  /* 2000 bytes */
 
-/* Display buffer as a 25×80 array at the hardware address.
- * dspstr[row] gives a pointer to 80 characters.
+typedef byte DisplayRow[80];
+typedef DisplayRow Display[25];
+
+/* Dimensions derived from the display array type */
+#define SCRN_COLS   ((word)sizeof(DisplayRow))          /* 80 */
+#define SCRN_ROWS   (sizeof(Display) / sizeof(DisplayRow))  /* 25 */
+#define SCRN_SIZE   ((word)sizeof(Display))             /* 2000 */
+
+/* Display access: display[row] is a DisplayRow, display[row][col] is a byte.
  * screen is a flat byte pointer for offset-based access (cury+curx). */
-typedef byte ScreenRow[SCRN_COLS];
-#define display     ((ScreenRow *)DSPSTR)
+#define display     ((DisplayRow *)DSPSTR)
 #define screen      ((byte *)DSPSTR)
+#define DISPLAY_ROW(n)  ((byte *)display[n])
 
-/* Pointer to start of row n */
-#define DISPLAY_ROW(n)   ((byte *)display[n])
-
-/* Cursor coordinate limits */
+/* Cursor coordinate limits (derived from array dimensions) */
 #define COLUMN0     0
-#define COLUMN79    (SCRN_COLS - 1)
+#define COLUMN79    (SCRN_COLS - 1)             /* 79 */
 #define ROW0        0
-#define ROW24       (SCRN_ROWS - 1)
-#define ROW0_OFF    0               /* cury byte offset for row 0 */
-#define ROW24_OFF   (ROW24 * SCRN_COLS)  /* cury byte offset for row 24 = 1920 */
+#define ROW24       (SCRN_ROWS - 1)             /* 24 */
+#define ROW0_OFF    0                           /* cury byte offset for row 0 */
+#define ROW24_OFF   (ROW24 * SCRN_COLS)         /* cury byte offset for row 24 = 1920 */
 
 #define OUTCON_ADDR 0xF680      /* output conversion table */
 #define INCONV_ADDR 0xF700      /* input conversion table */
