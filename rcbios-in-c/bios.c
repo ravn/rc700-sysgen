@@ -618,8 +618,8 @@ void bios_hw_init(void)
     fdc_write(0xDF);            /* step rate 3ms, head unload 240ms */
     fdc_write(0x28);            /* head load 40ms, DMA mode */
 
-    /* Clear display buffer (DSPROW(0) to SCRNEND with spaces) */
-    memset(DSPROW(0), ' ', SCRNEND - DSPSTR + 1);
+    /* Clear display buffer (DISPLAY_ROW(0) to SCRNEND with spaces) */
+    memset(DISPLAY_ROW(0), ' ', SCRNEND - DSPSTR + 1);
 
     /* Clear work area (0xFFD1-0xFFFF with zeros) */
     memset((void *)0xFFD1, 0, 0x002F);
@@ -880,8 +880,8 @@ static void bg_set_bit(word pos)
 /* Scroll display up one line: copy ROW1..ROW24 to ROW0..ROW23, fill ROW24 */
 static void scroll(void)
 {
-    memcpy(DSPROW(0), DSPROW(1), ROW24_OFF);
-    memset(DSPROW(ROW24), ' ', SCRN_COLS);
+    memcpy(DISPLAY_ROW(0), DISPLAY_ROW(1), ROW24_OFF);
+    memset(DISPLAY_ROW(ROW24), ' ', SCRN_COLS);
     if (bgflg) {
         memcpy(bgstar, bgstar + BG_ROW_BYTES, BGSTAR_SIZE - BG_ROW_BYTES);
         memset(bgstar + BGSTAR_SIZE - BG_ROW_BYTES, 0, BG_ROW_BYTES);
@@ -1062,7 +1062,7 @@ static void delete_line(void)
     dst = screen + cury;
     if (count != 0)
         memcpy(dst, dst + SCRN_COLS, count);
-    memset(DSPROW(ROW24), ' ', SCRN_COLS);
+    memset(DISPLAY_ROW(ROW24), ' ', SCRN_COLS);
     if (bgflg) {
         static byte dl_off, dl_bgcount;
         dl_off = (byte)(cury >> 3);  /* cury is row*80, /8 = row*10 */

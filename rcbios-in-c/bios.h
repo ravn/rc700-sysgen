@@ -28,7 +28,7 @@ typedef byte ScreenRow[SCRN_COLS];
 #define screen      ((byte *)DSPSTR)
 
 /* Pointer to start of row n */
-#define DSPROW(n)   ((byte *)display[n])
+#define DISPLAY_ROW(n)   ((byte *)display[n])
 
 /* Cursor coordinate limits */
 #define COLUMN0     0
