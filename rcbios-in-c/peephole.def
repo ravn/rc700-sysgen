@@ -16,33 +16,63 @@
 	xor	a, a
 	out	(%1), a
 
-	jp	%1
-	jp	%2
+	jp	_%1
+	jp	_%2
 =
-	jp	%1
+	jp	_%1
 
-	jp	%1
-	jr	%2
+	jp	_%1
+	jp	l_%2
 =
-	jp	%1
+	jp	_%1
 
-	jr	%1
-	jp	%2
+	jp	l_%1
+	jp	_%2
 =
-	jr	%1
+	jp	l_%1
 
-	jr	%1
-	jr	%2
+	jp	l_%1
+	jp	l_%2
 =
-	jr	%1
+	jp	l_%1
+
+	jp	_%1
+	jr	l_%2
+=
+	jp	_%1
+
+	jp	l_%1
+	jr	l_%2
+=
+	jp	l_%1
+
+	jr	l_%1
+	jp	_%2
+=
+	jr	l_%1
+
+	jr	l_%1
+	jp	l_%2
+=
+	jr	l_%1
+
+	jr	l_%1
+	jr	l_%2
+=
+	jr	l_%1
 
 	ret
-	jp	%1
+	jp	_%1
 =
 	ret
 
 	ret
-	jr	%1
+	jp	l_%1
+=
+	ret
+
+	ret
+	jr	l_%1
 =
 	ret
 

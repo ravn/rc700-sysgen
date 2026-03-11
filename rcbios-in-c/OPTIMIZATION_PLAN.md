@@ -474,23 +474,24 @@ These run automatically unless explicitly disabled:
 2. Redundant `ld a,%1` after `out` to same value (saves 2 bytes)
 3. Redundant `xor a,a` after `out` of zero (saves 1 byte)
 
-**Dead code elimination** (7 rules, saves 69 bytes):
-4. `jp X; jp Y` → `jp X` (remove unreachable jp after unconditional jp)
-5. `jp X; jr Y` → `jp X` (remove unreachable jr after unconditional jp)
-6. `jr X; jp Y` → `jr X` (remove unreachable jp after unconditional jr)
-7. `jr X; jr Y` → `jr X` (remove unreachable jr after unconditional jr)
-8. `ret; jp X` → `ret` (remove unreachable jp after ret)
-9. `ret; jr X` → `ret` (remove unreachable jr after ret)
-10. `jp X; di` → `jp X` (remove unreachable di after unconditional jp)
+**Dead code elimination** (12 rules, saves 49 bytes):
+Rules remove unreachable JP/JR after an unconditional JP/JR/RET.
+Patterns use label prefixes (`_` for functions, `l_` for locals) to
+distinguish unconditional jumps from conditional ones (e.g. `jp Z,_label`
+would wrongly match `jp %1` since copt's `%1` greedily matches everything).
 
 The dead-code rules target a gap in sdcc/z88dk: sdcc eliminates dead code
 at the C level (§8.1.2), but neither sdcc's peephole optimizer nor z88dk's
 copt has rules for removing assembly instructions that follow unconditional
 jumps when no label intervenes.  Found empirically in the listing output.
 
-**Caveat**: copt does not support comment lines — `;`-prefixed lines are
-treated as pattern lines, corrupting rule boundaries.  Use only blank
-lines as separators in peephole.def.
+**Caveats**:
+- copt does not support comment lines — `;`-prefixed lines are treated as
+  pattern lines, corrupting rule boundaries.  Use only blank lines as
+  separators in peephole.def.
+- copt's `%N` patterns match greedily to end of line.  `jp %1` matches
+  both `jp _foo` and `jp Z,_foo`.  Always use label-prefix anchors
+  (`jp _%1`, `jr l_%1`) to restrict to unconditional jumps only.
 
 ### Build guards (Makefile)
 
