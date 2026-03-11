@@ -1739,14 +1739,14 @@ void bios_hrdfmt(void) { }
  * Nested interrupts are never safe on this hardware.
  *
  * The (N) numbers match the IVT index in crt0.asm (_itrtab):
- *   0-1  CTC1 ch0-1 (baud rate, no ISR)
+ *   0-1  CTC1 ch0-1: isr_dummy          (__interrupt, baud rate)
  *   2    CTC1 ch2: isr_crt            (__naked)
  *   3    CTC1 ch3: isr_floppy         (__naked)
  *   4    CTC2 ch0: isr_hd             (__interrupt)
- *   5-7  CTC2 ch1-3 (unused)
+ *   5-7  CTC2 ch1-3: isr_dummy          (__interrupt, unused)
  *   8    SIO ch.B TX: isr_sio_b_tx    (__critical __interrupt)
  *   9    SIO ch.B ext: isr_sio_b_ext  (__critical __interrupt)
- *  10    SIO ch.B RX (dead: RX disabled)
+ *  10    SIO ch.B RX: isr_dummy          (__interrupt, RX disabled)
  *  11    SIO ch.B spec: isr_sio_b_spec(__critical __interrupt)
  *  12    SIO ch.A TX: isr_sio_a_tx    (__critical __interrupt)
  *  13    SIO ch.A ext: isr_sio_a_ext  (__critical __interrupt)
@@ -1910,6 +1910,9 @@ void isr_floppy(void) __naked
     isr_exit_full();
 #endif
 }
+
+/* Dummy ISR for unused IVT slots (EI + RETI) */
+void isr_dummy(void) __interrupt(0) {}
 
 /* HD ISR stub — TODO(harddisk): Postponed until BIOS fits on mini. */
 void isr_hd(void) __interrupt(4) {}

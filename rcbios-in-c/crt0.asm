@@ -296,10 +296,7 @@ _citab:     defw _itrtab    ; pointer to IVT (read by init for I register)
 ; Dummy interrupt handler
 ; ====================================================================
 
-PUBLIC _isr_dummy
-_isr_dummy:
-    ei
-    reti
+    EXTERN _isr_dummy
 
 ; ====================================================================
 ; Fixed-address variables (0xFFD0-0xFFFF)

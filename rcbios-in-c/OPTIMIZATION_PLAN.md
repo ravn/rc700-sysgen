@@ -722,6 +722,18 @@ b) **`sdcccall(2)` for BC parameter passing**: Add callee-only
    register assignments) — requires rebuilding zsdcc in the z88dk
    tree.
 
+### Done: Complex instructions (sdcc manual §4.3.7)
+
+sdcc emits Z80 block instructions only for standard library calls:
+- `memcpy()` → LDIR
+- `memset()` → LDIR or LSIDR
+- `strcpy()` → LDI
+- `strncpy()` → LDI
+
+User-written loops are NOT converted to block instructions.  This project
+already uses `memcpy()` and `memset()` for all byte-copy and byte-fill
+operations (converted in a previous session).  No further action needed.
+
 ### Future: Memory map of BIOS binary layout
 
 Create a detailed memory map showing:
@@ -755,6 +767,23 @@ The 6 SIO ISRs were converted from `__naked` with stack switch to
 work, but SIO serial I/O has not been tested under load.  Verify with
 CP/NET (which uses SIO Channel A for network traffic) that the ISRs
 handle sustained serial transfer without data loss or hangs.
+
+### Future: Propose extended parameter register mappings to sdcc
+
+Investigate how the sdcc community expects feature proposals for extending
+the parameter-to-register mapping in `__naked` functions.  Specifically:
+
+- Can `__naked` functions declare that parameters arrive in arbitrary
+  registers (e.g. BC, as CP/M BIOS entries require)?
+- Is this best proposed as a new `__sdcccall(N)` variant, a per-function
+  attribute, or a pragma?
+- What is the appropriate channel: sdcc-devel mailing list, SourceForge
+  feature request, or direct patch submission?
+- Review existing sdcc feature request history for similar proposals
+  (custom calling conventions, register parameter annotations).
+- The concrete use case: 11 of 14 BIOS entry points need `__naked` asm
+  wrappers solely because CP/M passes parameters in BC, not in
+  sdcccall(1)'s A/HL/DE registers.
 
 ## References
 
