@@ -24,11 +24,11 @@ typedef uint16_t word;
  * dspstr[row] gives a pointer to 80 characters.
  * screen is a flat byte pointer for offset-based access (cury+curx). */
 typedef byte ScreenRow[SCRN_COLS];
-#define dspstr      ((ScreenRow *)DSPSTR)
+#define display     ((ScreenRow *)DSPSTR)
 #define screen      ((byte *)DSPSTR)
 
 /* Pointer to start of row n */
-#define DSPROW(n)   ((byte *)dspstr[n])
+#define DSPROW(n)   ((byte *)display[n])
 
 /* Cursor coordinate limits */
 #define COLUMN0     0
