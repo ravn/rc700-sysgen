@@ -694,6 +694,8 @@ Investigate what switching to the z88dk standard CRT would provide:
   ordering, and ORG placement automatically?
 - Can it generate the Z80 Mode 2 interrupt vector table from
   `__interrupt(N)` declarations, or is that still manual?
+  The (N) numbers now match the IVT index (0-17) — if the CRT can
+  populate the table from these, crt0.asm's manual `defw` list is eliminated.
 - What startup code does it inject (stack init, global constructors)?
   Would this conflict with our cold boot sequence?
 - Does it support `__critical __interrupt` ISR registration?
@@ -719,6 +721,40 @@ b) **`sdcccall(2)` for BC parameter passing**: Add callee-only
    done externally (no plugin system, peephole rules cannot change
    register assignments) — requires rebuilding zsdcc in the z88dk
    tree.
+
+### Future: Memory map of BIOS binary layout
+
+Create a detailed memory map showing:
+- Address ranges for each code section (JP table, CONFI block, ISR stubs,
+  C code, data tables, translation tables, DPBs, etc.)
+- Which source file (crt0.asm vs bios.c) generates each region
+- Gaps between sections (wasted bytes that could be reclaimed)
+- BSS layout at 0xEF00+ (buffers, driver state, ring buffers)
+
+Use the linker map (bios.map) and listing (bios.c.lis) as source data.
+This will identify where space is wasted and guide future size reductions.
+
+### Future: Move CONFI configuration block from crt0.asm to C
+
+The CONFI block (psioa, psiob, par1-par4, fdprog, xyflg, etc.) is
+currently defined in crt0.asm with exact byte layout matching Track 0
+on disk.  CONFI.COM reads and writes these bytes at fixed offsets from
+the BIOS base.  Investigate whether this block can be moved to a C
+struct while preserving the exact binary layout:
+
+- Does sdcc guarantee struct field ordering and packing (no padding)?
+- Can the struct be placed at a fixed offset (DA09h) reliably?
+- CONFI.COM patches bytes in-place on disk — the offsets must not change.
+- The SIO init arrays (psioa[9], psiob[11]) are used by OTIR inline asm
+  which needs the symbol address — does this work with C struct fields?
+
+### Future: Verify SIO interrupts with CP/NET
+
+The 6 SIO ISRs were converted from `__naked` with stack switch to
+`__critical __interrupt(N)` (pure C, no stack switch).  Boot and DIR
+work, but SIO serial I/O has not been tested under load.  Verify with
+CP/NET (which uses SIO Channel A for network traffic) that the ISRs
+handle sustained serial transfer without data loss or hangs.
 
 ## References
 

@@ -1738,6 +1738,23 @@ void bios_hrdfmt(void) { }
  * The RC702 requires interrupts disabled in ALL interrupt handlers.
  * Nested interrupts are never safe on this hardware.
  *
+ * The (N) numbers match the IVT index in crt0.asm (_itrtab):
+ *   0-1  CTC1 ch0-1 (baud rate, no ISR)
+ *   2    CTC1 ch2: isr_crt            (__naked)
+ *   3    CTC1 ch3: isr_floppy         (__naked)
+ *   4    CTC2 ch0: isr_hd             (__interrupt)
+ *   5-7  CTC2 ch1-3 (unused)
+ *   8    SIO ch.B TX: isr_sio_b_tx    (__critical __interrupt)
+ *   9    SIO ch.B ext: isr_sio_b_ext  (__critical __interrupt)
+ *  10    SIO ch.B RX (dead: RX disabled)
+ *  11    SIO ch.B spec: isr_sio_b_spec(__critical __interrupt)
+ *  12    SIO ch.A TX: isr_sio_a_tx    (__critical __interrupt)
+ *  13    SIO ch.A ext: isr_sio_a_ext  (__critical __interrupt)
+ *  14    SIO ch.A RX: isr_sio_a_rx    (__naked)
+ *  15    SIO ch.A spec: isr_sio_a_spec(__critical __interrupt)
+ *  16    PIO ch.A: isr_pio_kbd        (__naked)
+ *  17    PIO ch.B: isr_pio_par        (__interrupt)
+ *
  * ISRs needing stack switch use __naked wrappers with explicit
  * register save/restore and EI only immediately before RETI.
  *
@@ -1895,7 +1912,7 @@ void isr_floppy(void) __naked
 }
 
 /* HD ISR stub — TODO(harddisk): Postponed until BIOS fits on mini. */
-void isr_hd(void) __interrupt(7) {}
+void isr_hd(void) __interrupt(4) {}
 
 /*
  * SIO Channel B ISRs (printer port)
@@ -1913,21 +1930,21 @@ void isr_hd(void) __interrupt(7) {}
  */
 
 /* TXB: Ch.B transmit complete — reset TX int, mark printer ready */
-void isr_sio_b_tx(void) __critical __interrupt(1)
+void isr_sio_b_tx(void) __critical __interrupt(8)
 {
     _port_sio_b_ctrl = 0x28;   /* reset TX interrupt pending */
     prtflg = 0xFF;              /* printer ready */
 }
 
 /* EXTSTB: Ch.B external status change — read and acknowledge */
-void isr_sio_b_ext(void) __critical __interrupt(2)
+void isr_sio_b_ext(void) __critical __interrupt(9)
 {
     rr0_b = _port_sio_b_ctrl;  /* read RR0 */
     _port_sio_b_ctrl = 0x10;   /* reset ext/status interrupts */
 }
 
 /* SPECB: Ch.B special receive condition — read error, reset */
-void isr_sio_b_spec(void) __critical __interrupt(3)
+void isr_sio_b_spec(void) __critical __interrupt(11)
 {
     _port_sio_b_ctrl = 0x01;   /* select RR1 */
     rr1_b = _port_sio_b_ctrl;  /* read RR1 */
@@ -1944,14 +1961,14 @@ void isr_sio_b_spec(void) __critical __interrupt(3)
  */
 
 /* TXA: Ch.A transmit complete — reset TX int, mark punch ready */
-void isr_sio_a_tx(void) __critical __interrupt(4)
+void isr_sio_a_tx(void) __critical __interrupt(12)
 {
     _port_sio_a_ctrl = 0x28;   /* reset TX interrupt pending */
     ptpflg = 0xFF;              /* punch ready */
 }
 
 /* EXTSTA: Ch.A external status change — read and acknowledge */
-void isr_sio_a_ext(void) __critical __interrupt(5)
+void isr_sio_a_ext(void) __critical __interrupt(13)
 {
     rr0_a = _port_sio_a_ctrl;  /* read RR0 */
     _port_sio_a_ctrl = 0x10;   /* reset ext/status interrupts */
@@ -1992,7 +2009,7 @@ void isr_sio_a_rx(void) __naked
 }
 
 /* SPECA: Ch.A special receive condition — error reset, flush buffer */
-void isr_sio_a_spec(void) __critical __interrupt(6)
+void isr_sio_a_spec(void) __critical __interrupt(15)
 {
     _port_sio_a_ctrl = 0x01;   /* select RR1 */
     rr1_a = _port_sio_a_ctrl;  /* read RR1 */
@@ -2002,4 +2019,4 @@ void isr_sio_a_spec(void) __critical __interrupt(6)
 }
 
 /* PIO ch.B (parallel output) ISR — not used on RC702 */
-void isr_pio_par(void) __interrupt(8) {}
+void isr_pio_par(void) __interrupt(17) {}
