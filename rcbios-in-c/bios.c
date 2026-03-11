@@ -721,6 +721,23 @@ static void wboot_c(void);
 
 void bios_boot_c(void)
 {
+    /* Initialize character conversion tables to identity mapping.
+     * The actual tables live on the disk image (written by CONFI.COM)
+     * and are NOT carried in the BIOS binary.  Identity mapping is the
+     * safe default — all characters pass through unchanged. */
+    {
+        volatile byte *p;
+        byte i;
+        p = (volatile byte *)OUTCON_ADDR;
+        for (i = 0; i < 128; i++)
+            *p++ = i;
+        p = (volatile byte *)INCONV_ADDR;
+        i = 0;
+        do {
+            *p++ = i;
+        } while (++i != 0);
+    }
+
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
            "RC700 56k CP/M 2.2 bios " BUILDDATE "\r\n");
@@ -837,6 +854,17 @@ static void cursorxy(void)
     _port_crt_cmd = 0x80;       /* load cursor position command */
     _port_crt_param = curx;     /* X position */
     _port_crt_param = cursy;    /* Y position */
+}
+
+static void goto00(void);
+
+/* Start XY addressing: set xflg and reset cursor.
+ * Placed immediately before goto00 so the tail call falls through.
+ * TODO: tail call is not yet optimized, the JP to next location is not peep hole optimized */
+static void start_xy(void)
+{
+    xflg = 2;
+    goto00();
 }
 
 /* Reset cursor to top-left (does NOT update 8275) */
@@ -1173,31 +1201,35 @@ static void clear_foreground(void)
     }
 }
 
-/* Control character dispatch (0x00-0x1F) */
+/* Control character dispatch (0x00-0x1F).
+ * Uses if/return chains so sdcc generates cp a,N (preserving A) with
+ * tail-call jp for each handler.  Ordered by frequency: CR and LF
+ * first, then common cursor/editing, then rare screen ops and BGSTAR. */
 static void specc(void)
 {
-    xflg = 0;                   /* cancel pending XY addressing */
-    switch (usession) {
-    case 0x01: insert_line(); break;
-    case 0x02: delete_line(); break;
-    case 0x05:                  /* ENQ = cursor left (same as BS) */
-    case 0x08: cursor_left(); break;
-    case 0x06: goto00(); xflg = 2; break;  /* start XY addressing */
-    case 0x07: _port_bell = 0; break;    /* bell */
-    case 0x09: tab(); break;
-    case 0x0A: cursor_down(); break;
-    case 0x0C: clear_screen(); break;
-    case 0x0D: carriage_return(); break;
-    case 0x13: bgflg = 2; memset(bgstar, 0, BGSTAR_SIZE); break;  /* set background */
-    case 0x14: bgflg = 1; break;                                   /* set foreground */
-    case 0x15: clear_foreground(); break;                           /* clear foreground */
-    case 0x18: cursor_right(); break;
-    case 0x1A: cursor_up(); break;
-    case 0x1D: home(); break;
-    case 0x1E: erase_to_eol(); break;
-    case 0x1F: erase_to_eos(); break;
-    default: break;
-    }
+    xflg = 0;
+    /* Most frequent: every line of output */
+    if (usession == 0x0D) { carriage_return(); return; }
+    if (usession == 0x0A) { cursor_down(); return; }
+    if (usession == 0x06) { start_xy(); return; }  /* XY addressing */
+    /* Common: cursor movement, editing */
+    if (usession == 0x08) { cursor_left(); return; }
+    if (usession == 0x05) { cursor_left(); return; }  /* ENQ = BS */
+    if (usession == 0x09) { tab(); return; }
+    if (usession == 0x18) { cursor_right(); return; }
+    if (usession == 0x1A) { cursor_up(); return; }
+    /* Less common: screen operations */
+    if (usession == 0x0C) { clear_screen(); return; }
+    if (usession == 0x1D) { home(); return; }
+    if (usession == 0x1E) { erase_to_eol(); return; }
+    if (usession == 0x1F) { erase_to_eos(); return; }
+    if (usession == 0x01) { insert_line(); return; }
+    if (usession == 0x02) { delete_line(); return; }
+    if (usession == 0x07) { _port_bell = 0; return; }
+    /* Rare: semi-graphics */
+    if (usession == 0x13) { bgflg = 2; memset(bgstar, 0, BGSTAR_SIZE); return; }
+    if (usession == 0x14) { bgflg = 1; return; }
+    if (usession == 0x15) { clear_foreground(); return; }
 }
 
 /* CONOUT body — dispatches based on escape state and char value */

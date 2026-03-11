@@ -61,7 +61,7 @@ builddate.h: FORCE
 
 FORCE:
 
-bios: crt0.asm bios.c hal.h bios.h builddate.h danish.bin peephole.def
+bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
@@ -189,5 +189,5 @@ test:
 
 clean:
 	rm -f bios bios.rom bios.cim bios_CODE.bin bios.map bios.lis
-	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis builddate.h
+	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis *.c.asm builddate.h
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd

@@ -131,13 +131,18 @@ _infd0:     defb 8          ; drive A: maxi floppy 1.1MB
 
 ; ====================================================================
 ; Character conversion tables (offset 0x100, runtime 0xD580)
-; 384 bytes: 128 output + 256 input (extracted from DANISH.MAC)
-; Copied to 0xF680 (OUTCON/INCONV) by INIT code at boot.
+; 384 bytes placeholder: 128 output + 256 input.
+; The actual conversion data lives on the disk image (written by
+; CONFI.COM) and is loaded by the autoload PROM along with the rest
+; of Track 0.  The BIOS binary only needs the placeholder space so
+; that cboot and the JP table remain at the correct offsets.
+; Identity tables are generated programmatically at boot time;
+; disk-resident tables (if any) can be loaded by CONFI.COM.
 ; ====================================================================
 
 PUBLIC _convta
 _convta:
-    BINARY "danish.bin"
+    defs 384
 
 ; ====================================================================
 ; INIT code (offset 0x280, runtime 0xD700 = CBOOT entry point)
@@ -163,12 +168,6 @@ _cboot:
     ld (hl), 0
     ld de, __bss_compiler_head + 1
     ld bc, __bss_compiler_size - 1
-    ldir
-
-    ; Copy conversion tables to runtime position
-    ld hl, _convta          ; source (relocated)
-    ld de, 0xF680           ; dest = OUTCON
-    ld bc, 384              ; 128 output + 256 input
     ldir
 
     ; Set up stack (use DMA buffer area temporarily)

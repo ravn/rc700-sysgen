@@ -16,6 +16,15 @@ derived from `sizeof`.  Added 7 dead-code elimination peephole rules saving 69 b
 jumps).  Fixed copt comment parsing issue (`;` lines corrupt rule boundaries).
 Size: 6762 → 6702 bytes.
 
+2026-03-11:  Binary size analysis and optimization.  Removed danish.bin character
+conversion tables (384 bytes) — PROM loads tables from disk already, BIOS only needs
+placeholder space.  Cold boot generates identity mapping tables instead.  Rewrote
+`specc()` control character dispatch from switch to if/return chain for frequency-based
+ordering (CR/LF first) — sdcc sorts switch cases by value, if/return preserves source
+order.  Added 4 conditional jump inversion peephole rules (`jr NZ/jp` → `jp Z`) saving
+34 bytes across 17 call sites.  Extracted `start_xy()` for tail-call optimization.
+Size: 6702 → 6692 bytes.
+
 
 ## Status
 
@@ -32,13 +41,13 @@ Size: 6762 → 6702 bytes.
 - Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
 - Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array
-- Current size: 6702 bytes (fits maxi 9984, over mini 6144 by 558 bytes)
+- Current size: 6692 bytes (fits maxi 9984, over mini 6144 by 548 bytes)
 
 ### Missing features
 
 - **Hard disk support** (WD1000 controller): HRDFMT stub and HD ISR stub present.
   Postponed until the BIOS fits comfortably on the mini (5.25") disk (need to
-  shrink by ~618 bytes first).
+  shrink by ~548 bytes first).
 
 ### Inline assembly syntax
 
@@ -125,7 +134,7 @@ make clean   # remove build artifacts
 - **bios.c**: All BIOS entry points, ISRs, and disk data tables in C
 - **bios.h**: Constants, memory layout, `WorkArea`/`JTVars`/`DPB`/`FSPA`/`FDF` structs, `byte`/`word` typedefs
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
-- **danish.bin**: Character conversion tables (384 bytes, extracted from assembled BIOS)
+- **~~danish.bin~~**: Removed — tables live on disk image, BIOS uses placeholder space
 - **peephole.def**: SDCC peephole optimizer rules
 - **bgstar_test.asm**: BGSTAR foreground/background test (draw, insert/delete line, clear FG)
 - **mame_bgstar_test.lua**: Automated MAME test for bgstar_test.asm (verifies screen contents)
@@ -312,8 +321,90 @@ using `memcpy`/`memset`/loops. The remaining asm blocks are:
 
 See `ASM_BLOCKS.md` for full analysis.
 
+## Binary layout (6692 bytes)
+
+The .cim binary spans 0xD480–0xEEA3.  The INIT section (D480–DA00) is
+overwritten by CCP after cold boot; only the resident portion (DA00+)
+must fit the system track.
+
+```
+Address range  Size   Section
+-------------  -----  ------------------------------------------
+D480h–D500h      128  Boot entry point + padding
+D500h–D580h      128  CONFI config block (SIO, CTC, CRT, FDC params)
+D580h–D700h      384  Character conversion tables (placeholder zeros)
+D700h–DA00h      768  Cold boot code (relocate, BSS clear, hw init call)
+DA00h–DA33h       51  BIOS JP table (17 entries, fixed address)
+DA33h–DA4Ah       23  JTVARS (CONFI configuration variables)
+DA4Ah–DA70h       38  Extended JP table entries (INTJP0-10)
+DA70h–DB00h      144  Saved register area + padding to IVT alignment
+DB00h–DB26h       38  Interrupt vector table (itrtab, 256-byte aligned)
+DB26h–ED42h     4636  C code (functions, ISRs)
+ED42h–EE72h      304  Read-only data (DPBs, translation tables, FDF, FSPA)
+EE72h–EE84h       18  Initialized data (trkoff, flags)
+EE84h–EEA4h       32  Library code (l_ret + memset)
+```
+
+BSS (uninitialized variables) is at EF60h–F462h (1282 bytes) and is
+NOT included in the binary — it is zeroed by cold boot code.
+
+### Top 10 largest C functions
+
+| # | Function | Bytes | Purpose |
+|---|----------|------:|---------|
+| 1 | `bios_hw_init` | 412 | Hardware init (INIT section, overwritten by CCP) |
+| 2 | `bg_clear_from` | 274 | BGSTAR bitmap clear (semi-graphics) |
+| 3 | `bios_seldsk_c` | 229 | Disk select + format table lookup |
+| 4 | `rwoper` | 223 | Blocking/deblocking state machine |
+| 5 | `insert_line` | 216 | Screen insert line + BGSTAR shift |
+| 6 | `xwrite` | 168 | Disk write + pre-read logic |
+| 7 | `isr_crt` | 150 | CRT refresh ISR (DMA, timers, keyboard scan) |
+| 8 | `delete_line` | 137 | Screen delete line + BGSTAR shift |
+| 9 | `chktrk` | 130 | Multi-density track 0 format switching |
+| 10 | `specc` | 125 | Control character dispatch (if/return chain) |
+
+### Space by category
+
+| Category | Bytes | % |
+|----------|------:|--:|
+| crt0.asm fixed structures | 1702 | 25.4 |
+| C code (functions + ISRs) | 4636 | 69.2 |
+| Read-only data tables | 304 | 4.5 |
+| Initialized data + library | 50 | 0.8 |
+| **Total** | **6692** | |
+
+### MINI fit analysis (need to cut 548 bytes)
+
+| Optimization | Saving | Notes |
+|--------------|-------:|-------|
+| Remove BGSTAR code | 419+ | Plus tails in insert/delete line, displ |
+| Shared stack-switch trampoline | ~50 | 5 wrappers → 1 trampoline |
+| Additional peephole rules | ~20 | Further pattern matching opportunities |
+| Micro-optimizations | ~60+ | Tail calls, shared code paths |
+| **Total estimated** | **~549+** | Tight but achievable |
+
+### specc control character dispatch
+
+sdcc **sorts switch cases by value**, ignoring source order.  Using
+`if (x == N) { handler(); return; }` chains instead preserves the
+source ordering and generates `cp a,N / jr NZ / jp handler` with A
+reused across comparisons (no reload).  This costs only 4 bytes more
+than a switch (the `0x05`/`0x08` cursor_left case can't fall through)
+but puts CR and LF first — the most frequent control codes get a
+2-comparison fast path.
+
+### Character conversion tables
+
+The 384-byte danish.bin conversion tables are **not included** in the BIOS
+binary.  The binary contains a placeholder (`defs 384`) at offset 0x100.
+The actual tables live on the disk image (written by CONFI.COM) and are
+loaded by the autoload PROM along with the rest of Track 0.  The cold
+boot code generates identity tables (all characters map to themselves) as
+a safe default.
+
 ## Next steps
 
-- MINI (5.25") support (currently 558 bytes over mini limit, needs size reduction)
+- MINI (5.25") support (currently 548 bytes over mini limit, needs size reduction)
+- Remove BGSTAR code (~419 bytes, largest single saving)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
-- Custom peephole rules analyzed — only 10 bytes recoverable (see `OPTIMIZATION_PLAN.md`)
+- Further peephole rules and micro-optimizations
