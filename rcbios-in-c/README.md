@@ -10,7 +10,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 ## Status
 
-**Phase 1k: ISR refactoring** — CP/M boots to A> on MAXI 8". All floppy BIOS features working.
+**Phase 1l: Code generation optimization** — CP/M boots to A> on MAXI 8". All floppy BIOS features working.
 
 - Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
 - Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
@@ -22,17 +22,18 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
 - Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
-- Current size: 6872 bytes (fits maxi 9984, over mini 6144 by 728 bytes)
+- Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array
+- Current size: 6762 bytes (fits maxi 9984, over mini 6144 by 618 bytes)
 
 ### Missing features
 
 - **Hard disk support** (WD1000 controller): HRDFMT stub and HD ISR stub present.
   Postponed until the BIOS fits comfortably on the mini (5.25") disk (need to
-  shrink by ~728 bytes first).
+  shrink by ~618 bytes first).
 
 ### Remaining inline assembly
 
-23 `__asm` blocks remain in bios.c. Categorized by whether they can move to C:
+24 `__asm` blocks remain in bios.c. Categorized by whether they can move to C:
 
 **Must stay in asm** (ABI / hardware constraints):
 - ISR stack switch helpers (`isr_enter`/`isr_exit`, 4 blocks) — SP manipulation, EI+RETI
@@ -41,6 +42,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - `bios_sectran` (1) — return BC in HL, single instruction + ret
 - `bios_wfitr` tail (1) — load rstab[0]→B, rstab[1]→C for CP/M ABI
 - `bios_linsel` entry (1) — store A→ls_port, B→ls_line (ABI bridge)
+- SIO init (1) — OTIR to ports 0x0A/0x0B (no C equivalent for OTIR)
 
 **Could move to C** (best candidates first):
 - **5 stack-switch wrappers** (`bios_conout`, `bios_home`, `bios_seldsk`, `bios_read`,
@@ -215,15 +217,20 @@ fresh image from the IMD source.
 
 ## Compiler optimization
 
-All compiler tuning options are documented in `SDCCCALL.md`. Summary:
+All compiler tuning options are documented in `SDCCCALL.md` and `OPTIMIZATION_PLAN.md`.
+Summary:
 
 - **No recursion** → all locals are `static` → no IX/IY frame pointer usage
 - **Makefile build guard** fails if `ix[+-]` or `iy[+-]` appear in listing
 - **Makefile build guard** fails if sdcccall(0) library functions are linked
+- **Makefile build guard** verifies position-sensitive symbols at expected addresses
 - **FDC wait loops non-inline** (callable) — compactness over speed for wait loops
 - **`--max-allocs-per-node 1000000`** for aggressive register allocation
 - **`--std-sdcc99`** enables `inline` keyword
 - sdcc has no automatic inlining — `inline` keyword is the only mechanism
+- **Block instructions**: `memcpy`→LDIR (inlined), `memset`→LDIR, OTIR via inline asm
+- **Z80 block ops used**: SIO init via OTIR, 128-byte deblocking via LDIR (memcpy)
+- See `OPTIMIZATION_PLAN.md` for sdcc internals analysis and future optimization paths
 
 ## Stack requirements
 
@@ -243,6 +250,7 @@ using `memcpy`/`memset`/loops. The remaining asm blocks are:
 - **ISR prologues/epilogues** (10): SP switch to ISTACK, PUSH AF/BC/DE/HL, POP, EI+RETI
 - **BIOS stack-switch entries** (7): SP switch to 0xF500 before calling C body
 - **CP/M ABI glue** (4): `settrk`/`setsec`/`setdma` store BC, `sectran` BC→HL
+- **SIO init** (1): OTIR to ports 0x0A/0x0B (no C equivalent for OTIR)
 - **DI/EI/HALT**: `hal_di()`, `hal_ei()`, `hal_halt()` macros in hal.h
 - **CCP jump**: load CDISK, jump to CCP at warm boot
 
@@ -250,4 +258,6 @@ See `ASM_BLOCKS.md` for full analysis.
 
 ## Next steps
 
-- MINI (5.25") support (currently 640 bytes over mini limit, needs size reduction)
+- MINI (5.25") support (currently 618 bytes over mini limit, needs size reduction)
+- Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
+- Additional custom peephole rules (inspect listing for patterns)

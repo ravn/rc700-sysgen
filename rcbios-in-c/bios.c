@@ -531,13 +531,11 @@ match:
 
     if (readop) {
         /* read: copy from host buffer to DMA area */
-        for (i = 0; i < 128; i++)
-            dst[i] = src[i];
+        memcpy(dst, src, 128);
     } else {
         /* write: copy from DMA area to host buffer */
         hstwrt = 1;
-        for (i = 0; i < 128; i++)
-            src[i] = dst[i];
+        memcpy(src, dst, 128);
     }
 
     /* post-processing */
@@ -590,10 +588,16 @@ void bios_hw_init(void)
     _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
 
     /* SIO: program channels A and B from CONFI init blocks */
-    for (byte *p = psioa; p < psioa + sizeof(psioa); p++)
-        _port_sio_a_ctrl = *p;
-    for (byte *p = psiob; p < psiob + sizeof(psiob); p++)
-        _port_sio_b_ctrl = *p;
+    __asm
+        ld hl, #_psioa
+        ld b, #9
+        ld c, #0x0A
+        otir
+        ld hl, #_psiob
+        ld b, #11
+        ld c, #0x0B
+        otir
+    __endasm;
 
     /* SIO: read initial status registers */
     (void)_port_sio_a_ctrl;     /* read RR0-A */
@@ -1050,13 +1054,10 @@ static void erase_to_eol(void)
 static void erase_to_eos(void)
 {
     static word pos;
-    static byte *p;
     static word count;
     pos = cury + curx;
-    p = screen + pos;
     count = SCRN_SIZE - pos;
-    while (count--)
-        *p++ = ' ';
+    memset(screen + pos, ' ', count);
     if (bgflg) {
         bgcl_pos = pos;
         bgcl_count = SCRN_SIZE - pos;
@@ -1170,12 +1171,10 @@ static void clear_foreground(void)
 {
     static word i;
     static byte *p;
-    static byte *bg;
     static byte bits, mask;
     p = screen;
-    bg = bgstar;
     for (i = 0; i < BGSTAR_SIZE; i++) {
-        bits = *bg++;
+        bits = bgstar[i];
         mask = 0x80;
         while (mask) {
             if (!(bits & mask))

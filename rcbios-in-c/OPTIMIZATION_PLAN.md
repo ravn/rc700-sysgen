@@ -252,30 +252,23 @@ by reviewing sdcc's peephole rules (`peeph.def`, 3097 lines) and the
 code generator — no pattern recognition for LDIR, LDDR, OTIR, or
 OTDR exists. Block instructions only appear via library calls.
 
-z88dk provides **three mechanisms** for block instructions:
+z88dk provides **three mechanisms** for block instructions, all
+verified against the actual z88dk source code:
 
-### 3a. Library functions (simplest)
+### 3a. Inline asm OTIR (recommended for this project)
 
-`#include <z80.h>` (path: `_DEVELOPMENT/sdcc/z80.h`)
-
+Direct inline assembly using the Z80 OTIR instruction:
 ```c
-void *z80_otir(void *src, uint8_t port, uint8_t num);
-void *z80_inir(void *dst, uint8_t port, uint8_t num);
+__asm
+    ld hl, #_psioa
+    ld b, #9          /* byte count */
+    ld c, #0x0A       /* port number */
+    otir
+__endasm;
 ```
 
-These are thin wrappers around the Z80 OTIR/INIR instructions.
-The `_callee` variants save a few bytes at call sites:
-
-```c
-#define z80_otir(a,b,c) z80_otir_callee(a,b,c)  /* auto-redirected */
-```
-
-**Usage for SIO init:**
-```c
-#include <z80.h>
-z80_otir(psioa, 0x0A, sizeof(psioa));   /* → OTIR to port 0x0A */
-z80_otir(psiob, 0x0B, sizeof(psiob));   /* → OTIR to port 0x0B */
-```
+**Size**: 9 bytes per block (ld hl=3, ld b=2, ld c=2, otir=2).
+Two SIO init blocks = 18 bytes total.
 
 **Caveat**: OTIR outputs B bytes from (HL) to port C, **incrementing
 HL and decrementing B**. It writes to a **single port**. The CTC init
@@ -283,36 +276,66 @@ pattern writes to **sequential ports** (0x04, 0x05, 0x06, 0x07) — this
 is NOT an OTIR pattern. OTIR only applies to SIO init (9 or 11 bytes
 to the same port) and FDC SPECIFY (3 bytes to the same port).
 
-### 3b. Compiler intrinsics (zero-overhead, compile-time constants)
+### 3b. z80_otir library function (verified, usable)
 
-`#include <intrinsic.h>`
+`#include <z80.h>` (path: `_DEVELOPMENT/sdcc/z80.h`)
 
 ```c
-intrinsic_outi(src, port, num);
-intrinsic_ini(dst, port, num);
+void *z80_otir(void *src, uint8_t port, uint8_t num);
 ```
 
-**How it works**: The macro expands to three fake function calls:
+The header macro redirects to `z80_otir_callee()` which uses
+`__z88dk_callee` (all params on stack, callee cleans up). The callee
+implementation (7 bytes in `z80/c/sdcc/z80_otir_callee.asm`):
+```asm
+pop af          ; return address
+pop hl          ; src
+pop bc          ; port in C, count in B
+push af         ; return address back
+otir
+ret
+```
+
+**Size**: 7 bytes function + ~9 bytes per call site (3 pushes + call).
+Two SIO init calls = 18 + 7 = 25 bytes total.
+
+**Works with `--no-crt`**: The function is in `code_z80` section and
+has no CRT dependencies. The `__z88dk_callee` attribute tells the
+compiler to push all params to stack regardless of `--sdcccall 1`.
+
+### 3c. intrinsic_outi (verified, NOT recommended)
+
+`#include <intrinsic.h>` — zero-overhead macro using peephole trick.
+
 ```c
 intrinsic_outi(psioa, 0x0A, 9);
-/* expands to: */
-{ intrinsic_outi(psioa);           /* → ld hl, psioa */
-  intrinsic_outi_port_0x0A();      /* → ld c, #0x0A  */
-  intrinsic_outi_num_9(); }        /* → call ____sdcc_outi-18 */
+/* expands to three fake function calls: */
+{ intrinsic_outi(psioa);           /* → (eliminated, HL set by fastcall) */
+  intrinsic_outi_port_0x0A();      /* → ld c, #0x0A */
+  intrinsic_outi_num_9(); }        /* → call ____sdcc_outi-(9*2) */
 ```
 
-The peephole optimizer (in z88dk's `sdcc_peeph.0`, **not** sdcc's own
-`peeph.def`) recognizes these fake calls and replaces them with inline
-Z80 instructions. Port and count must be **compile-time constants**
-(they become part of the function name via token pasting).
+The peephole rules are in z88dk's `sdcc_peeph.0` (**not** sdcc's own
+`peeph.def`). Confirmed: `-custom-copt-rules` **appends** to standard
+rules (zcc.c:1502), so our `peephole.def` does not interfere.
 
-**Advantage**: Zero call overhead — the peephole optimizer replaces
-the entire sequence with inline OTIR (or unrolled OUTI for small
-counts). No library function call needed.
+**Problem**: `intrinsic_outi` does NOT generate OTIR. It generates a
+call into `l_outi` — a chain of **64 unrolled OUTI instructions**
+(128 bytes of code in `l/util/5-z80/l_outi.asm`). The count parameter
+determines the entry point offset into this chain. Even for 9 bytes
+of output, the entire 128-byte chain gets linked.
 
-**Limitation**: Requires `-clib=sdcc_iy` or `-clib=sdcc_ix` to get
-the peephole rules. The `--no-crt` build used here may not load them
-automatically. Need to verify the peephole file is being used.
+For a size-constrained BIOS, this is unacceptable. Use inline asm
+OTIR (9 bytes) or z80_otir library (25 bytes) instead.
+
+### Size comparison for SIO init (2 channels: 9 + 11 bytes)
+
+| Approach | Code size | Library | Notes |
+|---|---|---|---|
+| Inline asm OTIR | **18 bytes** | None | Smallest, no dependency |
+| z80_otir library | ~25 bytes | 7B callee | Clean C, minor overhead |
+| Current C loops | ~25-30 bytes | None | Current approach |
+| intrinsic_outi | ~16 bytes + **128 bytes** | l_outi chain | Way too large |
 
 ### 3c. Custom peephole rules
 
@@ -510,23 +533,132 @@ These run automatically unless explicitly disabled:
 | `--nmos-z80` | Z80-A is NMOS but sdcc rarely emits `ld a,i`/`ld a,r` |
 | Disabling defaults (nogcse etc.) | Would increase code size |
 
+## 6. C Patterns That Produce Optimized Z80 Code
+
+Patterns that sdcc recognizes and converts to efficient Z80 instructions,
+with notes on which are applicable to this BIOS.
+
+### Patterns already used in bios.c
+
+| Pattern | Z80 result | Where in bios.c |
+|---|---|---|
+| `memcpy(dst, src, n)` | LDIR via library | scroll, insert/delete line |
+| `memset(dst, val, n)` | LDIR via library | clear screen, erase |
+| `x & 0x0F` (power-of-2 mod) | `and #0x0F` | FDC status masking |
+| `x >> 3` (power-of-2 div) | `srl` chain | bit offset calc (line 878) |
+| `*p++` (post-increment) | `ld (hl),a; inc hl` | erase loops, string output |
+| `*dst-- = *src--` (backward copy) | `ld a,(hl); dec hl; ld (de),a; dec de` | insert_line (line 1100) |
+| Single-bit test `x & 0x10` | `bit 4,a` or `and` | FDC status checks |
+| `x == 0` / `!x` | `or a; jr z` | Throughout |
+
+### Patterns the compiler handles automatically
+
+These produce good code without any special effort:
+
+- **Tail calls**: `return func()` at end of function → peephole
+  converts `call _func; ret` to `jp _func` (saves 1 byte per site).
+  Already used in `xread()` (line 1483), `xwrite()` (lines 1519, 1525).
+
+- **Bit rotation**: `((x << 1) | (x >> 7))` → `rlca`. Not currently
+  used in bios.c (no rotation patterns).
+
+- **Byte swap**: `((x << 8) | (x >> 8))` → register exchange. Not
+  currently needed.
+
+- **Compare to zero**: `if (!x)` and `if (x == 0)` generate identical
+  `or a; jr z` code. Both forms are fine.
+
+- **Short-circuit evaluation**: `if (a && b)` skips evaluating `b` if
+  `a` is false. Used throughout.
+
+- **Switch → jump table**: Switch with 5+ cases and reasonable density
+  generates a jump table. The `specc()` switch (line 1193, 17 cases
+  in 0x00-0x1F range) likely generates a 32-entry table.
+
+- **Small constant increment**: `x += 1` to `x += 3` → `inc` chain
+  instead of `add`. Used implicitly.
+
+### Patterns NOT currently exploited — opportunities in bios.c
+
+1. **Countdown loops → DJNZ**: sdcc generates DJNZ when a `uint8_t`
+   loop counter counts down to zero and the counter is in register B.
+   ```c
+   for (byte i = N; i != 0; i--)  /* or: while (i--) */
+   ```
+   Current countdown loops in bios.c (lines 274, 881, 1006, 1027,
+   1965) already use this form. Whether sdcc actually emits DJNZ
+   depends on register allocation — if B is available, it will.
+   **Verdict**: Already in the right form; no code changes needed.
+
+2. **Duplicate subexpression in format lookup** (lines 1416, 1418):
+   ```c
+   sp = &fspa[(fmt >> 3) & 3];
+   form = &fdf[(fmt >> 3) & 3];   /* same expression recomputed */
+   ```
+   Caching in a temp: `byte idx = (fmt >> 3) & 3;` saves 1-2 bytes.
+   GCSE may already handle this, but a local variable makes it
+   explicit.
+
+3. **Multiply by 80** (line 1142): `cury = (word)y_val * SCRN_COLS`
+   where SCRN_COLS=80. sdcc's strength reduction may already convert
+   this to shifts+adds (`y<<6 + y<<4`), but it's worth checking the
+   listing. If not, the explicit form saves the library multiply call.
+
+### Patterns to avoid (produce bad Z80 code)
+
+| Pattern | Problem | Better alternative |
+|---|---|---|
+| `while(n--) *d++ = *s++` | Individual LD loop, not LDIR | `memcpy()` |
+| `for(i=0;i<n;i++) port=a[i]` | Individual OUT loop, not OTIR | `z80_otir()` |
+| `(uint16_t, uint8_t)` params | 2nd param goes on stack (IX) | Reorder: `(uint8_t, uint16_t)` |
+| `signed / non-power-of-2` | Calls library div routine (~50 bytes) | Avoid division entirely |
+| `uint16_t` where `uint8_t` suffices | 16-bit ops on Z80 are 2× the code | Use smallest type |
+| Recursive functions | Stack frame per call, no static locals | Not used in this BIOS |
+
+### Peephole optimizer categories (294 built-in rules)
+
+The peephole optimizer runs after code generation and applies pattern
+matching. Most relevant categories for embedded code:
+
+| Category | Rules | Effect |
+|---|---|---|
+| Dead load elimination | ~20 | Removes unused register loads |
+| Direct memory ops | ~30 | `ld a,(hl)` → `ld a,(addr)` bypassing HL |
+| Bit set/res/test on (HL) | ~10 | `ld a,(hl); set 3,a; ld (hl),a` → `set 3,(hl)` |
+| Inc/dec on (HL) | ~5 | `ld a,(hl); inc a; ld (hl),a` → `inc (hl)` |
+| Register pair constants | ~10 | `ld b,#hi; ld c,#lo` → `ld bc,#hilo` |
+| Tail call | 2 | `call X; ret` → `jp X` |
+| DJNZ | 1 | `dec b; jr nz` → `djnz` |
+| Jump inversion | ~10 | `jr z,L1; jr L2; L1:` → `jr nz,L2` |
+| Commutativity | ~10 | Reorder to avoid register moves |
+| Constant folding | ~10 | `ld hl,#X; add hl,#Y` → `ld hl,#(X+Y)` |
+| Push/pop elimination | ~20 | Remove redundant save/restore pairs |
+
+These run automatically. The 3 custom rules in our `peephole.def`
+(xor-for-zero, redundant I/O reloads) supplement the built-in set.
+
 ## Action Items
 
 ### Immediate (low risk, high value)
 
-1. **Replace SIO init loops with `z80_otir`**:
+1. **Replace SIO init loops with inline asm OTIR** (saves ~10 bytes):
    ```c
-   z80_otir(psioa, 0x0A, sizeof(psioa));  /* was: for loop */
-   z80_otir(psiob, 0x0B, sizeof(psiob));
+   /* was: for (byte *p = psioa; p < psioa + sizeof(psioa); p++)
+                _port_sio_a_ctrl = *p; */
+   __asm
+       ld hl, #_psioa
+       ld b, #9
+       ld c, #0x0A
+       otir
+   __endasm;
+   /* same for psiob: ld b,#11; ld c,#0x0B */
    ```
-   Saves ~20 bytes (loop overhead → single OTIR) and is faster.
+   Current C loops ≈ 25-30 bytes. Inline OTIR = 18 bytes (9 per channel).
+   Alternatively use `z80_otir()` library for clean C at ~25 bytes.
+   Do NOT use `intrinsic_outi` — it pulls in a 128-byte unrolled chain.
 
 2. **Replace FDC SPECIFY loop** (if it exists as a loop) with
-   `z80_otir` to the FDC data port.
-
-3. **Verify `intrinsic_outi` works** with our build flags. If the
-   peephole rules load correctly, switch from `z80_otir` to
-   `intrinsic_outi` for zero call overhead.
+   inline asm OTIR to the FDC data port.
 
 ### Medium term (moderate effort)
 
