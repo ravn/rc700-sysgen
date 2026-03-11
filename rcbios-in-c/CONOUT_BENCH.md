@@ -9,12 +9,23 @@ TYPE FILEX.PRN is dominated by CONOUT (character output) — the key metric.
 |------|------|-------------|-----------|------------|------------|
 | 2026-03-11 | original-maxi | 178,996,914 | 44.749s | 187,238,614 | 4462 |
 | 2026-03-11 | c-bios-6402B | 188,278,829 | 47.070s | 188,598,895 | 4570 |
+| 2026-03-11 | c-bios-6438B | 169,554,967 | 42.389s | 188,598,895 | 4336 |
 
 ## Analysis (2026-03-11)
 
-The C BIOS is **5.2% slower** on TYPE FILEX.PRN compared to the original
+### After unrolled LDI scroll optimization (c-bios-6438B)
+
+The C BIOS is now **5.3% faster** than the original REL2.3 assembly BIOS
+on TYPE FILEX.PRN (169.6M vs 179.0M cycles).  The unrolled 16×LDI scroll
+(16T/byte vs 21T/byte LDIR) recovered ~18.7M cycles from the previous
+C BIOS measurement — even more than the predicted 10M, likely because
+the LDIR fill trick for memset contributed additional savings.
+
+### Before optimization (c-bios-6402B)
+
+The C BIOS was **5.2% slower** on TYPE FILEX.PRN compared to the original
 REL2.3 assembly BIOS.  ASM and STAT times are within 1%, so the difference
-is concentrated in character output (CONOUT), not disk I/O.
+was concentrated in character output (CONOUT), not disk I/O.
 
 ### Methodology
 
