@@ -461,16 +461,36 @@ These run automatically unless explicitly disabled:
 --max-allocs-per-node 1000000  Maximum register allocator depth
 --std-sdcc99                   Enable inline keyword
 --disable-warning 296          Suppress sdcccall mismatch (no stdlib)
--custom-copt-rules=peephole.def  3 project-specific peephole rules
+-custom-copt-rules=peephole.def  10 project-specific peephole rules
 -pragma-define:CRT_ORG_CODE=0xD480  BIOS origin
 ```
 
 ### Custom peephole rules (peephole.def)
 
-3 rules targeting C-generated I/O patterns:
+10 rules in two categories:
+
+**I/O patterns** (3 rules):
 1. `ld a,0x00` → `xor a,a` (saves 1 byte per occurrence)
 2. Redundant `ld a,%1` after `out` to same value (saves 2 bytes)
 3. Redundant `xor a,a` after `out` of zero (saves 1 byte)
+
+**Dead code elimination** (7 rules, saves 69 bytes):
+4. `jp X; jp Y` → `jp X` (remove unreachable jp after unconditional jp)
+5. `jp X; jr Y` → `jp X` (remove unreachable jr after unconditional jp)
+6. `jr X; jp Y` → `jr X` (remove unreachable jp after unconditional jr)
+7. `jr X; jr Y` → `jr X` (remove unreachable jr after unconditional jr)
+8. `ret; jp X` → `ret` (remove unreachable jp after ret)
+9. `ret; jr X` → `ret` (remove unreachable jr after ret)
+10. `jp X; di` → `jp X` (remove unreachable di after unconditional jp)
+
+The dead-code rules target a gap in sdcc/z88dk: sdcc eliminates dead code
+at the C level (§8.1.2), but neither sdcc's peephole optimizer nor z88dk's
+copt has rules for removing assembly instructions that follow unconditional
+jumps when no label intervenes.  Found empirically in the listing output.
+
+**Caveat**: copt does not support comment lines — `;`-prefixed lines are
+treated as pattern lines, corrupting rule boundaries.  Use only blank
+lines as separators in peephole.def.
 
 ### Build guards (Makefile)
 
@@ -586,9 +606,11 @@ These produce good code without any special effort:
 - **Short-circuit evaluation**: `if (a && b)` skips evaluating `b` if
   `a` is false. Used throughout.
 
-- **Switch → jump table**: Switch with 5+ cases and reasonable density
-  generates a jump table. The `specc()` switch (line 1193, 17 cases
-  in 0x00-0x1F range) likely generates a 32-entry table.
+- **Switch → jump table**: Switch with 5+ cases and sufficient density
+  generates a jump table.  The `specc()` switch (17 cases over
+  0x01-0x1F range with 14 gaps) compiles as a linear CP/JP chain
+  (~85 bytes dispatch), not a jump table — the density is too low.
+  A manual lookup table could save ~13 bytes but adds complexity.
 
 - **Small constant increment**: `x += 1` to `x += 3` → `inc` chain
   instead of `add`. Used implicitly.
@@ -760,6 +782,15 @@ struct while preserving the exact binary layout:
 - The SIO init arrays (psioa[9], psiob[11]) are used by OTIR inline asm
   which needs the symbol address — does this work with C struct fields?
 
+### Future: isr_dummy deduplication for IVT generation
+
+If the z88dk CRT or sdcc can generate the interrupt vector table from
+`__interrupt(N)` declarations, investigate whether multiple IVT slots
+can share a single `isr_dummy` function, or whether each slot needs its
+own function (e.g. `isr_dummy_0`, `isr_dummy_1`, etc.).  Currently
+crt0.asm references `_isr_dummy` from 6 IVT entries — if auto-generation
+requires unique functions per slot, create one for each.
+
 ### Future: Verify SIO interrupts with CP/NET
 
 The 6 SIO ISRs were converted from `__naked` with stack switch to
@@ -767,6 +798,25 @@ The 6 SIO ISRs were converted from `__naked` with stack switch to
 work, but SIO serial I/O has not been tested under load.  Verify with
 CP/NET (which uses SIO Channel A for network traffic) that the ISRs
 handle sustained serial transfer without data loss or hangs.
+
+### Future: Use `__banked` trampoline for stack-switch wrappers
+
+sdcc's Z80 `__banked` mechanism (§4.3.9) calls functions via a
+user-replaceable trampoline (`__sdcc_bcall_ehl`).  The default
+trampoline saves/restores a memory bank, but could be repurposed to
+save/restore SP instead:
+
+1. Replace `__sdcc_bcall_ehl` with a trampoline that saves SP,
+   switches to BIOS stack (0xF500), calls the function, restores SP
+2. Mark the 5 stack-switch BIOS entries as `__banked`
+3. The compiler generates `CALL __sdcc_bcall_ehl` instead of `CALL fn`
+
+This would eliminate the 5 hand-written `__naked` stack-switch wrappers
+(~100 bytes of asm).  Caveats to investigate:
+- `__banked` forces all parameters onto the stack (no register params)
+- The trampoline must handle DI/EI around the SP swap
+- Does the `set_bank`/`get_bank` hook mechanism offer enough control?
+- Can `__banked` coexist with non-banked calls in the same binary?
 
 ### Future: Propose extended parameter register mappings to sdcc
 
@@ -784,6 +834,23 @@ the parameter-to-register mapping in `__naked` functions.  Specifically:
 - The concrete use case: 11 of 14 BIOS entry points need `__naked` asm
   wrappers solely because CP/M passes parameters in BC, not in
   sdcccall(1)'s A/HL/DE registers.
+
+### Future: Source-level debugging in MAME via GDB
+
+MAME provides a GDB RSP stub (`-debug` or `-g` flag).  Investigate:
+
+- Can a real GDB (z80-elf-gdb or gdb-multiarch) attach to MAME's
+  gdbstub and provide source-level debugging (breakpoints, stepping,
+  variable inspection)?
+- Can sdcc/z88dk output DWARF or ELF debug info usable by GDB?
+  Check `--debug` flag and output formats (.elf, .cdb, .sym).
+- What IDE integration is available?  Emacs GDB mode, VS Code with
+  Cortex-Debug or similar, or CLion remote debug?
+- The existing `gdb_trace.py` / `gdb_bgstar.py` scripts connect to
+  MAME's gdbstub via raw RSP protocol — could these be replaced by
+  a real GDB session with symbol loading?
+- Does z88dk's `.map` file provide enough symbol info for GDB, or
+  is a conversion step needed (map → ELF symbols)?
 
 ## References
 

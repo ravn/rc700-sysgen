@@ -7,6 +7,15 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
 2026-03-10:  BIOS is now feature-complete (except for harddisk support) and boots CP/M to A> on the MAXI 8" disk image. Remaining work is refactoring and size reduction to fit the MINI 5.25" image.  Also making hot paths as fast as possible and move as many pointer operations to standard C idioms working on table structures etc, and then add peep hole optimization to make the generated code sharper.
 
+2026-03-11:  Major refactoring session.  Converted all inline asm to `__asm__()` form.
+Converted 6 SIO ISRs from `__naked` to `__critical __interrupt(N)` (pure C).
+Discovered and documented RETN vs EI+RETI bug (`__interrupt(N)` number is mandatory).
+Refactored display memory as typed 2D array (`Display[25][80]`) with all dimensions
+derived from `sizeof`.  Added 7 dead-code elimination peephole rules saving 69 bytes
+(discovered gap in sdcc/z88dk: neither eliminates unreachable asm after unconditional
+jumps).  Fixed copt comment parsing issue (`;` lines corrupt rule boundaries).
+Size: 6751 → 6682 bytes.
+
 
 ## Status
 
@@ -23,7 +32,7 @@ See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 - Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
 - Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array
-- Current size: 6762 bytes (fits maxi 9984, over mini 6144 by 618 bytes)
+- Current size: 6682 bytes (fits maxi 9984, over mini 6144 by 538 bytes)
 
 ### Missing features
 
@@ -97,7 +106,7 @@ generates shorter code for struct member access than individual absolute loads).
 `((void (*)(void))warmjp)()` → macro `CALL_WARMJP()` for readability.
 
 **Already idiomatic** (no changes needed): display buffer overlays (`screen`,
-`DSPROW`, `bgstar` macros), WorkArea struct at 0xFFD0, SIO init loops with
+`DISPLAY_ROW`, `bgstar` macros), WorkArea struct at 0xFFD0, SIO init loops with
 `sizeof`, ring buffer arithmetic, backward copy loops.
 
 ## Building
@@ -305,6 +314,6 @@ See `ASM_BLOCKS.md` for full analysis.
 
 ## Next steps
 
-- MINI (5.25") support (currently 618 bytes over mini limit, needs size reduction)
+- MINI (5.25") support (currently 538 bytes over mini limit, needs size reduction)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
 - Custom peephole rules analyzed — only 10 bytes recoverable (see `OPTIMIZATION_PLAN.md`)

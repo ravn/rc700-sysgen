@@ -16,3 +16,33 @@
 	xor	a, a
 	out	(%1), a
 
+	jp	%1
+	jp	%2
+=
+	jp	%1
+
+	jp	%1
+	jr	%2
+=
+	jp	%1
+
+	jr	%1
+	jp	%2
+=
+	jr	%1
+
+	jr	%1
+	jr	%2
+=
+	jr	%1
+
+	ret
+	jp	%1
+=
+	ret
+
+	ret
+	jr	%1
+=
+	ret
+
