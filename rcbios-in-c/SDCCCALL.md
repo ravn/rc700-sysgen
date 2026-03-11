@@ -210,6 +210,48 @@ All parameters passed on the stack, right-to-left.
 compiled with sdcccall(0) will silently produce wrong results when called from
 sdcccall(1) code. The Makefile checks for this (div/mod/mul guard).
 
+## `__interrupt` Epilogue — RETN vs EI+RETI
+
+**The `(N)` vector number in `__interrupt(N)` controls the ISR epilogue.**
+Omitting it changes the generated return instruction, with fatal consequences.
+
+| Declaration | Prologue | Epilogue | Correct? |
+|---|---|---|---|
+| `__critical __interrupt(N)` | push AF,BC,DE,HL,IY | `EI; RETI` | **Yes** — re-enables interrupts |
+| `__critical __interrupt` | push AF,BC,DE,HL,IY | `RETN` | **FATAL** — interrupts stay disabled |
+| `__interrupt(N)` | `EI;` push AF,BC,DE,HL,IY | `RETI` | Risky — EI before saves allows nesting |
+| `__interrupt` (bare) | `EI;` push AF,BC,DE,HL,IY | `RETI` | Same risk as above |
+
+**Why `RETN` is fatal**: On the Z80, `RETN` copies IFF2→IFF1 but does not
+set either flag.  If interrupts were disabled when the ISR was entered
+(which `__critical` ensures), `RETN` returns with interrupts still disabled.
+On the RC702, all I/O — keyboard, floppy, serial — is interrupt-driven.
+The system freezes after the first ISR fires.
+
+**Why `EI` at entry is wrong**: `__interrupt(N)` without `__critical` puts
+`EI` as the very first instruction, before pushing registers.  This allows
+a second interrupt to fire immediately, before the first ISR has saved its
+context.  For ISRs that share `sp_sav` (the stack-switch variable) or
+program the DMA controller, nested interrupts corrupt state.
+
+**Correct pattern for this project**: `__critical __interrupt(N)` —
+interrupts disabled throughout, `EI; RETI` at the end.
+
+### Experimentally verified (z88dk sdcc 4.5.0)
+
+```
+__critical __interrupt(1)  →  push regs ... pop regs; EI; RETI  (0xFB 0xED4D)
+__critical __interrupt     →  push regs ... pop regs; RETN       (0xED45)
+__interrupt(1)             →  EI; push regs ... pop regs; RETI  (0xFB ... 0xED4D)
+__interrupt                →  EI; push regs ... pop regs; RETI  (0xFB ... 0xED4D)
+```
+
+The bare `__interrupt` (no number) behaves identically to `__interrupt(N)` —
+both generate `EI` at entry and `RETI` at exit.  The `(N)` only matters
+when combined with `__critical`, where it switches from `RETN` to `EI; RETI`.
+
+**Rule: every `__interrupt` in this project must include `(N)`.**
+
 ## No-Recursion Optimization
 
 Since this BIOS has no recursion (see `STACK_ANALYSIS.md`), all local variables
