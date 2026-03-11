@@ -260,4 +260,4 @@ See `ASM_BLOCKS.md` for full analysis.
 
 - MINI (5.25") support (currently 618 bytes over mini limit, needs size reduction)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
-- Additional custom peephole rules (inspect listing for patterns)
+- Custom peephole rules analyzed — only 10 bytes recoverable (see `OPTIMIZATION_PLAN.md`)

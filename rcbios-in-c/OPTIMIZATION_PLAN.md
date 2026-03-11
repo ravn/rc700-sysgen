@@ -497,19 +497,34 @@ These run automatically unless explicitly disabled:
    loops more aggressively. Estimated: +5-15 bytes, 10-20% faster on
    hot paths.
 
-2. **More custom peephole rules**: Only 3 rules in `peephole.def`.
-   Inspecting the listing for repeated patterns (redundant register
-   shuffles in the display driver, repeated address loads in the
-   floppy driver) could yield 20-50 bytes. Rule format:
-   ```
-   replace {
-       <asm pattern with %1, %2 variables>
-   } by {
-       <replacement>
-   } if <condition>
-   ```
-   Built-in conditions: `notUsed`, `deadMove`, `notVolatile`,
-   `labelRefCount`, `operandsNotRelated`, etc.
+2. **Custom peephole rules — exhaustive listing analysis (2026-03-11)**:
+   Only 3 rules in `peephole.def`. Full analysis of all 4068 listing
+   lines identified three candidate patterns:
+
+   | Pattern | Total | Safe | Bytes |
+   |---------|-------|------|-------|
+   | `ld hl,X` / `ld a,(hl)` → `ld a,(X)` | 20 | 2 | 2 |
+   | `ld hl,X` / `ld (hl),a` → `ld (X),a` | 17 | 5 | 5 |
+   | `ld hl,X` / `ld (hl),0` → `xor a` / `ld (X),a` | 11 | 3 | 3 |
+   | **Total** | **48** | **10** | **10** |
+
+   Most instances (38 of 48) are **unsafe** to optimize because HL is
+   used afterward (read-modify-write, `inc hl` to walk a word, or
+   conditional branches where both paths may use HL).
+
+   The z88dk `copt` tool uses simple text substitution with **no
+   liveness analysis** (`notUsed()` is only available in sdcc's own
+   peephole engine, not in z88dk's copt). Rules must match specific
+   follow-up instructions that prove HL is dead (e.g., `ret`, `jp`,
+   `ld hl,Y`). This makes general rules impractical.
+
+   Additional patterns checked with zero findings: redundant
+   `xor a/or a`, store-then-reload same address, consecutive dead
+   `ld a`, conditional JP replaceable by JR (already optimized).
+
+   **Verdict**: 10 bytes maximum from peephole rules. Not worth the
+   maintenance burden of fragile context-dependent rules. Effort is
+   better spent on the shared stack-switch trampoline (~50 bytes).
 
 3. **`#pragma callee_saves func1,func2`**: Makes specified functions
    save/restore registers themselves, eliminating push/pop at every

@@ -80,7 +80,7 @@ const FSPA fspa[4] = {
     { (DPB *)&dpb24,  8, 104, 1, 2, (byte *)tran24, 255, 0, {0} },
 };
 
-/* Track offset table (2 floppy drives + 6 unused) */
+/* Track offset table (2 floppy drives + 6 reserved for harddisk) */
 word trkoff[] = { 2, 2, 0, 0, 0, 0, 0, 0 };
 
 /* ================================================================
@@ -200,7 +200,7 @@ static void waitd(word ticks)
 {
     delcnt = ticks;
     while (delcnt)
-        ;
+        ; // wait for timer to count down (20ms per tick)
 }
 
 static void fdstar(void)
@@ -587,7 +587,7 @@ void bios_hw_init(void)
     _port_ctc3 = *((&mode0) + 6);  /* ch3 mode (floppy) */
     _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
 
-    /* SIO: program channels A and B from CONFI init blocks */
+    /* SIO: program channels A and B from CONFI init blocks.  Apparently this is as compact as it gets! */
     __asm
         ld hl, #_psioa
         ld b, #9
