@@ -618,8 +618,8 @@ void bios_hw_init(void)
     fdc_write(0xDF);            /* step rate 3ms, head unload 240ms */
     fdc_write(0x28);            /* head load 40ms, DMA mode */
 
-    /* Clear display buffer (DISPLAY_ROW(0) to SCRNEND with spaces) */
-    memset(DISPLAY_ROW(0), ' ', SCRNEND - DSPSTR + 1);
+    /* Clear display buffer with spaces */
+    memset(DISPLAY_ROW(0), ' ', SCRN_SIZE);
 
     /* Clear work area (0xFFD1-0xFFFF with zeros) */
     memset((void *)0xFFD1, 0, 0x002F);
