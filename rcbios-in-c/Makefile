@@ -51,7 +51,7 @@ IMG_MAXI = $(HOME)/Downloads/SW1711-I8.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test asm-test test
+.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test
 
 all: bios size
 
@@ -198,6 +198,22 @@ bgstar-test: bios bgstar_test.asm mame_bgstar_test.lua
 # assemble FILEX.ASM, verify output.  Uses run_mame.sh -t.
 asm-test: bios
 	./run_mame.sh -t
+
+# Cycle benchmark: ASM FILEX with timing + PC profiling
+cycle-test: bios
+	./run_mame.sh -c
+
+# Baseline: run cycle test with original (unpatched) BIOS
+cycle-baseline:
+	./run_mame.sh -oc
+
+# Instruction-level profile: trace TYPE FILEX.PRN (needs debug MAME)
+profile: bios
+	./run_mame.sh -p
+
+# Profile baseline: original BIOS instruction trace
+profile-baseline:
+	./run_mame.sh -op
 
 # Host tests (TODO)
 test:
