@@ -461,7 +461,7 @@ These run automatically unless explicitly disabled:
 --max-allocs-per-node 1000000  Maximum register allocator depth
 --std-sdcc99                   Enable inline keyword
 --disable-warning 296          Suppress sdcccall mismatch (no stdlib)
--custom-copt-rules=peephole.def  10 project-specific peephole rules
+-custom-copt-rules=peephole.def  15 project-specific peephole rules
 -pragma-define:CRT_ORG_CODE=0xD480  BIOS origin
 ```
 
@@ -474,7 +474,7 @@ These run automatically unless explicitly disabled:
 2. Redundant `ld a,%1` after `out` to same value (saves 2 bytes)
 3. Redundant `xor a,a` after `out` of zero (saves 1 byte)
 
-**Dead code elimination** (12 rules, saves 49 bytes):
+**Dead code elimination** (12 rules, saves ~50 bytes):
 Rules remove unreachable JP/JR after an unconditional JP/JR/RET.
 Patterns use label prefixes (`_` for functions, `l_` for locals) to
 distinguish unconditional jumps from conditional ones (e.g. `jp Z,_label`

@@ -14,7 +14,7 @@ Refactored display memory as typed 2D array (`Display[25][80]`) with all dimensi
 derived from `sizeof`.  Added 7 dead-code elimination peephole rules saving 69 bytes
 (discovered gap in sdcc/z88dk: neither eliminates unreachable asm after unconditional
 jumps).  Fixed copt comment parsing issue (`;` lines corrupt rule boundaries).
-Size: 6751 → 6682 bytes.
+Size: 6762 → 6702 bytes.
 
 
 ## Status
@@ -32,7 +32,7 @@ Size: 6751 → 6682 bytes.
 - Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
 - Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array
-- Current size: 6682 bytes (fits maxi 9984, over mini 6144 by 538 bytes)
+- Current size: 6702 bytes (fits maxi 9984, over mini 6144 by 558 bytes)
 
 ### Missing features
 
@@ -314,6 +314,6 @@ See `ASM_BLOCKS.md` for full analysis.
 
 ## Next steps
 
-- MINI (5.25") support (currently 538 bytes over mini limit, needs size reduction)
+- MINI (5.25") support (currently 558 bytes over mini limit, needs size reduction)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
 - Custom peephole rules analyzed — only 10 bytes recoverable (see `OPTIMIZATION_PLAN.md`)
