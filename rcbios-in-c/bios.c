@@ -22,13 +22,9 @@
 #include "builddate.h"
 
 /* Forward declarations */
-static void conout_body(void);
-static void putch(byte c);
-static void puts_p(const char *s);
+static void bios_conout_c(byte c);
 static word bios_seldsk_c(byte drv);
-static void bios_home_c(void);
 static byte xread(void);
-static byte xwrite(byte wt);
 
 /* ================================================================
  * Disk data tables (moved from crt0.asm)
@@ -94,6 +90,7 @@ static byte kbbuf[KBBUFSZ];
 static volatile byte kbhead;   /* write index (ISR updates) */
 static volatile byte kbtail;   /* read index (CONIN updates) */
 static volatile byte kbstat;   /* 0xFF if buffer non-empty, 0x00 if empty */
+static volatile byte cur_dirty; /* non-zero: cursor position needs ISR update */
 
 /* SIO serial ring buffer (REL30)
  * 256-byte page-aligned buffer for SIO Ch.A receiver.
@@ -645,16 +642,11 @@ void bios_boot(void) __naked
             "jp _bios_boot_c      \n");
 }
 
-static void putch(byte c)
-{
-    usession = c;
-    conout_body();
-}
 
 static void puts_p(const char *s)
 {
     while (*s)
-        putch(*s++);
+        bios_conout_c(*s++);
 }
 
 
@@ -717,7 +709,7 @@ static void wboot_c(void)
     iobyte = 0;
     dskno = 0;
 
-    bios_home_c();
+    bios_home();
 
     /* Load CCP+BDOS from track 1 into CCP_BASE */
     dmaadr = CCP_BASE;
@@ -968,9 +960,7 @@ static void carriage_return(void)
  * CR is the hottest path — every output line ends with CR+LF. */
 static void cursorxy(void)
 {
-    _port_crt_cmd = 0x80;       /* load cursor position command */
-    _port_crt_param = curx;     /* X position */
-    _port_crt_param = cursy;    /* Y position */
+    cur_dirty = 1;              /* deferred to isr_crt for speed */
 }
 
 /* Tab — 4 cursor rights */
@@ -1227,56 +1217,37 @@ static void specc(void)
     if (usession == 0x01) { insert_line(); return; }
     if (usession == 0x02) { delete_line(); return; }
     if (usession == 0x07) { _port_bell = 0; return; }
-    /* Rare: semi-graphics */
+    /* Rare: fore/background */
     if (usession == 0x13) { bgflg = 2; memset(bgstar, 0, BGSTAR_SIZE); return; }
     if (usession == 0x14) { bgflg = 1; return; }
     if (usession == 0x15) { clear_foreground(); return; }
 }
 
-/* CONOUT body — dispatches based on escape state and char value */
-static void conout_body(void)
+/*
+ * CONOUT entry point — CP/M ABI shim
+ *
+ * CP/M passes character in C register; sdcccall(1) expects it in A.
+ * This __naked shim does `ld a, c` then falls through to bios_conout_c.
+ * The compiler saves/restores all registers it clobbers, satisfying
+ * the CP/M ABI requirement that BIOS calls preserve all registers.
+ * No stack switch needed — CONOUT uses at most 16 bytes of stack.
+ */
+void bios_conout(byte c) __naked
 {
+    (void)c;
+    __asm__("ld a, c               \n");
+    /* fall through to bios_conout_c */
+}
+
+static void bios_conout_c(byte c)
+{
+    usession = c;
     if (xflg != 0)
         xyadd();
     else if (usession < 32)
         specc();
     else
         displ();
-}
-
-/*
- * CONOUT entry point — stack-switching wrapper
- *
- * CP/M passes character in C register.  We switch to the BIOS stack
- * (0xF680) with interrupts disabled during the switch, then dispatch.
- * Matches the original CONOUT: DI, save SP, switch stack, EI, work,
- * DI, restore SP, EI, RET.
- */
-void bios_conout(byte c) __naked
-{
-    (void)c;
-    __asm__("di                    \n"
-            "push hl               \n"
-            "ld hl, #0             \n"
-            "add hl, sp            \n"  /* HL = caller SP */
-            "ld sp, #0xF500        \n"  /* switch to BIOS stack */
-            "ei                    \n"
-            "push hl               \n"  /* save caller SP */
-            "push af               \n"
-            "push bc               \n"
-            "push de               \n"
-            "ld a, c               \n"  /* char from C register */
-            "ld (0xFFDA), a        \n"  /* usession */
-            "call _conout_body     \n"
-            "pop de                \n"
-            "pop bc                \n"
-            "pop af                \n"
-            "pop hl                \n"  /* caller SP */
-            "di                    \n"
-            "ld sp, hl             \n"  /* restore caller stack */
-            "pop hl                \n"
-            "ei                    \n"
-            "ret                   \n");
 }
 
 /* LIST: transmit character on SIO Channel B (printer) */
@@ -1333,26 +1304,7 @@ byte bios_reader(void)
     return ch;
 }
 
-void bios_home(void) __naked
-{
-    /* CP/M calls HOME before SELDSK — flush pending writes, recalibrate */
-    __asm__("di                    \n"
-            "push hl               \n"
-            "ld hl, #0             \n"
-            "add hl, sp            \n"
-            "ld sp, #0xF500        \n"
-            "ei                    \n"
-            "push hl               \n"
-            "call _bios_home_c     \n"
-            "pop hl                \n"
-            "di                    \n"
-            "ld sp, hl             \n"
-            "pop hl                \n"
-            "ei                    \n"
-            "ret                   \n");
-}
-
-static void bios_home_c(void)
+void bios_home(void)
 {
     if (hstwrt) {
         wrthst();
@@ -1368,27 +1320,14 @@ static void bios_home_c(void)
     wfitr();
 }
 
+/* CP/M passes drive in C register, expects DPH in HL.
+ * sdcccall(1) returns word in DE, CP/M expects HL. */
 word bios_seldsk(byte disk) __naked
 {
-    /* CP/M passes drive in C register, expects DPH in HL */
     (void)disk;
-    __asm__("di                    \n"
-            "push bc               \n"
-            "ld hl, #0             \n"
-            "add hl, sp            \n"
-            "ld sp, #0xF500        \n"  /* switch to BIOS stack */
-            "ei                    \n"
-            "push hl               \n"  /* save caller SP */
-            "ld a, c               \n"  /* drive number → A */
-            "call _bios_seldsk_c   \n"  /* returns DPH in DE */
-            "ex de, hl             \n"  /* HL = DPH (for CP/M) */
-            "pop de                \n"  /* DE = saved caller SP */
-            "di                    \n"
-            "ex de, hl             \n"  /* DPH in DE, SP in HL */
-            "ld sp, hl             \n"  /* restore caller stack */
-            "ex de, hl             \n"  /* HL = DPH for CP/M */
-            "pop bc                \n"
-            "ei                    \n"
+    __asm__("ld a, c               \n"
+            "call _bios_seldsk_c   \n"
+            "ex de, hl             \n"
             "ret                   \n");
 }
 
@@ -1518,54 +1457,22 @@ alloc:
     return rwoper();
 }
 
-byte bios_read(void) __naked
+byte bios_read(void)
 {
-    __asm__("di                    \n"
-            "push bc               \n"
-            "push de               \n"
-            "push hl               \n"
-            "ld hl, #0             \n"
-            "add hl, sp            \n"
-            "ld sp, #0xF500        \n"
-            "ei                    \n"
-            "push hl               \n"
-            "call _xread           \n"
-            "pop de                \n"
-            "di                    \n"
-            "ex de, hl             \n"
-            "ld sp, hl             \n"
-            "ex de, hl             \n"
-            "pop hl                \n"
-            "pop de                \n"
-            "pop bc                \n"
-            "ei                    \n"
-            "ret                   \n");  /* A = return value */
+    return xread();
 }
 
+/* CP/M passes write type in C register */
 byte bios_write(byte type) __naked
 {
     (void)type;
-    __asm__("di                    \n"
-            "push bc               \n"
-            "push de               \n"
-            "push hl               \n"
-            "ld hl, #0             \n"
-            "add hl, sp            \n"
-            "ld sp, #0xF500        \n"
-            "ei                    \n"
-            "push hl               \n"
-            "ld a, c               \n"  /* write type from C register */
-            "call _xwrite          \n"
-            "pop de                \n"
-            "di                    \n"
-            "ex de, hl             \n"
-            "ld sp, hl             \n"
-            "ex de, hl             \n"
-            "pop hl                \n"
-            "pop de                \n"
-            "pop bc                \n"
-            "ei                    \n"
-            "ret                   \n");  /* A = return value */
+    __asm__("ld a, c               \n");
+    /* fall through to bios_write_c */
+}
+
+static byte bios_write_c(byte wt)
+{
+    return xwrite(wt);
 }
 
 byte bios_listst(void)
@@ -1871,6 +1778,14 @@ void isr_crt(void) __naked
     /* Unmask DMA channels */
     _port_dma_smsk = 2;         /* clear ch2 mask */
     _port_dma_smsk = 3;         /* clear ch3 mask */
+
+    /* Deferred cursor update — avoids 3 port writes per character */
+    if (cur_dirty) {
+        cur_dirty = 0;
+        _port_crt_cmd = 0x80;       /* load cursor position command */
+        _port_crt_param = curx;     /* X position */
+        _port_crt_param = cursy;    /* Y position */
+    }
 
     /* Reprogram CTC ch2 for next interrupt */
     _port_ctc2 = 0xD7;          /* counter mode */

@@ -18,7 +18,7 @@ def load_symbols(map_file):
     try:
         with open(map_file) as f:
             for line in f:
-                m = re.match(r'(_\w+)\s*=\s*\$([0-9A-Fa-f]+)', line)
+                m = re.match(r'(\w+)\s*=\s*\$([0-9A-Fa-f]+)', line)
                 if m:
                     syms.append((int(m.group(2), 16), m.group(1)))
     except FileNotFoundError:

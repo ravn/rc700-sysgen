@@ -11,8 +11,42 @@ TYPE FILEX.PRN is dominated by CONOUT (character output) — the key metric.
 | 2026-03-11 | c-bios-6402B | 188,278,829 | 47.070s | 188,598,895 | 4570 |
 | 2026-03-11 | c-bios-6438B | 169,554,967 | 42.389s | 188,598,895 | 4336 |
 | 2026-03-12 | c-bios-6449B | 162,193,449 | 40.548s | 190,599,307 | 4277 |
+| 2026-03-12 | c-bios-6463B | 160,193,036 | 40.048s | 190,599,307 | 4252 |
+| 2026-03-12 | c-bios-6438B | 157,712,525 | 39.428s | 188,598,895 | 4180 |
+| 2026-03-12 | c-bios-6344B | 156,432,261 | 39.108s | 185,238,201 | 4122 |
 
 ## Analysis (2026-03-12)
+
+### After removing all BIOS stack switches (c-bios-6344B)
+
+Removed stack switches from `bios_home`, `bios_seldsk`, `bios_read`,
+and `bios_write` — the CP/M 2.2 BDOS saves its own registers and does
+not require BIOS functions to preserve any (see `BIOS_REGISTER_ABI.md`).
+Saved 85 bytes and ~1.3M cycles.  The C BIOS is now **12.6% faster**
+than the original assembly BIOS (156.4M vs 179.0M cycles).
+
+Note: `bios_seldsk` still needs a small `__naked` shim to convert the
+sdcccall(1) return register (DE) to CP/M's expected HL.
+
+### After CONOUT stack switch removal (c-bios-6438B)
+
+Eliminated the DI/stack-switch/EI overhead from `bios_conout`.  The old
+wrapper saved SP, switched to a dedicated BIOS stack, pushed 4 register
+pairs, called conout_body, then reversed everything.  The new version is
+a 1-byte `ld a,c` shim that falls through to a normal C function — the
+compiler handles register saving.  Saved ~2.5M cycles and 23 bytes.
+The C BIOS is now **11.9% faster** than the original assembly BIOS
+(157.7M vs 179.0M cycles).
+
+### After deferred cursor update (c-bios-6463B)
+
+Deferring cursor position updates from the CONOUT path to `isr_crt` (50 Hz)
+saved ~2.0M cycles (160.2M vs 162.2M).  Instead of 3 port writes per
+character (~34,000 times during TYPE), the cursor position is updated at
+most once per display frame.  The C BIOS is now **10.5% faster** than the
+original assembly BIOS (160.2M vs 179.0M cycles).  Visual effect: cursor
+appears to jump to final position rather than tracking each character —
+needs visual assessment in interactive use.
 
 ### After kbstat cached status optimization (c-bios-6449B)
 
@@ -89,6 +123,12 @@ was concentrated in character output (CONOUT), not disk I/O.
 3. **`_cursorxy` + `_cursor_right` (1.6%)** — called on every character.
    Already optimized with tail-call fall-through.  Further gains possible
    by simplifying the row×80 multiplication.
+
+## Known issues
+
+- **CONFI.COM** does not print menus on screen.  CONFI uses extended BIOS
+  calls and direct screen/cursor manipulation — may be affected by deferred
+  cursor update or other recent CONOUT changes.  Needs investigation.
 
 ## Test infrastructure
 

@@ -18,6 +18,8 @@ FLOPTOOL="$MAME_DIR/floptool"
 PATCH="python3 ../rcbios/patch_bios.py"
 IMG_MINI="$HOME/Downloads/CPM_med_COMAL80.imd"
 IMG_MAXI="$HOME/Downloads/SW1711-I8.imd"
+IMG_PPAS="$HOME/Downloads/PolyPascal_3.10.imd"
+CPMCP=/Users/ravn/.local/bin/cpmcp
 
 FORMAT=maxi FORCE=false AUTOTEST=false CYCLETEST=false PROFILE=false ORIGINAL=false GDBSTUB=false FLOP2=""
 
@@ -66,6 +68,14 @@ else
     # Patch is applied to an intermediate IMD copy, then converted to MFI.
     cp "$SRC_IMG" "$WORK.imd"
     $PATCH "$WORK.imd" bios.cim
+    # Inject extra files (Poly Pascal etc.) from source disk images
+    if [ -f "$IMG_PPAS" ]; then
+        for f in ppas.com ppas.erm ppas.hlp; do
+            $CPMCP -f rc702-8dd "$IMG_PPAS" "0:$f" /tmp/_inject_"$f"
+            $CPMCP -f rc702-8dd "$WORK.imd" /tmp/_inject_"$f" 0:"$(echo $f | tr a-z A-Z)"
+            rm -f /tmp/_inject_"$f"
+        done
+    fi
     "$FLOPTOOL" flopconvert auto mfi "$WORK.imd" "$WORK.mfi" >/dev/null 2>&1
     rm -f "$WORK.imd"
     echo "Patched MFI: $WORK.mfi"
