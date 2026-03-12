@@ -1,145 +1,30 @@
 ; crt0.asm — RC702 CP/M BIOS startup, JP table, IVT, fixed-address variables
 ;
-; This file provides the binary layout expected by the RC702 ROM bootstrap:
-;   Offset 0x000: Boot entry (DW CBOOT pointer, ' RC702' identification)
-;   Offset 0x080: CONFI configuration parameters (128 bytes)
-;   Offset 0x100: Character conversion tables (384 bytes)
-;   Offset 0x280: INIT code (relocate binary, init hardware, JP to BIOS)
+; Binary layout on disk (Track 0):
+;   Offset 0x000: boot_entry.bin  — Boot entry (128 bytes, not compiled)
+;   Offset 0x080: confi.bin       — CONFI configuration (128 bytes, not compiled)
+;   Offset 0x100: (384 zero bytes) — Conversion table placeholder (generated)
+;   Offset 0x280: INIT code       — This file starts here (compiled by z88dk)
 ;   Offset 0x580: BIOS JP table (17 entries at runtime address 0xDA00)
+;
+; The Makefile prepends boot_entry.bin + confi.bin + 384 zero bytes to the
+; compiler output, producing the final bios.cim.
 ;
 ; The ROM loads Track 0 to address 0x0000, reads the first word (0x0280),
 ; and jumps there.  The INIT code copies everything to 0xD480+ (runtime
 ; position), then jumps to the BIOS cold boot entry at 0xDA00.
 ;
-; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD480
-; makes the linker resolve all labels at runtime addresses (0xD480+).
-; The binary includes 0xD480 bytes of leading zeros which are stripped
-; by the Makefile (dd skip=54400).
+; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD700
+; makes the linker resolve all labels at runtime addresses (0xD700+).
+; The .rom output starts directly at the ORG address (no leading padding).
 
     SECTION CODE
 
-    org 0xD480
+    org 0xD700
 
-; Base address constant for offset calculations (ASMPC is section-relative)
-START equ 0xD480
-
-; ====================================================================
-; Boot entry (offset 0x000, runtime 0xD480)
-; ====================================================================
-
-    defw 0x0280             ; CBOOT: physical address for ROM bootstrap
-    defs 6                  ; padding (zeros)
-    defm " RC702"           ; identification string (6 bytes)
-
-    ; Pad to offset 0x080 (runtime 0xD500)
-    defs (0xD500 - START) - ASMPC
-
-; ====================================================================
-; CONFI configuration parameters (offset 0x080, runtime 0xD500)
-; Hardware init values — CONFI.COM reads/writes these on Track 0 Sector 2
-; ====================================================================
-
-; ConfiBlock struct layout (see bios.h ConfiBlock typedef).
-; C code accesses via CFG macro at runtime address 0xD500.
-; Labels kept for Makefile symbol verification.
-
-; CTC channels (+0x00)
-            defb 0x47       ; ctc_mode0: timer mode (ch0, SIO-A baud)
-            defb 0x01       ; ctc_count0: divisor 1 = 38400 baud (REL30)
-            defb 0x47       ; ctc_mode1: timer mode (ch1, SIO-B baud)
-            defb 0x20       ; ctc_count1: divisor 32 = 1200 baud
-            defb 0xD7       ; ctc_mode2: counter mode (ch2, display)
-            defb 0x01       ; ctc_count2: interrupt after 1 count
-            defb 0xD7       ; ctc_mode3: counter mode (ch3, floppy)
-            defb 0x01       ; ctc_count3: interrupt after 1 count
-
-; SIO channel A init block (+0x08, 9 bytes)
-_psioa:     defb 0x18       ; channel reset
-            defb 0x04       ; select WR4
-            defb 0x44       ; 1 stop, no parity, x16 clock (8-N-1)
-            defb 0x03       ; select WR3
-            defb 0xC1       ; RX enable, auto enable, 8 bits/char
-            defb 0x05       ; select WR5
-            defb 0x60       ; RTS off, DTR off, TX disable, 8 bits
-            defb 0x01       ; select WR1
-            defb 0x1B       ; enable RX, TX, ext status interrupts
-
-; SIO channel B init block (+0x11, 11 bytes)
-_psiob:     defb 0x18       ; channel reset
-            defb 0x02       ; select WR2
-            defb 0x10       ; interrupt vector (offset for CTC2 gap)
-            defb 0x04       ; select WR4
-            defb 0x47       ; 1 stop, even parity, x16 clock
-            defb 0x03       ; select WR3
-            defb 0x60       ; auto enable, 7 bits/char, RX disable
-            defb 0x05       ; select WR5
-            defb 0x20       ; RTS off, TX off, DTR off, 7 bits
-            defb 0x01       ; select WR1
-            defb 0x1F       ; enable all interrupts, status affects vector
-
-; DMA channel modes (+0x1C)
-            defb 0x48       ; dmode0: ch0 (HD — write)
-            defb 0x49       ; dmode1: ch1 (floppy — write)
-            defb 0x4A       ; dmode2: ch2 (display — read)
-            defb 0x4B       ; dmode3: ch3 (display — read)
-
-; CRT 8275 display parameters (+0x20)
-            defb 0x4F       ; par1: 80 chars/row
-            defb 0x98       ; par2: 25 rows, VRTC timing
-            defb 0x7A       ; par3: underline pos 8, 11 lines/char
-            defb 0x6D       ; par4: non-blink block cursor (REL30)
-
-; FDC specify command (+0x24)
-            defb 3          ; fdprog_len: program length
-            defb 0x03       ; fdprog_cmd: SPECIFY command
-            defb 0xDF       ; fdprog_srt: step rate 3ms, head unload 240ms
-            defb 0x28       ; fdprog_hlt: head load 40ms, DMA mode
-
-; CONFI defaults (+0x28)
-            defb 0x00       ; cursor_num
-            defb 0x00       ; conv_num (0 = Danish)
-            defb 0x06       ; baud_a: rate index A (1200 default display)
-            defb 0x06       ; baud_b: rate index B (1200 default display)
-            defb 0x00       ; xyflg: addressing mode (0=XY, 1=YX)
-            defw 250        ; stptim: motor stop timer (250 * 20ms = 5 sec)
-
-; Drive format config (+0x2F, 17 bytes: 16 drives + terminator)
-            defb 8          ; infd[0]: drive A — maxi floppy 1.1MB
-            defb 8          ; infd[1]: drive B — mini floppy 0.8MB
-            defb 32         ; infd[2]: drive C — hard disk 1MB (floppy emu)
-            defb 255,255,255,255,255,255,255,255,255,255,255,255,255
-            defb 255        ; infd[16]: terminator
-
-; HD partition config (+0x40)
-            defb 2          ; ndtab
-            defb 2, 0, 0    ; ndt1
-
-; CTC2 HD board (+0x44)
-            defb 0xD7       ; ctc2_mode4: counter mode
-            defb 0x01       ; ctc2_count4: interrupt after 1
-            defb 0x03       ; ctc2_mode5: channel reset
-
-; Boot disk (+0x47)
-            defb 0          ; ibootd: 0 = floppy boot
-
-    ; Pad to offset 0x100 (runtime 0xD580)
-    defs (0xD580 - START) - ASMPC
-
-; ====================================================================
-; Character conversion tables (offset 0x100, runtime 0xD580)
-; 384 bytes placeholder: 128 output + 256 input.
-; The actual conversion data lives on the disk image (written by
-; CONFI.COM) and is loaded by the autoload PROM along with the rest
-; of Track 0.  The BIOS binary only needs the placeholder space so
-; that cboot and the JP table remain at the correct offsets.
-; Identity tables are generated programmatically at boot time;
-; disk-resident tables (if any) can be loaded by CONFI.COM.
-; ====================================================================
-
-; ConvTables layout: 128 bytes outcon + 256 bytes inconv = 384 bytes.
-; C accesses the runtime copy at 0xF680 via CONV macro (bios.h).
-; This disk-resident copy at 0xD580 (CONVTA_ADDR) can be memcpy'd there.
-    defs 384
+; Base address constants for offset calculations (ASMPC is section-relative)
+START equ 0xD480            ; base of full binary (boot_entry.bin starts here)
+CODE_START equ 0xD700       ; base of compiled code (this file's ORG)
 
 ; ====================================================================
 ; INIT code (offset 0x280, runtime 0xD700 = CBOOT entry point)
@@ -177,7 +62,7 @@ _cboot:
     jp 0xDA00
 
     ; Pad to JP table (offset 0x580, runtime 0xDA00)
-    defs (0xDA00 - START) - ASMPC
+    defs (0xDA00 - CODE_START) - ASMPC
 
 ; ====================================================================
 ; BIOS jump table (offset 0x580, runtime 0xDA00)
