@@ -26,14 +26,26 @@
 START equ 0xD480            ; base of full binary (boot_entry.bin starts here)
 CODE_START equ 0xD700       ; base of compiled code (this file's ORG)
 
-; ====================================================================
-; INIT code (offset 0x280, runtime 0xD700 = CBOOT entry point)
-; ROM bootstrap jumps here at physical address 0x0280.
-; After LDIR relocation, all label references are valid.
-; ====================================================================
-
     EXTERN _bios_hw_init
     EXTERN _bios_boot_c
+    EXTERN __bss_compiler_head, __bss_compiler_size
+
+; ====================================================================
+; Pad from CODE_START to _cboot (placed just before JP table at 0xDA00).
+; This region is overwritten by CCP after cold boot — it is free space
+; on the system track that could hold INIT-only code in the future.
+; ====================================================================
+
+    defs (0xDA00 - CODE_START) - 34 - ASMPC
+
+; ====================================================================
+; INIT code (runtime 0xD9DE, physical offset 0x055E)
+; ROM bootstrap reads the boot pointer from boot_entry.bin and jumps
+; here at the corresponding physical address.  After LDIR relocation,
+; call/jp targets resolve to runtime addresses, but the PC remains at
+; the physical address — so an explicit JP to the runtime JP table is
+; required (cannot fall through).
+; ====================================================================
 
 _cboot:
     di
@@ -45,7 +57,6 @@ _cboot:
     ldir
 
     ; Zero BSS (uninitialized static variables, not in binary)
-    EXTERN __bss_compiler_head, __bss_compiler_size
     ld hl, __bss_compiler_head
     ld (hl), 0
     ld de, __bss_compiler_head + 1
@@ -58,11 +69,8 @@ _cboot:
     ; Call C hardware initialization (sets up IM2 from C IVT array)
     call _bios_hw_init
 
-    ; Jump to BIOS cold boot entry (relocated JP table)
+    ; Jump to BIOS cold boot entry (must be explicit — PC is at physical addr)
     jp 0xDA00
-
-    ; Pad to JP table (offset 0x580, runtime 0xDA00)
-    defs (0xDA00 - CODE_START) - ASMPC
 
 ; ====================================================================
 ; BIOS jump table (offset 0x580, runtime 0xDA00)
