@@ -281,11 +281,11 @@ defc _istack = 0xF600       ; interrupt stack top (grows down from IVT)
     SECTION code_string
 
 ; ====================================================================
-; BSS section — uninitialized data, not stored in disk image
-; Zeroed by cold boot code above. Must end below stack (0xF500).
+; BSS section — uninitialized data, not stored in disk image.
+; Linker places it after the last code/data section.
+; Zeroed by cold boot code above. Must end below IVT (0xF600).
 ; ====================================================================
 
     SECTION BSS
-    org 0xEF60
 
     SECTION bss_compiler

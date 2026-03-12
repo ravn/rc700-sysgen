@@ -70,7 +70,9 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
-	@cp bios.rom bios.cim
+	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
+	BINSIZE=$$((0x$$BSS_HEAD - 0xD480)); \
+	dd if=bios.rom of=bios.cim bs=1 count=$$BINSIZE 2>/dev/null
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
 	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \
 		echo "ERROR: IX/IY-relative addressing found in compiled code!"; \
