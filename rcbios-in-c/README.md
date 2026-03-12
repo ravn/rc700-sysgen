@@ -55,6 +55,16 @@ naturally excluded — labels can't contain commas).  Created PEEPHOLE.md docume
 22 peephole rules.  Added `make asm-test` target for automated FILEX integration test.
 Size: 6439 → 6402 bytes (37 bytes saved from 6 fall-through + conditional inversions).
 
+2026-03-12:  Binary layout restructuring.  Extracted boot entry and CONFI sectors
+from crt0.asm into standalone binary files (`boot_entry.bin`, `confi.bin`), making
+the compiler only generate code for offset 0x280+.  Relocated `_cboot` from 0xD700
+to 0xD9DE (just before the JP table at 0xDA00), eliminating 734 bytes of wasted
+zero padding.  The Makefile now assembles bios.cim from 4 parts: boot_entry.bin +
+confi.bin + zero-fill + compiler output.  ORG changed from 0xD700 to 0xD9DE.  The
+1118-byte zero-filled INIT region (D580–D9DD) is available for future init-only code.
+Size unchanged at 6254 bytes.  Also documented the plan to move all remaining inline
+asm from bios.c to crt0.asm (`PURE_C_PLAN.md`).
+
 2026-03-11:  Performance benchmarking infrastructure.  Added cycle-tracking test
 (`make cycle-test`, `make cycle-baseline`) that measures CPU cycles per command in the
 ASM FILEX integration test using MAME's emulated time.  PC sampled at 50 Hz for
@@ -197,13 +207,15 @@ generates efficient direct-address code and saved 33 bytes vs individual `__at()
 
 ### z88dk notes
 
-- `org 0xD480` in crt0.asm sets the linker section base address, but ASMPC
-  remains section-relative (starts at 0). All `defs` padding expressions use
-  `(target - START) - ASMPC` where `START equ 0xD480`.
-- `-pragma-define:CRT_ORG_CODE=0xD480` sets the binary output origin.
-- The binary starts at file offset 0 = runtime address 0xD480. The ROM
-  bootstrap loads this to physical address 0x0000 and the INIT code copies
-  it to 0xD480 via LDIR.
+- `org 0xD9DE` in crt0.asm sets the linker base address for the compiled
+  portion.  The compiler output starts at this address (runtime 0xD9DE,
+  physical offset 0x055E in the .cim).
+- `-pragma-define:CRT_ORG_CODE=0xD9DE` sets the binary output origin.
+- The Makefile prepends `boot_entry.bin` + `confi.bin` + 1118 zero bytes
+  to the compiler output, producing the full `bios.cim` starting at
+  runtime address 0xD480.  The ROM bootstrap loads Track 0 to 0x0000,
+  reads the boot pointer (0x055E) from offset 0, and jumps there.
+  `_cboot` LDIRs everything to 0xD480 via LDIR, then JPs to 0xDA00.
 
 ### ISR design
 
@@ -366,26 +378,28 @@ The .cim binary spans 0xD480–0xEC6D.  It is assembled from four parts:
 ```
 Source file      Offset  Size   Runtime addr  Contents
 ---------------  ------  -----  ------------  ---------------------------
-boot_entry.bin   0x000     128  D480h–D4FFh   Boot entry (DW 0x0280, " RC702")
+boot_entry.bin   0x000     128  D480h–D4FFh   Boot entry (DW 0x055E, " RC702")
 confi.bin        0x080     128  D500h–D57Fh   CONFI config block
-(generated)      0x100     384  D580h–D6FFh   Conversion table placeholder (zeros)
-compiler output  0x280    5614  D700h–ECEDh   INIT code + JP table + JTVARS + C code + data
+(generated)      0x100    1118  D580h–D9DDh   Conversion tables + free INIT space (zeros)
+compiler output  0x55E    4696  D9DEh–ECEDh   _cboot + JP table + JTVARS + C code + data
 ```
 
-The Makefile prepends `boot_entry.bin` + `confi.bin` + 384 zero bytes
+The Makefile prepends `boot_entry.bin` + `confi.bin` + 1118 zero bytes
 to the compiler output (`bios_code.bin`), producing the final `bios.cim`.
-The compiler generates code starting at ORG 0xD700.
+The compiler generates code starting at ORG 0xD9DE.
 
 The INIT section (D480–DA00) is overwritten by CCP after cold boot;
-only the resident portion (DA00+) must fit the system track.
+only the resident portion (DA00+) must fit the system track.  The
+zero-filled region (D580–D9DD) is available for init-only code that
+doesn't need to survive after boot.
 
 ```
 Address range  Size   Section
 -------------  -----  ------------------------------------------
 D480h–D500h      128  Boot entry point + padding (boot_entry.bin)
 D500h–D580h      128  CONFI config block (confi.bin)
-D580h–D700h      384  Character conversion tables (zeros)
-D700h–DA00h      768  Cold boot code (relocate, BSS clear, hw init call)
+D580h–D9DEh     1118  Conversion tables + free INIT space (zeros)
+D9DEh–DA00h       34  _cboot (relocate, BSS clear, hw init, jp DA00)
 DA00h–DA33h       51  BIOS JP table (17 entries, fixed address)
 DA33h–DA4Ah       23  JTVARS (CONFI configuration variables)
 DA4Ah–DA70h       38  Extended JP table entries (INTJP0-10)
@@ -415,8 +429,8 @@ the binary — it is zeroed by cold boot code.
 | Category | Bytes | % |
 |----------|------:|--:|
 | boot_entry.bin + confi.bin | 256 | 4.1 |
-| Conversion table placeholder | 384 | 6.1 |
-| crt0.asm (INIT + JP table + JTVARS) | 1062 | 17.0 |
+| Conversion tables + free INIT space | 1118 | 17.9 |
+| crt0.asm (_cboot + JP table + JTVARS) | 328 | 5.2 |
 | C code (functions + ISRs) | ~4250 | 67.9 |
 | Read-only data tables + library | ~302 | 4.8 |
 | **Total** | **6254** | |
@@ -443,12 +457,12 @@ but puts CR and LF first — the most frequent control codes get a
 
 ### Character conversion tables
 
-The 384-byte danish.bin conversion tables are **not included** in the BIOS
-binary.  The binary contains a placeholder (`defs 384`) at offset 0x100.
-The actual tables live on the disk image (written by CONFI.COM) and are
-loaded by the autoload PROM along with the rest of Track 0.  The cold
-boot code generates identity tables (all characters map to themselves) as
-a safe default.
+The danish.bin conversion tables are **not included** in the BIOS binary.
+The 1118-byte zero-filled region at offset 0x100 covers both the conversion
+table area and the free INIT space up to `_cboot`.  The actual tables live
+on the disk image (written by CONFI.COM) and are loaded by the autoload PROM
+along with the rest of Track 0.  The cold boot code generates identity tables
+(all characters map to themselves) as a safe default.
 
 ## Next steps
 
