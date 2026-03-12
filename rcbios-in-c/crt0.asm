@@ -200,23 +200,23 @@ _cboot:
     EXTERN _bios_read, _bios_write
     EXTERN _bios_listst, _bios_sectran
 
-    jp _bios_boot           ; 0xDA00: cold boot
-    jp _bios_wboot          ; 0xDA03: warm boot
-    jp _bios_const          ; 0xDA06: console status
-    jp _bios_conin          ; 0xDA09: console input
-    jp _bios_conout         ; 0xDA0C: console output
-    jp _bios_list           ; 0xDA0F: list output
-    jp _bios_punch          ; 0xDA12: punch output
-    jp _bios_reader         ; 0xDA15: reader input
-    jp _bios_home           ; 0xDA18: home disk
-    jp _bios_seldsk         ; 0xDA1B: select disk
-    jp _bios_settrk         ; 0xDA1E: set track
-    jp _bios_setsec         ; 0xDA21: set sector
-    jp _bios_setdma         ; 0xDA24: set DMA address
-    jp _bios_read           ; 0xDA27: read sector
-    jp _bios_write          ; 0xDA2A: write sector
-    jp _bios_listst         ; 0xDA2D: list status
-    jp _bios_sectran        ; 0xDA30: sector translate
+jt_boot:    jp _bios_boot       ; 0xDA00: cold boot
+jt_wboot:   jp _bios_wboot      ; 0xDA03: warm boot
+jt_const:   jp _bios_const      ; 0xDA06: console status
+jt_conin:   jp _bios_conin      ; 0xDA09: console input
+jt_conout:  jp _bios_conout     ; 0xDA0C: console output
+jt_list:    jp _bios_list       ; 0xDA0F: list output
+jt_punch:   jp _bios_punch      ; 0xDA12: punch output
+jt_reader:  jp _bios_reader     ; 0xDA15: reader input
+jt_home:    jp _bios_home       ; 0xDA18: home disk
+jt_seldsk:  jp _bios_seldsk     ; 0xDA1B: select disk
+jt_settrk:  jp _bios_settrk     ; 0xDA1E: set track
+jt_setsec:  jp _bios_setsec     ; 0xDA21: set sector
+jt_setdma:  jp _bios_setdma     ; 0xDA24: set DMA address
+jt_read:    jp _bios_read       ; 0xDA27: read sector
+jt_write:   jp _bios_write      ; 0xDA2A: write sector
+jt_listst:  jp _bios_listst     ; 0xDA2D: list status
+jt_sectran: jp _bios_sectran    ; 0xDA30: sector translate
 
 ; ====================================================================
 ; JTVARS — configuration variables at fixed addresses (0xDA33)
@@ -239,13 +239,13 @@ _cboot:
 ; Extended jump table (0xDA49+)
 ; ====================================================================
 
-    defs 1                  ; 0xDA49: reserved
-    jp _bios_wfitr          ; 0xDA4A: format utility entry
-    jp _bios_reads          ; 0xDA4D: reader status
-    jp _bios_linsel         ; 0xDA50: line selection
-    jp _bios_exit           ; 0xDA53: exit routine
-    jp _bios_clock          ; 0xDA56: real time clock
-    jp _bios_hrdfmt         ; 0xDA59: format hard disk
+jt_resv0:   defs 1              ; 0xDA49: reserved
+jt_wfitr:   jp _bios_wfitr      ; 0xDA4A: format utility entry
+jt_reads:   jp _bios_reads      ; 0xDA4D: reader status
+jt_linsel:  jp _bios_linsel     ; 0xDA50: line selection
+jt_exit:    jp _bios_exit       ; 0xDA53: exit routine
+jt_clock:   jp _bios_clock      ; 0xDA56: real time clock
+jt_hrdfmt:  jp _bios_hrdfmt     ; 0xDA59: format hard disk
     defs 16                 ; 0xDA5C-0xDA6B: reserved
 
 ; Misc fixed bytes
@@ -288,8 +288,6 @@ _itrtab:
     defw _isr_pio_kbd       ; PIO ch.A: keyboard
     defw _isr_pio_par       ; PIO ch.B: parallel output
 
-PUBLIC _citab
-_citab:     defw _itrtab    ; pointer to IVT (read by init for I register)
 
 ; ====================================================================
 ; Dummy interrupt handler

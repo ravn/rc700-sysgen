@@ -55,6 +55,15 @@ naturally excluded — labels can't contain commas).  Created PEEPHOLE.md docume
 22 peephole rules.  Added `make asm-test` target for automated FILEX integration test.
 Size: 6439 → 6402 bytes (37 bytes saved from 6 fall-through + conditional inversions).
 
+2026-03-11:  Performance benchmarking infrastructure.  Added cycle-tracking test
+(`make cycle-test`, `make cycle-baseline`) that measures CPU cycles per command in the
+ASM FILEX integration test using MAME's emulated time.  PC sampled at 50 Hz for
+function-level hotspot detection.  Uses `emu.keypost()` for BIOS-agnostic keyboard
+input (works with both C and original BIOS).  Added instruction-level profiling mode
+(`make profile`) using MAME debugger trace with `profile_trace.py` post-processor.
+Baseline: C BIOS is 5.2% slower than original REL2.3 on TYPE FILEX.PRN (188M vs 179M
+cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
+
 ## Status
 
 **Phase 1l: Code generation optimization** — CP/M boots to A> on MAXI 8". All floppy BIOS features working.

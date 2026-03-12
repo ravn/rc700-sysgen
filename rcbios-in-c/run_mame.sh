@@ -1,9 +1,12 @@
 #!/bin/bash
 # Build C BIOS, patch onto disk image, launch MAME.
-# Usage: run_mame.sh [-m mini|maxi] [-f] [-t] [-g] [-2 image.imd]
+# Usage: run_mame.sh [-m mini|maxi] [-f] [-t] [-c] [-o] [-g] [-2 image.imd]
 #   -m FORMAT  mini or maxi (default: maxi)
 #   -f         Force re-copy of source disk image
-#   -t         Autotest: type "DIR" then "TYPE DUMP.ASM", dump screen, exit
+#   -t         Autotest: ASM FILEX, STAT, TYPE — verify output
+#   -c         Cycle test: like -t but with timing + PC profiling (50 Hz sampling)
+#   -p         Profile: instruction-level trace during TYPE (needs debug MAME)
+#   -o         Original BIOS: skip build/patch, use disk image as-is
 #   -g         GDB stub: enable remote debugger on port 23946
 #   -2 FILE    Mount FILE as second floppy drive
 set -euo pipefail
@@ -15,49 +18,67 @@ FLOPTOOL="$MAME_DIR/floptool"
 PATCH="python3 ../rcbios/patch_bios.py"
 IMG_MINI="$HOME/Downloads/CPM_med_COMAL80.imd"
 IMG_MAXI="$HOME/Downloads/SW1711-I8.imd"
+IMG_PPAS="$HOME/Downloads/PolyPascal_3.10.imd"
+CPMCP=/Users/ravn/.local/bin/cpmcp
 
-FORMAT=maxi FORCE=false AUTOTEST=false GDBSTUB=false FLOP2=""
+FORMAT=maxi FORCE=false AUTOTEST=false CYCLETEST=false PROFILE=false ORIGINAL=false GDBSTUB=false FLOP2=""
 
-while getopts "m:fgt2:h" opt; do
+while getopts "m:fgtcpo2:h" opt; do
     case $opt in
         m) FORMAT="$OPTARG" ;;
         f) FORCE=true ;;
         g) GDBSTUB=true ;;
         t) AUTOTEST=true ;;
+        c) CYCLETEST=true ;;
+        p) PROFILE=true ;;
+        o) ORIGINAL=true ;;
         2) FLOP2="$OPTARG" ;;
-        *) sed -n '2,7p' "$0"; exit 1 ;;
+        *) sed -n '2,9p' "$0"; exit 1 ;;
     esac
 done
 
 case "$FORMAT" in
-    mini) SRC_IMG="$IMG_MINI" WORK=/tmp/bios_c_mini SYS=rc702mini ;;
-    maxi) SRC_IMG="$IMG_MAXI" WORK=/tmp/bios_c_maxi SYS=rc702 ;;
+    mini) SRC_IMG="$IMG_MINI" SYS=rc702mini ;;
+    maxi) SRC_IMG="$IMG_MAXI" SYS=rc702 ;;
     *) echo "Unknown format: $FORMAT"; exit 1 ;;
 esac
 
 [ -x "$MAME_BIN" ] || { echo "MAME not found: $MAME_BIN"; exit 1; }
 [ -f "$SRC_IMG" ]   || { echo "Disk image not found: $SRC_IMG"; exit 1; }
 
-# Build
-make bios
-
-# Create/refresh MFI working image from source IMD
-# MFI is MAME's native writable format; IMD is read-only in MAME.
-# Patch is applied to an intermediate IMD copy, then converted to MFI.
-if $FORCE || [ ! -f "$WORK.mfi" ]; then
-    cp "$SRC_IMG" "$WORK.imd"
-    $PATCH "$WORK.imd" bios.cim
-    "$FLOPTOOL" flopconvert auto mfi "$WORK.imd" "$WORK.mfi" >/dev/null 2>&1
-    rm -f "$WORK.imd"
-    echo "Created writable MFI: $WORK.mfi"
+# Set working directory based on mode
+if $ORIGINAL; then
+    WORK="/tmp/bios_orig_${FORMAT}"
 else
-    # Re-patch: convert MFI back to temp IMD, patch, convert back
-    # Since we can't patch MFI directly, re-create from source
+    WORK="/tmp/bios_c_${FORMAT}"
+fi
+
+# Build and patch (skip for original BIOS mode)
+if $ORIGINAL; then
+    echo "=== Original BIOS mode (no build/patch) ==="
+    # Always re-create MFI from pristine source image
     cp "$SRC_IMG" "$WORK.imd"
-    $PATCH "$WORK.imd" bios.cim
     "$FLOPTOOL" flopconvert auto mfi "$WORK.imd" "$WORK.mfi" >/dev/null 2>&1
     rm -f "$WORK.imd"
-    echo "Re-patched MFI: $WORK.mfi"
+    echo "Created unpatched MFI: $WORK.mfi"
+else
+    make bios
+    # Create/refresh MFI working image from source IMD
+    # MFI is MAME's native writable format; IMD is read-only in MAME.
+    # Patch is applied to an intermediate IMD copy, then converted to MFI.
+    cp "$SRC_IMG" "$WORK.imd"
+    $PATCH "$WORK.imd" bios.cim
+    # Inject extra files (Poly Pascal etc.) from source disk images
+    if [ -f "$IMG_PPAS" ]; then
+        for f in ppas.com ppas.erm ppas.hlp; do
+            $CPMCP -f rc702-8dd "$IMG_PPAS" "0:$f" /tmp/_inject_"$f"
+            $CPMCP -f rc702-8dd "$WORK.imd" /tmp/_inject_"$f" 0:"$(echo $f | tr a-z A-Z)"
+            rm -f /tmp/_inject_"$f"
+        done
+    fi
+    "$FLOPTOOL" flopconvert auto mfi "$WORK.imd" "$WORK.mfi" >/dev/null 2>&1
+    rm -f "$WORK.imd"
+    echo "Patched MFI: $WORK.mfi"
 fi
 
 # MAME arguments — use MFI image (writable)
@@ -73,7 +94,46 @@ if $GDBSTUB; then
     echo "=== Run: python3 gdb_trace.py ==="
 fi
 
-if $AUTOTEST; then
+if $CYCLETEST; then
+    # Cycle test: use emu.keypost() (BIOS-agnostic) with timing + PC profiling
+    ARGS+=(-nothrottle -autoboot_script /tmp/bios_cycle_test.lua)
+
+    if $ORIGINAL; then
+        BIOS_LABEL="original-${FORMAT}"
+        MAP_FILE="none"
+    else
+        BIOS_SIZE=$(wc -c < bios.cim | tr -d ' ')
+        BIOS_LABEL="c-bios-${BIOS_SIZE}B"
+        MAP_FILE="$(pwd)/bios.map"
+    fi
+
+    sed "s|BIOS_LABEL|${BIOS_LABEL}|g; s|MAP_FILE|${MAP_FILE}|g" \
+        mame_cycle_test.lua > /tmp/bios_cycle_test.lua
+
+elif $PROFILE; then
+    # Instruction-level profiling: requires debug MAME build
+    MAME_BIN="$MAME_DIR/regnecentralend"
+    [ -x "$MAME_BIN" ] || { echo "Debug MAME not found: $MAME_BIN (build with DEBUG=1)"; exit 1; }
+
+    if $ORIGINAL; then
+        BIOS_LABEL="original-${FORMAT}"
+        MAP_FILE="none"
+    else
+        BIOS_SIZE=$(wc -c < bios.cim | tr -d ' ')
+        BIOS_LABEL="c-bios-${BIOS_SIZE}B"
+        MAP_FILE="$(pwd)/bios.map"
+    fi
+
+    # Auto-start script: issue "go" so MAME doesn't stay paused
+    echo "go" > /tmp/mame_debuggo.txt
+
+    sed "s|BIOS_LABEL|${BIOS_LABEL}|g; s|MAP_FILE|${MAP_FILE}|g" \
+        mame_profile_test.lua > /tmp/bios_profile_test.lua
+
+    ARGS+=(-debug -debugscript /tmp/mame_debuggo.txt -nothrottle
+           -autoboot_script /tmp/bios_profile_test.lua)
+
+elif $AUTOTEST; then
     ARGS+=(-nothrottle -autoboot_script /tmp/bios_c_autotest.lua)
     # Extract keyboard buffer addresses from map file
     KBBUF_ADDR=$(grep '_kbbuf ' bios.map | sed 's/.*= \$\([0-9A-F]*\).*/0x\1/')
@@ -209,6 +269,95 @@ if $GDBSTUB; then
     echo "MAME PID: $MPID (saved to /tmp/mame_gdb.pid)"
     echo "To kill: kill -9 $MPID"
     wait $MPID
+elif $PROFILE; then
+    echo "=== Instruction-level profiling (TYPE FILEX.PRN) ==="
+    echo "=== Trace file: /tmp/bios_trace.log ==="
+    "$MAME_BIN" "${ARGS[@]}"
+
+    echo ""
+    if [ -f /tmp/bios_trace.log ]; then
+        TRACE_LINES=$(wc -l < /tmp/bios_trace.log | tr -d ' ')
+        TRACE_SIZE=$(ls -lh /tmp/bios_trace.log | awk '{print $5}')
+        echo "Trace: ${TRACE_LINES} instructions (${TRACE_SIZE})"
+        echo ""
+
+        MAP_ARG="none"
+        if ! $ORIGINAL && [ -f bios.map ]; then
+            MAP_ARG="$(pwd)/bios.map"
+        fi
+
+        python3 profile_trace.py /tmp/bios_trace.log "$MAP_ARG"
+    else
+        echo "ERROR: No trace file generated"
+        exit 1
+    fi
+elif $CYCLETEST; then
+    "$MAME_BIN" "${ARGS[@]}"
+    echo ""
+    echo "=== Cycle Test Results ==="
+    cat /tmp/bios_cycle_results.txt
+    echo ""
+    echo "=== Screen captures ==="
+    cat /tmp/bios_cycle_autotest.txt
+    echo ""
+
+    ERRORS=0
+    # Check ASM completed
+    if grep -q "END OF ASSEMBLY" /tmp/bios_cycle_autotest.txt; then
+        echo "  OK: ASM completed (END OF ASSEMBLY)"
+    else
+        echo "  FAIL: ASM did not complete"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    # Check TYPE output
+    if grep -qi "END.*START" /tmp/bios_cycle_autotest.txt; then
+        echo "  OK: END START found in TYPE output"
+    else
+        echo "  WARN: END START not visible (may have scrolled past)"
+    fi
+
+    # Append results to tracking file
+    TRACK_FILE="$(dirname "$0")/CONOUT_BENCH.md"
+    if [ -f /tmp/bios_cycle_results.txt ]; then
+        BIOS_NAME=$(grep '^# bios:' /tmp/bios_cycle_results.txt | sed 's/# bios: //')
+        TYPE_LINE=$(grep '^TYPE' /tmp/bios_cycle_results.txt || true)
+        ASM_LINE=$(grep '^ASM' /tmp/bios_cycle_results.txt || true)
+        if [ -n "$TYPE_LINE" ]; then
+            TYPE_CYCLES=$(echo "$TYPE_LINE" | awk -F'\t' '{print $2}')
+            TYPE_SECS=$(echo "$TYPE_LINE" | awk -F'\t' '{print $3}')
+            ASM_CYCLES=$(echo "$ASM_LINE" | awk -F'\t' '{print $2}')
+            SAMPLES=$(grep '^# pc_samples:' /tmp/bios_cycle_results.txt | sed 's/# pc_samples: //')
+
+            # Create tracking file if it doesn't exist
+            if [ ! -f "$TRACK_FILE" ]; then
+                cat > "$TRACK_FILE" << 'HEADER'
+# CONOUT Benchmark — ASM FILEX Test
+
+Cycle counts for the ASM FILEX integration test, comparing BIOS variants.
+TYPE FILEX.PRN is dominated by CONOUT (character output) — the key metric.
+
+| Date | BIOS | TYPE cycles | TYPE time | ASM cycles | PC samples |
+|------|------|-------------|-----------|------------|------------|
+HEADER
+            fi
+
+            # Append new result
+            printf "| %s | %s | %s | %ss | %s | %s |\n" \
+                "$(date +%Y-%m-%d)" "$BIOS_NAME" "$TYPE_CYCLES" "$TYPE_SECS" \
+                "${ASM_CYCLES:-n/a}" "${SAMPLES:-0}" >> "$TRACK_FILE"
+            echo ""
+            echo "  Result appended to $TRACK_FILE"
+        fi
+    fi
+
+    echo ""
+    if [ "$ERRORS" -eq 0 ]; then
+        echo "=== ALL CHECKS PASSED ==="
+    else
+        echo "=== $ERRORS CHECK(S) FAILED ==="
+        exit 1
+    fi
 elif $AUTOTEST; then
     "$MAME_BIN" "${ARGS[@]}"
     echo ""
