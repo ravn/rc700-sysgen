@@ -43,6 +43,36 @@ void isr_pio_kbd(void) __naked;
 void isr_pio_par(void) __interrupt(17);
 
 /* ================================================================
+ * Default CONFI configuration (REL30 values from original disk image)
+ *
+ * Embedded copy of the hardware init parameters that were originally
+ * at Track 0 offset 0x080.  bios_hw_init() reads these to configure
+ * CTC, SIO, DMA, CRT, and FDC at cold boot.
+ * ================================================================ */
+const ConfiBlock confi_defaults = {
+    0x47, 0x01,         /* CTC ch0: timer mode, divisor 1 (38400 baud) */
+    0x47, 0x20,         /* CTC ch1: timer mode, divisor 32 (1200 baud) */
+    0xD7, 0x01,         /* CTC ch2: counter mode, count 1 (CRT) */
+    0xD7, 0x01,         /* CTC ch3: counter mode, count 1 (FDC) */
+    {0x18, 0x04, 0x44, 0x03, 0xC1, 0x05, 0x60, 0x01, 0x1B},   /* SIO-A */
+    {0x18, 0x02, 0x10, 0x04, 0x47, 0x03, 0x60, 0x05, 0x20,
+     0x01, 0x1F},                                               /* SIO-B */
+    {0x48, 0x49, 0x4A, 0x4B},  /* DMA channel modes */
+    0x4F, 0x98, 0x7A, 0x6D,    /* CRT params (80×25, 7 lines/char) */
+    0x03, 0x03, 0xDF, 0x28,    /* FDC SPECIFY (3ms step, 40ms head load) */
+    0x00, 0x00,         /* cursor_num, conv_num */
+    0x06, 0x06,         /* baud_a, baud_b (display indices) */
+    0x00,               /* xyflg (XY addressing mode) */
+    250,                /* stptim (5 second motor timeout) */
+    {0x08, 0x08, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  /* infd[17] */
+    0x02,               /* ndtab (2 HD partitions) */
+    {0x02, 0x00, 0x00}, /* ndt1 */
+    0xD7, 0x01, 0x03,   /* CTC2 (HD board) */
+    0x00                /* ibootd (boot from floppy) */
+};
+
+/* ================================================================
  * Disk data tables (moved from crt0.asm)
  * ================================================================ */
 

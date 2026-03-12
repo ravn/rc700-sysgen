@@ -31,7 +31,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--std-sdcc99" \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
-         -pragma-define:CRT_ORG_CODE=0xD9DE \
+         -pragma-define:CRT_ORG_CODE=0xD480 \
          -m --list -create-app
 
 # Disk image tools
@@ -66,15 +66,13 @@ builddate.h: FORCE
 
 FORCE:
 
-bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def boot_entry.bin confi.bin
+bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
-	BINSIZE=$$((0x$$BSS_HEAD - 0xD9DE)); \
-	dd if=bios.rom of=bios_code.bin bs=1 count=$$BINSIZE 2>/dev/null
-	@dd if=/dev/zero bs=1 count=1118 2>/dev/null | \
-	cat boot_entry.bin confi.bin - bios_code.bin > bios.cim
+	BINSIZE=$$((0x$$BSS_HEAD - 0xD480)); \
+	dd if=bios.rom of=bios.cim bs=1 count=$$BINSIZE 2>/dev/null
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
 	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \
 		echo "ERROR: IX/IY-relative addressing found in compiled code!"; \

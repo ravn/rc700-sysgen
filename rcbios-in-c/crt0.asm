@@ -1,41 +1,61 @@
 ; crt0.asm — RC702 CP/M BIOS startup, JP table, IVT, fixed-address variables
 ;
 ; Binary layout on disk (Track 0):
-;   Offset 0x000: boot_entry.bin  — Boot entry (128 bytes, not compiled)
-;   Offset 0x080: confi.bin       — CONFI configuration (128 bytes, not compiled)
-;   Offset 0x100: (zero-filled)   — Conversion tables + free INIT space (generated)
-;   Offset 0x55E: _cboot          — This file starts here (compiled by z88dk)
+;   Offset 0x000: Boot sector (128 bytes) — boot pointer + " RC702" signature
+;   Offset 0x080: _cboot — cold boot init code (INIT region)
 ;   Offset 0x580: BIOS JP table (17 entries at runtime address 0xDA00)
 ;
-; The Makefile zero-fills from offset 0x100 to 0x55E, then appends the
-; compiler output, producing the final bios.cim.
+; The entire binary is compiled by z88dk.  The Makefile trims BSS from
+; the .rom output to produce bios.cim.
 ;
 ; The ROM loads Track 0 to address 0x0000, reads the boot pointer from
-; offset 0 (= 0x055E), and jumps there.  _cboot LDIRs everything to
-; 0xD480+ (runtime position), then JPs to the BIOS cold boot at 0xDA00.
+; offset 0 (physical address of _cboot), and jumps there.  _cboot
+; LDIRs everything to 0xD480+ (runtime position), then JPs to the
+; BIOS cold boot entry at 0xDA00.
 ;
-; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD9DE
-; makes the linker resolve all labels at runtime addresses (0xD9DE+).
+; The INIT region (D480–DA00) is overwritten by CCP after cold boot.
+; All code in this region is init-only and need not survive.
+;
+; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD480
+; makes the linker resolve all labels at runtime addresses (0xD480+).
 ; The .rom output starts directly at the ORG address (no leading padding).
 
     SECTION CODE
 
-    org 0xD9DE
+    org 0xD480
 
 ; Base address constant
-START equ 0xD480            ; base of full binary (boot_entry.bin starts here)
+START equ 0xD480            ; base of full binary (runtime and physical base)
 
     EXTERN _bios_hw_init
     EXTERN _bios_boot_c
     EXTERN __bss_compiler_head, __bss_compiler_size
 
 ; ====================================================================
-; INIT code (runtime 0xD9DE, physical offset 0x055E)
-; ROM bootstrap reads the boot pointer from boot_entry.bin and jumps
-; here at the corresponding physical address.  After LDIR relocation,
-; call/jp targets resolve to runtime addresses, but the PC remains at
-; the physical address — so an explicit JP to the runtime JP table is
-; required (cannot fall through).
+; Boot sector (128 bytes, offset 0x000, runtime 0xD480)
+;
+; First sector of Track 0.  The ROM reads the first word as the boot
+; pointer (physical address to jump to after loading Track 0 to 0x0000).
+; The " RC702" signature at offset 8 identifies the disk as a system disk.
+; ====================================================================
+
+    defw _cboot - START     ; +0x00: boot pointer (physical offset of _cboot)
+    defs 6                  ; +0x02: reserved (zeros)
+    defm " RC702"           ; +0x08: system signature (6 bytes)
+    defs 128 - ASMPC        ; pad to 128 bytes
+
+; ====================================================================
+; INIT code (offset 0x080, runtime 0xD500)
+;
+; ROM bootstrap reads the boot pointer and jumps here at the physical
+; address.  After LDIR relocation, call/jp targets resolve to runtime
+; addresses, but the PC remains at the physical address — so an
+; explicit JP to the runtime JP table is required (cannot fall through).
+;
+; The region from 0x080 to 0x580 (1280 bytes) is available for init-
+; only code.  On the original disk layout, this held the CONFI config
+; block and conversion tables; those are now embedded as const data in
+; the resident section (bios.c).
 ; ====================================================================
 
 _cboot:
@@ -62,6 +82,14 @@ _cboot:
 
     ; Jump to BIOS cold boot entry (must be explicit — PC is at physical addr)
     jp 0xDA00
+
+; ====================================================================
+; Free INIT space — pad from end of _cboot to JP table.
+; This region is overwritten by CCP after cold boot.  It can hold
+; additional init-only code in the future.
+; ====================================================================
+
+    defs 0x580 - ASMPC      ; pad to JP table offset
 
 ; ====================================================================
 ; BIOS jump table (offset 0x580, runtime 0xDA00)

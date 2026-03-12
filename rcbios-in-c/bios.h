@@ -340,13 +340,14 @@ extern word trkoff[];
 /*
  * CONFI configuration block — hardware init parameters.
  *
- * Disk-resident on Track 0 at offset 0x080 (128 bytes).
- * The PROM loads Track 0 to 0x0000; _cboot LDIRs everything to 0xD480+,
- * placing this block at runtime address 0xD500.
+ * Originally disk-resident on Track 0 at offset 0x080 (runtime 0xD500).
+ * Now embedded as a const struct (confi_defaults) in bios.c; the disk
+ * offset 0x080 region is used for init code.
  *
- * CONFI.COM reads/writes this block on disk; offsets are ABI.
+ * CONFI.COM reads/writes this block on disk; restoring the original
+ * disk layout for CONFI.COM compatibility is a long-term goal.
  * INIT sends these values to hardware I/O ports at cold boot.
- * C code accesses via CFG macro (fixed-address struct overlay).
+ * C code accesses via CFG macro.
  *
  * The default values shown in comments are for REL30.
  * CONFI.COM may have written different values to disk.
@@ -600,12 +601,13 @@ typedef struct {
                              *   0x01 = boot from hard disk */
 } ConfiBlock;
 
-/* Disk-resident conversion table area (offset 0x100, runtime 0xD580).
- * Same layout as ConvTables — can be memcpy'd to CONV at boot. */
-#define CONVTA_ADDR 0xD580
-
+/* Default CONFI configuration — embedded const copy in bios.c.
+ * The original disk layout placed this at offset 0x080 (runtime 0xD500);
+ * now that region is used for init code.  The long-term goal is to
+ * restore the original disk layout for CONFI.COM compatibility. */
 #ifndef HOST_TEST
-#define CFG (*(volatile ConfiBlock *)0xD500)
+extern const ConfiBlock confi_defaults;
+#define CFG confi_defaults
 #else
 extern volatile ConfiBlock _confiblock;
 #define CFG _confiblock
