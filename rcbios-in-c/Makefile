@@ -31,7 +31,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--std-sdcc99" \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
-         -pragma-define:CRT_ORG_CODE=0xD700 \
+         -pragma-define:CRT_ORG_CODE=0xD9DE \
          -m --list -create-app
 
 # Disk image tools
@@ -71,9 +71,9 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def boot_entry.bin confi
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
-	BINSIZE=$$((0x$$BSS_HEAD - 0xD700)); \
+	BINSIZE=$$((0x$$BSS_HEAD - 0xD9DE)); \
 	dd if=bios.rom of=bios_code.bin bs=1 count=$$BINSIZE 2>/dev/null
-	@dd if=/dev/zero bs=1 count=384 2>/dev/null | \
+	@dd if=/dev/zero bs=1 count=1118 2>/dev/null | \
 	cat boot_entry.bin confi.bin - bios_code.bin > bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
 	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \

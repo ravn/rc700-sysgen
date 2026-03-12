@@ -3,40 +3,31 @@
 ; Binary layout on disk (Track 0):
 ;   Offset 0x000: boot_entry.bin  — Boot entry (128 bytes, not compiled)
 ;   Offset 0x080: confi.bin       — CONFI configuration (128 bytes, not compiled)
-;   Offset 0x100: (384 zero bytes) — Conversion table placeholder (generated)
-;   Offset 0x280: INIT code       — This file starts here (compiled by z88dk)
+;   Offset 0x100: (zero-filled)   — Conversion tables + free INIT space (generated)
+;   Offset 0x55E: _cboot          — This file starts here (compiled by z88dk)
 ;   Offset 0x580: BIOS JP table (17 entries at runtime address 0xDA00)
 ;
-; The Makefile prepends boot_entry.bin + confi.bin + 384 zero bytes to the
+; The Makefile zero-fills from offset 0x100 to 0x55E, then appends the
 ; compiler output, producing the final bios.cim.
 ;
-; The ROM loads Track 0 to address 0x0000, reads the first word (0x0280),
-; and jumps there.  The INIT code copies everything to 0xD480+ (runtime
-; position), then jumps to the BIOS cold boot entry at 0xDA00.
+; The ROM loads Track 0 to address 0x0000, reads the boot pointer from
+; offset 0 (= 0x055E), and jumps there.  _cboot LDIRs everything to
+; 0xD480+ (runtime position), then JPs to the BIOS cold boot at 0xDA00.
 ;
-; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD700
-; makes the linker resolve all labels at runtime addresses (0xD700+).
+; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD9DE
+; makes the linker resolve all labels at runtime addresses (0xD9DE+).
 ; The .rom output starts directly at the ORG address (no leading padding).
 
     SECTION CODE
 
-    org 0xD700
+    org 0xD9DE
 
-; Base address constants for offset calculations (ASMPC is section-relative)
+; Base address constant
 START equ 0xD480            ; base of full binary (boot_entry.bin starts here)
-CODE_START equ 0xD700       ; base of compiled code (this file's ORG)
 
     EXTERN _bios_hw_init
     EXTERN _bios_boot_c
     EXTERN __bss_compiler_head, __bss_compiler_size
-
-; ====================================================================
-; Pad from CODE_START to _cboot (placed just before JP table at 0xDA00).
-; This region is overwritten by CCP after cold boot — it is free space
-; on the system track that could hold INIT-only code in the future.
-; ====================================================================
-
-    defs (0xDA00 - CODE_START) - 34 - ASMPC
 
 ; ====================================================================
 ; INIT code (runtime 0xD9DE, physical offset 0x055E)
