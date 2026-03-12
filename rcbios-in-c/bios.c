@@ -8,10 +8,10 @@
  * interrupts.  The CRT ISR must run with interrupts disabled to protect
  * DMA programming and the shared sp_sav variable.
  *
- * CONOUT switches to BIOS stack (0xF500) and dispatches: escape state
+ * CONOUT dispatches: escape state
  * (XY addressing), control characters (cursor, scroll, clear), or
  * printable characters (OUTCON conversion, display, advance cursor).
- * BGSTAR (background bitmap) at 0xF500: 250-byte position bitmap
+ * BGSTAR (background bitmap): 250-byte position bitmap
  * (1 bit per screen cell). Ctrl-S enters background mode; Ctrl-T
  * returns to foreground; Ctrl-U clears only foreground characters.
  */
@@ -25,6 +25,22 @@
 static void bios_conout_c(byte c);
 static word bios_seldsk_c(byte drv);
 static byte xread(void);
+void bios_home(void);
+
+/* ISR forward declarations (needed for IVT array) */
+void isr_crt(void) __naked;
+void isr_floppy(void) __naked;
+void isr_dummy(void) __interrupt(0);
+void isr_hd(void) __interrupt(4);
+void isr_sio_b_tx(void) __critical __interrupt(8);
+void isr_sio_b_ext(void) __critical __interrupt(9);
+void isr_sio_b_spec(void) __critical __interrupt(11);
+void isr_sio_a_tx(void) __critical __interrupt(12);
+void isr_sio_a_ext(void) __critical __interrupt(13);
+void isr_sio_a_rx(void) __naked;
+void isr_sio_a_spec(void) __critical __interrupt(15);
+void isr_pio_kbd(void) __naked;
+void isr_pio_par(void) __interrupt(17);
 
 /* ================================================================
  * Disk data tables (moved from crt0.asm)
@@ -512,11 +528,54 @@ match:
 
 
 /* ================================================================
+ * Interrupt vector table — C array, copied to IVT_ADDR at boot
+ *
+ * Defined as function pointer array so the linker resolves addresses.
+ * Copied to 0xF600 (page-aligned) by setup_ivt() before enabling IM2.
+ * ================================================================ */
+
+typedef void (*isr_fn)(void);
+
+#define IVT_ENTRIES 18
+
+static const isr_fn ivt_template[IVT_ENTRIES] = {
+    isr_dummy,              /*  0: CTC1 ch0 — SIO-A baud rate */
+    isr_dummy,              /*  1: CTC1 ch1 — SIO-B baud rate */
+    isr_crt,                /*  2: CTC1 ch2 — display refresh */
+    isr_floppy,             /*  3: CTC1 ch3 — floppy completion */
+    isr_hd,                 /*  4: CTC2 ch0 — hard disk */
+    isr_dummy,              /*  5: CTC2 ch1 — unused */
+    isr_dummy,              /*  6: CTC2 ch2 — unused */
+    isr_dummy,              /*  7: CTC2 ch3 — unused */
+    isr_sio_b_tx,           /*  8: SIO ch.B TX */
+    isr_sio_b_ext,          /*  9: SIO ch.B ext status */
+    isr_dummy,              /* 10: SIO ch.B RX — disabled */
+    isr_sio_b_spec,         /* 11: SIO ch.B special */
+    isr_sio_a_tx,           /* 12: SIO ch.A TX */
+    isr_sio_a_ext,          /* 13: SIO ch.A ext status */
+    isr_sio_a_rx,           /* 14: SIO ch.A RX — ring buffer */
+    isr_sio_a_spec,         /* 15: SIO ch.A special */
+    isr_pio_kbd,            /* 16: PIO ch.A — keyboard */
+    isr_pio_par,            /* 17: PIO ch.B — parallel output */
+};
+
+/* Copy IVT to page-aligned RAM and enable IM2 */
+static void setup_ivt(void)
+{
+    memcpy((void *)IVT_ADDR, ivt_template, sizeof(ivt_template));
+    __asm__("ld a, #0xF6          \n"   /* IVT_ADDR >> 8 */
+            "ld i, a              \n"
+            "im 2                 \n");
+}
+
+/* ================================================================
  * Hardware initialization (called from crt0.asm after relocation)
  * ================================================================ */
 
 void bios_hw_init(void)
 {
+    /* Set up interrupt vector table and IM2 before any device init */
+    setup_ivt();
     /* PIO: set interrupt vectors and modes */
     _port_pio_a_ctrl = 0x20;    /* PIO-A interrupt vector */
     _port_pio_b_ctrl = 0x22;    /* PIO-B interrupt vector */
@@ -787,14 +846,12 @@ byte bios_conin(void)
  * Ctrl-S (0x13) enters background mode, marking each written position.
  * Ctrl-T (0x14) returns to foreground mode.
  * Ctrl-U (0x15) clears foreground: erases only positions NOT marked.
- * Fixed at 0xF500 (same as original BIOS). ISR stack at 0xF620 has 38 bytes
- * above BGSTAR end (0xF5FA) — sufficient for 4 PUSHes + C body calls.
  * ================================================================ */
 
 #define BGSTAR_SIZE 250         /* 80*25/8 = 250 bytes */
 #define BG_ROW_BYTES 10         /* 80 bits / 8 = 10 bytes per row */
 
-#define bgstar      ((byte *)0xF500)
+static byte bgstar[BGSTAR_SIZE];
 static byte bgflg;             /* 0=off, 1=foreground, 2=background */
 static byte graph;           /* graphical mode flag (sticky) */
 
@@ -1704,8 +1761,8 @@ void bios_hrdfmt(void) { }
  * ================================================================ */
 
 /* ISR stack switch helpers.
- * All ISRs switch SP to ISTACK (0xF620) to avoid overflowing the
- * interrupted program's stack.  Two variants:
+ * All ISRs switch SP to ISTACK (0xF600) to avoid overflowing the
+ * interrupted program's stack.  Stack grows down from IVT.  Two variants:
  *   isr_enter / isr_exit: save/restore AF only (for simple flag-set
  *     ISRs whose C body only touches __sfr ports and static bytes)
  *   isr_enter_full / isr_exit_full: save/restore AF,BC,DE,HL (for
@@ -1714,7 +1771,7 @@ void bios_hrdfmt(void) { }
 static inline void isr_enter(void) __naked
 {
     __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #0xF620       \n"
+            "ld sp, #0xF600       \n"
             "push af              \n");
 }
 
@@ -1729,7 +1786,7 @@ static inline void isr_exit(void) __naked
 static inline void isr_enter_full(void) __naked
 {
     __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #0xF620       \n"
+            "ld sp, #0xF600       \n"
             "push af              \n"
             "push bc              \n"
             "push de              \n"
@@ -1871,7 +1928,7 @@ void isr_hd(void) __interrupt(4) {}
 /*
  * SIO Channel B ISRs (printer port)
  *
- * NOTE: The original asm BIOS switched SP to ISTACK (0xF620) in these
+ * NOTE: The original asm BIOS switched SP to ISTACK (0xF600) in these
  * ISRs.  The `__critical __interrupt` form does NOT switch stacks — it
  * runs on whatever stack was active when the interrupt fired.  This is
  * safe because:

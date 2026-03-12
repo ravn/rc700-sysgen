@@ -173,12 +173,7 @@ _cboot:
     ; Set up stack (use DMA buffer area temporarily)
     ld sp, 0x80             ; BUFF
 
-    ; Set up Z80 interrupt mode 2
-    ld a, _itrtab >> 8      ; high byte of IVT address
-    ld i, a
-    im 2
-
-    ; Call C hardware initialization
+    ; Call C hardware initialization (sets up IM2 from C IVT array)
     call _bios_hw_init
 
     ; Jump to BIOS cold boot entry (relocated JP table)
@@ -254,46 +249,9 @@ PUBLIC _pchsav
 _pchsav:    defw 0          ; 0xDA6F: saved BDOS patch address
 
 ; ====================================================================
-; Interrupt vector table (256-byte aligned, within movable zone)
-; Z80 IM2: vector address = I register * 256 + device vector byte
-; ASMPC is section-relative; add START to get absolute address for alignment
+; Interrupt vector table — now defined as a C array in bios.c and
+; copied to IVT_ADDR (0xF600, page-aligned) by bios_hw_init().
 ; ====================================================================
-
-    EXTERN _isr_crt, _isr_floppy, _isr_hd
-    EXTERN _isr_sio_b_tx, _isr_sio_b_ext, _isr_sio_b_spec
-    EXTERN _isr_sio_a_tx, _isr_sio_a_ext, _isr_sio_a_rx, _isr_sio_a_spec
-    EXTERN _isr_pio_kbd, _isr_pio_par
-
-    ; Align to 256-byte boundary (accounting for section base 0xD480)
-    defs (256 - ((ASMPC + START) & 0xFF)) & 0xFF
-
-PUBLIC _itrtab
-_itrtab:
-    defw _isr_dummy         ; CTC1 ch0: SIO-A baud rate (no interrupt)
-    defw _isr_dummy         ; CTC1 ch1: SIO-B baud rate (no interrupt)
-    defw _isr_crt           ; CTC1 ch2: display refresh
-    defw _isr_floppy        ; CTC1 ch3: floppy completion
-    defw _isr_hd            ; CTC2 ch0: hard disk (WD1000)
-    defw _isr_dummy         ; CTC2 ch1: unused
-    defw _isr_dummy         ; CTC2 ch2: unused
-    defw _isr_dummy         ; CTC2 ch3: unused
-    defw _isr_sio_b_tx      ; SIO ch.B transmitter
-    defw _isr_sio_b_ext     ; SIO ch.B external status
-    defw _isr_dummy         ; SIO ch.B receiver (dead: RX disabled)
-    defw _isr_sio_b_spec    ; SIO ch.B special receive
-    defw _isr_sio_a_tx      ; SIO ch.A transmitter
-    defw _isr_sio_a_ext     ; SIO ch.A external status
-    defw _isr_sio_a_rx      ; SIO ch.A receiver (ring buffer)
-    defw _isr_sio_a_spec    ; SIO ch.A special receive
-    defw _isr_pio_kbd       ; PIO ch.A: keyboard
-    defw _isr_pio_par       ; PIO ch.B: parallel output
-
-
-; ====================================================================
-; Dummy interrupt handler
-; ====================================================================
-
-    EXTERN _isr_dummy
 
 ; ====================================================================
 ; Fixed-address variables (0xFFD0-0xFFFF)
@@ -307,8 +265,7 @@ _itrtab:
 defc _dspstr = 0xF800       ; display refresh memory (80x25)
 defc _outcon = 0xF680       ; output conversion table (128 bytes)
 defc _inconv = 0xF700       ; input conversion table (128+128 bytes)
-defc _istack = 0xF620       ; interrupt stack top
-defc _stack  = 0xF680       ; BIOS driver stack top
+defc _istack = 0xF600       ; interrupt stack top (grows down from IVT)
 
 ; ====================================================================
 ; Section ordering — declare all code/data sections before BSS so the

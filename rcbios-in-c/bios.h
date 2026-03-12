@@ -47,8 +47,8 @@ typedef DisplayRow Display[25];
  * arithmetic but read more naturally in C. */
 #define outcon      ((volatile byte *)OUTCON_ADDR)
 #define inconv      ((volatile byte *)INCONV_ADDR)
-#define ISTACK_ADDR 0xF620      /* interrupt stack top */
-#define STACK_ADDR  0xF680      /* BIOS driver stack top */
+#define IVT_ADDR    0xF600      /* interrupt vector table (page-aligned) */
+#define ISTACK_ADDR 0xF600      /* interrupt stack top (grows down from IVT) */
 
 /* CP/M addresses */
 #define CCP_BASE    0xC400      /* CCP load address (56K) */

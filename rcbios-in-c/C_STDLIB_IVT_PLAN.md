@@ -68,6 +68,21 @@ z88dk has a dedicated IM2 library (`im2.h`):
 - Check if `#include <im2.h>` and linking the im2 library works alongside `--no-crt`
 - **Risk**: High. Section ordering, ORG conflicts, duplicate symbols.
 
-## Recommendation
+## Status
 
-Phase 1 is straightforward and self-contained — it moves the IVT to C without changing the build system. The z88dk im2 library functions are so trivial (3-5 instructions each) that writing equivalent C code is simpler than fighting `--no-crt` linkage issues.
+### Phase 1: DONE (2026-03-12)
+
+IVT moved from assembly `defw` table in crt0.asm to a C function pointer array
+(`ivt_template[]`) in bios.c. The array lives in rodata; `setup_ivt()` copies it
+to 0xF600 (page-aligned) at boot and sets I=0xF6, IM2.
+
+Key findings:
+- sdcc rejects `(word)func_ptr` as a static initializer, but native function
+  pointer arrays (`isr_fn ivt[] = { isr_crt, ... }`) work — linker emits
+  `DEFW _symbol` entries resolved at link time.
+- BGSTAR moved from fixed 0xF500 to BSS static array to free space below IVT.
+- ISR stack moved from 0xF620 to 0xF600 (grows down from IVT into free RAM).
+- Binary size: 6344 → 6244 bytes (−100, from removing 256-byte alignment padding).
+- All tests pass (ASM FILEX integration test).
+
+### Phase 2 and 3: TODO

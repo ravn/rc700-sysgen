@@ -95,15 +95,15 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 		rm -f bios.cim; \
 		exit 1; \
 	fi; \
-	if [ $$((0x$$BSS_TAIL)) -ge $$((0xF500)) ]; then \
-		printf "ERROR: BSS (ends 0x%s) overlaps ISTACK (0xF500)!\n" $$BSS_TAIL; \
+	if [ $$((0x$$BSS_TAIL)) -ge $$((0xF600)) ]; then \
+		printf "ERROR: BSS (ends 0x%s) overlaps ISTACK (0xF600)!\n" $$BSS_TAIL; \
 		rm -f bios.cim; \
 		exit 1; \
 	fi
 	# Verify fixed-address symbols
 	@# Verify fixed-address symbols (CONFI block, JTVARS, IVT)
 	@FAIL=0; \
-	for pair in _psioa=D508 _psiob=D511 _pchsav=DA6F _itrtab=DB00; do \
+	for pair in _psioa=D508 _psiob=D511 _pchsav=DA6F; do \
 		SYM=$${pair%%=*}; EXPECT=$${pair##*=}; \
 		ACTUAL=$$(grep "^$$SYM " bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 		if [ -z "$$ACTUAL" ]; then \
