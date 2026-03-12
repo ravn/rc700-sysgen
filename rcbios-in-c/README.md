@@ -80,7 +80,7 @@ cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
 - Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
 - Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array,
   direct shifts, compound assignments, function merging
-- Current size: 6402 bytes (fits maxi 9984, over mini 6144 by 258 bytes)
+- Current size: 6254 bytes (fits maxi 9984, over mini 6144 by 110 bytes)
 
 ### Missing features
 
@@ -359,32 +359,41 @@ using `memcpy`/`memset`/loops. The remaining asm blocks are:
 
 See `ASM_BLOCKS.md` for full analysis.
 
-## Binary layout (6692 bytes)
+## Binary layout (6254 bytes)
 
-The .cim binary spans 0xD480–0xEEA3.  The INIT section (D480–DA00) is
-overwritten by CCP after cold boot; only the resident portion (DA00+)
-must fit the system track.
+The .cim binary spans 0xD480–0xEC6D.  It is assembled from four parts:
+
+```
+Source file      Offset  Size   Runtime addr  Contents
+---------------  ------  -----  ------------  ---------------------------
+boot_entry.bin   0x000     128  D480h–D4FFh   Boot entry (DW 0x0280, " RC702")
+confi.bin        0x080     128  D500h–D57Fh   CONFI config block
+(generated)      0x100     384  D580h–D6FFh   Conversion table placeholder (zeros)
+compiler output  0x280    5614  D700h–ECEDh   INIT code + JP table + JTVARS + C code + data
+```
+
+The Makefile prepends `boot_entry.bin` + `confi.bin` + 384 zero bytes
+to the compiler output (`bios_code.bin`), producing the final `bios.cim`.
+The compiler generates code starting at ORG 0xD700.
+
+The INIT section (D480–DA00) is overwritten by CCP after cold boot;
+only the resident portion (DA00+) must fit the system track.
 
 ```
 Address range  Size   Section
 -------------  -----  ------------------------------------------
-D480h–D500h      128  Boot entry point + padding
-D500h–D580h      128  CONFI config block (SIO, CTC, CRT, FDC params)
-D580h–D700h      384  Character conversion tables (placeholder zeros)
+D480h–D500h      128  Boot entry point + padding (boot_entry.bin)
+D500h–D580h      128  CONFI config block (confi.bin)
+D580h–D700h      384  Character conversion tables (zeros)
 D700h–DA00h      768  Cold boot code (relocate, BSS clear, hw init call)
 DA00h–DA33h       51  BIOS JP table (17 entries, fixed address)
 DA33h–DA4Ah       23  JTVARS (CONFI configuration variables)
 DA4Ah–DA70h       38  Extended JP table entries (INTJP0-10)
-DA70h–DB00h      144  Saved register area + padding to IVT alignment
-DB00h–DB26h       38  Interrupt vector table (itrtab, 256-byte aligned)
-DB26h–ED42h     4636  C code (functions, ISRs)
-ED42h–EE72h      304  Read-only data (DPBs, translation tables, FDF, FSPA)
-EE72h–EE84h       18  Initialized data (trkoff, flags)
-EE84h–EEA4h       32  Library code (l_ret + memset)
+DA70h+          ....  C code, ISRs, read-only data, library code
 ```
 
-BSS (uninitialized variables) is at EF60h–F462h (1282 bytes) and is
-NOT included in the binary — it is zeroed by cold boot code.
+BSS (uninitialized variables) starts at ECEEh and is NOT included in
+the binary — it is zeroed by cold boot code.
 
 ### Top 10 largest C functions
 
@@ -405,13 +414,14 @@ NOT included in the binary — it is zeroed by cold boot code.
 
 | Category | Bytes | % |
 |----------|------:|--:|
-| crt0.asm fixed structures | 1702 | 25.4 |
-| C code (functions + ISRs) | 4636 | 69.2 |
-| Read-only data tables | 304 | 4.5 |
-| Initialized data + library | 50 | 0.8 |
-| **Total** | **6692** | |
+| boot_entry.bin + confi.bin | 256 | 4.1 |
+| Conversion table placeholder | 384 | 6.1 |
+| crt0.asm (INIT + JP table + JTVARS) | 1062 | 17.0 |
+| C code (functions + ISRs) | ~4250 | 67.9 |
+| Read-only data tables + library | ~302 | 4.8 |
+| **Total** | **6254** | |
 
-### MINI fit analysis (need to cut 548 bytes)
+### MINI fit analysis (need to cut 110 bytes)
 
 | Optimization | Saving | Notes |
 |--------------|-------:|-------|
@@ -419,7 +429,7 @@ NOT included in the binary — it is zeroed by cold boot code.
 | Shared stack-switch trampoline | ~50 | 5 wrappers → 1 trampoline |
 | Additional peephole rules | ~20 | Further pattern matching opportunities |
 | Micro-optimizations | ~60+ | Tail calls, shared code paths |
-| **Total estimated** | **~549+** | Tight but achievable |
+| **Total estimated** | **~549+** | Only 110 needed; comfortable margin |
 
 ### specc control character dispatch
 
@@ -442,7 +452,8 @@ a safe default.
 
 ## Next steps
 
-- MINI (5.25") support (currently 548 bytes over mini limit, needs size reduction)
+- MINI (5.25") support (currently 110 bytes over mini limit, needs size reduction)
+- Move remaining inline asm from bios.c to crt0.asm (see `PURE_C_PLAN.md`)
 - Remove BGSTAR code (~419 bytes, largest single saving)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
 - Further peephole rules and micro-optimizations
