@@ -799,6 +799,10 @@ this automatically.
 The printer port can be used for attachment of most printers with a serial
 interface and busy control.
 
+**Typical printers:**
+- **RC862** — rebranded Epson MX-80 (most common)
+- **RC867** — rebranded Epson MX-82 (less common)
+
 #### Terminal Port (SIO Channel B)
 
 - **Transmitter**: same RTS/CTS handshake as printer port

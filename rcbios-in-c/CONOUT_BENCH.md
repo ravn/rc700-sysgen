@@ -139,3 +139,5 @@ make profile            # C BIOS: instruction-level trace (debug MAME)
 make profile-baseline   # Original BIOS: instruction-level trace
 make asm-test           # Correctness test only (no timing)
 ```
+| 2026-03-12 | c-bios-6254B | 156432261 | 39.108065s | 185238201 | 4122 |
+| 2026-03-12 | c-bios-6254B | 156432261 | 39.108065s | 185238201 | 4122 |

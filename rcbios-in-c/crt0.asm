@@ -211,39 +211,110 @@ jt_listst:  jp _bios_listst     ; 0xDA2D: list status
 jt_sectran: jp _bios_sectran    ; 0xDA30: sector translate
 
 ; ====================================================================
-; JTVARS — configuration variables at fixed addresses (0xDA33)
-; External programs (CONFI.COM etc.) depend on these positions.
+; JTVARS — runtime configuration variables at fixed addresses (0xDA33).
+;
+; Located immediately after the 17-entry CP/M BIOS JP table (0xDA00).
+; External programs (CONFI.COM, FORMAT.COM, etc.) depend on these
+; exact addresses — they are part of the BIOS ABI.
+;
+; All fields are initialized to 0 here; bios_hw_init() and bios_boot()
+; populate them from the CONFI block (CFG) at boot time.
+;
+; C code accesses these via the JTVars struct overlay at 0xDA33
+; (see bios.h, JT macro).
 ; ====================================================================
 
     EXTERN _bios_wfitr, _bios_reads, _bios_linsel
     EXTERN _bios_exit, _bios_clock, _bios_hrdfmt
 
-; JTVARS storage (labels/PUBLIC now in bios.h via __at)
-    defb 0          ; 0xDA33: adrmod
-    defb 0          ; 0xDA34: wr5a
-    defb 0          ; 0xDA35: wr5b
-    defb 0          ; 0xDA36: mtype
-    defs 16         ; 0xDA37-0xDA46: fd0 (drive format table)
-    defb 0xFF       ; 0xDA47: terminator
-    defb 0          ; 0xDA48: bootd
+    defb 0          ; 0xDA33: adrmod — cursor addressing mode.
+                    ;   0 = XY (column first, row second) — default.
+                    ;   1 = YX (row first, column second).
+                    ;   Copied from CFG.xyflg at boot.
+                    ;   Controls the ESC 0x06 cursor positioning sequence.
+
+    defb 0          ; 0xDA34: wr5a — SIO channel A WR5 bits-per-char mask.
+                    ;   Extracted from CFG.sioa[6] & 0x60 at boot.
+                    ;   0x60 = 8-bit chars (REL30), 0x20 = 7-bit (older).
+                    ;   Used by CONOUT/LIST to configure SIO WR5 before
+                    ;   transmitting, setting the character width field.
+
+    defb 0          ; 0xDA35: wr5b — SIO channel B WR5 bits-per-char mask.
+                    ;   Extracted from CFG.siob[8] & 0x60 at boot.
+                    ;   Used by PUNCH to set character width on SIO-B.
+
+    defb 0          ; 0xDA36: mtype — machine type identifier.
+                    ;   0 = RC700/RC702 (default, set by defb 0 here)
+                    ;   1 = RC850/RC855
+                    ;   2 = ITT3290
+                    ;   3 = RC703
+                    ;   Not modified by BIOS; only changed by specialized
+                    ;   builds or external programs.
+
+    defs 16         ; 0xDA37-0xDA46: fd0[16] — active drive format table.
+                    ;   One format code byte per logical drive (A-P).
+                    ;   Initialized from CFG.infd[] at boot (only infd[0]
+                    ;   is copied; rest filled as drives are selected).
+                    ;   Format codes:
+                    ;     0x08 = DD 512 B/S (standard maxi or mini format)
+                    ;     0x10 = SS 128 B/S (FM single density)
+                    ;     0x18 = DD 256 B/S (MFM double density)
+                    ;     0x20 = HD 1 MB (hard disk, floppy emulation)
+                    ;     0xFF = drive not present
+
+    defb 0xFF       ; 0xDA47: fd0 terminator.
+                    ;   Always 0xFF. Marks end of fd0[] table scan.
+
+    defb 0          ; 0xDA48: bootd — boot device identifier.
+                    ;   0x00 = booted from floppy disk.
+                    ;   0x01 = booted from hard disk.
+                    ;   Set from CFG.ibootd at boot. Used by warm boot
+                    ;   to reload CCP/BDOS from the correct device.
 
 ; ====================================================================
-; Extended jump table (0xDA49+)
+; Extended jump table (0xDA49+).
+;
+; RC702-specific BIOS extensions beyond the standard CP/M 2.2 entries.
+; Called by CONFI.COM, FORMAT.COM, and other RC702 utilities.
+; Addresses are ABI — external programs use hardcoded JP offsets.
 ; ====================================================================
 
-jt_resv0:   defs 1              ; 0xDA49: reserved
-jt_wfitr:   jp _bios_wfitr      ; 0xDA4A: format utility entry
-jt_reads:   jp _bios_reads      ; 0xDA4D: reader status
-jt_linsel:  jp _bios_linsel     ; 0xDA50: line selection
-jt_exit:    jp _bios_exit       ; 0xDA53: exit routine
-jt_clock:   jp _bios_clock      ; 0xDA56: real time clock
-jt_hrdfmt:  jp _bios_hrdfmt     ; 0xDA59: format hard disk
-    defs 16                 ; 0xDA5C-0xDA6B: reserved
+jt_resv0:   defs 1              ; 0xDA49: reserved byte (alignment)
 
-; Misc fixed bytes
-    defs 3                  ; 0xDA6C-0xDA6E
-PUBLIC _pchsav
-_pchsav:    defw 0          ; 0xDA6F: saved BDOS patch address
+jt_wfitr:   jp _bios_wfitr      ; 0xDA4A: WFITR — write format track.
+                                ;   Entry point for FORMAT.COM to write
+                                ;   a formatted track to floppy disk.
+
+jt_reads:   jp _bios_reads      ; 0xDA4D: READS — reader status.
+                                ;   Returns SIO-B receive buffer status.
+                                ;   Used for serial file transfer (FILEX).
+
+jt_linsel:  jp _bios_linsel     ; 0xDA50: LINSEL — line selector.
+                                ;   Controls RC791 Linieselektor (8 V.24
+                                ;   inputs → 2 outputs). A=port, B=line.
+                                ;   REL22+ added a delay for hardware timing.
+
+jt_exit:    jp _bios_exit       ; 0xDA53: EXIT — delayed warm boot.
+                                ;   Sets timer1 countdown and warmjp target.
+                                ;   Display ISR decrements timer1; when it
+                                ;   reaches 0, jumps to warmjp (warm boot).
+
+jt_clock:   jp _bios_clock      ; 0xDA56: CLOCK — real-time clock display.
+                                ;   Reads rtc0:rtc2 and formats HH:MM:SS
+                                ;   on screen. Called by user programs.
+
+jt_hrdfmt:  jp _bios_hrdfmt     ; 0xDA59: HRDFMT — format hard disk.
+                                ;   Entry point for HD formatting utility.
+                                ;   No-op on systems without WD1000 controller.
+
+    defs 16                 ; 0xDA5C-0xDA6B: reserved (16 bytes)
+    defs 3                  ; 0xDA6C-0xDA6E: reserved (3 bytes)
+
+; _pchsav at 0xDA6F: saved BDOS patch address for hard disk boot.
+; When booting from HD, the BIOS patches a JP in the CCP to skip
+; disk login on warm boot.  _pchsav stores the original word so it
+; can be restored.  Not used without hard disk support.
+    defw 0                  ; 0xDA6F: reserved (was _pchsav)
 
 ; ====================================================================
 ; Interrupt vector table — now defined as a C array in bios.c and
