@@ -10,6 +10,19 @@ TYPE FILEX.PRN is dominated by CONOUT (character output) — the key metric.
 | 2026-03-11 | original-maxi | 178,996,914 | 44.749s | 187,238,614 | 4462 |
 | 2026-03-11 | c-bios-6402B | 188,278,829 | 47.070s | 188,598,895 | 4570 |
 | 2026-03-11 | c-bios-6438B | 169,554,967 | 42.389s | 188,598,895 | 4336 |
+| 2026-03-12 | c-bios-6449B | 162,193,449 | 40.548s | 190,599,307 | 4277 |
+
+## Analysis (2026-03-12)
+
+### After kbstat cached status optimization (c-bios-6449B)
+
+The C BIOS is now **9.4% faster** than the original REL2.3 assembly BIOS
+on TYPE FILEX.PRN (162.2M vs 179.0M cycles).  Pre-computing the console
+status byte (`kbstat`) in the keyboard ISR and CONIN — instead of
+comparing head/tail pointers on every `bios_const` call — saved ~7.4M
+cycles.  `bios_const` is called ~86,000 times during TYPE (once per BDOS
+character output), so reducing it from 6 instructions to 2 (`ld a,(kbstat)`
++ `ret`) adds up.
 
 ## Analysis (2026-03-11)
 

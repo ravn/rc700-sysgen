@@ -50,7 +50,7 @@ end
 local function dbg_cmd(cmd)
     local dbg = manager.machine.debugger
     if dbg then
-        dbg.console:execute_command(cmd)
+        dbg:command(cmd)
     end
 end
 

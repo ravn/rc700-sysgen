@@ -93,6 +93,7 @@ static word sp_sav;           /* saved SP during ISR stack switch */
 static byte kbbuf[KBBUFSZ];
 static volatile byte kbhead;   /* write index (ISR updates) */
 static volatile byte kbtail;   /* read index (CONIN updates) */
+static volatile byte kbstat;   /* 0xFF if buffer non-empty, 0x00 if empty */
 
 /* SIO serial ring buffer (REL30)
  * 256-byte page-aligned buffer for SIO Ch.A receiver.
@@ -697,6 +698,7 @@ void bios_boot_c(void)
     hstwrt = 0;
     kbhead = 0;
     kbtail = 0;
+    kbstat = 0;
     rxhead = 0;
     rxtail = 0;
     readi();
@@ -769,7 +771,7 @@ void bios_wboot(void) __naked
 
 byte bios_const(void)
 {
-    return (kbtail != kbhead) ? 0xFF : 0x00;
+    return kbstat;
 }
 
 byte bios_conin(void)
@@ -778,6 +780,7 @@ byte bios_conin(void)
         hal_halt();
     byte raw = kbbuf[kbtail];
     kbtail = (kbtail + 1) & (KBBUFSZ - 1);
+    kbstat = (kbtail != kbhead) ? 0xFF : 0x00;
     return inconv[raw];
 }
 
@@ -1915,6 +1918,7 @@ void isr_pio_kbd(void) __naked
         if (new_head != kbtail) {
             kbbuf[kbhead] = key;
             kbhead = new_head;
+            kbstat = 0xFF;
         }
     }
 
