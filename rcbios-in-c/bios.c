@@ -586,24 +586,23 @@ void bios_hw_init(void)
 
     /* CTC: set interrupt vector and program all channels */
     _port_ctc0 = 0x00;         /* CTC interrupt vector */
-    _port_ctc0 = mode0;        /* ch0 mode */
-    _port_ctc0 = count0;       /* ch0 count (38400 baud) */
-    _port_ctc1 = *((&mode0) + 2);  /* ch1 mode */
-    _port_ctc1 = *((&mode0) + 3);  /* ch1 count */
-    _port_ctc2 = *((&mode0) + 4);  /* ch2 mode (display) */
-    _port_ctc2 = *((&mode0) + 5);  /* ch2 count */
-    _port_ctc3 = *((&mode0) + 6);  /* ch3 mode (floppy) */
-    _port_ctc3 = *((&mode0) + 7);  /* ch3 count */
+    _port_ctc0 = CFG.ctc_mode0;
+    _port_ctc0 = CFG.ctc_count0;
+    _port_ctc1 = CFG.ctc_mode1;
+    _port_ctc1 = CFG.ctc_count1;
+    _port_ctc2 = CFG.ctc_mode2;
+    _port_ctc2 = CFG.ctc_count2;
+    _port_ctc3 = CFG.ctc_mode3;
+    _port_ctc3 = CFG.ctc_count3;
 
     /* SIO: program channels A and B from CONFI init blocks */
-    __asm__("ld hl, #_psioa   \n"
-            "ld b, #9         \n"
-            "ld c, #0x0A      \n"
-            "otir             \n"
-            "ld hl, #_psiob   \n"
-            "ld b, #11        \n"
-            "ld c, #0x0B      \n"
-            "otir             \n");
+    {
+        byte i;
+        for (i = 0; i < 9; i++)
+            _port_sio_a_ctrl = CFG.sioa[i];
+        for (i = 0; i < 11; i++)
+            _port_sio_b_ctrl = CFG.siob[i];
+    }
 
     /* SIO: read initial status registers */
     (void)_port_sio_a_ctrl;     /* read RR0-A */
@@ -634,10 +633,10 @@ void bios_hw_init(void)
 
     /* CRT 8275: reset and program */
     _port_crt_cmd = 0x00;       /* reset */
-    _port_crt_param = par1;     /* chars/row */
-    _port_crt_param = par2;     /* rows/frame */
-    _port_crt_param = par3;     /* lines/char + underline */
-    _port_crt_param = par4;     /* cursor format */
+    _port_crt_param = CFG.par1;     /* chars/row */
+    _port_crt_param = CFG.par2;     /* rows/frame */
+    _port_crt_param = CFG.par3;     /* lines/char + underline */
+    _port_crt_param = CFG.par4;     /* cursor format */
     _port_crt_cmd = 0x80;       /* load cursor position */
     _port_crt_param = 0;        /* cursor X = 0 */
     _port_crt_param = 0;        /* cursor Y = 0 */
@@ -645,19 +644,19 @@ void bios_hw_init(void)
     _port_crt_cmd = 0x23;       /* start display */
 
     /* Initialize runtime variables */
-    wr5a = psioa[6] & 0x60;    /* SIO-A bits/char from WR5 */
-    wr5b = psiob[8] & 0x60;    /* SIO-B bits/char from WR5 */
-    adrmod = xyflg;             /* copy addressing mode */
+    wr5a = CFG.sioa[6] & 0x60;  /* SIO-A bits/char from WR5 */
+    wr5b = CFG.siob[8] & 0x60;  /* SIO-B bits/char from WR5 */
+    adrmod = xyflg;              /* copy addressing mode (via CFG macro) */
 
     /* Initialize motor timer reload from config */
-    stptim_var = cfgstptim;
+    stptim_var = CFG.stptim;
 
     /* Initialize disk subsystem */
     {
         byte d;
 
         /* Copy initial drive format from config block */
-        fd0[0] = infd0;            /* drive A format */
+        fd0[0] = CFG.infd[0];      /* drive A format */
         fd0[1] = 0xFF;             /* end of drive table */
 
         /* Count configured drives from fd0 table */

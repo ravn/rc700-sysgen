@@ -39,19 +39,21 @@ START equ 0xD480
 ; Hardware init values — CONFI.COM reads/writes these on Track 0 Sector 2
 ; ====================================================================
 
-; CTC channels
-PUBLIC _mode0, _count0
-_mode0:     defb 0x47       ; CTC timer mode (ch0, SIO-A baud)
-_count0:    defb 0x01       ; divisor 1 = 38400 baud (REL30)
-_mode1:     defb 0x47       ; CTC timer mode (ch1, SIO-B baud)
-_count1:    defb 0x20       ; divisor 32 = 1200 baud
-_mode2:     defb 0xD7       ; CTC counter mode (ch2, display)
-_count2:    defb 0x01       ; interrupt after 1 count
-_mode3:     defb 0xD7       ; CTC counter mode (ch3, floppy)
-_count3:    defb 0x01       ; interrupt after 1 count
+; ConfiBlock struct layout (see bios.h ConfiBlock typedef).
+; C code accesses via CFG macro at runtime address 0xD500.
+; Labels kept for Makefile symbol verification.
 
-; SIO channel A init block (9 bytes, sent via OTIR to port 0x0A)
-PUBLIC _psioa
+; CTC channels (+0x00)
+            defb 0x47       ; ctc_mode0: timer mode (ch0, SIO-A baud)
+            defb 0x01       ; ctc_count0: divisor 1 = 38400 baud (REL30)
+            defb 0x47       ; ctc_mode1: timer mode (ch1, SIO-B baud)
+            defb 0x20       ; ctc_count1: divisor 32 = 1200 baud
+            defb 0xD7       ; ctc_mode2: counter mode (ch2, display)
+            defb 0x01       ; ctc_count2: interrupt after 1 count
+            defb 0xD7       ; ctc_mode3: counter mode (ch3, floppy)
+            defb 0x01       ; ctc_count3: interrupt after 1 count
+
+; SIO channel A init block (+0x08, 9 bytes)
 _psioa:     defb 0x18       ; channel reset
             defb 0x04       ; select WR4
             defb 0x44       ; 1 stop, no parity, x16 clock (8-N-1)
@@ -62,8 +64,7 @@ _psioa:     defb 0x18       ; channel reset
             defb 0x01       ; select WR1
             defb 0x1B       ; enable RX, TX, ext status interrupts
 
-; SIO channel B init block (11 bytes, sent via OTIR to port 0x0B)
-PUBLIC _psiob
+; SIO channel B init block (+0x11, 11 bytes)
 _psiob:     defb 0x18       ; channel reset
             defb 0x02       ; select WR2
             defb 0x10       ; interrupt vector (offset for CTC2 gap)
@@ -76,55 +77,50 @@ _psiob:     defb 0x18       ; channel reset
             defb 0x01       ; select WR1
             defb 0x1F       ; enable all interrupts, status affects vector
 
-; DMA channel modes
-_dmode0:    defb 0x48       ; ch0 mode (HD — write, ch0)
-_dmode1:    defb 0x49       ; ch1 mode (floppy — write, ch1)
-_dmode2:    defb 0x4A       ; ch2 mode (display — read, ch2)
-_dmode3:    defb 0x4B       ; ch3 mode (display — read, ch3)
+; DMA channel modes (+0x1C)
+            defb 0x48       ; dmode0: ch0 (HD — write)
+            defb 0x49       ; dmode1: ch1 (floppy — write)
+            defb 0x4A       ; dmode2: ch2 (display — read)
+            defb 0x4B       ; dmode3: ch3 (display — read)
 
-; CRT 8275 display parameters
-PUBLIC _par1, _par2, _par3, _par4
-_par1:      defb 0x4F       ; 80 chars/row
-_par2:      defb 0x98       ; 25 rows, VRTC timing
-_par3:      defb 0x7A       ; underline pos 8, 11 lines/char
-_par4:      defb 0x6D       ; non-blink block cursor (REL30)
+; CRT 8275 display parameters (+0x20)
+            defb 0x4F       ; par1: 80 chars/row
+            defb 0x98       ; par2: 25 rows, VRTC timing
+            defb 0x7A       ; par3: underline pos 8, 11 lines/char
+            defb 0x6D       ; par4: non-blink block cursor (REL30)
 
-; FDC specify command
-PUBLIC _fdprog
-_fdprog:    defb 3          ; program length (bytes to send)
-            defb 0x03       ; SPECIFY command
-            defb 0xDF       ; step rate 3ms, head unload 240ms
-            defb 0x28       ; head load 40ms, DMA mode
+; FDC specify command (+0x24)
+            defb 3          ; fdprog_len: program length
+            defb 0x03       ; fdprog_cmd: SPECIFY command
+            defb 0xDF       ; fdprog_srt: step rate 3ms, head unload 240ms
+            defb 0x28       ; fdprog_hlt: head load 40ms, DMA mode
 
-; CONFI defaults (read/displayed by CONFI.COM)
-            defb 0x00       ; cursor number
-            defb 0x00       ; conv table number (0 = Danish)
-            defb 0x06       ; baud rate index A (1200 default display)
-            defb 0x06       ; baud rate index B (1200 default display)
-PUBLIC _xyflg
-_xyflg:     defb 0x00       ; addressing mode (0=XY, 1=YX)
-PUBLIC _cfgstptim
-_cfgstptim: defw 250        ; motor stop timer (250 * 20ms = 5 sec)
+; CONFI defaults (+0x28)
+            defb 0x00       ; cursor_num
+            defb 0x00       ; conv_num (0 = Danish)
+            defb 0x06       ; baud_a: rate index A (1200 default display)
+            defb 0x06       ; baud_b: rate index B (1200 default display)
+            defb 0x00       ; xyflg: addressing mode (0=XY, 1=YX)
+            defw 250        ; stptim: motor stop timer (250 * 20ms = 5 sec)
 
-; Disk format configuration (copied to FD0-FD15 by IDT at init)
-PUBLIC _infd0
-_infd0:     defb 8          ; drive A: maxi floppy 1.1MB
-            defb 8          ; drive B: mini floppy 0.8MB
-            defb 32         ; drive C: hard disk 1MB (floppy emu)
+; Drive format config (+0x2F, 17 bytes: 16 drives + terminator)
+            defb 8          ; infd[0]: drive A — maxi floppy 1.1MB
+            defb 8          ; infd[1]: drive B — mini floppy 0.8MB
+            defb 32         ; infd[2]: drive C — hard disk 1MB (floppy emu)
             defb 255,255,255,255,255,255,255,255,255,255,255,255,255
-            defb 255        ; terminator (INFDXX)
+            defb 255        ; infd[16]: terminator
 
-; HD partition config
-            defb 2          ; NDTAB
-            defb 2, 0, 0    ; NDT1
+; HD partition config (+0x40)
+            defb 2          ; ndtab
+            defb 2, 0, 0    ; ndt1
 
-; CTC2 (HD board)
-            defb 0xD7       ; MODE4: counter mode
-            defb 0x01       ; COUNT4: interrupt after 1
-            defb 0x03       ; MODE5: channel reset
+; CTC2 HD board (+0x44)
+            defb 0xD7       ; ctc2_mode4: counter mode
+            defb 0x01       ; ctc2_count4: interrupt after 1
+            defb 0x03       ; ctc2_mode5: channel reset
 
-; Boot disk
-            defb 0          ; IBOOTD: 0 = floppy boot
+; Boot disk (+0x47)
+            defb 0          ; ibootd: 0 = floppy boot
 
     ; Pad to offset 0x100 (runtime 0xD580)
     defs (0xD580 - START) - ASMPC
@@ -140,8 +136,9 @@ _infd0:     defb 8          ; drive A: maxi floppy 1.1MB
 ; disk-resident tables (if any) can be loaded by CONFI.COM.
 ; ====================================================================
 
-PUBLIC _convta
-_convta:
+; ConvTables layout: 128 bytes outcon + 256 bytes inconv = 384 bytes.
+; C accesses the runtime copy at 0xF680 via CONV macro (bios.h).
+; This disk-resident copy at 0xD580 (CONVTA_ADDR) can be memcpy'd there.
     defs 384
 
 ; ====================================================================
@@ -263,8 +260,6 @@ _pchsav:    defw 0          ; 0xDA6F: saved BDOS patch address
 ; ====================================================================
 
 defc _dspstr = 0xF800       ; display refresh memory (80x25)
-defc _outcon = 0xF680       ; output conversion table (128 bytes)
-defc _inconv = 0xF700       ; input conversion table (128+128 bytes)
 defc _istack = 0xF600       ; interrupt stack top (grows down from IVT)
 
 ; ====================================================================

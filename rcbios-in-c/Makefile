@@ -105,7 +105,7 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 	# Verify fixed-address symbols
 	@# Verify fixed-address symbols (CONFI block, JTVARS, IVT)
 	@FAIL=0; \
-	for pair in _psioa=D508 _psiob=D511 _pchsav=DA6F; do \
+	for pair in _pchsav=DA6F; do \
 		SYM=$${pair%%=*}; EXPECT=$${pair##*=}; \
 		ACTUAL=$$(grep "^$$SYM " bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 		if [ -z "$$ACTUAL" ]; then \

@@ -39,14 +39,26 @@ typedef DisplayRow Display[25];
 #define ROW0_OFF    0                           /* cury byte offset for row 0 */
 #define ROW24_OFFSET   (ROW24 * SCRN_COLS)         /* cury byte offset for row 24 = 1920 */
 
-#define OUTCON_ADDR 0xF680      /* output conversion table (128 bytes) */
-#define INCONV_ADDR 0xF700      /* input conversion table (256 bytes) */
+/*
+ * Runtime conversion tables at 0xF680 (384 bytes).
+ * Initialized to identity mapping at boot; CONFI.COM may write
+ * national character tables to the disk-resident copy (_convta
+ * at 0xD580) which can be copied here.
+ */
+typedef struct {
+    byte outcon[128];       /* 0xF680: output conversion */
+    byte inconv[256];       /* 0xF700: input conversion */
+} ConvTables;
 
-/* Array-style access to the conversion tables at fixed addresses.
- * outcon[ch] and inconv[raw] compile to the same code as pointer
- * arithmetic but read more naturally in C. */
-#define outcon      ((volatile byte *)OUTCON_ADDR)
-#define inconv      ((volatile byte *)INCONV_ADDR)
+#ifndef HOST_TEST
+#define CONV (*(volatile ConvTables *)0xF680)
+#else
+extern volatile ConvTables _convtables;
+#define CONV _convtables
+#endif
+
+#define outcon      CONV.outcon
+#define inconv      CONV.inconv
 #define IVT_ADDR    0xF600      /* interrupt vector table (page-aligned) */
 #define ISTACK_ADDR 0xF600      /* interrupt stack top (grows down from IVT) */
 
@@ -225,14 +237,59 @@ extern word trkoff[];
 #define WRDIR   1   /* write to directory sector */
 #define WRUAL   2   /* write to unallocated sector */
 
-/* CONFI config block (in crt0.asm, fixed layout on Track 0) */
-extern byte mode0, count0;
-extern byte psioa[9];
-extern byte psiob[11];
-extern byte par1, par2, par3, par4;
-extern byte fdprog[];
-extern byte xyflg;
-extern word cfgstptim;
-extern byte infd0;
+/*
+ * CONFI configuration block — layout on Track 0 at offset 0x080.
+ * Runtime address: 0xD500 (= 0xD480 + 0x080).
+ * CONFI.COM reads/writes this block; offsets are ABI.
+ * Storage is in crt0.asm; C accesses via fixed-address struct.
+ */
+typedef struct {
+    byte ctc_mode0;         /* +0x00: CTC ch0 mode */
+    byte ctc_count0;        /* +0x01: CTC ch0 divisor */
+    byte ctc_mode1;         /* +0x02: CTC ch1 mode */
+    byte ctc_count1;        /* +0x03: CTC ch1 divisor */
+    byte ctc_mode2;         /* +0x04: CTC ch2 mode */
+    byte ctc_count2;        /* +0x05: CTC ch2 divisor */
+    byte ctc_mode3;         /* +0x06: CTC ch3 mode */
+    byte ctc_count3;        /* +0x07: CTC ch3 divisor */
+    byte sioa[9];           /* +0x08: SIO-A init block (OTIR to port 0x0A) */
+    byte siob[11];          /* +0x11: SIO-B init block (OTIR to port 0x0B) */
+    byte dmode[4];          /* +0x1C: DMA channel modes */
+    byte par1;              /* +0x20: CRT 8275 chars/row */
+    byte par2;              /* +0x21: CRT 8275 rows/frame */
+    byte par3;              /* +0x22: CRT 8275 lines/char */
+    byte par4;              /* +0x23: CRT 8275 cursor format */
+    byte fdprog_len;        /* +0x24: FDC specify length */
+    byte fdprog_cmd;        /* +0x25: FDC specify command */
+    byte fdprog_srt;        /* +0x26: step rate + head unload */
+    byte fdprog_hlt;        /* +0x27: head load + DMA mode */
+    byte cursor_num;        /* +0x28: cursor number */
+    byte conv_num;          /* +0x29: conv table number */
+    byte baud_a;            /* +0x2A: baud rate index A */
+    byte baud_b;            /* +0x2B: baud rate index B */
+    byte xyflg;             /* +0x2C: addressing mode (0=XY, 1=YX) */
+    word stptim;            /* +0x2D: motor stop timer (20ms units) */
+    byte infd[17];          /* +0x2F: drive format config (16 + terminator) */
+    byte ndtab;             /* +0x40: HD partition count */
+    byte ndt1[3];           /* +0x41: HD partition config */
+    byte ctc2_mode4;        /* +0x44: CTC2 ch0 mode */
+    byte ctc2_count4;       /* +0x45: CTC2 ch0 count */
+    byte ctc2_mode5;        /* +0x46: CTC2 ch1 reset */
+    byte ibootd;            /* +0x47: boot disk (0=floppy) */
+} ConfiBlock;
+
+/* Disk-resident conversion table area (offset 0x100, runtime 0xD580).
+ * Same layout as ConvTables — can be memcpy'd to CONV at boot. */
+#define CONVTA_ADDR 0xD580
+
+#ifndef HOST_TEST
+#define CFG (*(volatile ConfiBlock *)0xD500)
+#else
+extern volatile ConfiBlock _confiblock;
+#define CFG _confiblock
+#endif
+
+/* Convenience aliases for frequently accessed CONFI fields */
+#define xyflg       CFG.xyflg
 
 #endif /* BIOS_H */
