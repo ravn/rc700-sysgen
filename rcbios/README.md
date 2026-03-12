@@ -4,7 +4,15 @@
 
 Extract, disassemble, and document the actual CP/M BIOS code from RC702 disk
 images.  The BIOS is loaded by the ROA375 boot ROM (Track 0) and relocated to
-high memory by the cold boot code.
+high memory by the cold boot code.  
+
+As many BIOS'es as I could find has been disassembled and if possible merged 
+info the src/ tree.  The 58k and rc702e bios'es were so different that they were not merged, but the 
+56k bios'es were similar enough to be merged into a single source file with 
+conditional assembly.  REL30 contains initial work on serial port and keyboard 
+buffering, but I then decided to convert the original BIOS to C instead.
+
+2026-03-12: C bios is now 12% faster than original assembly bios for CONOUT.
 
 ## Source Disk Images
 
