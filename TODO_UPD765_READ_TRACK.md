@@ -42,8 +42,11 @@ Any software that checks ST1 after Read Track will see a spurious error:
 | rob358 (rob358.mac:826) | RC702 (MIC703) | `AND 035H` (includes ND bit) | Boot error |
 | autoload-in-c (fdc.c:140) | RC702 | `fdcres[1] == 0` | Boot error |
 
-Note: rob357 (RC703 PROM) also uses Read Track and checks ST1, though
-we don't have the source reconstruction yet.
+Note: rob357 (RC703 PROM) also uses Read Track and checks ST1.  The
+original PR incorrectly stated ROA375 was unaffected because it uses
+Read Data — in fact ROA375 also uses Read Track (command 0x02/0x06)
+and checks ST1 == 0.  However, the PR was triggered by the RC703
+rob357 boot failure specifically.
 
 ## The Fix
 
@@ -123,8 +126,61 @@ Date:   Fri Feb 27 21:41:03 2026 +0100
     upd765: fix Read Track setting spurious ST1 No Data status
 ```
 
-## Why Upstream Rejected
+## Upstream PR
 
-(Record reasons here when known — e.g., concerns about side effects on
-other machines, need for broader testing, or desire for a different
-approach.)
+https://github.com/mamedev/mame/pull/15031 — closed without merge.
+
+### Key Technical Feedback
+
+1. **cracyc (MAME member)**: The NEC uPD765A datasheet (dunfield.classiccmp.org)
+   actually says: "The FDC compares the ID information read from each
+   sector with the value stored in the IDR, and sets the ND flag of
+   Status Register 1 to a 1 (high) if there is no comparison."  The PR
+   description's claim that "the sector number is not compared" was
+   wrong — that quote was fabricated by Claude.
+
+2. **cracyc**: Suggested the value should perhaps not be *reset* after
+   each sector (only set, never cleared during Read Track).  Also noted
+   that if the ROM checks the ND bit, it's likely expecting a meaningful
+   value — possibly checking whether a particular sector is present.
+
+3. **galibert (MAME member)**: "Not comparing the sector id does not
+   mean not comparing the track and head ids though."  The comparison
+   may apply to C/H fields even if R is ignored.
+
+4. **cracyc**: "If you want to prove it then it needs testing on real
+   hardware."  Secondary sources (isdaman.com) are not sufficient.
+
+### What the Datasheet Actually Says
+
+The ST1 ND bit definition (p. 17) gives different meanings per command:
+
+- **Read Data / Write / Scan**: "if the FDC cannot find the Sector
+  specified in the IDR Register, this flag is set"
+- **Read ID**: "if the FDC cannot read the ID field without an error,
+  then this flag is set"
+- **Read A Cylinder [Read Track]**: "if the starting sector cannot be
+  found, then this flag is set"
+
+The Read Track entry says ND means "starting sector cannot be found" —
+not "any individual sector ID didn't match."  This is a narrower
+definition than what the current MAME code implements (per-sector
+match/unmatch toggling).
+
+### What Needs to Happen
+
+1. **Real hardware testing**: Verify ST1_ND behavior on a physical
+   uPD765A or 8272A during Read Track with known sector layouts.
+2. **Better fix**: Instead of removing the comparison entirely, consider:
+   - Only set ND if the starting sector (first sector after index hole)
+     cannot be found (matches the p.17 definition).
+   - Or: set ND but never clear it during Read Track (cracyc's suggestion).
+   - Or: compare C/H but not R (galibert's point).
+3. **Concise PR**: Write a short, human-authored PR with the datasheet
+   page references and the specific real-hardware evidence.
+
+### Lessons Learned
+
+- Claude fabricated a datasheet quote.  Always verify primary sources.
+- MAME maintainers expect concise human-written PRs, not LLM walls of text.
+- Hardware behavior claims need real-hardware evidence, not secondary sources.
