@@ -135,6 +135,60 @@ code, write to display memory at 0xF800.
 A demo program could draw lines, boxes, or simple animations to
 showcase the semigraphics capability.
 
+### 5. Off-Screen Buffer and Non-Visible Field Attributes
+
+The 8275 CRT controller has two field attribute modes, controlled by
+PAR4 bit 6:
+
+| PAR4[6] | Mode | Behaviour |
+|---------|------|-----------|
+| 1 | Visible (RC702 default) | Attribute position is blanked — costs one character position |
+| 0 | Non-visible (transparent) | Attribute position is replaced by a character from the 8275 FIFO — no lost positions, but requires extra DMA bandwidth |
+
+The RC702 boots with PAR4 bit 6 = 1 (visible).  Switching to
+non-visible mode means the 8275 needs FIFO fill characters for each
+field attribute encountered during a row.  The FIFO (16 entries) is
+loaded by additional DMA transfers during horizontal retrace.  This
+means the display buffer is larger than 80×24 bytes: each row that
+contains field attributes needs extra bytes to supply the FIFO.
+
+Potential use: a graphics library that mixes text labels and
+semigraphics regions on the same row could use non-visible field
+attributes so that GPA0 transitions (0x84/0x80) don't leave visible
+blank gaps.
+
+Additionally, the 8275 display buffer address is determined by the
+Am9517A DMA controller (channel 2 on the RC702).  By reprogramming
+the DMA base address, a program can point the CRT at a different
+memory area, enabling off-screen composition or double-buffering.
+
+This is a generic Intel 8275 capability, not RC702-specific.
+
+#### Investigation needed
+
+- What is the exact DMA programming sequence to redirect the screen
+  buffer?  The DMA channel 2 base address register needs to be
+  rewritten, likely during vertical retrace to avoid tearing.
+- How does the 8275 FIFO fill work in non-visible mode?  The DMA
+  must supply both regular row characters and FIFO fill characters
+  in a specific interleaved order.  The 8275 datasheet section on
+  "DMA burst" and "FIFO" describes the protocol.
+- How much extra memory per row is needed?  One FIFO byte per field
+  attribute per row.  For a simple case (one GPA0 transition per row),
+  that's 1 extra byte per row = 24 bytes total.
+- Does the BIOS CRT initialization need to be re-run to change PAR4,
+  or can PAR4 be changed by rewriting just the 8275 parameter
+  registers at runtime?
+- Memory map constraints: the screen buffer must be in a contiguous
+  area accessible to DMA.  The RC702 DMA addresses 64KB of RAM
+  directly.
+
+API sketch:
+```c
+void rc700_set_screen_base(uint16_t addr);     /* redirect CRT DMA to addr */
+void rc700_set_field_attr_mode(uint8_t mode);  /* 0=non-visible, 1=visible */
+```
+
 ## Investigation
 
 - Locate the RC700 target files in z88dk source tree
