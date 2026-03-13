@@ -1,169 +1,85 @@
 ; crt0.asm — RC702 CP/M BIOS startup, JP table, IVT, fixed-address variables
 ;
-; This file provides the binary layout expected by the RC702 ROM bootstrap:
-;   Offset 0x000: Boot entry (DW CBOOT pointer, ' RC702' identification)
-;   Offset 0x080: CONFI configuration parameters (128 bytes)
-;   Offset 0x100: Character conversion tables (384 bytes)
-;   Offset 0x280: INIT code (relocate binary, init hardware, JP to BIOS)
-;   Offset 0x580: BIOS JP table (17 entries at runtime address 0xDA00)
+; Binary layout on disk (Track 0):
+;   Offset 0x000: Boot sector (128 bytes) — boot pointer, " RC702", _cboot
+;   Offset 0x080: CONFI config block + Danish conversion tables (512 bytes)
+;   Offset 0x280: BIOS JP table + resident code (runtime address 0xDA00)
 ;
-; The ROM loads Track 0 to address 0x0000, reads the first word (0x0280),
-; and jumps there.  The INIT code copies everything to 0xD480+ (runtime
-; position), then jumps to the BIOS cold boot entry at 0xDA00.
+; Two sections:
+;   BOOT at org 0x0000 — boot sector + config data, physical addresses.
+;   BIOS at org 0xDA00 — JP table + resident code, runtime addresses.
 ;
-; z88dk note: ASMPC is section-relative (starts at 0), but org 0xD480
-; makes the linker resolve all labels at runtime addresses (0xD480+).
-; The binary includes 0xD480 bytes of leading zeros which are stripped
-; by the Makefile (dd skip=54400).
-
-    SECTION CODE
-
-    org 0xD480
-
-; Base address constant for offset calculations (ASMPC is section-relative)
-START equ 0xD480
-
-; ====================================================================
-; Boot entry (offset 0x000, runtime 0xD480)
-; ====================================================================
-
-    defw 0x0280             ; CBOOT: physical address for ROM bootstrap
-    defs 6                  ; padding (zeros)
-    defm " RC702"           ; identification string (6 bytes)
-
-    ; Pad to offset 0x080 (runtime 0xD500)
-    defs (0xD500 - START) - ASMPC
-
-; ====================================================================
-; CONFI configuration parameters (offset 0x080, runtime 0xD500)
-; Hardware init values — CONFI.COM reads/writes these on Track 0 Sector 2
-; ====================================================================
-
-; CTC channels
-PUBLIC _mode0, _count0
-_mode0:     defb 0x47       ; CTC timer mode (ch0, SIO-A baud)
-_count0:    defb 0x01       ; divisor 1 = 38400 baud (REL30)
-_mode1:     defb 0x47       ; CTC timer mode (ch1, SIO-B baud)
-_count1:    defb 0x20       ; divisor 32 = 1200 baud
-_mode2:     defb 0xD7       ; CTC counter mode (ch2, display)
-_count2:    defb 0x01       ; interrupt after 1 count
-_mode3:     defb 0xD7       ; CTC counter mode (ch3, floppy)
-_count3:    defb 0x01       ; interrupt after 1 count
-
-; SIO channel A init block (9 bytes, sent via OTIR to port 0x0A)
-PUBLIC _psioa
-_psioa:     defb 0x18       ; channel reset
-            defb 0x04       ; select WR4
-            defb 0x44       ; 1 stop, no parity, x16 clock (8-N-1)
-            defb 0x03       ; select WR3
-            defb 0xC1       ; RX enable, auto enable, 8 bits/char
-            defb 0x05       ; select WR5
-            defb 0x60       ; RTS off, DTR off, TX disable, 8 bits
-            defb 0x01       ; select WR1
-            defb 0x1B       ; enable RX, TX, ext status interrupts
-
-; SIO channel B init block (11 bytes, sent via OTIR to port 0x0B)
-PUBLIC _psiob
-_psiob:     defb 0x18       ; channel reset
-            defb 0x02       ; select WR2
-            defb 0x10       ; interrupt vector (offset for CTC2 gap)
-            defb 0x04       ; select WR4
-            defb 0x47       ; 1 stop, even parity, x16 clock
-            defb 0x03       ; select WR3
-            defb 0x60       ; auto enable, 7 bits/char, RX disable
-            defb 0x05       ; select WR5
-            defb 0x20       ; RTS off, TX off, DTR off, 7 bits
-            defb 0x01       ; select WR1
-            defb 0x1F       ; enable all interrupts, status affects vector
-
-; DMA channel modes
-_dmode0:    defb 0x48       ; ch0 mode (HD — write, ch0)
-_dmode1:    defb 0x49       ; ch1 mode (floppy — write, ch1)
-_dmode2:    defb 0x4A       ; ch2 mode (display — read, ch2)
-_dmode3:    defb 0x4B       ; ch3 mode (display — read, ch3)
-
-; CRT 8275 display parameters
-PUBLIC _par1, _par2, _par3, _par4
-_par1:      defb 0x4F       ; 80 chars/row
-_par2:      defb 0x98       ; 25 rows, VRTC timing
-_par3:      defb 0x7A       ; underline pos 8, 11 lines/char
-_par4:      defb 0x6D       ; non-blink block cursor (REL30)
-
-; FDC specify command
-PUBLIC _fdprog
-_fdprog:    defb 3          ; program length (bytes to send)
-            defb 0x03       ; SPECIFY command
-            defb 0xDF       ; step rate 3ms, head unload 240ms
-            defb 0x28       ; head load 40ms, DMA mode
-
-; CONFI defaults (read/displayed by CONFI.COM)
-            defb 0x00       ; cursor number
-            defb 0x00       ; conv table number (0 = Danish)
-            defb 0x06       ; baud rate index A (1200 default display)
-            defb 0x06       ; baud rate index B (1200 default display)
-PUBLIC _xyflg
-_xyflg:     defb 0x00       ; addressing mode (0=XY, 1=YX)
-PUBLIC _cfgstptim
-_cfgstptim: defw 250        ; motor stop timer (250 * 20ms = 5 sec)
-
-; Disk format configuration (copied to FD0-FD15 by IDT at init)
-PUBLIC _infd0
-_infd0:     defb 8          ; drive A: maxi floppy 1.1MB
-            defb 8          ; drive B: mini floppy 0.8MB
-            defb 32         ; drive C: hard disk 1MB (floppy emu)
-            defb 255,255,255,255,255,255,255,255,255,255,255,255,255
-            defb 255        ; terminator (INFDXX)
-
-; HD partition config
-            defb 2          ; NDTAB
-            defb 2, 0, 0    ; NDT1
-
-; CTC2 (HD board)
-            defb 0xD7       ; MODE4: counter mode
-            defb 0x01       ; COUNT4: interrupt after 1
-            defb 0x03       ; MODE5: channel reset
-
-; Boot disk
-            defb 0          ; IBOOTD: 0 = floppy boot
-
-    ; Pad to offset 0x100 (runtime 0xD580)
-    defs (0xD580 - START) - ASMPC
-
-; ====================================================================
-; Character conversion tables (offset 0x100, runtime 0xD580)
-; 384 bytes placeholder: 128 output + 256 input.
-; The actual conversion data lives on the disk image (written by
-; CONFI.COM) and is loaded by the autoload PROM along with the rest
-; of Track 0.  The BIOS binary only needs the placeholder space so
-; that cboot and the JP table remain at the correct offsets.
-; Identity tables are generated programmatically at boot time;
-; disk-resident tables (if any) can be loaded by CONFI.COM.
-; ====================================================================
-
-PUBLIC _convta
-_convta:
-    defs 384
-
-; ====================================================================
-; INIT code (offset 0x280, runtime 0xD700 = CBOOT entry point)
-; ROM bootstrap jumps here at physical address 0x0280.
-; After LDIR relocation, all label references are valid.
-; ====================================================================
+; The ROM loads Track 0 to address 0x0000, reads the boot pointer from
+; offset 0, and jumps there.  _cboot LDIRs the BIOS section from its
+; physical location (__BOOT_tail) to its runtime address (__BIOS_head),
+; then JPs to 0xDA00.
+;
+; The Makefile concatenates bios_BOOT.bin and bios_BIOS.bin (trimmed
+; to exclude BSS) to produce bios.cim.
 
     EXTERN _bios_hw_init
-    EXTERN _bios_boot_c
+    EXTERN __BOOT_tail, __BIOS_head
+    EXTERN __bss_compiler_head, __bss_compiler_size
 
-_cboot:
+; CP/M memory layout — derived from MSIZE, same as BIOS.MAC.
+MSIZE   EQU 56                      ; available memory excl. BIOS (KB)
+BIAS    EQU (MSIZE - 20) * 1024
+CPMB    EQU 0x3400 + BIAS           ; CCP base
+CPML    EQU 0x1600                  ; CCP + BDOS length
+BIOSAD  EQU CPMB + CPML             ; BIOS base (= 0xDA00 for 56K)
+
+; ====================================================================
+; BOOT section (physical address 0x0000)
+;
+; First sector of Track 0.  The ROM reads the first word as the boot
+; pointer (physical address to jump to after loading Track 0 to 0x0000).
+; The " RC702" signature at offset 8 identifies the disk as a system disk.
+;
+; NOTE: The original CP/M boot sector had a simple jump instruction here, but
+; we have moved the relocating boot code (_cboot) here as there was room, and
+; it keeps logic simpler which the sdcc linker likes.
+;
+; _cboot follows the signature, fitting within the 128-byte boot sector.
+; Assembled at 0x0000 — the address where it actually executes.
+; ====================================================================
+
+    SECTION BOOT
+
+    org 0x0000
+
+    defw _cboot             ; +0x00: boot pointer (physical address of _cboot)
+    defs 6                  ; +0x02: reserved (zeros)
+    defm " RC702"           ; +0x08: system signature (6 bytes)
+
+    INCLUDE "builddate.inc"
+
+_cboot:                     ; cold boot init code
     di
 
-    ; Relocate binary from load address (0x0000) to runtime address (0xD480)
-    ld hl, 0
-    ld de, 0xD480           ; START
-    ld bc, 0xF800 - 0xD480 + 1  ; copy through DSPSTR (same as original)
+    ; Relocate BIOS section from physical to runtime address.
+    ; On disk: BOOT (config data) then BIOS (JP table + C code).
+    ; The ROM loaded Track 0 to 0x0000, so BIOS sits at physical
+    ; address __BOOT_tail.  Copy it to __BIOS_head (0xDA00).
+
+    ld hl, __BOOT_tail              ; physical source
+    ld de, __BIOS_head              ; runtime destination (0xDA00)
+    ld bc, __bss_compiler_head - __BIOS_head  ; code + rodata + data size
+    ldir
+
+    ; Copy CONFI block and conversion tables from disk to runtime addresses.
+    ; confi.bin (128 bytes) at physical 0x080 → CPMB+0x1100 (init-only, CCP area)
+    ; danish.bin (384 bytes) at physical 0x100 → 0xF680 (ConvTables)
+
+    ld hl, 0x0080               ; physical source (confi.bin in BOOT)
+    ld de, CPMB + 0x1100        ; CONFI runtime address (CCP area, init-only)
+    ld bc, 128                  ; CONFI block size
+    ldir
+    ; HL now at 0x0100, copy danish.bin to ConvTables
+    ld de, 0xF680               ; ConvTables runtime address
+    ld bc, 384                  ; outcon(128) + inconv(256)
     ldir
 
     ; Zero BSS (uninitialized static variables, not in binary)
-    EXTERN __bss_compiler_head, __bss_compiler_size
     ld hl, __bss_compiler_head
     ld (hl), 0
     ld de, __bss_compiler_head + 1
@@ -173,22 +89,42 @@ _cboot:
     ; Set up stack (use DMA buffer area temporarily)
     ld sp, 0x80             ; BUFF
 
-    ; Set up Z80 interrupt mode 2
-    ld a, _itrtab >> 8      ; high byte of IVT address
-    ld i, a
-    im 2
-
-    ; Call C hardware initialization
+    ; Call C hardware initialization (relocated, runs at runtime address)
     call _bios_hw_init
 
     ; Jump to BIOS cold boot entry (relocated JP table)
-    jp 0xDA00
+    jp BIOSAD
 
-    ; Pad to JP table (offset 0x580, runtime 0xDA00)
-    defs (0xDA00 - START) - ASMPC
+    defs 128 - ASMPC        ; pad to end of boot sector (128 bytes total)
 
 ; ====================================================================
-; BIOS jump table (offset 0x580, runtime 0xDA00)
+; CONFI config block + conversion tables (offset 0x080-0x280)
+;
+; Sectors 2-5: CONFI block (128 bytes) + Danish tables (384 bytes).
+; Read-only defaults; CONFI.COM writes updated config here.
+; ====================================================================
+
+    BINARY "confi.bin"          ; 128 bytes at offset 0x080
+    BINARY "danish.bin"         ; 384 bytes at offset 0x100
+
+; ====================================================================
+; BIOS section — derived from MSIZE, same as BIOS.MAC.
+;
+; MSIZE  = available memory excluding BIOS (KB)
+; BIAS   = (MSIZE - 20) * 1024
+; CPMB   = 0x3400 + BIAS        (CCP base)
+; BIOS   = CPMB + 0x1600        (CCP + BDOS length)
+;
+; JP table and all resident BIOS code.  Assembled at runtime address.
+; On disk, follows immediately after BOOT section (no padding gap).
+; ====================================================================
+
+    SECTION BIOS
+
+    org BIOSAD
+
+; ====================================================================
+; BIOS jump table (runtime 0xDA00)
 ; 17 standard CP/M 2.2 entries — addresses are hardcoded by CCP/BDOS
 ; ====================================================================
 
@@ -219,96 +155,117 @@ jt_listst:  jp _bios_listst     ; 0xDA2D: list status
 jt_sectran: jp _bios_sectran    ; 0xDA30: sector translate
 
 ; ====================================================================
-; JTVARS — configuration variables at fixed addresses (0xDA33)
-; External programs (CONFI.COM etc.) depend on these positions.
+; JTVARS — runtime configuration variables at fixed addresses (0xDA33).
+;
+; Located immediately after the 17-entry CP/M BIOS JP table (0xDA00).
+; External programs (CONFI.COM, FORMAT.COM, etc.) depend on these
+; exact addresses — they are part of the BIOS ABI.
+;
+; All fields are initialized to 0 here; bios_hw_init() and bios_boot()
+; populate them from the CONFI block (CFG) at boot time.
+;
+; C code accesses these via the JTVars struct overlay at 0xDA33
+; (see bios.h, JT macro).
 ; ====================================================================
 
     EXTERN _bios_wfitr, _bios_reads, _bios_linsel
     EXTERN _bios_exit, _bios_clock, _bios_hrdfmt
 
-; JTVARS storage (labels/PUBLIC now in bios.h via __at)
-    defb 0          ; 0xDA33: adrmod
-    defb 0          ; 0xDA34: wr5a
-    defb 0          ; 0xDA35: wr5b
-    defb 0          ; 0xDA36: mtype
-    defs 16         ; 0xDA37-0xDA46: fd0 (drive format table)
-    defb 0xFF       ; 0xDA47: terminator
-    defb 0          ; 0xDA48: bootd
+    defb 0          ; 0xDA33: adrmod — cursor addressing mode.
+                    ;   0 = XY (column first, row second) — default.
+                    ;   1 = YX (row first, column second).
+                    ;   Copied from CFG.xyflg at boot.
+                    ;   Controls the ESC 0x06 cursor positioning sequence.
+
+    defb 0          ; 0xDA34: wr5a — SIO channel A WR5 bits-per-char mask.
+                    ;   Extracted from CFG.sioa[6] & 0x60 at boot.
+                    ;   0x60 = 8-bit chars (REL30), 0x20 = 7-bit (older).
+                    ;   Used by CONOUT/LIST to configure SIO WR5 before
+                    ;   transmitting, setting the character width field.
+
+    defb 0          ; 0xDA35: wr5b — SIO channel B WR5 bits-per-char mask.
+                    ;   Extracted from CFG.siob[8] & 0x60 at boot.
+                    ;   Used by PUNCH to set character width on SIO-B.
+
+    defb 0          ; 0xDA36: mtype — machine type identifier.
+                    ;   0 = RC700/RC702 (default, set by defb 0 here)
+                    ;   1 = RC850/RC855
+                    ;   2 = ITT3290
+                    ;   3 = RC703
+                    ;   Not modified by BIOS; only changed by specialized
+                    ;   builds or external programs.
+
+    defs 16         ; 0xDA37-0xDA46: fd0[16] — active drive format table.
+                    ;   One format code byte per logical drive (A-P).
+                    ;   Initialized from CFG.infd[] at boot (only infd[0]
+                    ;   is copied; rest filled as drives are selected).
+                    ;   Format codes:
+                    ;     0x08 = DD 512 B/S (standard maxi or mini format)
+                    ;     0x10 = SS 128 B/S (FM single density)
+                    ;     0x18 = DD 256 B/S (MFM double density)
+                    ;     0x20 = HD 1 MB (hard disk, floppy emulation)
+                    ;     0xFF = drive not present
+
+    defb 0xFF       ; 0xDA47: fd0 terminator.
+                    ;   Always 0xFF. Marks end of fd0[] table scan.
+
+    defb 0          ; 0xDA48: bootd — boot device identifier.
+                    ;   0x00 = booted from floppy disk.
+                    ;   0x01 = booted from hard disk.
+                    ;   Set from CFG.ibootd at boot. Used by warm boot
+                    ;   to reload CCP/BDOS from the correct device.
 
 ; ====================================================================
-; Extended jump table (0xDA49+)
+; Extended jump table (0xDA49+).
+;
+; RC702-specific BIOS extensions beyond the standard CP/M 2.2 entries.
+; Called by CONFI.COM, FORMAT.COM, and other RC702 utilities.
+; Addresses are ABI — external programs use hardcoded JP offsets.
 ; ====================================================================
 
-jt_resv0:   defs 1              ; 0xDA49: reserved
-jt_wfitr:   jp _bios_wfitr      ; 0xDA4A: format utility entry
-jt_reads:   jp _bios_reads      ; 0xDA4D: reader status
-jt_linsel:  jp _bios_linsel     ; 0xDA50: line selection
-jt_exit:    jp _bios_exit       ; 0xDA53: exit routine
-jt_clock:   jp _bios_clock      ; 0xDA56: real time clock
-jt_hrdfmt:  jp _bios_hrdfmt     ; 0xDA59: format hard disk
-    defs 16                 ; 0xDA5C-0xDA6B: reserved
+jt_resv0:   defs 1              ; 0xDA49: reserved byte (alignment)
 
-; Misc fixed bytes
-    defs 3                  ; 0xDA6C-0xDA6E
-PUBLIC _pchsav
-_pchsav:    defw 0          ; 0xDA6F: saved BDOS patch address
+jt_wfitr:   jp _bios_wfitr      ; 0xDA4A: WFITR — write format track.
+                                ;   Entry point for FORMAT.COM to write
+                                ;   a formatted track to floppy disk.
 
-; ====================================================================
-; Interrupt vector table (256-byte aligned, within movable zone)
-; Z80 IM2: vector address = I register * 256 + device vector byte
-; ASMPC is section-relative; add START to get absolute address for alignment
-; ====================================================================
+jt_reads:   jp _bios_reads      ; 0xDA4D: READS — reader status.
+                                ;   Returns SIO-B receive buffer status.
+                                ;   Used for serial file transfer (FILEX).
 
-    EXTERN _isr_crt, _isr_floppy, _isr_hd
-    EXTERN _isr_sio_b_tx, _isr_sio_b_ext, _isr_sio_b_spec
-    EXTERN _isr_sio_a_tx, _isr_sio_a_ext, _isr_sio_a_rx, _isr_sio_a_spec
-    EXTERN _isr_pio_kbd, _isr_pio_par
+jt_linsel:  jp _bios_linsel     ; 0xDA50: LINSEL — line selector.
+                                ;   Controls RC791 Linieselektor (8 V.24
+                                ;   inputs → 2 outputs). A=port, B=line.
+                                ;   REL22+ added a delay for hardware timing.
 
-    ; Align to 256-byte boundary (accounting for section base 0xD480)
-    defs (256 - ((ASMPC + START) & 0xFF)) & 0xFF
+jt_exit:    jp _bios_exit       ; 0xDA53: EXIT — delayed warm boot.
+                                ;   Sets timer1 countdown and warmjp target.
+                                ;   Display ISR decrements timer1; when it
+                                ;   reaches 0, jumps to warmjp (warm boot).
 
-PUBLIC _itrtab
-_itrtab:
-    defw _isr_dummy         ; CTC1 ch0: SIO-A baud rate (no interrupt)
-    defw _isr_dummy         ; CTC1 ch1: SIO-B baud rate (no interrupt)
-    defw _isr_crt           ; CTC1 ch2: display refresh
-    defw _isr_floppy        ; CTC1 ch3: floppy completion
-    defw _isr_hd            ; CTC2 ch0: hard disk (WD1000)
-    defw _isr_dummy         ; CTC2 ch1: unused
-    defw _isr_dummy         ; CTC2 ch2: unused
-    defw _isr_dummy         ; CTC2 ch3: unused
-    defw _isr_sio_b_tx      ; SIO ch.B transmitter
-    defw _isr_sio_b_ext     ; SIO ch.B external status
-    defw _isr_dummy         ; SIO ch.B receiver (dead: RX disabled)
-    defw _isr_sio_b_spec    ; SIO ch.B special receive
-    defw _isr_sio_a_tx      ; SIO ch.A transmitter
-    defw _isr_sio_a_ext     ; SIO ch.A external status
-    defw _isr_sio_a_rx      ; SIO ch.A receiver (ring buffer)
-    defw _isr_sio_a_spec    ; SIO ch.A special receive
-    defw _isr_pio_kbd       ; PIO ch.A: keyboard
-    defw _isr_pio_par       ; PIO ch.B: parallel output
+jt_clock:   jp _bios_clock      ; 0xDA56: CLOCK — real-time clock display.
+                                ;   Reads rtc0:rtc2 and formats HH:MM:SS
+                                ;   on screen. Called by user programs.
 
+jt_hrdfmt:  jp _bios_hrdfmt     ; 0xDA59: HRDFMT — format hard disk.
+                                ;   Entry point for HD formatting utility.
+                                ;   No-op on systems without WD1000 controller.
+
+    defs 16                 ; 0xDA5C-0xDA6B: reserved (16 bytes)
+    defs 3                  ; 0xDA6C-0xDA6E: reserved (3 bytes)
+
+; _pchsav at 0xDA6F: saved BDOS patch address for hard disk boot.
+; When booting from HD, the BIOS patches a JP in the CCP to skip
+; disk login on warm boot.  _pchsav stores the original word so it
+; can be restored.  Not used without hard disk support.
+    defw 0                  ; 0xDA6F: reserved (was _pchsav)
 
 ; ====================================================================
-; Dummy interrupt handler
-; ====================================================================
-
-    EXTERN _isr_dummy
-
-; ====================================================================
-; Fixed-address variables (0xFFD0-0xFFFF)
-; Now defined in bios.h via __at(). These DEFCs are no longer needed.
-; ====================================================================
-
-; ====================================================================
-; Other fixed addresses (still needed by crt0.asm code)
+; Fixed addresses used by boot code
 ; ====================================================================
 
 defc _dspstr = 0xF800       ; display refresh memory (80x25)
-defc _outcon = 0xF680       ; output conversion table (128 bytes)
-defc _inconv = 0xF700       ; input conversion table (128+128 bytes)
-defc _istack = 0xF620       ; interrupt stack top
-defc _stack  = 0xF680       ; BIOS driver stack top
+defc _istack = 0xF600       ; interrupt stack top (grows down from IVT)
 
 ; ====================================================================
 ; Section ordering — declare all code/data sections before BSS so the
@@ -324,11 +281,11 @@ defc _stack  = 0xF680       ; BIOS driver stack top
     SECTION code_string
 
 ; ====================================================================
-; BSS section — uninitialized data, not stored in disk image
-; Zeroed by cold boot code above. Must end below stack (0xF500).
+; BSS section — uninitialized data, not stored in disk image.
+; Linker places it after the last code/data section.
+; Zeroed by cold boot code above. Must end below IVT (0xF600).
 ; ====================================================================
 
     SECTION BSS
-    org 0xEF60
 
     SECTION bss_compiler

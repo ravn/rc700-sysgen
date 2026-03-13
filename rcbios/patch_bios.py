@@ -20,10 +20,23 @@ import argparse
 def parse_imd(data):
     """Parse IMD file into header + list of track records.
 
+    IMD format (ImageDisk by Dave Dunfield):
+      - ASCII header terminated by 0x1A
+      - Sequence of track records, each containing:
+        - 5-byte track header: mode, cylinder, head, sector_count, size_code
+        - Sector numbering map (sector_count bytes)
+        - Optional cylinder map and head map (if head byte flags set)
+        - Sector data: each sector preceded by a type byte:
+            0x00 = unavailable (fill with zeros)
+            0x01 = normal data (sector_size bytes follow)
+            0x02 = compressed (1 byte repeated sector_size times)
+            0x03-0x08 = variants with deleted/error flags (same data layout)
+
     Returns (header_bytes, tracks) where each track is a dict with:
         cyl, head, mode, nsect, sectsize, secnums, sectors[(secnum, data)],
         raw_start, raw_end (byte offsets in original file)
     """
+    # IMD header is ASCII text (creator, date, comment) ending with 0x1A (^Z)
     hdr_end = data.index(0x1a)
     header = data[:hdr_end + 1]
     pos = hdr_end + 1
@@ -31,35 +44,46 @@ def parse_imd(data):
     tracks = []
     while pos < len(data):
         raw_start = pos
+
+        # Track header: 5 bytes
+        # mode: recording mode (0-2 = FM at 250/300/500 kbps, 3-5 = MFM at same)
         mode = data[pos]
         cyl = data[pos + 1]
         head_byte = data[pos + 2]
-        head = head_byte & 0x3f
-        has_cyl_map = (head_byte & 0x80) != 0
-        has_head_map = (head_byte & 0x40) != 0
+        head = head_byte & 0x3f       # bits 0-5: head number (0 or 1)
+        has_cyl_map = (head_byte & 0x80) != 0   # bit 7: per-sector cylinder map follows
+        has_head_map = (head_byte & 0x40) != 0  # bit 6: per-sector head map follows
         nsect = data[pos + 3]
-        sectsize_code = data[pos + 4]
+        sectsize_code = data[pos + 4]  # 0=128, 1=256, 2=512, 3=1024, ...
         sectsize = 128 << sectsize_code
         pos += 5
 
+        # Sector numbering map: physical sector IDs (e.g., 1-26 for 8" FM)
         secnums = list(data[pos:pos + nsect])
         pos += nsect
 
+        # Optional maps: allow per-sector cylinder/head overrides (rare)
         if has_cyl_map:
             pos += nsect
         if has_head_map:
             pos += nsect
 
+        # Read sector data, each preceded by a type byte
         sectors = []
         for i in range(nsect):
             stype = data[pos]
             pos += 1
             if stype == 0x00:
+                # Sector data unavailable — fill with zeros
                 sectors.append((secnums[i], bytes(sectsize)))
             elif stype in (0x01, 0x03, 0x05, 0x07):
+                # Normal data: full sector_size bytes stored
+                # (0x03=deleted, 0x05=error, 0x07=deleted+error)
                 sectors.append((secnums[i], data[pos:pos + sectsize]))
                 pos += sectsize
             elif stype in (0x02, 0x04, 0x06, 0x08):
+                # Compressed: single byte repeated to fill sector
+                # (0x04=deleted, 0x06=error, 0x08=deleted+error)
                 sectors.append((secnums[i], bytes([data[pos]]) * sectsize))
                 pos += 1
             else:
@@ -77,19 +101,23 @@ def parse_imd(data):
             'sectsize': sectsize,
             'secnums': secnums,
             'sectors': sectors,
-            'raw_start': raw_start,
-            'raw_end': pos,
+            'raw_start': raw_start,   # byte offset of this track in the file
+            'raw_end': pos,           # byte offset after this track
         })
 
     return header, tracks
 
 
 def write_track(out, trk, sectors_data):
-    """Write a track record in IMD format.
+    """Write a single track record in IMD format.
 
-    sectors_data is a list of (secnum, data) sorted by desired output order.
-    Uses original sector numbering map order from trk['secnums'].
+    Rebuilds the track with patched sector data while preserving the
+    original track header (mode, cylinder, head flags, sector size)
+    and physical sector ordering.
+
+    sectors_data: list of (secnum, data) — the new content for each sector.
     """
+    # Track header: mode, cylinder, head, sector count, size code
     out.append(trk['mode'])
     out.append(trk['cyl'])
     out.append(trk['head_byte'])
@@ -97,20 +125,23 @@ def write_track(out, trk, sectors_data):
     out.append(trk['sectsize_code'])
 
     # Sector numbering map — preserve original physical order
+    # (this is the order sectors appear on the physical disk)
     out.extend(trk['secnums'])
 
-    # Build lookup from secnum -> data
+    # Build lookup from sector number to new data
     data_map = {secnum: data for secnum, data in sectors_data}
 
-    # Write sector data in physical order (matching secnums order)
+    # Write sector data in physical order (matching secnums map).
+    # Each sector is preceded by a type byte: 0x01=normal, 0x02=compressed.
     for secnum in trk['secnums']:
         sdata = data_map[secnum]
-        # Check if sector is all one byte (compressible)
         if len(set(sdata)) == 1:
-            out.append(0x02)  # compressed
+            # All bytes identical — store as compressed (1 byte + fill value)
+            out.append(0x02)
             out.append(sdata[0])
         else:
-            out.append(0x01)  # normal data
+            # Store full sector data
+            out.append(0x01)
             out.extend(sdata)
 
 
@@ -165,7 +196,21 @@ def show_info(imd_path):
 
 
 def patch(imd_path, cim_path, out_path):
-    """Patch .cim data onto Track 0 of an IMD image."""
+    """Patch .cim data onto Track 0 of an IMD image.
+
+    The RC702 PROM loads Track 0 into memory at address 0x0000.  The .cim
+    binary is the contiguous BIOS image (INIT + CONFI + conv tables + BIOS
+    code) that occupies Track 0.
+
+    Mapping: .cim bytes are written to sectors in ascending sector number
+    order — first all Side 0 sectors (e.g., 1-26 for MAXI), then Side 1
+    sectors (1-26).  This matches how the PROM reads them into a linear
+    memory buffer.
+
+    Partial fill: if the .cim is shorter than Track 0 capacity, remaining
+    sectors keep their original data (preserving any existing disk content
+    beyond the BIOS).
+    """
     imd_data = open(imd_path, 'rb').read()
     cim_data = open(cim_path, 'rb').read()
     header, tracks = parse_imd(imd_data)
@@ -197,12 +242,14 @@ def patch(imd_path, cim_path, out_path):
               file=sys.stderr)
         sys.exit(1)
 
-    # Map .cim bytes to sectors, sorted by sector number
+    # Map .cim bytes to sectors in ascending sector number order.
+    # This linear mapping matches how the PROM reads Track 0 into memory:
+    # sector 1 → offset 0, sector 2 → offset sector_size, etc.
     cim_pos = 0
     s0_patched = 0
     s1_patched = 0
 
-    # Patch Side 0
+    # Patch Side 0: sort sectors by number, fill from .cim sequentially
     sorted_s0 = sorted(t0s0['sectors'], key=lambda s: s[0])
     new_s0 = []
     for secnum, orig_data in sorted_s0:
@@ -210,18 +257,20 @@ def patch(imd_path, cim_path, out_path):
         if cim_pos < len(cim_data):
             remaining = len(cim_data) - cim_pos
             if remaining >= ss:
+                # Full sector from .cim
                 new_s0.append((secnum, cim_data[cim_pos:cim_pos + ss]))
             else:
-                # Partial sector: blend with original
+                # Partial sector: .cim data + original tail (last sector of BIOS)
                 patched = bytearray(cim_data[cim_pos:cim_pos + remaining])
                 patched.extend(orig_data[remaining:])
                 new_s0.append((secnum, bytes(patched)))
             cim_pos += ss
             s0_patched += 1
         else:
+            # Beyond .cim — keep original sector data
             new_s0.append((secnum, orig_data))
 
-    # Patch Side 1
+    # Patch Side 1: continue filling from where Side 0 left off
     new_s1 = None
     if t0s1 and cim_pos < len(cim_data):
         sorted_s1 = sorted(t0s1['sectors'], key=lambda s: s[0])
@@ -244,7 +293,8 @@ def patch(imd_path, cim_path, out_path):
     print(f"Patched: {s0_patched} sectors on side 0, {s1_patched} sectors on side 1 "
           f"({len(cim_data)}/{t0_total} bytes)")
 
-    # Rebuild IMD file
+    # Rebuild the IMD file: Track 0 sides get patched data,
+    # all other tracks are copied verbatim from the original.
     out = bytearray(header)
 
     for trk in tracks:
@@ -253,7 +303,6 @@ def patch(imd_path, cim_path, out_path):
         elif trk['cyl'] == 0 and trk['head'] == 1 and new_s1 is not None:
             write_track(out, trk, new_s1)
         else:
-            # Copy track verbatim from original
             out.extend(imd_data[trk['raw_start']:trk['raw_end']])
 
     with open(out_path, 'wb') as f:

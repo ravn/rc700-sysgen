@@ -114,7 +114,7 @@ emu.register_frame_done(function()
 
             inject_string("BGTEST\r")
             stage = 1; stage_timer = 0
-        elseif frame > 3000 then log("TIMEOUT boot"); done = true; f:close(); manager.machine:exit() end
+        elseif frame > 3000 then log("TIMEOUT boot"); done = true; f:close(); os.exit(0) end
         return
     end
 
@@ -152,5 +152,5 @@ emu.register_frame_done(function()
         return
     end
 
-    if stage == 99 then f:close(); done = true; manager.machine:exit() end
+    if stage == 99 then f:close(); done = true; os.exit(0) end
 end)

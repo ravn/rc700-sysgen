@@ -85,7 +85,7 @@ local function save_and_exit()
     for _, s in ipairs(screens) do f:write(s .. "\n") end
     f:close()
     done = true
-    manager.machine:exit()
+    os.exit(0)
 end
 
 emu.register_frame_done(function()

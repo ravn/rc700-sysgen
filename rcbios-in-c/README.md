@@ -55,6 +55,34 @@ naturally excluded — labels can't contain commas).  Created PEEPHOLE.md docume
 22 peephole rules.  Added `make asm-test` target for automated FILEX integration test.
 Size: 6439 → 6402 bytes (37 bytes saved from 6 fall-through + conditional inversions).
 
+2026-03-13:  Branch `experiment/c-stdlib-ivt` wrap-up.  The original goal (standard
+library C program) was not reached, but the branch delivered major architectural
+improvements:
+
+- **Boot sector simplification**: _cboot (cold boot relocator) moved into the
+  128-byte boot sector itself, where there is room.  Only the relocator remains
+  in assembly — everything else is C.
+- **IVT in C**: Interrupt vector table moved from assembly to a C function pointer
+  array, letting the linker resolve ISR addresses.
+- **Dual-section layout**: crt0.asm defines two sections (BOOT at 0x0000, BIOS at
+  BIOSAD) with CONFI block and Danish tables included as binary files.  The Makefile
+  concatenates the two sections into bios.cim.
+- **MSIZE-derived addresses**: All CP/M addresses (CCP, BDOS, BIOS) derived from
+  `MSIZE EQU 56`, matching the original BIOS.MAC pattern.  Changing MSIZE adjusts
+  the entire memory layout.
+- **Drive B support**: Full CFG.infd[] table copied at boot, enabling all configured
+  drives.
+- **MAME two-drive support**: rc702/rc702mini/rc703 drivers expose both fdc:0 and
+  fdc:1 with default drive types.  MFI images preserved between sessions for
+  writable persistent disks.
+- **Test infrastructure**: All Lua test scripts use os.exit() for clean MAME
+  termination.  Poll-based timeout exits within 1 second of test completion.
+- **Boot pointer investigation**: Documented the 0x47/0x48 boundary limit in
+  BOOT_POINTER_INVESTIGATION.md.
+
+Previous entries (2026-03-12/13): Unified binary layout, extracted boot entry and
+CONFI sectors into binary files, relocated _cboot, documented PURE_C_PLAN.md.
+
 2026-03-11:  Performance benchmarking infrastructure.  Added cycle-tracking test
 (`make cycle-test`, `make cycle-baseline`) that measures CPU cycles per command in the
 ASM FILEX integration test using MAME's emulated time.  PC sampled at 50 Hz for
@@ -66,21 +94,9 @@ cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
 
 ## Status
 
-**Phase 1l: Code generation optimization** — CP/M boots to A> on MAXI 8". All floppy BIOS features working.
-
-- Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
-- Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
-- Phase 1d (CONOUT): full display driver with escape sequences
-- Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
-- Phase 1f (boot): cold boot, warm boot, signon message
-- Phase 1g (SIO): serial ring buffer, RTS flow control, READER/PUNCH/LIST
-- Phase 1h (BSS): separate code/data from uninitialized variables (BSS not on disk)
-- Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
-- Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
-- Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
-- Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array,
-  direct shifts, compound assignments, function merging
-- Current size: 6402 bytes (fits maxi 9984, over mini 6144 by 258 bytes)
+**Feature-complete** — CP/M boots to A> on MAXI 8" with two floppy drives.
+All floppy BIOS features working.  Current size: 5473 bytes (fits maxi 9984
+with 4511 to spare; fits mini 6144 with 671 to spare).
 
 ### Missing features
 
@@ -168,11 +184,19 @@ make clean   # remove build artifacts
 
 ## Architecture
 
-- **crt0.asm**: Binary layout, JP table, IVT, CONFI config block
-- **bios.c**: All BIOS entry points, ISRs, and disk data tables in C
-- **bios.h**: Constants, memory layout, `WorkArea`/`JTVars`/`DPB`/`FSPA`/`FDF` structs, `byte`/`word` typedefs
+The design has a clean separation: crt0.asm handles the binary layout, boot
+relocation, and JP table; everything else is C.
+
+- **crt0.asm**: Two-section layout (BOOT at 0x0000, BIOS at BIOSAD).  Boot sector
+  with relocator (_cboot), JP table, JTVARS, section ordering.  All CP/M addresses
+  derived from `MSIZE EQU 56`.
+- **confi.bin** / **danish.bin**: CONFI config block (128 bytes) and Danish conversion
+  tables (384 bytes), included as BINARY directives at disk offset 0x080.
+- **bios.c**: All BIOS entry points, ISRs, IVT (C function pointer array), and disk
+  data tables
+- **bios.h**: Constants, memory layout (MSIZE-derived), `WorkArea`/`JTVars`/`DPB`/
+  `FSPA`/`FDF`/`ConfiBlock` structs, `byte`/`word` typedefs
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
-- **~~danish.bin~~**: Removed — tables live on disk image, BIOS uses placeholder space
 - **peephole.def**: SDCC peephole optimizer rules
 - **bgstar_test.asm**: BGSTAR foreground/background test (draw, insert/delete line, clear FG)
 - **mame_bgstar_test.lua**: Automated MAME test for bgstar_test.asm (verifies screen contents)
@@ -197,13 +221,16 @@ generates efficient direct-address code and saved 33 bytes vs individual `__at()
 
 ### z88dk notes
 
-- `org 0xD480` in crt0.asm sets the linker section base address, but ASMPC
-  remains section-relative (starts at 0). All `defs` padding expressions use
-  `(target - START) - ASMPC` where `START equ 0xD480`.
-- `-pragma-define:CRT_ORG_CODE=0xD480` sets the binary output origin.
-- The binary starts at file offset 0 = runtime address 0xD480. The ROM
-  bootstrap loads this to physical address 0x0000 and the INIT code copies
-  it to 0xD480 via LDIR.
+- crt0.asm defines two sections: `BOOT` at `org 0x0000` (boot sector +
+  CONFI/danish data, 640 bytes) and `BIOS` at `org BIOSAD` (JP table +
+  C code).  The Makefile concatenates the two `.bin` outputs, trimming
+  BSS, to produce `bios.cim`.
+- `-pragma-define:CRT_ORG_CODE=0x0000` sets the binary output origin.
+- The ROM bootstrap loads Track 0 to 0x0000, reads the boot pointer
+  from offset 0, and jumps to `_cboot` in the boot sector.  `_cboot`
+  LDIRs the BIOS section from its physical location to runtime address
+  BIOSAD, copies CONFI/danish to their runtime locations, zeroes BSS,
+  then JPs to BIOSAD.
 
 ### ISR design
 
@@ -259,11 +286,12 @@ non-trivial, it must revert to `__naked` with `isr_enter`/`isr_exit`.
 ### Code/BSS separation
 
 The binary on disk contains only code and initialized data. Uninitialized variables
-(buffers, driver state) are in a BSS section at 0xEF00, not written to the floppy
-image. The cold boot code zeroes BSS using `__bss_compiler_head`/`__bss_compiler_size`
-linker symbols. Section ordering is declared explicitly in crt0.asm to ensure all
-code/data sections precede BSS. The `code_string` section (containing `memset`) must
-be declared before BSS to avoid linker placement errors.
+(buffers, driver state) are in BSS, placed by the linker after all code/data sections,
+not written to the floppy image. The cold boot code zeroes BSS using
+`__bss_compiler_head`/`__bss_compiler_size` linker symbols. Section ordering is
+declared explicitly in crt0.asm to ensure all code/data sections precede BSS.
+The `code_string` section (containing `memset`) must be declared before BSS to
+avoid linker placement errors.
 
 ### Disk data tables
 
@@ -359,32 +387,33 @@ using `memcpy`/`memset`/loops. The remaining asm blocks are:
 
 See `ASM_BLOCKS.md` for full analysis.
 
-## Binary layout (6692 bytes)
+## Binary layout (6324 bytes)
 
-The .cim binary spans 0xD480–0xEEA3.  The INIT section (D480–DA00) is
-overwritten by CCP after cold boot; only the resident portion (DA00+)
-must fit the system track.
+The .cim binary is a single compiled unit starting at ORG 0xD480.
+The Makefile trims BSS from the .rom output — no separate files.
 
 ```
 Address range  Size   Section
 -------------  -----  ------------------------------------------
-D480h–D500h      128  Boot entry point + padding
-D500h–D580h      128  CONFI config block (SIO, CTC, CRT, FDC params)
-D580h–D700h      384  Character conversion tables (placeholder zeros)
-D700h–DA00h      768  Cold boot code (relocate, BSS clear, hw init call)
+D480h–D500h      128  Boot sector (DW 0x0080, " RC702", zeros)
+D500h–D522h       34  _cboot (relocate, BSS clear, hw init, jp DA00)
+D522h–DA00h     1246  Free INIT space (zeros, available for init code)
 DA00h–DA33h       51  BIOS JP table (17 entries, fixed address)
 DA33h–DA4Ah       23  JTVARS (CONFI configuration variables)
 DA4Ah–DA70h       38  Extended JP table entries (INTJP0-10)
-DA70h–DB00h      144  Saved register area + padding to IVT alignment
-DB00h–DB26h       38  Interrupt vector table (itrtab, 256-byte aligned)
-DB26h–ED42h     4636  C code (functions, ISRs)
-ED42h–EE72h      304  Read-only data (DPBs, translation tables, FDF, FSPA)
-EE72h–EE84h       18  Initialized data (trkoff, flags)
-EE84h–EEA4h       32  Library code (l_ret + memset)
+DA70h+          ....  C code, ISRs, const data (incl. confi_defaults)
 ```
 
-BSS (uninitialized variables) is at EF60h–F462h (1282 bytes) and is
-NOT included in the binary — it is zeroed by cold boot code.
+The INIT section (D480–DA00) is overwritten by CCP after cold boot;
+only the resident portion (DA00+) must fit the system track.  The
+free INIT region (D522–DA00, 1246 bytes) can hold init-only code.
+
+The CONFI configuration block (72 bytes) is embedded as `confi_defaults`
+in the resident C code section.  The original disk layout placed this
+at offset 0x080; restoring that for CONFI.COM is a long-term goal.
+
+BSS (uninitialized variables) is NOT included in the binary — it is
+zeroed by `_cboot`.
 
 ### Top 10 largest C functions
 
@@ -405,13 +434,14 @@ NOT included in the binary — it is zeroed by cold boot code.
 
 | Category | Bytes | % |
 |----------|------:|--:|
-| crt0.asm fixed structures | 1702 | 25.4 |
-| C code (functions + ISRs) | 4636 | 69.2 |
-| Read-only data tables | 304 | 4.5 |
-| Initialized data + library | 50 | 0.8 |
-| **Total** | **6692** | |
+| Boot sector (compiled) | 128 | 2.0 |
+| _cboot + free INIT space | 1280 | 20.3 |
+| crt0.asm (JP table + JTVARS) | 112 | 1.8 |
+| C code (functions + ISRs) | ~4250 | 67.2 |
+| Const data (CONFI + tables + library) | ~554 | 8.8 |
+| **Total** | **6324** | |
 
-### MINI fit analysis (need to cut 548 bytes)
+### MINI fit analysis (need to cut 180 bytes)
 
 | Optimization | Saving | Notes |
 |--------------|-------:|-------|
@@ -419,7 +449,7 @@ NOT included in the binary — it is zeroed by cold boot code.
 | Shared stack-switch trampoline | ~50 | 5 wrappers → 1 trampoline |
 | Additional peephole rules | ~20 | Further pattern matching opportunities |
 | Micro-optimizations | ~60+ | Tail calls, shared code paths |
-| **Total estimated** | **~549+** | Tight but achievable |
+| **Total estimated** | **~549+** | Only 180 needed; comfortable margin |
 
 ### specc control character dispatch
 
@@ -433,16 +463,15 @@ but puts CR and LF first — the most frequent control codes get a
 
 ### Character conversion tables
 
-The 384-byte danish.bin conversion tables are **not included** in the BIOS
-binary.  The binary contains a placeholder (`defs 384`) at offset 0x100.
-The actual tables live on the disk image (written by CONFI.COM) and are
-loaded by the autoload PROM along with the rest of Track 0.  The cold
-boot code generates identity tables (all characters map to themselves) as
-a safe default.
+The danish.bin conversion tables are **not included** in the BIOS binary.
+The cold boot code generates identity tables (all characters map to
+themselves) as a safe default.  The original disk layout placed the tables
+at offset 0x100; that region is now part of the free INIT space.
 
 ## Next steps
 
-- MINI (5.25") support (currently 548 bytes over mini limit, needs size reduction)
+- MINI (5.25") support (currently 110 bytes over mini limit, needs size reduction)
+- Move remaining inline asm from bios.c to crt0.asm (see `PURE_C_PLAN.md`)
 - Remove BGSTAR code (~419 bytes, largest single saving)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
 - Further peephole rules and micro-optimizations

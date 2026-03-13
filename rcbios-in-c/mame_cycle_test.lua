@@ -185,14 +185,14 @@ emu.register_frame_done(function()
         elseif frame > 50 * 120 then
             screens[#screens + 1] = "=== TIMEOUT waiting for boot ===\n" .. screen_text()
             write_results()
-            done = true; manager.machine:exit()
+            done = true; os.exit(0)
         end
 
     elseif state == "post" then
         cmd_idx = cmd_idx + 1
         if cmd_idx > #commands then
             write_results()
-            done = true; manager.machine:exit()
+            done = true; os.exit(0)
             return
         end
         manager.machine.natkeyboard:post(commands[cmd_idx])
@@ -231,6 +231,6 @@ emu.register_frame_done(function()
     if frame > 50 * 600 then
         screens[#screens + 1] = "=== TIMEOUT frame " .. frame .. " ===\n" .. screen_text()
         write_results()
-        done = true; manager.machine:exit()
+        done = true; os.exit(0)
     end
 end)

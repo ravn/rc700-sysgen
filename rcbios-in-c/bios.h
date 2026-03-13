@@ -39,22 +39,64 @@ typedef DisplayRow Display[25];
 #define ROW0_OFF    0                           /* cury byte offset for row 0 */
 #define ROW24_OFFSET   (ROW24 * SCRN_COLS)         /* cury byte offset for row 24 = 1920 */
 
-#define OUTCON_ADDR 0xF680      /* output conversion table (128 bytes) */
-#define INCONV_ADDR 0xF700      /* input conversion table (256 bytes) */
+/*
+ * Runtime character conversion tables at 0xF680 (384 bytes).
+ *
+ * These tables convert between the internal character set (ASCII) and
+ * national character sets (Danish/Norwegian, Swedish, German, etc.).
+ * The RC702 uses 7-bit characters with the high-bit codes (0x40-0x7F)
+ * remapped for national characters.
+ *
+ * At cold boot, BIOS initializes both tables to identity mapping
+ * (pass-through).  The disk-resident copy at 0xD580 (CONVTA_ADDR)
+ * may contain national tables written by CONFI.COM; these can be
+ * memcpy'd here to activate them.
+ *
+ * Example: Danish/Norwegian mapping in outcon:
+ *   '@'(0x40) → 'Ø', '['(0x5B) → 'Æ', '\'(0x5C) → 'Ø',
+ *   ']'(0x5D) → 'Å', '{'(0x7B) → 'æ', '|'(0x7C) → 'ø',
+ *   '}'(0x7D) → 'å', '~'(0x7E) → 'ü'
+ */
+typedef struct {
+    byte outcon[128];       /* 0xF680: output conversion table.
+                             * Maps character codes 0x00-0x7F before display.
+                             * Applied by CONOUT before writing to screen memory.
+                             * Identity = ASCII pass-through (no conversion). */
+    byte inconv[256];       /* 0xF700: input conversion table.
+                             * Maps raw keyboard/serial input bytes 0x00-0xFF
+                             * to internal character codes.
+                             * Identity = no conversion. */
+} ConvTables;
 
-/* Array-style access to the conversion tables at fixed addresses.
- * outcon[ch] and inconv[raw] compile to the same code as pointer
- * arithmetic but read more naturally in C. */
-#define outcon      ((volatile byte *)OUTCON_ADDR)
-#define inconv      ((volatile byte *)INCONV_ADDR)
-#define ISTACK_ADDR 0xF620      /* interrupt stack top */
-#define STACK_ADDR  0xF680      /* BIOS driver stack top */
+#ifndef HOST_TEST
+#define CONV (*(volatile ConvTables *)0xF680)
+#else
+extern volatile ConvTables _convtables;
+#define CONV _convtables
+#endif
 
-/* CP/M addresses */
-#define CCP_BASE    0xC400      /* CCP load address (56K) */
-#define BDOS_BASE   0xCC06      /* BDOS entry */
-#define BIOS_BASE   0xDA00      /* BIOS jump table */
-#define BUFF        0x0080      /* default DMA buffer */
+#define outcon      CONV.outcon
+#define inconv      CONV.inconv
+#define IVT_ADDR    0xF600      /* interrupt vector table (page-aligned) */
+#define ISTACK_ADDR 0xF600      /* interrupt stack top (grows down from IVT) */
+
+/* CP/M memory layout — derived from MSIZE, same as BIOS.MAC.
+ * MSIZE = available memory excluding BIOS (in KB).
+ * BIAS  = offset from 20K base CP/M to actual addresses.
+ * CPMB  = CCP base.  BDOS = CPMB + 0x806.  BIOS = CPMB + CPML.
+ * CPML  = 0x1600 = length of CCP + BDOS. */
+#define MSIZE       56
+#define STR_(x) #x
+#define STR(x)  STR_(x)
+#define MSIZE_STR STR(MSIZE)
+#define BIAS        ((MSIZE - 20) * 1024)
+#define CPMB        (0x3400 + BIAS)         /* CCP base */
+#define CPML        0x1600                  /* CCP + BDOS length */
+#define CCP_BASE    CPMB
+#define BDOS_BASE   (CPMB + 0x806)          /* BDOS entry */
+#define BIOS_BASE   (CPMB + CPML)           /* BIOS jump table */
+#define BUFF        0x0080                  /* default DMA buffer */
+#define CFG_ADDR    (CPMB + 0x1100)         /* CONFI block temp address (CCP area) */
 #ifdef HOST_TEST
 /* Stubs for fixed-address CP/M zero-page variables */
 static volatile byte wboot_jp, iobyte, cdisk, bdos_jp;
@@ -67,7 +109,7 @@ static volatile byte __at(0x0004) cdisk;
 static volatile byte __at(0x0005) bdos_jp;    /* JP opcode */
 static volatile word __at(0x0006) bdos_vec;   /* JP BDOS address */
 #endif
-#define NSECTS      44          /* CCP+BDOS length in 128-byte sectors (0x1600/128) */
+#define NSECTS      (CPML / 128)    /* CCP+BDOS length in 128-byte sectors */
 
 /* I/O port numbers (for reference; actual I/O via hal.h __sfr) */
 #define PORT_PIO_A_DATA 0x10
@@ -95,31 +137,80 @@ static volatile word __at(0x0006) bdos_vec;   /* JP BDOS address */
 #define KBMASK      (KBBUFSZ-1)
 
 /*
- * Work area struct at 0xFFD0-0xFFFF.
- * Layout matches original BIOS ORG+DS block. Gaps are reserved bytes.
+ * Work area at 0xFFD0-0xFFFF (48 bytes).
+ *
+ * Fixed-address RAM variables used by the BIOS at runtime.
+ * Layout matches the original BIOS ORG+DS block — addresses are ABI
+ * because some external programs may access them directly.
+ *
+ * Located at the very top of the Z80 address space, above the display
+ * memory (0xF800-0xFFCF).  The _pad fields are reserved gaps in the
+ * original layout that must be preserved for address compatibility.
+ *
+ * All fields are zeroed by _cboot's BSS-clear or set during BIOS init.
  */
 typedef struct {
-    byte  _pad0;            /* 0xFFD0: reserved */
-    byte  curx;             /* 0xFFD1: cursor column (0-79) */
-    word cury;          /* 0xFFD2: cursor row offset (row * 80) */
-    byte  cursy;            /* 0xFFD4: cursor row number (0-24) */
-    word locbuf;        /* 0xFFD5: scroll source pointer */
-    byte  xflg;             /* 0xFFD7: escape state (0=normal) */
-    word locad;         /* 0xFFD8: screen position offset */
-    byte  usession;         /* 0xFFDA: character being output */
-    byte  _pad1[3];         /* 0xFFDB-0xFFDD: gap */
-    byte  adr0;             /* 0xFFDE: XY escape first coordinate */
-    word timer1;        /* 0xFFDF: warm-boot countdown */
-    word timer2;        /* 0xFFE1: motor stop countdown */
-    word delcnt;        /* 0xFFE3: delay timer */
-    word warmjp;        /* 0xFFE5: exit routine JP target */
-    byte  fdtimo_var;       /* 0xFFE7: motor-off reload value */
-    byte  _pad2[2];         /* 0xFFE8-0xFFE9: gap */
-    word stptim_var;    /* 0xFFEA: motor timer reload */
-    word clktim;        /* 0xFFEC: clock/screen-blank timer */
-    byte  _pad3[14];        /* 0xFFEE-0xFFFB: gap */
-    word rtc0;          /* 0xFFFC: RTC low word */
-    word rtc2;          /* 0xFFFE: RTC high word */
+    byte  _pad0;            /* 0xFFD0: reserved (unused byte) */
+    byte  curx;             /* 0xFFD1: cursor column position (0-79).
+                             * Current horizontal position on screen. */
+    word cury;              /* 0xFFD2: cursor row as byte offset (row × 80).
+                             * Used for direct screen memory addressing:
+                             * screen[cury + curx] is the cursor position.
+                             * Values: 0, 80, 160, ..., 1920. */
+    byte  cursy;            /* 0xFFD4: cursor row number (0-24).
+                             * Redundant with cury but needed for 8275
+                             * cursor position commands and XY reporting. */
+    word locbuf;            /* 0xFFD5: scroll source pointer.
+                             * Points to start of source row during scroll
+                             * operations (insert/delete line). */
+    byte  xflg;             /* 0xFFD7: escape sequence state machine.
+                             *   0 = normal character output
+                             *   6 = ESC 06h received, awaiting 1st coordinate
+                             *   1 = 1st coordinate received, awaiting 2nd
+                             * Controls the multi-byte XY cursor addressing
+                             * sequence (0x06, col+0x20, row+0x20). */
+    word locad;             /* 0xFFD8: screen position offset.
+                             * Temporary variable used during scroll and
+                             * line insert/delete operations. */
+    byte  usession;         /* 0xFFDA: character currently being output.
+                             * Saved here so control character handlers
+                             * can reference the character being processed. */
+    byte  _pad1[3];         /* 0xFFDB-0xFFDD: reserved gap */
+    byte  adr0;             /* 0xFFDE: first coordinate of XY escape sequence.
+                             * When xflg=1, this holds the column (or row,
+                             * depending on adrmod) from the first byte
+                             * of the 0x06 addressing sequence. */
+    word timer1;            /* 0xFFDF: warm-boot countdown timer.
+                             * Decremented by the CTC2 display interrupt ISR.
+                             * When it reaches 0, triggers a warm boot.
+                             * Set by _bios_exit to schedule delayed reboot. */
+    word timer2;            /* 0xFFE1: floppy motor stop countdown.
+                             * Decremented by display interrupt ISR (50 Hz).
+                             * When it reaches 0, motor is turned off.
+                             * Reloaded from stptim_var on each disk access. */
+    word delcnt;            /* 0xFFE3: general-purpose delay counter.
+                             * Decremented by display interrupt ISR.
+                             * Used for timed waits (e.g., FDC head settle). */
+    word warmjp;            /* 0xFFE5: exit routine JP target address.
+                             * Address jumped to by _bios_exit when timer1
+                             * expires.  Typically set to warm boot entry. */
+    byte  fdtimo_var;       /* 0xFFE7: motor-off timeout reload value.
+                             * Number of 20 ms ticks before motor turns off
+                             * after last disk operation.  Loaded from config. */
+    byte  _pad2[2];         /* 0xFFE8-0xFFE9: reserved gap */
+    word stptim_var;        /* 0xFFEA: motor timer reload value.
+                             * Copied from CFG.stptim at boot.
+                             * Reloaded into timer2 on each disk access. */
+    word clktim;            /* 0xFFEC: screen blank / clock timer.
+                             * Decremented by display ISR.  Used for
+                             * screen saver timeout or RTC display update. */
+    byte  _pad3[14];        /* 0xFFEE-0xFFFB: reserved gap (14 bytes) */
+    word rtc0;              /* 0xFFFC: real-time clock low word.
+                             * Incremented by display ISR at 50 Hz.
+                             * Combined with rtc2 for 32-bit tick counter. */
+    word rtc2;              /* 0xFFFE: real-time clock high word.
+                             * Incremented when rtc0 overflows.
+                             * rtc2:rtc0 = 32-bit count of 20 ms ticks. */
 } WorkArea;
 
 #ifndef HOST_TEST
@@ -149,17 +240,50 @@ extern volatile WorkArea _workarea;
 #define rtc2        W.rtc2
 
 /*
- * JTVARS — configuration at 0xDA33+ (storage in crt0.asm binary).
- * CONFI.COM and external programs depend on these positions.
+ * JTVARS — runtime configuration variables at 0xDA33 (22 bytes).
+ *
+ * Located immediately after the BIOS JP table (17 entries at 0xDA00)
+ * and before the extended JP table (0xDA49+).  Storage is in the
+ * crt0.asm binary at fixed addresses.
+ *
+ * External programs (CONFI.COM, FORMAT.COM, etc.) depend on these
+ * exact addresses — they are part of the BIOS ABI.
+ *
+ * Initialized to zeros/0xFF by crt0.asm defb directives; populated
+ * by bios_hw_init() and bios_boot() from CONFI block values.
  */
 typedef struct {
-    byte  adrmod;           /* 0xDA33: addressing mode (0=XY, 1=YX) */
-    byte  wr5a;             /* 0xDA34: SIO-A WR5 bits/char */
-    byte  wr5b;             /* 0xDA35: SIO-B WR5 bits/char */
-    byte  mtype;            /* 0xDA36: machine type (0=RC700) */
-    byte  fd0[16];          /* 0xDA37-0xDA46: drive format table */
-    byte  fd0_term;         /* 0xDA47: terminator (0xFF) */
-    byte  bootd;            /* 0xDA48: boot disk (0=floppy) */
+    byte  adrmod;           /* 0xDA33: cursor addressing mode.
+                             *   0 = XY (column first, then row) — default
+                             *   1 = YX (row first, then column)
+                             * Copied from CFG.xyflg at boot.
+                             * Controls interpretation of 0x06 escape sequence. */
+    byte  wr5a;             /* 0xDA34: SIO channel A WR5 bits/char mask.
+                             * Extracted from CFG.sioa[6] & 0x60 at boot.
+                             * Used by CONOUT/LIST to set character width:
+                             *   0x60 = 8 bits (REL30), 0x20 = 7 bits (older). */
+    byte  wr5b;             /* 0xDA35: SIO channel B WR5 bits/char mask.
+                             * Extracted from CFG.siob[8] & 0x60 at boot.
+                             * Used by PUNCH to set character width. */
+    byte  mtype;            /* 0xDA36: machine type identifier.
+                             *   0 = RC700/RC702 (default)
+                             *   1 = RC850/RC855
+                             *   2 = ITT3290
+                             *   3 = RC703
+                             * Set to 0 by crt0.asm; not modified by BIOS. */
+    byte  fd0[16];          /* 0xDA37-0xDA46: active drive format table.
+                             * One format code per drive (A-P).
+                             * Initialized from CFG.infd[] at boot.
+                             * Updated by CONFI.COM when drives are reconfigured.
+                             * Format codes: see ConfiBlock.infd[] comments.
+                             * 0xFF = drive not present. */
+    byte  fd0_term;         /* 0xDA47: drive table terminator.
+                             *   Always 0xFF.  Marks end of fd0[] scan. */
+    byte  bootd;            /* 0xDA48: boot device identifier.
+                             *   0x00 = booted from floppy disk
+                             *   0x01 = booted from hard disk
+                             * Set from CFG.ibootd at boot.  Used by warm boot
+                             * to know which device to reload CCP/BDOS from. */
 } JTVars;
 
 #ifndef HOST_TEST
@@ -225,14 +349,281 @@ extern word trkoff[];
 #define WRDIR   1   /* write to directory sector */
 #define WRUAL   2   /* write to unallocated sector */
 
-/* CONFI config block (in crt0.asm, fixed layout on Track 0) */
-extern byte mode0, count0;
-extern byte psioa[9];
-extern byte psiob[11];
-extern byte par1, par2, par3, par4;
-extern byte fdprog[];
-extern byte xyflg;
-extern word cfgstptim;
-extern byte infd0;
+/*
+ * CONFI configuration block — hardware init parameters.
+ *
+ * Originally disk-resident on Track 0 at offset 0x080 (runtime 0xD500).
+ * Now embedded as a const struct (confi_defaults) in bios.c; the disk
+ * offset 0x080 region is used for init code.
+ *
+ * CONFI.COM reads/writes this block on disk; restoring the original
+ * disk layout for CONFI.COM compatibility is a long-term goal.
+ * INIT sends these values to hardware I/O ports at cold boot.
+ * C code accesses via CFG macro.
+ *
+ * The default values shown in comments are for REL30.
+ * CONFI.COM may have written different values to disk.
+ */
+typedef struct {
+    /*
+     * Z80 CTC (Counter/Timer Controller) — 4 channels at ports 0x0C-0x0F.
+     *
+     * CTC mode byte bits:
+     *   bit 0: 1=control word (must be 1)
+     *   bit 1: 0=software reset of channel
+     *   bit 2: 1=time constant follows in next byte
+     *   bit 3: 0=auto trigger, 1=external CLK/TRG edge
+     *   bit 4: 0=falling edge, 1=rising edge
+     *   bit 5: 0=prescaler ÷16, 1=prescaler ÷256
+     *   bit 6: 0=timer mode (uses prescaler), 1=counter mode (no prescaler)
+     *   bit 7: 0=disable interrupt, 1=enable interrupt
+     *
+     * CTC input clock: 614.4 kHz from hardware divider (not software-changeable).
+     * Baud rate = 614400 / CTC_divisor / SIO_clock_mode.
+     * SIO clock mode: ×16 for 600-38400 baud, ×64 for 50-300 baud.
+     *
+     * Ch0/Ch1 generate baud rate clocks for SIO channels A and B.
+     * Ch2/Ch3 generate interrupts for display refresh and floppy controller.
+     */
+    byte ctc_mode0;         /* +0x00: CTC ch0 mode (SIO-A baud clock)
+                             *   0x47 = timer mode, interrupt disabled, auto trigger,
+                             *          time constant follows, prescaler ÷16 */
+    byte ctc_count0;        /* +0x01: CTC ch0 time constant (SIO-A baud divisor)
+                             *   0x01 = divisor 1 → 614400/1/16 = 38400 baud (REL30)
+                             *   0x20 = divisor 32 → 614400/32/16 = 1200 baud (rel.2.1)
+                             *   0x02 = divisor 2 → 614400/2/16 = 19200 baud (rel.2.2) */
+    byte ctc_mode1;         /* +0x02: CTC ch1 mode (SIO-B baud clock)
+                             *   0x47 = same as ch0: timer mode, auto trigger */
+    byte ctc_count1;        /* +0x03: CTC ch1 time constant (SIO-B baud divisor)
+                             *   0x20 = divisor 32 → 1200 baud */
+    byte ctc_mode2;         /* +0x04: CTC ch2 mode (display refresh interrupt)
+                             *   0xD7 = counter mode, interrupt enabled, auto trigger,
+                             *          time constant follows, rising edge */
+    byte ctc_count2;        /* +0x05: CTC ch2 time constant
+                             *   0x01 = interrupt after every count pulse from 8275 */
+    byte ctc_mode3;         /* +0x06: CTC ch3 mode (floppy controller interrupt)
+                             *   0xD7 = same as ch2: counter mode, interrupt enabled */
+    byte ctc_count3;        /* +0x07: CTC ch3 time constant
+                             *   0x01 = interrupt after every count pulse from µPD765 */
+
+    /*
+     * Z80 SIO/2 channel A init block — Printer port (ports 0x08/0x0A).
+     *
+     * 9 bytes sent sequentially to the SIO-A control port (0x0A) via OTIR.
+     * Each register write is a pair: first byte selects the register (written
+     * to WR0 bits 2:0), second byte is the register value.  Exception: the
+     * channel reset command (0x18) is a WR0 command itself.
+     *
+     * REL30 defaults: 38400 baud, 8-N-1 (8 data bits, no parity, 1 stop bit).
+     * Older releases: 7 data bits, even parity (Danish/Nordic standard).
+     *
+     * SIO Ch.A is directly connected to a serial printer.
+     * CP/M maps it as the LST: (list) device.
+     */
+    byte sioa[9];           /* +0x08: SIO channel A init sequence
+                             *   [0] 0x18: WR0 — channel reset
+                             *   [1] 0x04: WR0 — select WR4
+                             *   [2] 0x44: WR4 — ×16 clock, 1 stop bit, no parity
+                             *             (rel.2.1: 0x47 = ×16, 1 stop, even parity)
+                             *             (50-300 baud: 0xC4/C7 for ×64 clock)
+                             *   [3] 0x03: WR0 — select WR3
+                             *   [4] 0xC1: WR3 — Rx enable, auto enables, 8 bits/char
+                             *             (rel.2.1: 0x61 = Rx enable, auto, 7 bits)
+                             *   [5] 0x05: WR0 — select WR5
+                             *   [6] 0x60: WR5 — 8 bits Tx, Tx disabled, RTS off, DTR off
+                             *             (rel.2.1: 0x20 = 7 bits Tx)
+                             *             BIOS copies bits 6:5 → wr5a at boot
+                             *   [7] 0x01: WR0 — select WR1
+                             *   [8] 0x1B: WR1 — Ext/Status Int + Tx Int + Rx Int (all chars) */
+
+    /*
+     * Z80 SIO/2 channel B init block — Terminal port (ports 0x09/0x0B).
+     *
+     * 11 bytes (2 more than Ch.A because Ch.B carries the interrupt vector
+     * in WR2, which is shared by both channels — only Ch.B WR2 is used).
+     *
+     * Used for modem, PC connection, or inter-machine file transfer (FILEX).
+     * CP/M maps it as both PUN: (punch) and RDR: (reader) devices.
+     *
+     * REL30 default: 1200 baud, 7-E-1 (7 data bits, even parity, 1 stop bit).
+     * Rx is disabled at init — this is the auxiliary/printer port, output-only
+     * unless explicitly enabled by the application.
+     */
+    byte siob[11];          /* +0x11: SIO channel B init sequence
+                             *   [0]  0x18: WR0 — channel reset
+                             *   [1]  0x02: WR0 — select WR2
+                             *   [2]  0x10: WR2 — interrupt vector base 0x10
+                             *              (offset to skip CTC2 gap in vector table;
+                             *               with "status affects vector" in WR1,
+                             *               the SIO modifies bits 3:1 to encode
+                             *               the interrupt source)
+                             *   [3]  0x04: WR0 — select WR4
+                             *   [4]  0x47: WR4 — ×16 clock, 1 stop bit, even parity
+                             *   [5]  0x03: WR0 — select WR3
+                             *   [6]  0x60: WR3 — Rx disabled, auto enables, 7 bits/char
+                             *              (bit 0 = 0: Rx disabled at init)
+                             *   [7]  0x05: WR0 — select WR5
+                             *   [8]  0x20: WR5 — 7 bits Tx, Tx disabled, RTS off, DTR off
+                             *              BIOS copies bits 6:5 → wr5b at boot
+                             *   [9]  0x01: WR0 — select WR1
+                             *   [10] 0x1F: WR1 — Ext/Status Int + Tx Int + Rx Int (all)
+                             *              + Status Affects Vector (bit 2)
+                             *              + Parity Is Special Condition (bit 0) */
+
+    /*
+     * Am9517A (Intel 8237) DMA mode register values.
+     *
+     * Mode register byte bits:
+     *   D1:D0 = channel select (00=ch0, 01=ch1, 10=ch2, 11=ch3)
+     *   D3:D2 = transfer type (01=write/IO→mem, 10=read/mem→IO)
+     *   D4    = auto-initialize enable
+     *   D5    = address decrement (0=increment, 1=decrement)
+     *   D7:D6 = mode (00=demand, 01=single, 10=block, 11=cascade)
+     *
+     * Written to DMA mode register port 0xFB.
+     * Ch1 (floppy) is not set here — programmed per-operation by disk driver.
+     */
+    byte dmode[4];          /* +0x1C: DMA channel mode registers
+                             *   [0] 0x48: ch0 (HD)      — single, read/mem→IO, ch0
+                             *   [1] 0x49: ch1 (floppy)   — single, read/mem→IO, ch1
+                             *            (default only; driver reprograms per transfer)
+                             *   [2] 0x4A: ch2 (display)  — single, read/mem→IO, ch2
+                             *   [3] 0x4B: ch3 (display2) — single, read/mem→IO, ch3 */
+
+    /*
+     * Intel 8275 CRT controller reset parameters.
+     *
+     * After a reset command (0x00) to port 0x01, the 8275 expects 4 parameter
+     * bytes written to the data port (0x00).  These define screen geometry,
+     * raster timing, and cursor appearance.
+     *
+     * CONFI.COM can modify PAR4 to change cursor shape and character height.
+     */
+    byte par1;              /* +0x20: 8275 Parameter 1 — horizontal format
+                             *   0x4F = (0x4F & 0x7F) + 1 = 80 characters per row */
+    byte par2;              /* +0x21: 8275 Parameter 2 — vertical format
+                             *   0x98:  bits 5:0 = (0x18)+1 = 25 rows per frame
+                             *          bits 7:6 = VRTC timing */
+    byte par3;              /* +0x22: 8275 Parameter 3 — retrace timing
+                             *   0x7A:  bits 4:0 = (0x1A)+2 = 28 H retrace chars
+                             *          bits 7:5 = (3)+1 = 4 V retrace scan lines */
+    byte par4;              /* +0x23: 8275 Parameter 4 — scan lines and cursor
+                             *   0x6D:  bits 7:4 = (6)+1 = 7 lines per char row (REL30)
+                             *          bits 3:2 = underline position
+                             *          bits 1:0 = cursor format:
+                             *            00=blink underline, 01=blink block,
+                             *            10=steady underline, 11=steady block
+                             *          0x6D → 7 lines/char, steady block cursor
+                             *          (rel.2.1: 0x4D → 5 lines/char, blink block) */
+
+    /*
+     * NEC µPD765 (Intel 8272) FDC SPECIFY command.
+     *
+     * The SPECIFY command (0x03) sets mechanical timing parameters for the
+     * floppy drive.  INIT sends fdprog_len bytes starting at fdprog_cmd
+     * to the FDC data port (0x05), waiting for RQM between each byte.
+     *
+     * For mini (5.25") drives, the BIOS patches fdprog_srt to 0x0F
+     * (slower stepping) before sending.
+     */
+    byte fdprog_len;        /* +0x24: FDC program byte count
+                             *   3 = send 3 bytes (SPECIFY cmd + 2 parameter bytes) */
+    byte fdprog_cmd;        /* +0x25: FDC command byte
+                             *   0x03 = SPECIFY command */
+    byte fdprog_srt;        /* +0x26: SRT/HUT byte (step rate time / head unload time)
+                             *   0xDF:  bits 7:4 = SRT = 0xD (step rate = 3 ms at 8 MHz)
+                             *          bits 3:0 = HUT = 0xF (head unload = 240 ms)
+                             *   (mini override: 0x0F = slower stepping for 5.25" drives) */
+    byte fdprog_hlt;        /* +0x27: HLT/ND byte (head load time / DMA mode)
+                             *   0x28:  bits 7:1 = HLT = 0x14 (head load = 40 ms)
+                             *          bit 0 = ND = 0 (DMA mode, not non-DMA) */
+
+    /*
+     * CONFI.COM user-facing settings.
+     *
+     * These are display/menu values shown by CONFI.COM; the actual hardware
+     * state is in the register blocks above.  CONFI.COM uses these indices
+     * to look up the corresponding CTC divisor and SIO WR4 values.
+     */
+    byte cursor_num;        /* +0x28: cursor format number (CONFI menu selection)
+                             *   0x00 = blinking reverse block (default) */
+    byte conv_num;          /* +0x29: character conversion table number
+                             *   0x00 = Danish/Norwegian (default) */
+    byte baud_a;            /* +0x2A: baud rate index for SIO-A (CONFI display)
+                             *   0x06 = 1200 baud (display value; actual rate is
+                             *          determined by ctc_count0 and sioa[2]) */
+    byte baud_b;            /* +0x2B: baud rate index for SIO-B (CONFI display)
+                             *   0x06 = 1200 baud */
+    byte xyflg;             /* +0x2C: cursor addressing mode
+                             *   0x00 = XY (column first, then row)
+                             *   0x01 = YX (row first, then column)
+                             *   Copied to adrmod (JTVARS) at boot */
+    word stptim;            /* +0x2D: floppy motor stop timer (in 20 ms ticks)
+                             *   250 = 250 × 20 ms = 5 second timeout
+                             *   Copied to stptim_var (WorkArea) at boot */
+
+    /*
+     * Drive format configuration table — 16 entries + 0xFF terminator.
+     *
+     * Each entry is a disk format code byte that selects the physical
+     * format for drives A-P.  Format codes (from SYSGEN/CPMBOOT):
+     *   0x08 = DD 512 B/S (standard CP/M maxi or mini format)
+     *   0x10 = SS 128 B/S (FM single density, Track 0 Side 0)
+     *   0x18 = DD 256 B/S (MFM double density, Track 0 Side 1)
+     *   0x20 = HD 1 MB (hard disk, floppy emulation)
+     *   0xFF = drive not present / end of table
+     *
+     * At boot, infd[0] is copied to fd0[0] (JTVARS drive format table).
+     * CONFI.COM allows reassigning drive formats.
+     */
+    byte infd[17];          /* +0x2F: drive format table (16 drives + terminator)
+                             *   [0]  = 8: drive A — maxi floppy (8" DD, 1.2 MB)
+                             *   [1]  = 8: drive B — mini floppy (5.25" DD)
+                             *   [2]  = 32: drive C — hard disk (1 MB, floppy emu)
+                             *   [3-15] = 255: drives D-P — not present
+                             *   [16] = 255: terminator */
+
+    /*
+     * Hard disk partition configuration.
+     * Only relevant for systems with a WD1000 Winchester controller
+     * connected via the external HD board (CTC2 at ports 0x44-0x47).
+     */
+    byte ndtab;             /* +0x40: number of HD partitions
+                             *   2 (default) */
+    byte ndt1[3];           /* +0x41: HD partition descriptor
+                             *   {2, 0, 0} */
+
+    /*
+     * CTC2 — second CTC on external hard disk interface board.
+     *
+     * Not present on the RC702 motherboard; lives on the external HD
+     * controller board connected via the Z80 bus expansion connector.
+     * Systems without a hard disk have no CTC2; writes to ports 0x44-0x47
+     * are ignored (no hardware responds).
+     */
+    byte ctc2_mode4;        /* +0x44: CTC2 ch0 mode (WD1000 HD interrupt)
+                             *   0xD7 = counter mode, interrupt enabled */
+    byte ctc2_count4;       /* +0x45: CTC2 ch0 time constant
+                             *   0x01 = interrupt after every pulse */
+    byte ctc2_mode5;        /* +0x46: CTC2 ch1 reset
+                             *   0x03 = software reset (disables channel) */
+
+    byte ibootd;            /* +0x47: boot device
+                             *   0x00 = boot from floppy disk
+                             *   0x01 = boot from hard disk */
+} ConfiBlock;
+
+/* Default CONFI configuration — embedded const copy in bios.c.
+ * _cboot copies confi.bin from physical 0x080 to runtime 0xD500
+ * (CCP area, valid during init only — overwritten after boot). */
+#ifndef HOST_TEST
+#define CFG (*(volatile ConfiBlock *)CFG_ADDR)
+#else
+extern volatile ConfiBlock _confiblock;
+#define CFG _confiblock
+#endif
+
+/* Convenience aliases for frequently accessed CONFI fields */
+#define xyflg       CFG.xyflg
 
 #endif /* BIOS_H */

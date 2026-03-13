@@ -14,6 +14,20 @@ TYPE FILEX.PRN is dominated by CONOUT (character output) — the key metric.
 | 2026-03-12 | c-bios-6463B | 160,193,036 | 40.048s | 190,599,307 | 4252 |
 | 2026-03-12 | c-bios-6438B | 157,712,525 | 39.428s | 188,598,895 | 4180 |
 | 2026-03-12 | c-bios-6344B | 156,432,261 | 39.108s | 185,238,201 | 4122 |
+| 2026-03-13 | c-bios-5460B | 156,432,261 | 39.108s | 185,238,201 | 4130 |
+
+## Analysis (2026-03-13)
+
+### After boot sector restructure (c-bios-5460B)
+
+Restructured disk layout: moved _cboot into the 128-byte boot sector,
+restored CONFI block + Danish conversion tables to their original disk
+positions (offset 0x080-0x280), and split into two assembler sections
+(BOOT at ORG 0x0000, CODE at ORG 0xDA00).  _cboot now uses linker
+symbols to LDIR the CODE section from its physical disk position to
+runtime 0xDA00, then copies CONFI to 0xD500 and conversion tables to
+0xF680.  Eliminated 864 bytes of padding (6324→5460).  Performance
+unchanged — same runtime code, different disk layout only.
 
 ## Analysis (2026-03-12)
 
@@ -129,6 +143,35 @@ was concentrated in character output (CONOUT), not disk I/O.
 - **CONFI.COM** does not print menus on screen.  CONFI uses extended BIOS
   calls and direct screen/cursor manipulation — may be affected by deferred
   cursor update or other recent CONOUT changes.  Needs investigation.
+
+## CONOUT test program (conout_test.c) — IN PROGRESS
+
+22-test exerciser for all CONOUT control characters, escape sequences,
+BGSTAR modes, cursor wrapping, and screen operations.  Reads display
+memory (0xF800) directly to verify results.
+
+### Status (2026-03-13)
+
+- **21 of 22 tests pass**, T10 (erase to end of screen, 0x1F) fails.
+- T10 diagnostic: `A:x00y0B/RRR|` — cursor at (0,11) correct but rows
+  10-12 all show 'R' (0x52), meaning erase_to_eos did not clear them.
+- **Root cause identified**: `memset()` from z88dk stdlib uses sdcccall(0)
+  calling convention (all params on stack), but the BIOS is compiled with
+  sdcccall(1) (params in HL/DE/A registers).  This means memset reads
+  garbage from the stack instead of the register values.  `clear_screen()`
+  appeared to work by luck; `erase_to_eos()` fails because the garbage
+  params happen to point elsewhere.
+- **Fix written but not yet validated**: Custom `fill()` and `copy()`
+  functions using inline asm LDIR replace all memset/memcpy calls in
+  bios.c.  The fix compiles (6361 bytes) but T10 still fails — the fill
+  function may have a bug, or the CONOUT test's BDOS column tracking
+  interferes with cursor positioning for the erase_eos sequence.
+- **BDOS TAB interception**: BDOS function 2 intercepts 0x09 and expands
+  to spaces at 8-column tab stops.  T7 was rewritten to test BDOS
+  behavior (expect 'B' at col 8, not col 5).
+- **All test output uses BDOS function 2** (`con()`), no direct BIOS calls.
+- conout_test.c is checked in but changes to bios.c are reverted pending
+  further debugging of the fill/copy functions.
 
 ## Test infrastructure
 
