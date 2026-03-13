@@ -602,12 +602,10 @@ typedef struct {
 } ConfiBlock;
 
 /* Default CONFI configuration — embedded const copy in bios.c.
- * The original disk layout placed this at offset 0x080 (runtime 0xD500);
- * now that region is used for init code.  The long-term goal is to
- * restore the original disk layout for CONFI.COM compatibility. */
+ * _cboot copies confi.bin from physical 0x080 to runtime 0xD500
+ * (CCP area, valid during init only — overwritten after boot). */
 #ifndef HOST_TEST
-extern const ConfiBlock confi_defaults;
-#define CFG confi_defaults
+#define CFG (*(volatile ConfiBlock *)0xD500)
 #else
 extern volatile ConfiBlock _confiblock;
 #define CFG _confiblock

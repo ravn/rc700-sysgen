@@ -31,7 +31,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--std-sdcc99" \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
-         -pragma-define:CRT_ORG_CODE=0xD480 \
+         -pragma-define:CRT_ORG_CODE=0x0000 \
          -m --list -create-app
 
 # Disk image tools
@@ -71,8 +71,9 @@ bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
-	BINSIZE=$$((0x$$BSS_HEAD - 0xD480)); \
-	dd if=bios.rom of=bios.cim bs=1 count=$$BINSIZE 2>/dev/null
+	CODESIZE=$$((0x$$BSS_HEAD - 0xDA00)); \
+	cat bios_BOOT.bin > bios.cim; \
+	dd if=bios_CODE.bin bs=1 count=$$CODESIZE 2>/dev/null >> bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
 	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \
 		echo "ERROR: IX/IY-relative addressing found in compiled code!"; \
@@ -209,6 +210,6 @@ test:
 	@echo "Host tests not yet implemented"
 
 clean:
-	rm -f bios bios.rom bios.cim bios_code.bin bios_CODE.bin bios.map bios.lis
+	rm -f bios bios.rom bios.cim bios_code.bin bios_CODE.bin bios_BOOT.bin bios.map bios.lis
 	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis *.c.asm builddate.h
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd
