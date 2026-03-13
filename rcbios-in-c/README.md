@@ -55,19 +55,33 @@ naturally excluded — labels can't contain commas).  Created PEEPHOLE.md docume
 22 peephole rules.  Added `make asm-test` target for automated FILEX integration test.
 Size: 6439 → 6402 bytes (37 bytes saved from 6 fall-through + conditional inversions).
 
-2026-03-13:  Unified binary layout.  The entire bios.cim is now a single compiled
-binary starting at ORG 0xD480 — no more separate .bin files or Makefile assembly.
-Boot sector (128 bytes with boot pointer + " RC702" signature) and _cboot (34 bytes)
-are compiled directly into crt0.asm.  CONFI configuration block embedded as a const
-struct in bios.c (`confi_defaults`); the disk region 0x080–0x580 is now available
-for init-only code (1280 bytes).  Long-term goal: restore original CONFI disk layout
-for CONFI.COM compatibility.  Size: 6324 bytes (+70 from embedded CONFI data).
+2026-03-13:  Branch `experiment/c-stdlib-ivt` wrap-up.  The original goal (standard
+library C program) was not reached, but the branch delivered major architectural
+improvements:
 
-2026-03-12:  Binary layout restructuring.  Extracted boot entry and CONFI sectors
-from crt0.asm into standalone binary files (`boot_entry.bin`, `confi.bin`).
-Relocated `_cboot` to just before the JP table at 0xDA00, eliminating 734 bytes of
-wasted zero padding.  Documented the plan to move all remaining inline asm from
-bios.c to crt0.asm (`PURE_C_PLAN.md`).
+- **Boot sector simplification**: _cboot (cold boot relocator) moved into the
+  128-byte boot sector itself, where there is room.  Only the relocator remains
+  in assembly — everything else is C.
+- **IVT in C**: Interrupt vector table moved from assembly to a C function pointer
+  array, letting the linker resolve ISR addresses.
+- **Dual-section layout**: crt0.asm defines two sections (BOOT at 0x0000, BIOS at
+  BIOSAD) with CONFI block and Danish tables included as binary files.  The Makefile
+  concatenates the two sections into bios.cim.
+- **MSIZE-derived addresses**: All CP/M addresses (CCP, BDOS, BIOS) derived from
+  `MSIZE EQU 56`, matching the original BIOS.MAC pattern.  Changing MSIZE adjusts
+  the entire memory layout.
+- **Drive B support**: Full CFG.infd[] table copied at boot, enabling all configured
+  drives.
+- **MAME two-drive support**: rc702/rc702mini/rc703 drivers expose both fdc:0 and
+  fdc:1 with default drive types.  MFI images preserved between sessions for
+  writable persistent disks.
+- **Test infrastructure**: All Lua test scripts use os.exit() for clean MAME
+  termination.  Poll-based timeout exits within 1 second of test completion.
+- **Boot pointer investigation**: Documented the 0x47/0x48 boundary limit in
+  BOOT_POINTER_INVESTIGATION.md.
+
+Previous entries (2026-03-12/13): Unified binary layout, extracted boot entry and
+CONFI sectors into binary files, relocated _cboot, documented PURE_C_PLAN.md.
 
 2026-03-11:  Performance benchmarking infrastructure.  Added cycle-tracking test
 (`make cycle-test`, `make cycle-baseline`) that measures CPU cycles per command in the
@@ -80,21 +94,9 @@ cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
 
 ## Status
 
-**Phase 1l: Code generation optimization** — CP/M boots to A> on MAXI 8". All floppy BIOS features working.
-
-- Phase 1a (skeleton): correct binary layout, JP table at DA00, IVT at DB00
-- Phase 1b (CRT ISR): DMA refresh, RTC, timers. Keyboard 16-byte ring buffer
-- Phase 1d (CONOUT): full display driver with escape sequences
-- Phase 1e (floppy): blocking/deblocking, multi-density T0, DMA programming
-- Phase 1f (boot): cold boot, warm boot, signon message
-- Phase 1g (SIO): serial ring buffer, RTS flow control, READER/PUNCH/LIST
-- Phase 1h (BSS): separate code/data from uninitialized variables (BSS not on disk)
-- Phase 1i (extended): WFITR, READS, LINSEL, EXIT, CLOCK entries
-- Phase 1j (BGSTAR): foreground/background character bitmap (250 bytes at 0xF500)
-- Phase 1k (ISR refactor): inline naked helpers for ISR stack switch
-- Phase 1l (codegen): OTIR for SIO init, memcpy/memset for block ops, pointer→array,
-  direct shifts, compound assignments, function merging
-- Current size: 6324 bytes (fits maxi 9984, over mini 6144 by 180 bytes)
+**Feature-complete** — CP/M boots to A> on MAXI 8" with two floppy drives.
+All floppy BIOS features working.  Current size: 5473 bytes (fits maxi 9984
+with 4511 to spare; fits mini 6144 with 671 to spare).
 
 ### Missing features
 
@@ -182,11 +184,19 @@ make clean   # remove build artifacts
 
 ## Architecture
 
-- **crt0.asm**: Binary layout, JP table, IVT, CONFI config block
-- **bios.c**: All BIOS entry points, ISRs, and disk data tables in C
-- **bios.h**: Constants, memory layout, `WorkArea`/`JTVars`/`DPB`/`FSPA`/`FDF` structs, `byte`/`word` typedefs
+The design has a clean separation: crt0.asm handles the binary layout, boot
+relocation, and JP table; everything else is C.
+
+- **crt0.asm**: Two-section layout (BOOT at 0x0000, BIOS at BIOSAD).  Boot sector
+  with relocator (_cboot), JP table, JTVARS, section ordering.  All CP/M addresses
+  derived from `MSIZE EQU 56`.
+- **confi.bin** / **danish.bin**: CONFI config block (128 bytes) and Danish conversion
+  tables (384 bytes), included as BINARY directives at disk offset 0x080.
+- **bios.c**: All BIOS entry points, ISRs, IVT (C function pointer array), and disk
+  data tables
+- **bios.h**: Constants, memory layout (MSIZE-derived), `WorkArea`/`JTVars`/`DPB`/
+  `FSPA`/`FDF`/`ConfiBlock` structs, `byte`/`word` typedefs
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
-- **~~danish.bin~~**: Removed — conversion tables generated as identity at boot
 - **peephole.def**: SDCC peephole optimizer rules
 - **bgstar_test.asm**: BGSTAR foreground/background test (draw, insert/delete line, clear FG)
 - **mame_bgstar_test.lua**: Automated MAME test for bgstar_test.asm (verifies screen contents)
@@ -211,14 +221,16 @@ generates efficient direct-address code and saved 33 bytes vs individual `__at()
 
 ### z88dk notes
 
-- `org 0xD480` in crt0.asm sets the linker base address.  The compiled
-  binary starts at this address and includes everything: boot sector,
-  init code, JP table, C code, and const data.
-- `-pragma-define:CRT_ORG_CODE=0xD480` sets the binary output origin.
-- The Makefile trims BSS from the .rom output to produce `bios.cim`.
-  No separate files are prepended.  The ROM bootstrap loads Track 0
-  to 0x0000, reads the boot pointer (0x0080) from offset 0, and jumps
-  there.  `_cboot` LDIRs everything to 0xD480, then JPs to 0xDA00.
+- crt0.asm defines two sections: `BOOT` at `org 0x0000` (boot sector +
+  CONFI/danish data, 640 bytes) and `BIOS` at `org BIOSAD` (JP table +
+  C code).  The Makefile concatenates the two `.bin` outputs, trimming
+  BSS, to produce `bios.cim`.
+- `-pragma-define:CRT_ORG_CODE=0x0000` sets the binary output origin.
+- The ROM bootstrap loads Track 0 to 0x0000, reads the boot pointer
+  from offset 0, and jumps to `_cboot` in the boot sector.  `_cboot`
+  LDIRs the BIOS section from its physical location to runtime address
+  BIOSAD, copies CONFI/danish to their runtime locations, zeroes BSS,
+  then JPs to BIOSAD.
 
 ### ISR design
 
@@ -274,11 +286,12 @@ non-trivial, it must revert to `__naked` with `isr_enter`/`isr_exit`.
 ### Code/BSS separation
 
 The binary on disk contains only code and initialized data. Uninitialized variables
-(buffers, driver state) are in a BSS section at 0xEF00, not written to the floppy
-image. The cold boot code zeroes BSS using `__bss_compiler_head`/`__bss_compiler_size`
-linker symbols. Section ordering is declared explicitly in crt0.asm to ensure all
-code/data sections precede BSS. The `code_string` section (containing `memset`) must
-be declared before BSS to avoid linker placement errors.
+(buffers, driver state) are in BSS, placed by the linker after all code/data sections,
+not written to the floppy image. The cold boot code zeroes BSS using
+`__bss_compiler_head`/`__bss_compiler_size` linker symbols. Section ordering is
+declared explicitly in crt0.asm to ensure all code/data sections precede BSS.
+The `code_string` section (containing `memset`) must be declared before BSS to
+avoid linker placement errors.
 
 ### Disk data tables
 
