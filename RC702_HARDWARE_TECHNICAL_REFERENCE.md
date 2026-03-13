@@ -35,6 +35,7 @@ This document provides comprehensive technical information about the RC702 hardw
 
 ### Core Components
 
+- **Mainboard:** PCB527
 - **CPU:** Zilog Z80-A running at 4 MHz
 - **RAM:** 64KB (0x0000-0xFFFF in normal operation)
 - **ROM:** 2KB boot loader (ROA375) with software-controlled mapping
@@ -49,6 +50,32 @@ This document provides comprehensive technical information about the RC702 hardw
 5. **NEC uPD765** (or Intel 8272) - Floppy Disk Controller
 6. **Intel 8275** - Programmable CRT Controller
 7. **Western Digital WDC1002** - Winchester Disk Controller (optional)
+
+### Mainboard Connectors (PCB527)
+
+| Connector | Function | Notes |
+|-----------|----------|-------|
+| J1 | Serial port (SIO Channel A) | V.24/RS-232, terminal/modem |
+| J2 | Serial port (SIO Channel B) | V.24/RS-232, printer |
+| J3 | Parallel port | PIO-based |
+| J4 | Parallel port | PIO-based |
+| J9 | External hard disk | WDC1002 interface on external HD interface board |
+| J10 | Z80 bus expansion | Full Z80 bus; used for HD interface board (CTC2) |
+
+(J5-J8 designations: TBD — check technical manual for keyboard,
+floppy, power, display connectors.)
+
+### Mainboard Variants (MIC boards)
+
+| Board | Machine | RAM | PROM0 | PROM control |
+|-------|---------|-----|-------|-------------|
+| MIC702 | RC702 | 48KB | ROA375 | OUT (18H): disable both PROMs |
+| MIC703 | RC702 | 64KB | ROA375/ROB358 | OUT (19H): disable both PROMs |
+| MIC704 | RC702 | 64KB | ROB237 | OUT (18H): enable both PROMs |
+| MIC705 | RC703 | 64KB | ROB357 | OUT (1AH): flip-flop (disable PROM0, enable PROM1) |
+
+Note: MIC702 and MIC703 have incomplete address decoding — all four
+RAMEN ports (0x18-0x1B) behave identically.
 
 ### Configuration
 
