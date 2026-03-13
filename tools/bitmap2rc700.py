@@ -150,15 +150,39 @@ def image_to_mono(img, target_w, target_h, threshold=128, invert=False):
     return mono
 
 
-def convert_block_mode(mono):
-    """Convert 160x72 monochrome image to screen codes using 2x3 blocks.
+def pattern_to_charcode(pattern):
+    """Convert 6-bit block pattern to ROA327 character code.
 
-    Returns 24x80 array of screen codes.
+    The 8275 GPA0 field attribute selects ROA327 instead of ROA296.
+    ROA327 block patterns are at two ranges:
+      pattern 0-31  -> char code 0x20 + pattern  (ROA327 0x20-0x3F)
+      pattern 32-63 -> char code 0x60 + (pattern - 32)  (ROA327 0x60-0x7F)
+    """
+    if pattern < 32:
+        return 0x20 + pattern
+    else:
+        return 0x60 + (pattern - 32)
+
+
+def convert_block_mode(mono):
+    """Convert 160x72 monochrome image to screen buffer using 2x3 blocks.
+
+    Uses 8275 field attribute 0x84 (GPA0=1) to select ROA327 semigraphics ROM.
+    The field attribute takes one screen position (displayed as blank) at the
+    start of the first row; it persists for subsequent rows.
+
+    Returns 24x80 array of screen bytes (including field attribute codes).
+    All 64 block patterns (0-63) are supported.
     """
     screen = np.zeros((SCREEN_ROWS, SCREEN_COLS), dtype=np.uint8)
 
     for row in range(SCREEN_ROWS):
         for col in range(SCREEN_COLS):
+            # First position of first row: field attribute to enable GPA0
+            if row == 0 and col == 0:
+                screen[row, col] = 0x84  # field attr: GPA0=1
+                continue
+
             # Compute 6-bit pattern from 2x3 sub-block
             pattern = 0
             for sub_row in range(BLOCK_ROWS):
@@ -166,17 +190,11 @@ def convert_block_mode(mono):
                     px = col * BLOCK_COLS + sub_col
                     py = row * BLOCK_ROWS + sub_row
                     if py < mono.shape[0] and px < mono.shape[1]:
-                        if mono[py, px] == 0:  # black pixel = set
+                        if mono[py, px] == 0:  # dark pixel = set block
                             bit = sub_row * 2 + sub_col
                             pattern |= (1 << bit)
 
-            # Encode pattern to screen code
-            if pattern == 0:
-                screen[row, col] = 0x20  # space
-            elif pattern < 32:
-                screen[row, col] = 0xE0 + pattern
-            else:
-                screen[row, col] = 0x40 + pattern
+            screen[row, col] = pattern_to_charcode(pattern)
 
     return screen
 
@@ -226,27 +244,39 @@ def convert_full_mode(mono, charset):
     return screen
 
 
+def charcode_to_pattern(code, gpa0_active):
+    """Decode a screen byte to a 6-bit block pattern, or -1 if not a block.
+
+    When gpa0_active, character codes are looked up in ROA327:
+      0x20-0x3F -> pattern 0-31
+      0x60-0x7F -> pattern 32-63
+    """
+    if not gpa0_active:
+        return -1
+    if 0x20 <= code <= 0x3F:
+        return code - 0x20
+    elif 0x60 <= code <= 0x7F:
+        return code - 0x60 + 32
+    return -1
+
+
 def screen_to_text(screen):
     """Convert screen codes to a text preview."""
     lines = []
+    gpa0 = False  # track GPA0 state from field attributes
     for row in range(SCREEN_ROWS):
         line = ""
         for col in range(SCREEN_COLS):
             code = screen[row, col]
-            if 0x20 <= code <= 0x7E:
-                # Printable ASCII (approximately)
-                line += chr(code)
-            elif code == 0x20 or code == 0xE0:
-                line += " "
-            else:
-                # Use Unicode block elements for semigraphics preview
-                if code >= 0xE0:
-                    p = code - 0xE0
-                elif 0x40 <= code <= 0x7F:
-                    p = code - 0x40
-                else:
-                    line += "?"
-                    continue
+
+            # Check for field attribute codes (0x80-0xBF)
+            if 0x80 <= code <= 0xBF:
+                gpa0 = bool(code & 0x04)  # GPA0 is bit 2
+                line += " "  # field attr position is blank
+                continue
+
+            p = charcode_to_pattern(code, gpa0)
+            if p >= 0:
                 # Map 2x3 pattern to Unicode (approximate with 2x2 blocks)
                 tl = bool(p & 0x01)
                 tr = bool(p & 0x02)
@@ -254,21 +284,27 @@ def screen_to_text(screen):
                 mr = bool(p & 0x08)
                 bl = bool(p & 0x10)
                 br = bool(p & 0x20)
-                # Combine top+mid for upper, bot for lower
                 upper = (tl or ml)
                 upper_r = (tr or mr)
                 lower = bl
                 lower_r = br
-                # Use Unicode quadrant blocks
                 idx = (upper << 0) | (upper_r << 1) | (lower << 2) | (lower_r << 3)
                 quadrants = " ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█"
                 line += quadrants[idx]
+            elif 0x20 <= code <= 0x7E:
+                line += chr(code)
+            else:
+                line += "?"
         lines.append(line)
     return "\n".join(lines)
 
 
 def render_screen_to_image(screen, rom296, rom327, scale=2):
-    """Render screen codes to a PNG image using actual ROM glyphs."""
+    """Render screen codes to a PNG image using actual ROM glyphs.
+
+    Tracks 8275 field attribute GPA0 state to select between ROA296/ROA327.
+    Field attribute positions (0x80-0xBF) render as blank.
+    """
     img_w = SCREEN_COLS * CHAR_W * scale
     img_h = SCREEN_ROWS * CHAR_H * scale
     img = Image.new("RGB", (img_w, img_h), (0, 0, 0))
@@ -277,17 +313,23 @@ def render_screen_to_image(screen, rom296, rom327, scale=2):
     green = (0, 200, 0)  # RC702 green phosphor
     black = (0, 0, 0)
 
+    gpa0 = False  # track GPA0 state from field attributes
+
     for row in range(SCREEN_ROWS):
         for col in range(SCREEN_COLS):
             code = screen[row, col]
 
-            # Select ROM based on bit 7
-            if code >= 0x80:
+            # Check for field attribute codes (0x80-0xBF)
+            if 0x80 <= code <= 0xBF:
+                gpa0 = bool(code & 0x04)  # GPA0 is bit 2
+                continue  # field attr position is blank (black)
+
+            # Select ROM based on GPA0 state
+            if gpa0:
                 rom = rom327
-                rom_code = code - 0x80
             else:
                 rom = rom296
-                rom_code = code
+            rom_code = code & 0x7F
 
             # Get character bitmap
             offset = int(rom_code) * BYTES_PER_CHAR
@@ -558,6 +600,12 @@ def main():
                                  invert=args.invert)
             screen = convert_block_mode(mono)
             print(screen_to_text(screen))
+
+            # Save binary screen buffer
+            bin_path = os.path.join(test_dir, name.replace(".png", ".bin"))
+            with open(bin_path, "wb") as f:
+                for r in range(SCREEN_ROWS):
+                    f.write(bytes(screen[r]))
 
             # Also save PNG preview
             png_path = os.path.join(test_dir, name.replace(".png", "_rc702.png"))
