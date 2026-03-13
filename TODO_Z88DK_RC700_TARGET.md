@@ -72,6 +72,37 @@ void rc700_set_charmap(const uint8_t *outcon, const uint8_t *inconv);  /* 128 by
 void rc700_reset_charmap(void);  /* restore identity mapping */
 ```
 
+### 4. Semigraphics Mode (Crude Graphics Demo)
+
+The 8275 CRT with the RC702 character ROM supports semigraphics via
+character codes 192-255 (0xC0-0xFF).  The 7-bit char ROM folds these
+to 0x00-0x3F, which are mapped to 2x3 block graphic characters (like
+Teletext/Prestel).  Each character cell is divided into a 2-wide by
+3-tall grid of "pixels", giving an effective resolution of 160x72
+on the 80x24 screen.
+
+The BIOS BGSTAR (background/foreground star) mechanism tracks which
+screen positions are in "background mode" via a 250-byte bit table.
+ESC Ctrl-T enters background mode, ESC Ctrl-U returns to foreground.
+Characters written in background mode are OR'd into the semigraphic
+cells rather than replacing them.
+
+API sketch:
+```c
+void rc700_gfx_plot(uint8_t x, uint8_t y);    /* set pixel at 160x72 */
+void rc700_gfx_clear(uint8_t x, uint8_t y);   /* clear pixel */
+void rc700_gfx_cls(void);                      /* clear graphics screen */
+uint8_t rc700_gfx_get(uint8_t x, uint8_t y);  /* test pixel */
+```
+
+Implementation: map (x,y) to character cell (x/2, y/3), compute the
+bit within the 2x3 block (bit = (y%3)*2 + x%2), read current character
+from display memory at 0xF800, OR/AND the bit, write back.  The 6-bit
+block pattern maps directly to character codes 0xC0+pattern.
+
+A demo program could draw lines, boxes, or simple animations to
+showcase the semigraphics capability.
+
 ## Investigation
 
 - Locate the RC700 target files in z88dk source tree
