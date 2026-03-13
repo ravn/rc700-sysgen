@@ -59,7 +59,7 @@ This document provides comprehensive technical information about the RC702 hardw
 | J2 | Serial port (SIO Channel B) | V.24/RS-232, printer |
 | J3 | Parallel port | PIO-based |
 | J4 | Parallel port | PIO-based |
-| J9 | External hard disk | WDC1002 interface on external HD interface board |
+| J9 | External floppy | Connector for external floppy drive(s) |
 | J10 | Z80 bus expansion | Full Z80 bus; used for HD interface board (CTC2) |
 
 (J5-J8 designations: TBD — check technical manual for keyboard,
