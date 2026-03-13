@@ -678,10 +678,7 @@ void bios_hw_init(void)
         /* Initialize DPH entries for each drive */
         for (d = 0; d <= drno && d < 2; d++) {
             word *dph = &dpbase[d * 8];
-            dph[0] = 0;                        /* XLT */
-            dph[1] = 0;                        /* scratch */
-            dph[2] = 0;
-            dph[3] = 0;
+            memset(dph, 0, 8 * sizeof(word));       /* zero entire DPH */
             dph[4] = (word)dirbf;          /* DIRBF */
             dph[5] = (word)&dpb8;          /* DPB (initial) */
             dph[6] = d == 0 ? (word)chk0 : (word)chk1;
