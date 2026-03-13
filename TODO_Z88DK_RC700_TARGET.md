@@ -74,18 +74,39 @@ void rc700_reset_charmap(void);  /* restore identity mapping */
 
 ### 4. Semigraphics Mode (Crude Graphics Demo)
 
-The 8275 CRT with the RC702 character ROM supports semigraphics via
-character codes 192-255 (0xC0-0xFF).  The 7-bit char ROM folds these
-to 0x00-0x3F, which are mapped to 2x3 block graphic characters (like
-Teletext/Prestel).  Each character cell is divided into a 2-wide by
-3-tall grid of "pixels", giving an effective resolution of 160x72
-on the 80x24 screen.
+The RC702 uses two character ROMs: ROA296 (main chargen, position 81)
+and ROA327 (semigraphics, position 82).  Bit 7 of the screen code
+selects the ROM.  ROA327 contains 2x3 block graphics (Teletext-style)
+and line drawing characters.  See `ROA327_CHARACTER_ROM.md` for full
+analysis including bitmap dumps.
+
+Each character cell is divided into a 2-wide by 3-tall grid of
+"pixels", giving an effective resolution of 160x72 on the 80x24 screen.
+
+Block encoding (6-bit pattern, bit 0 = top-left, 8275 LSB-first scan):
+```
++----+----+
+| b0 | b1 |  top     bit = sub_row * 2 + sub_col
++----+----+
+| b2 | b3 |  mid     sub_col: 0=left, 1=right
++----+----+
+| b4 | b5 |  bot     sub_row: 0=top, 1=mid, 2=bot
++----+----+
+```
+
+Screen codes: pattern 0-31 → 0xE0+P, pattern 32-63 → 0x40+P.
+Or: `screen_code = (P < 32) ? (0xE0 + P) : (0x40 + P);`
 
 The BIOS BGSTAR (background/foreground star) mechanism tracks which
 screen positions are in "background mode" via a 250-byte bit table.
 ESC Ctrl-T enters background mode, ESC Ctrl-U returns to foreground.
 Characters written in background mode are OR'd into the semigraphic
 cells rather than replacing them.
+
+ROA327 also has 32 line drawing characters (corners, T-junctions,
+diagonals, arcs, curves, and symbols like diamond/heart/star) at
+ROM 0x00-0x1F.  Access mechanism for these needs investigation — they
+map to screen codes 0x80-0x9F which overlap with 8275 attribute codes.
 
 API sketch:
 ```c
@@ -96,9 +117,9 @@ uint8_t rc700_gfx_get(uint8_t x, uint8_t y);  /* test pixel */
 ```
 
 Implementation: map (x,y) to character cell (x/2, y/3), compute the
-bit within the 2x3 block (bit = (y%3)*2 + x%2), read current character
-from display memory at 0xF800, OR/AND the bit, write back.  The 6-bit
-block pattern maps directly to character codes 0xC0+pattern.
+bit within the 2x3 block (bit = sub_row*2 + sub_col), decode the
+current screen code to a 6-bit pattern, OR/AND the bit, encode back
+to screen code, write to display memory at 0xF800.
 
 A demo program could draw lines, boxes, or simple animations to
 showcase the semigraphics capability.
