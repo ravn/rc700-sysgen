@@ -10,6 +10,8 @@ Run CP/NET client on RC702 CP/M over SIO Channel A serial port,
 talking to a CP/NET server on macOS host. Channel A runs at 38400 baud 8-N-1
 (CTC divisor 1, x16 clock mode) — the fastest 8-bit clean setting.
 
+2026-03-13: CP/NET already working on original BIOS, now make it work on C-BIOS.
+
 ## Architecture
 
 ```
