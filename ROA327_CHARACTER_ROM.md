@@ -83,7 +83,8 @@ display memory at 0xF800:
 ### Step 1: Write a field attribute to enable GPA0
 
 Write byte `0x84` to the first screen position. This sets GPA0=1,
-selecting ROA327 for all subsequent characters. The attribute position
+selecting ROA327 for all subsequent characters until either the end of the screen
+or a new field attribute is encountered. The attribute position
 itself is displayed as blank.
 
 ```z80
@@ -336,12 +337,16 @@ The BIOS OUTCON/INCONV tables can remap these for international use.
 
 ### BGSTAR Background Mode
 
-The BIOS supports a "background mode" for semigraphics via ESC Ctrl-T
-(enter) and ESC Ctrl-U (exit). In background mode, characters are OR'd
-into existing semigraphic cells rather than replacing them. The BGSTAR
-mechanism tracks which screen positions are in background mode via a
-250-byte bit table. The BIOS handles the GPA0 field attribute insertion
-internally.
+The BIOS supports a "background mode" for characters,where a 250 byte bit map keeps track of which screen
+characters are in foreground and background respectively.
+
+20) Causes all subsequent characters to be marked as background characters.
+21) Causes all subsequent characters to be marked as foreground characters.
+22) Causes all characters marked as foreground characters to be
+deleted without affecting the background characters.
+
+
+Details in "B.2. Various Functions" of the CP/M for RC702 manual.
 
 ## COMAL-80 Access Convention
 
