@@ -60,9 +60,9 @@ This document provides comprehensive technical information about the RC702 hardw
 | J3 | Parallel port | PIO-based |
 | J4 | Parallel port | PIO-based |
 | J9 | External floppy | Connector for external floppy drive(s) |
-| J10 | Z80 bus expansion | Full Z80 bus; used for HD interface board (CTC2) |
+| J8 | Z80 bus expansion | Full Z80 bus; used for HD interface board (CTC2) |
 
-(J5-J8 designations: TBD — check technical manual for keyboard,
+(J5-J7, J10+ designations: TBD — check technical manual for keyboard,
 floppy, power, display connectors.)
 
 ### Mainboard Variants (MIC boards)
