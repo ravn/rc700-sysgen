@@ -183,6 +183,14 @@ This is a generic Intel 8275 capability, not RC702-specific.
   area accessible to DMA.  The RC702 DMA addresses 64KB of RAM
   directly.
 
+Note: warm boot (CCP reload) restores PAR4 and the full INIPARMS
+block from the disk copy, so any runtime 8275 reprogramming is
+automatically reset.  No explicit cleanup is needed — the library
+just needs to reinitialize its state on program start if a previous
+run may have been interrupted.  Similarly, the DMA base address for
+the screen buffer is reprogrammed by the BIOS during warm boot, so
+a redirected screen buffer reverts to 0xF800 automatically.
+
 API sketch:
 ```c
 void rc700_set_screen_base(uint16_t addr);     /* redirect CRT DMA to addr */
