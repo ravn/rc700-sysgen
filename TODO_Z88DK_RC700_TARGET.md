@@ -75,15 +75,23 @@ void rc700_reset_charmap(void);  /* restore identity mapping */
 ### 4. Semigraphics Mode (Crude Graphics Demo)
 
 The RC702 uses two character ROMs: ROA296 (main chargen, position 81)
-and ROA327 (semigraphics, position 82).  Bit 7 of the screen code
-selects the ROM.  ROA327 contains 2x3 block graphics (Teletext-style)
-and line drawing characters.  See `ROA327_CHARACTER_ROM.md` for full
-analysis including bitmap dumps.
+and ROA327 (semigraphics, position 82).  The 8275 CRT controller's
+**GPA0** output pin selects the ROM.  GPA0 is set via **field attribute
+codes** written to display memory.  See `ROA327_CHARACTER_ROM.md` for
+full details.
 
-Each character cell is divided into a 2-wide by 3-tall grid of
-"pixels", giving an effective resolution of 160x72 on the 80x24 screen.
+ROM selection:
+- Write field attribute `0x84` to display memory to set GPA0=1 (ROA327)
+- Write field attribute `0x80` to reset GPA0=0 (ROA296, normal text)
+- Field attributes persist across rows; one `0x84` at the start of the
+  screen enables ROA327 for all subsequent characters
+- Field attribute positions display as blank (one lost character position)
 
-Block encoding (6-bit pattern, bit 0 = top-left, 8275 LSB-first scan):
+ROA327 contains 2x3 block graphics (Teletext-style) and line drawing
+characters.  Each character cell is divided into a 2-wide by 3-tall
+grid of "pixels", giving an effective resolution of 160x72.
+
+Block encoding (6-bit pattern, bit 0 = top-left):
 ```
 +----+----+
 | b0 | b1 |  top     bit = sub_row * 2 + sub_col
@@ -94,19 +102,21 @@ Block encoding (6-bit pattern, bit 0 = top-left, 8275 LSB-first scan):
 +----+----+
 ```
 
-Screen codes: pattern 0-31 → 0xE0+P, pattern 32-63 → 0x40+P.
-Or: `screen_code = (P < 32) ? (0xE0 + P) : (0x40 + P);`
+Character codes (with GPA0=1):
+- pattern 0-31 → char code `0x20 + P` (ROA327 0x20-0x3F)
+- pattern 32-63 → char code `0x60 + (P - 32)` (ROA327 0x60-0x7F)
+- line drawing → char codes `0x00-0x1F` (ROA327 0x00-0x1F)
 
 The BIOS BGSTAR (background/foreground star) mechanism tracks which
 screen positions are in "background mode" via a 250-byte bit table.
 ESC Ctrl-T enters background mode, ESC Ctrl-U returns to foreground.
 Characters written in background mode are OR'd into the semigraphic
-cells rather than replacing them.
+cells rather than replacing them.  The BIOS handles the GPA0 field
+attribute insertion internally.
 
 ROA327 also has 32 line drawing characters (corners, T-junctions,
 diagonals, arcs, curves, and symbols like diamond/heart/star) at
-ROM 0x00-0x1F.  Access mechanism for these needs investigation — they
-map to screen codes 0x80-0x9F which overlap with 8275 attribute codes.
+char codes 0x00-0x1F (with GPA0=1).
 
 API sketch:
 ```c
@@ -116,10 +126,11 @@ void rc700_gfx_cls(void);                      /* clear graphics screen */
 uint8_t rc700_gfx_get(uint8_t x, uint8_t y);  /* test pixel */
 ```
 
-Implementation: map (x,y) to character cell (x/2, y/3), compute the
-bit within the 2x3 block (bit = sub_row*2 + sub_col), decode the
-current screen code to a 6-bit pattern, OR/AND the bit, encode back
-to screen code, write to display memory at 0xF800.
+Implementation: ensure GPA0=1 (field attr 0x84 at screen start), then
+map (x,y) to character cell (x/2, y/3), compute the bit within the
+2x3 block (bit = sub_row*2 + sub_col), decode the current character
+code to a 6-bit pattern, OR/AND the bit, encode back to character
+code, write to display memory at 0xF800.
 
 A demo program could draw lines, boxes, or simple animations to
 showcase the semigraphics capability.
