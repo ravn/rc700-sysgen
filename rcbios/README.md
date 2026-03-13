@@ -13,6 +13,7 @@ conditional assembly.  REL30 contains initial work on serial port and keyboard
 buffering, but I then decided to convert the original BIOS to C instead.
 
 2026-03-12: C bios is now 12% faster than original assembly bios for CONOUT.
+2026-03-13: All code moved to C, just the cboot loader left in assembly.
 
 ## Source Disk Images
 
