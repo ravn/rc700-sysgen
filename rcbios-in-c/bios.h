@@ -80,11 +80,23 @@ extern volatile ConvTables _convtables;
 #define IVT_ADDR    0xF600      /* interrupt vector table (page-aligned) */
 #define ISTACK_ADDR 0xF600      /* interrupt stack top (grows down from IVT) */
 
-/* CP/M addresses */
-#define CCP_BASE    0xC400      /* CCP load address (56K) */
-#define BDOS_BASE   0xCC06      /* BDOS entry */
-#define BIOS_BASE   0xDA00      /* BIOS jump table */
-#define BUFF        0x0080      /* default DMA buffer */
+/* CP/M memory layout — derived from MSIZE, same as BIOS.MAC.
+ * MSIZE = available memory excluding BIOS (in KB).
+ * BIAS  = offset from 20K base CP/M to actual addresses.
+ * CPMB  = CCP base.  BDOS = CPMB + 0x806.  BIOS = CPMB + CPML.
+ * CPML  = 0x1600 = length of CCP + BDOS. */
+#define MSIZE       56
+#define STR_(x) #x
+#define STR(x)  STR_(x)
+#define MSIZE_STR STR(MSIZE)
+#define BIAS        ((MSIZE - 20) * 1024)
+#define CPMB        (0x3400 + BIAS)         /* CCP base */
+#define CPML        0x1600                  /* CCP + BDOS length */
+#define CCP_BASE    CPMB
+#define BDOS_BASE   (CPMB + 0x806)          /* BDOS entry */
+#define BIOS_BASE   (CPMB + CPML)           /* BIOS jump table */
+#define BUFF        0x0080                  /* default DMA buffer */
+#define CFG_ADDR    (CPMB + 0x1100)         /* CONFI block temp address (CCP area) */
 #ifdef HOST_TEST
 /* Stubs for fixed-address CP/M zero-page variables */
 static volatile byte wboot_jp, iobyte, cdisk, bdos_jp;
@@ -97,7 +109,7 @@ static volatile byte __at(0x0004) cdisk;
 static volatile byte __at(0x0005) bdos_jp;    /* JP opcode */
 static volatile word __at(0x0006) bdos_vec;   /* JP BDOS address */
 #endif
-#define NSECTS      44          /* CCP+BDOS length in 128-byte sectors (0x1600/128) */
+#define NSECTS      (CPML / 128)    /* CCP+BDOS length in 128-byte sectors */
 
 /* I/O port numbers (for reference; actual I/O via hal.h __sfr) */
 #define PORT_PIO_A_DATA 0x10
@@ -605,7 +617,7 @@ typedef struct {
  * _cboot copies confi.bin from physical 0x080 to runtime 0xD500
  * (CCP area, valid during init only — overwritten after boot). */
 #ifndef HOST_TEST
-#define CFG (*(volatile ConfiBlock *)0xD500)
+#define CFG (*(volatile ConfiBlock *)CFG_ADDR)
 #else
 extern volatile ConfiBlock _confiblock;
 #define CFG _confiblock

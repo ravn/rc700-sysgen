@@ -150,6 +150,6 @@ emu.register_frame_done(function()
         f:close()
         print("Screen dumps saved to /tmp/conout_screens.txt (" .. #screens .. " stages)")
         done = true
-        manager.machine:exit()
+        os.exit(0)
     end
 end)

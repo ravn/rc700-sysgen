@@ -12,6 +12,7 @@ bios.def
 *.c.lis
 zcc_opt.def
 builddate.h
+builddate.inc
 
 # Test disk images
 /tmp/

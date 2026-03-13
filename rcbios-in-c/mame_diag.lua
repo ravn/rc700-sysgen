@@ -133,7 +133,7 @@ emu.register_frame_done(function()
             dump_full(f, space, "INIT FAILURE")
             f:close()
             done = true
-            manager.machine:exit()
+            os.exit(0)
         end
         return
     end
@@ -151,7 +151,7 @@ emu.register_frame_done(function()
         dump_full(f, space, "sp_sav INVALID")
         f:close()
         done = true
-        manager.machine:exit()
+        os.exit(0)
         return
     end
 
@@ -165,7 +165,7 @@ emu.register_frame_done(function()
         dump_full(f, space, "OUTCON CORRUPTION")
         f:close()
         done = true
-        manager.machine:exit()
+        os.exit(0)
         return
     end
 
@@ -189,6 +189,6 @@ emu.register_frame_done(function()
         dump_full(f, space, "TIMEOUT")
         f:close()
         done = true
-        manager.machine:exit()
+        os.exit(0)
     end
 end)

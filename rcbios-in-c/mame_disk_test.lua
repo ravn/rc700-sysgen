@@ -46,7 +46,7 @@ emu.register_frame_done(function()
             end
             f:close()
             done = true
-            manager.machine:exit()
+            os.exit(0)
         end
     end
 end)

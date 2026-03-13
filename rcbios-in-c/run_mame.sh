@@ -58,6 +58,7 @@ if $ORIGINAL; then
     echo "=== Original BIOS mode (no build/patch) ==="
     # Always re-create MFI from pristine source image
     cp "$SRC_IMG" "$WORK.imd"
+    rm -f "$WORK.mfi"
     "$FLOPTOOL" flopconvert auto mfi "$WORK.imd" "$WORK.mfi" >/dev/null 2>&1
     rm -f "$WORK.imd"
     echo "Created unpatched MFI: $WORK.mfi"
@@ -76,6 +77,7 @@ else
             rm -f /tmp/_inject_"$f"
         done
     fi
+    rm -f "$WORK.mfi"
     "$FLOPTOOL" flopconvert auto mfi "$WORK.imd" "$WORK.mfi" >/dev/null 2>&1
     rm -f "$WORK.imd"
     echo "Patched MFI: $WORK.mfi"
@@ -204,7 +206,7 @@ emu.register_frame_done(function()
         if at_prompt(space) then
             state = "send"
             cmd_idx = 0
-        elseif frame > 50 * 60 then
+        elseif frame > 50 * 10 then
             screens[#screens + 1] = "=== TIMEOUT waiting for boot ===\n" .. screen_text(space)
             done = true
         end
@@ -218,7 +220,7 @@ emu.register_frame_done(function()
             for _, s in ipairs(screens) do f:write(s .. "\n\n") end
             f:close()
             print("All screens dumped to /tmp/bios_c_autotest.txt")
-            done = true; manager.machine:exit()
+            done = true; os.exit(0)
             return
         end
         key_queue = commands[cmd_idx][2]
@@ -255,11 +257,31 @@ emu.register_frame_done(function()
         local f = io.open("/tmp/bios_c_autotest.txt", "w")
         for _, s in ipairs(screens) do f:write(s .. "\n\n") end
         f:close()
-        done = true; manager.machine:exit()
+        done = true; os.exit(1)
     end
 end)
 LUA
 fi
+
+# run_mame_with_timeout TIMEOUT_SECS -- run MAME as background process, kill if it exceeds timeout
+run_mame_with_timeout() {
+    local timeout=$1
+    "$MAME_BIN" "${ARGS[@]}" &
+    local mame_pid=$!
+    # Timer: poll every second instead of blocking sleep, so we exit promptly
+    # when MAME terminates on its own (e.g. Lua os.exit()).
+    ( i=0; while [ $i -lt "$timeout" ]; do
+        sleep 1
+        kill -0 "$mame_pid" 2>/dev/null || exit 0
+        i=$((i + 1))
+      done
+      kill -9 "$mame_pid" 2>/dev/null && echo "MAME killed (SIGKILL) after ${timeout}s timeout" >&2
+    ) &
+    local timer_pid=$!
+    wait "$mame_pid" 2>/dev/null || true
+    kill "$timer_pid" 2>/dev/null; wait "$timer_pid" 2>/dev/null || true
+    return 0
+}
 
 echo "=== Launching MAME ($SYS) ==="
 if $GDBSTUB; then
@@ -292,7 +314,8 @@ elif $PROFILE; then
         exit 1
     fi
 elif $CYCLETEST; then
-    "$MAME_BIN" "${ARGS[@]}"
+    rm -f /tmp/bios_cycle_autotest.txt /tmp/bios_cycle_results.txt
+    run_mame_with_timeout 600
     echo ""
     echo "=== Cycle Test Results ==="
     cat /tmp/bios_cycle_results.txt
@@ -359,7 +382,8 @@ HEADER
         exit 1
     fi
 elif $AUTOTEST; then
-    "$MAME_BIN" "${ARGS[@]}"
+    rm -f /tmp/bios_c_autotest.txt
+    run_mame_with_timeout 600
     echo ""
     echo "=== Screen captures ==="
     cat /tmp/bios_c_autotest.txt

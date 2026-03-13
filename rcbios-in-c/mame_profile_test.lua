@@ -85,7 +85,7 @@ emu.register_frame_done(function()
             cmd_idx = 0
         elseif frame > 50 * 120 then
             screens[#screens + 1] = "=== TIMEOUT waiting for boot ===\n" .. screen_text()
-            done = true; manager.machine:exit()
+            done = true; os.exit(0)
         end
 
     elseif state == "post" then
@@ -102,7 +102,7 @@ emu.register_frame_done(function()
                 f:write(string.format("type_time: %.6f\n", dt))
             end
             f:close()
-            done = true; manager.machine:exit()
+            done = true; os.exit(0)
             return
         end
         local entry = commands[cmd_idx]
@@ -142,6 +142,6 @@ emu.register_frame_done(function()
     if frame > 50 * 600 then
         stop_trace()
         screens[#screens + 1] = "=== TIMEOUT ==="
-        done = true; manager.machine:exit()
+        done = true; os.exit(0)
     end
 end)

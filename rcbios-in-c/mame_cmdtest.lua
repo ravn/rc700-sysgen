@@ -73,7 +73,7 @@ emu.register_frame_done(function()
             f:write("ERROR: OUTCON never initialized\n")
             f:close()
             done = true
-            manager.machine:exit()
+            os.exit(0)
         end
         return
     end
@@ -90,7 +90,7 @@ emu.register_frame_done(function()
             dump_screen(f, space)
             f:close()
             done = true
-            manager.machine:exit()
+            os.exit(0)
         end
         return
     end
@@ -161,5 +161,5 @@ emu.register_frame_done(function()
         space:read_u8(0xF749), space:read_u8(0xF752)))
     f:close()
     done = true
-    manager.machine:exit()
+    os.exit(0)
 end)

@@ -46,6 +46,7 @@ FLOPTOOL = $(MAME)/floptool
 # Disk images for testing
 IMG_MINI = $(HOME)/Downloads/CPM_med_COMAL80.imd
 IMG_MAXI = $(HOME)/Downloads/SW1711-I8.imd
+IMG_DATA = $(HOME)/Downloads/PolyPascal_3.10.imd
 
 # Size limits (bytes)
 MINI_LIMIT = 6144
@@ -64,9 +65,14 @@ builddate.h: FORCE
 	@cmp -s $@.tmp $@ 2>/dev/null || mv $@.tmp $@
 	@rm -f $@.tmp
 
+builddate.inc: FORCE
+	@echo '    defm " C-BIOS '$$(date +%Y-%m-%d\ %H:%M)' /Thorbjoern Ravn Andersen"' > $@.tmp
+	@cmp -s $@.tmp $@ 2>/dev/null || mv $@.tmp $@
+	@rm -f $@.tmp
+
 FORCE:
 
-bios: crt0.asm bios.c hal.h bios.h builddate.h peephole.def
+bios: crt0.asm bios.c hal.h bios.h builddate.h builddate.inc peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
@@ -120,24 +126,48 @@ size: bios
 	fi
 
 # MAME boot test (mini)
-# IMD is read-only in MAME; convert to MFI (writable) for testing.
+# MFI is preserved between sessions (user data persists).  Use FORCE=1 to recreate.
 mame-mini: bios
-	cp $(IMG_MINI) /tmp/bios_c_mini.imd
-	$(PATCH) /tmp/bios_c_mini.imd bios.cim
-	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_mini.imd /tmp/bios_c_mini.mfi >/dev/null 2>&1
-	rm -f /tmp/bios_c_mini.imd
+	@if [ "$(FORCE)" = "1" ] || [ ! -f /tmp/bios_c_mini.mfi ]; then \
+		cp $(IMG_MINI) /tmp/bios_c_mini.imd; \
+		$(PATCH) /tmp/bios_c_mini.imd bios.cim; \
+		rm -f /tmp/bios_c_mini.mfi; \
+		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_mini.imd /tmp/bios_c_mini.mfi >/dev/null 2>&1; \
+		rm -f /tmp/bios_c_mini.imd; \
+		echo "Created fresh MFI: /tmp/bios_c_mini.mfi"; \
+	else \
+		echo "Reusing existing MFI: /tmp/bios_c_mini.mfi (use FORCE=1 to recreate)"; \
+	fi
 	$(MAME_BIN) rc702mini -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_mini.mfi \
 		-skip_gameinfo -window -resolution 1100x720
 
 # MAME boot test (maxi)
+# MFI is preserved between sessions.  Use FORCE=1 to recreate.
+# B drive: data disk (preserved between sessions, created once from source image).
 mame-maxi: bios
-	cp $(IMG_MAXI) /tmp/bios_c_maxi.imd
-	$(PATCH) /tmp/bios_c_maxi.imd bios.cim
-	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_maxi.imd /tmp/bios_c_maxi.mfi >/dev/null 2>&1
-	rm -f /tmp/bios_c_maxi.imd
+	@if [ "$(FORCE)" = "1" ] || [ ! -f /tmp/bios_c_maxi.mfi ]; then \
+		cp $(IMG_MAXI) /tmp/bios_c_maxi.imd; \
+		$(PATCH) /tmp/bios_c_maxi.imd bios.cim; \
+		rm -f /tmp/bios_c_maxi.mfi; \
+		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_maxi.imd /tmp/bios_c_maxi.mfi >/dev/null 2>&1; \
+		rm -f /tmp/bios_c_maxi.imd; \
+		echo "Created fresh A: drive MFI: /tmp/bios_c_maxi.mfi"; \
+	else \
+		echo "Reusing existing A: drive MFI (use FORCE=1 to recreate)"; \
+	fi
+	@if [ ! -f /tmp/bios_c_data.mfi ]; then \
+		cp $(IMG_DATA) /tmp/bios_c_data.imd; \
+		rm -f /tmp/bios_c_data.mfi; \
+		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_data.imd /tmp/bios_c_data.mfi >/dev/null 2>&1; \
+		rm -f /tmp/bios_c_data.imd; \
+		echo "Created B: data disk: /tmp/bios_c_data.mfi"; \
+	else \
+		echo "Reusing existing B: data disk"; \
+	fi
 	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_maxi.mfi \
+		-flop2 /tmp/bios_c_data.mfi \
 		-skip_gameinfo -window -resolution 1100x720
 
 # Automated MAME disk test (maxi, with Lua script)
@@ -171,6 +201,7 @@ bgstar-test: bios bgstar_test.asm mame_bgstar_test.lua
 	cp $(IMG_MAXI) /tmp/bios_c_bgtest.imd
 	$(PATCH) /tmp/bios_c_bgtest.imd bios.cim
 	$(CPMCP) -f rc702-8dd /tmp/bios_c_bgtest.imd zout/bgstar_test.cim 0:BGTEST.COM
+	rm -f /tmp/bios_c_bgtest.mfi
 	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_bgtest.imd /tmp/bios_c_bgtest.mfi >/dev/null 2>&1
 	rm -f /tmp/bios_c_bgtest.imd
 	$(eval KBBUF_ADDR := $(shell grep '_kbbuf ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
@@ -211,5 +242,5 @@ test:
 
 clean:
 	rm -f bios bios.rom bios.cim bios_code.bin bios_BIOS.bin bios_BOOT.bin bios.map bios.lis
-	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis *.c.asm builddate.h
+	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis *.c.asm builddate.h builddate.inc
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd

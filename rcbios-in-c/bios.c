@@ -663,9 +663,9 @@ void bios_hw_init(void)
     {
         byte d;
 
-        /* Copy initial drive format from config block */
-        fd0[0] = CFG.infd[0];      /* drive A format */
-        fd0[1] = 0xFF;             /* end of drive table */
+        /* Copy drive format table from config block */
+        for (d = 0; d < 16; d++)
+            fd0[d] = CFG.infd[d];
 
         /* Count configured drives from fd0 table */
         drno = 0;
@@ -737,7 +737,7 @@ void bios_boot_c(void)
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
-           "RC700 56k CP/M 2.2 C-bios " BUILDDATE "\r\n");
+           "RC700 " MSIZE_STR "k CP/M 2.2 C-bios " BUILDDATE "\r\n");
 
     cdisk = 0;
     hstact = 0;

@@ -97,7 +97,7 @@ local function save_and_exit()
     for i = 1, #log do f:write(log[i] .. "\n") end
     f:close()
     done = true
-    manager.machine:exit()
+    os.exit(0)
 end
 
 emu.register_frame_done(function()

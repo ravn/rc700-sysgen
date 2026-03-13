@@ -21,12 +21,24 @@
     EXTERN __BOOT_tail, __BIOS_head
     EXTERN __bss_compiler_head, __bss_compiler_size
 
+; CP/M memory layout — derived from MSIZE, same as BIOS.MAC.
+MSIZE   EQU 56                      ; available memory excl. BIOS (KB)
+BIAS    EQU (MSIZE - 20) * 1024
+CPMB    EQU 0x3400 + BIAS           ; CCP base
+CPML    EQU 0x1600                  ; CCP + BDOS length
+BIOSAD  EQU CPMB + CPML             ; BIOS base (= 0xDA00 for 56K)
+
 ; ====================================================================
 ; BOOT section (physical address 0x0000)
 ;
 ; First sector of Track 0.  The ROM reads the first word as the boot
 ; pointer (physical address to jump to after loading Track 0 to 0x0000).
 ; The " RC702" signature at offset 8 identifies the disk as a system disk.
+;
+; NOTE: The original CP/M boot sector had a simple jump instruction here, but
+; we have moved the relocating boot code (_cboot) here as there was room, and
+; it keeps logic simpler which the sdcc linker likes.
+;
 ; _cboot follows the signature, fitting within the 128-byte boot sector.
 ; Assembled at 0x0000 — the address where it actually executes.
 ; ====================================================================
@@ -39,25 +51,27 @@
     defs 6                  ; +0x02: reserved (zeros)
     defm " RC702"           ; +0x08: system signature (6 bytes)
 
-    defm " -- C-BIOS -- "
+    INCLUDE "builddate.inc"
 
-_cboot:                     ; +0x1C: cold boot init code
+_cboot:                     ; cold boot init code
     di
 
     ; Relocate BIOS section from physical to runtime address.
     ; On disk: BOOT (config data) then BIOS (JP table + C code).
     ; The ROM loaded Track 0 to 0x0000, so BIOS sits at physical
     ; address __BOOT_tail.  Copy it to __BIOS_head (0xDA00).
+
     ld hl, __BOOT_tail              ; physical source
     ld de, __BIOS_head              ; runtime destination (0xDA00)
     ld bc, __bss_compiler_head - __BIOS_head  ; code + rodata + data size
     ldir
 
     ; Copy CONFI block and conversion tables from disk to runtime addresses.
-    ; confi.bin (128 bytes) at physical 0x080 → 0xD500 (init-only, CCP area)
+    ; confi.bin (128 bytes) at physical 0x080 → CPMB+0x1100 (init-only, CCP area)
     ; danish.bin (384 bytes) at physical 0x100 → 0xF680 (ConvTables)
+
     ld hl, 0x0080               ; physical source (confi.bin in BOOT)
-    ld de, 0xD500               ; CONFI runtime address (CCP area, init-only)
+    ld de, CPMB + 0x1100        ; CONFI runtime address (CCP area, init-only)
     ld bc, 128                  ; CONFI block size
     ldir
     ; HL now at 0x0100, copy danish.bin to ConvTables
@@ -79,9 +93,9 @@ _cboot:                     ; +0x1C: cold boot init code
     call _bios_hw_init
 
     ; Jump to BIOS cold boot entry (relocated JP table)
-    jp 0xDA00
+    jp BIOSAD
 
-    defs 128 - ASMPC        ; pad to end of boot sector (128 bytes)
+    defs 128 - ASMPC        ; pad to end of boot sector (128 bytes total)
 
 ; ====================================================================
 ; CONFI config block + conversion tables (offset 0x080-0x280)
@@ -94,7 +108,12 @@ _cboot:                     ; +0x1C: cold boot init code
     BINARY "danish.bin"         ; 384 bytes at offset 0x100
 
 ; ====================================================================
-; BIOS section (runtime address 0xDA00)
+; BIOS section — derived from MSIZE, same as BIOS.MAC.
+;
+; MSIZE  = available memory excluding BIOS (KB)
+; BIAS   = (MSIZE - 20) * 1024
+; CPMB   = 0x3400 + BIAS        (CCP base)
+; BIOS   = CPMB + 0x1600        (CCP + BDOS length)
 ;
 ; JP table and all resident BIOS code.  Assembled at runtime address.
 ; On disk, follows immediately after BOOT section (no padding gap).
@@ -102,7 +121,7 @@ _cboot:                     ; +0x1C: cold boot init code
 
     SECTION BIOS
 
-    org 0xDA00		; 56 Kb BIOS entry point.
+    org BIOSAD
 
 ; ====================================================================
 ; BIOS jump table (runtime 0xDA00)
