@@ -169,15 +169,23 @@ match/unmatch toggling).
 
 ### What Needs to Happen
 
-1. **Real hardware testing**: Verify ST1_ND behavior on a physical
-   uPD765A or 8272A during Read Track with known sector layouts.
+1. **Real hardware testing on RC702**: When access to a working RC702 is
+   available, run a test program that issues Read Track and captures the
+   full 7-byte result phase (ST0, ST1, ST2, C, H, R, N).  Test with:
+   - A standard formatted disk (sequential sector IDs)
+   - A disk with interleaved sectors (physical order != logical order)
+   - Record ST1 value after each Read Track, noting whether ND is set
+     and under which conditions
+   - Compare with MAME emulation output for the same disk image
 2. **Better fix**: Instead of removing the comparison entirely, consider:
    - Only set ND if the starting sector (first sector after index hole)
      cannot be found (matches the p.17 definition).
    - Or: set ND but never clear it during Read Track (cracyc's suggestion).
    - Or: compare C/H but not R (galibert's point).
-3. **Concise PR**: Write a short, human-authored PR with the datasheet
-   page references and the specific real-hardware evidence.
+3. **New PR**: Write a short, human-authored PR with:
+   - Datasheet page references (p.13 command description, p.17 ST1 bits)
+   - Real-hardware ST1 captures showing actual ND behavior
+   - Minimal code change with clear rationale
 
 ### Lessons Learned
 
