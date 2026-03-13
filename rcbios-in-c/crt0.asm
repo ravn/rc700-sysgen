@@ -7,18 +7,18 @@
 ;
 ; Two sections:
 ;   BOOT at org 0x0000 — boot sector + config data, physical addresses.
-;   CODE at org 0xDA00 — JP table + resident code, runtime addresses.
+;   BIOS at org 0xDA00 — JP table + resident code, runtime addresses.
 ;
 ; The ROM loads Track 0 to address 0x0000, reads the boot pointer from
-; offset 0, and jumps there.  _cboot LDIRs the CODE section from its
-; physical location (__BOOT_tail) to its runtime address (__CODE_head),
+; offset 0, and jumps there.  _cboot LDIRs the BIOS section from its
+; physical location (__BOOT_tail) to its runtime address (__BIOS_head),
 ; then JPs to 0xDA00.
 ;
-; The Makefile concatenates bios_BOOT.bin and bios_CODE.bin (trimmed
+; The Makefile concatenates bios_BOOT.bin and bios_BIOS.bin (trimmed
 ; to exclude BSS) to produce bios.cim.
 
     EXTERN _bios_hw_init
-    EXTERN __BOOT_tail, __CODE_head
+    EXTERN __BOOT_tail, __BIOS_head
     EXTERN __bss_compiler_head, __bss_compiler_size
 
 ; ====================================================================
@@ -44,13 +44,13 @@
 _cboot:                     ; +0x1C: cold boot init code
     di
 
-    ; Relocate CODE section from physical to runtime address.
-    ; On disk: BOOT (config data) then CODE (JP table + C code).
-    ; The ROM loaded Track 0 to 0x0000, so CODE sits at physical
-    ; address __BOOT_tail.  Copy it to __CODE_head (0xDA00).
+    ; Relocate BIOS section from physical to runtime address.
+    ; On disk: BOOT (config data) then BIOS (JP table + C code).
+    ; The ROM loaded Track 0 to 0x0000, so BIOS sits at physical
+    ; address __BOOT_tail.  Copy it to __BIOS_head (0xDA00).
     ld hl, __BOOT_tail              ; physical source
-    ld de, __CODE_head              ; runtime destination (0xDA00)
-    ld bc, __bss_compiler_head - __CODE_head  ; code + rodata + data size
+    ld de, __BIOS_head              ; runtime destination (0xDA00)
+    ld bc, __bss_compiler_head - __BIOS_head  ; code + rodata + data size
     ldir
 
     ; Copy CONFI block and conversion tables from disk to runtime addresses.
@@ -94,13 +94,13 @@ _cboot:                     ; +0x1C: cold boot init code
     BINARY "danish.bin"         ; 384 bytes at offset 0x100
 
 ; ====================================================================
-; CODE section (runtime address 0xDA00)
+; BIOS section (runtime address 0xDA00)
 ;
 ; JP table and all resident BIOS code.  Assembled at runtime address.
 ; On disk, follows immediately after BOOT section (no padding gap).
 ; ====================================================================
 
-    SECTION CODE
+    SECTION BIOS
 
     org 0xDA00		; 56 Kb BIOS entry point.
 

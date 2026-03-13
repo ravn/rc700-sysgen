@@ -4,7 +4,8 @@ bios.rom
 bios.cim
 bios.map
 bios.lis
-bios_CODE.bin
+bios_BIOS.bin
+bios_BOOT.bin
 *.o
 *.sym
 bios.def
