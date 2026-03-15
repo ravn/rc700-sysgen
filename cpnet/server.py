@@ -18,11 +18,14 @@ Protocol: DRI binary serial framing
 
 import argparse
 import os
+import select
 import socket
 import struct
 import sys
+import termios
 import threading
 import time
+import tty
 
 # CP/NET BDOS function codes
 FUNC_RESET_DISK = 13
@@ -58,6 +61,9 @@ FUNC_NETWORK_LOGIN = 64
 FUNC_NETWORK_LOGOFF = 65
 FUNC_NETWORK_STATUS = 70
 FUNC_GET_SERVER_CFG = 71
+FUNC_CONSOLE_INPUT = 3
+FUNC_CONSOLE_OUTPUT = 4
+FUNC_CONSOLE_STATUS = 11
 FUNC_NETWORK_INIT = 0xFF
 FUNC_NETWORK_DOWN = 0xFE
 
@@ -329,7 +335,8 @@ class CPNetServer:
     """CP/NET server handling BDOS function requests."""
 
     def __init__(self, conn, drive_dirs, server_node=0, client_node=1,
-                 error_file=None, printer_file=None):
+                 error_file=None, printer_file=None, console_mode=False,
+                 console_out=None):
         self.conn = conn
         self.drive_dirs = drive_dirs  # {drive_index: host_path}
         self.server_node = server_node
@@ -339,6 +346,8 @@ class CPNetServer:
         self.search_state = None
         self.error_file = error_file      # path to write unhandled-call errors
         self.printer_file = printer_file  # path to collect LST: output
+        self.console_mode = console_mode  # raw terminal for remote console
+        self.console_out = console_out    # file object for console output
 
     def run(self):
         """Main server loop."""
@@ -371,8 +380,12 @@ class CPNetServer:
             print(f"Client {sid} shutdown")
             return
 
-        print(f"BDOS F{fnc}: DID={did:02X} SID={sid:02X} "
-              f"SIZ={siz+1} data={payload[:16].hex()}")
+        # In console mode, suppress noisy F3/F4/F11 logging
+        if not (self.console_mode and fnc in (FUNC_CONSOLE_INPUT,
+                                               FUNC_CONSOLE_OUTPUT,
+                                               FUNC_CONSOLE_STATUS)):
+            print(f"BDOS F{fnc}: DID={did:02X} SID={sid:02X} "
+                  f"SIZ={siz+1} data={payload[:16].hex()}")
 
         # Dispatch to handler
         handler = self.handlers.get(fnc)
@@ -397,10 +410,12 @@ class CPNetServer:
         print(f"Network init: client={self.client_node}, "
               f"server={self.server_node}")
 
-        # Response: FMT=0, DID=client, SID=server, FNC=0, SIZ=1
-        # Payload: [client_node, server_node]
-        resp_hdr = bytes([0, self.client_node, self.server_node, 0, 1])
-        resp_data = bytes([self.client_node, self.server_node])
+        # Response: FMT=0, DID=client, SID=server, FNC=0, SIZ=2
+        # Payload: [client_node, server_node, flags]
+        #   flags bit 0: enable remote console (SNIOS sets CFGTBL console device)
+        flags = 0x01 if self.console_mode else 0x00
+        resp_hdr = bytes([0, self.client_node, self.server_node, 0, 2])
+        resp_data = bytes([self.client_node, self.server_node, flags])
         self.conn.send_frame(resp_hdr, resp_data)
         print(f"  Assigned node IDs: client={self.client_node}, "
               f"server={self.server_node}")
@@ -896,6 +911,38 @@ class CPNetServer:
         """BDOS 29: Get read-only vector. Returns 0 (no R/O drives)."""
         return bytes([0, 0])
 
+    def handle_console_status(self, payload):
+        """BDOS 11: Console status (CONST).
+        Returns 0xFF if input ready, 0x00 if not."""
+        if not self.console_mode:
+            return bytes([0x00])
+        # Use raw fd to avoid Python BufferedReader masking available bytes
+        ready = select.select([sys.stdin.fileno()], [], [], 0)[0]
+        return bytes([0xFF if ready else 0x00])
+
+    def handle_console_input(self, payload):
+        """BDOS 3: Console input (CONIN).
+        Returns one character. Ctrl-] exits the server."""
+        if not self.console_mode:
+            return bytes([0x0D])  # CR to avoid blocking
+        # Use raw os.read to bypass Python buffering (matches select on fd)
+        ch = os.read(sys.stdin.fileno(), 1)
+        if not ch or ch == b'\x1d':  # Ctrl-]
+            raise KeyboardInterrupt
+        return bytes([ch[0]])
+
+    def handle_console_output(self, payload):
+        """BDOS 4: Console output (CONOUT).
+        payload[0]=device#, payload[1]=character."""
+        ch = payload[1] if len(payload) > 1 else payload[0]
+        if self.console_mode and self.console_out:
+            self.console_out.write(bytes([ch]))
+            self.console_out.flush()
+        elif not self.console_mode:
+            print(f"  CONOUT: {chr(ch) if 0x20 <= ch < 0x7F else '.'} (0x{ch:02X})",
+                  file=sys.stderr)
+        return bytes([0x00])
+
     def handle_write_prot(self, payload):
         """BDOS 28: Write protect disk. No-op — server drives are always writable."""
         return bytes([0])
@@ -1025,6 +1072,9 @@ class CPNetServer:
         FUNC_NETWORK_LOGOFF: handle_network_logoff,
         FUNC_NETWORK_STATUS: handle_network_status,
         FUNC_GET_SERVER_CFG: handle_get_server_cfg,
+        FUNC_CONSOLE_STATUS: handle_console_status,
+        FUNC_CONSOLE_INPUT: handle_console_input,
+        FUNC_CONSOLE_OUTPUT: handle_console_output,
     }
 
 
@@ -1038,6 +1088,14 @@ def send_hex_files(sock, hex_dir):
 
     Files are sent in the order that autotest.lua issues PIP commands.
     """
+    # Wait for MAME's Lua script to configure the null_modem baud rate.
+    # The null_modem defaults to 9600 baud; the Lua script sets 38400 at frame 1
+    # (~20ms).  Without this delay, bytes sent here would be transmitted at 9600
+    # while the SIO samples at 38400, producing ~4x garbled bytes per real byte
+    # that contaminate the ring buffer before PIP starts reading.
+    time.sleep(0.5)
+    print("[transfer] Baud rate settling delay done")
+
     # GO.SUB: CP/M SUBMIT batch — PIPs each hex file from RDR:, LOADs it,
     # renames the SPR modules, and finally runs CPNETLDR.
     # SUBMIT reads commands from a file, so it bypasses the 16-byte BIOS
@@ -1122,6 +1180,10 @@ def main():
                         '(for automated test failure detection)')
     parser.add_argument('--printer-file', metavar='FILE',
                         help='Collect LST: (BDOS F5) output to FILE')
+    parser.add_argument('--console', action='store_true',
+                        help='Enable remote console: raw terminal mode, '
+                        'CP/M console I/O goes through this terminal. '
+                        'Ctrl-] to exit.')
     args = parser.parse_args()
 
     # Set up drive mappings
@@ -1176,13 +1238,39 @@ def main():
                              daemon=True)
         t.start()
 
+    # In console mode, redirect all print/logging to stderr so stdout
+    # is clean for CP/M console output, and set raw terminal mode.
+    old_tty_settings = None
+    console_out = None
+    if args.console:
+        # Save original stdout for console output before redirecting
+        console_out = os.fdopen(os.dup(sys.stdout.fileno()), 'wb')
+        # Redirect print() to stderr so server logging doesn't mix with console
+        sys.stdout = sys.stderr
+        old_tty_settings = termios.tcgetattr(sys.stdin.fileno())
+
     server = CPNetServer(conn, drive_dirs, server_node=args.node,
                          error_file=args.error_file,
-                         printer_file=args.printer_file)
+                         printer_file=args.printer_file,
+                         console_mode=args.console,
+                         console_out=console_out)
 
     try:
+        if old_tty_settings is not None:
+            # Set raw input (no echo, char-at-a-time) but keep output processing
+            # (OPOST) so \n → \r\n works for server log messages on stderr.
+            raw_settings = termios.tcgetattr(sys.stdin.fileno())
+            tty.setraw(sys.stdin.fileno())
+            raw_now = termios.tcgetattr(sys.stdin.fileno())
+            raw_now[1] = raw_settings[1] | termios.OPOST  # re-enable output processing
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, raw_now)
         server.run()
     finally:
+        if old_tty_settings is not None:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN,
+                              old_tty_settings)
+        if console_out:
+            console_out.close()
         conn.close()
 
     return 0

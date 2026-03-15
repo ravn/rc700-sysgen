@@ -431,7 +431,18 @@ NTWKD1:
 	LD	(CFGTBL+1),A	; STORE OUR SLAVE ID
 	LD	A,ACTIVE
 	LD	(CFGTBL+0),A	; NETWORK STATUS = ACTIVE
-	XOR	A
+	; Check if server requested remote console (flags byte, bit 0)
+	; Init response data: [client_node, server_node, flags] at MSGBUF+5..+7
+	LD	A,(MSGBUF+7)	; DATA[2] = FLAGS
+	BIT	0,A
+	JR	Z,NOINIT	; NO REMOTE CONSOLE
+	; Mark console as remote for NDOS
+	; NDOS uses CONTAD=CFGTBL+1, then BSCONS=33, so device byte is at CFGTBL+34
+	LD	A,80H		; REMOTE FLAG SET, DEVICE 0
+	LD	(CFGTBL+34),A	; NDOS CONSOLE DEVICE BYTE
+	LD	A,(MSGBUF+2)	; SID = SERVER NODE FROM INIT RESPONSE
+	LD	(CFGTBL+35),A	; CONSOLE SERVER NODE ID
+NOINIT:	XOR	A
 	LD	(CFGTBL+43),A	; CLEAR SIZ - DISCARD LST OUTPUT
 	RET			; A=0 SUCCESS
 

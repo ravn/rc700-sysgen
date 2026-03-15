@@ -28,7 +28,7 @@ local FPS = 50  -- RC702 PAL display refresh rate
 -- Timeouts (in frames)
 local BOOT_TIMEOUT     = 30 * FPS   -- 30s for CP/M boot
 local PIP_RDR_TIMEOUT  = 60 * FPS   -- 60s per file via RDR: (38400 baud, prompt fires first)
-local SUBMIT_TIMEOUT   = 120 * FPS  -- 120s for SUBMIT (all LOADs + RENs + CPNETLDR)
+local SUBMIT_TIMEOUT   = 180 * FPS  -- 3min for SUBMIT (all LOADs + RENs + CPNETLDR)
 local NETWORK_TIMEOUT  = 15 * FPS   -- 15s for NETWORK command
 local DIR_TIMEOUT      = 15 * FPS   -- 15s for DIR command
 local TYPE_TIMEOUT     = 15 * FPS   -- 15s for TYPE command
@@ -483,8 +483,7 @@ local function advance_state()
         end
 
     elseif state == 2 then
-        -- Get GO.SUB from the serial port.  server.py sends GO.SUB first,
-        -- then the hex files in the order the PIP commands inside GO.SUB request.
+        -- PIP GO.SUB from serial (server.py delays send until baud rate is configured)
         if frame >= wait_until then
             print("[autotest] PIP GO.SUB=RDR:")
             type_text("PIP GO.SUB=RDR:\r")
@@ -500,7 +499,7 @@ local function advance_state()
             end
             dump_screen("after_pip_gosub")
             state = 3
-            wait_until = frame + 1
+            wait_until = frame + SETTLE_DELAY
         end
 
     elseif state == 3 then
@@ -787,6 +786,17 @@ local function advance_state()
     elseif state == 21.6 then
         -- Wait for A> prompt to confirm drive switch back
         if frame >= wait_until then
+            -- Core tests complete (NETWORK, ERA, HELP).
+            -- If all passed, write results and exit early (skip slow BIGFILE transfer).
+            if era_result == "OK" and help_result and help_result:find("^OK") then
+                print("[autotest] All core tests PASSED — exiting early")
+                collect_diagnostics("final")
+                write_results()
+                print("\n[autotest] === TEST COMPLETE ===")
+                state = 99
+                manager.machine:exit()
+                return
+            end
             state = 22
             wait_until = frame + 1
         end

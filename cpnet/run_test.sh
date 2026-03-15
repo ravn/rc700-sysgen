@@ -39,6 +39,7 @@ SERIAL_TRANSFER=false
 INJECT=false
 FAST=false
 GDB_MODE=false
+CONSOLE_MODE=false
 SERVER_ARGS=()
 
 # ── Parse arguments ──
@@ -73,12 +74,22 @@ while [[ $# -gt 0 ]]; do
             GDB_MODE=true
             shift
             ;;
+        --console)
+            CONSOLE_MODE=true
+            shift
+            ;;
         *)
             SERVER_ARGS+=("$1")
             shift
             ;;
     esac
 done
+
+# Console mode requires inject (NDOS bypasses MAME keyboard after CPNETLDR)
+if $CONSOLE_MODE; then
+    INJECT=true
+    if ! $AUTO_MODE; then SETUP_MODE=true; fi
+fi
 
 # Default: serial transfer if neither flag given
 if ! $SERIAL_TRANSFER && ! $INJECT; then SERIAL_TRANSFER=true; fi
@@ -242,18 +253,20 @@ LUAEOF
     echo "========================="
 fi
 
-# ── Start server.py in background ──
+# ── Build server arguments ──
+SERVER_CMD=(
+    python3 -u "${SCRIPT_DIR}/server.py"
+    --wait --port "$SERIAL_PORT"
+    ${HEX_STAGE:+--hex-dir "$HEX_STAGE"}
+    --error-file "$SERVER_ERROR_FILE"
+    --printer-file "$PRINTER_FILE"
+    "${SERVER_ARGS[@]}"
+)
+$CONSOLE_MODE && SERVER_CMD+=(--console)
+
+# ── Start server ──
 echo "Starting CP/NET server on port ${SERIAL_PORT}..."
 rm -f "$SERVER_ERROR_FILE" "$PRINTER_FILE"
-python3 -u "${SCRIPT_DIR}/server.py" \
-    --wait --port "$SERIAL_PORT" \
-    ${HEX_STAGE:+--hex-dir "$HEX_STAGE"} \
-    --error-file "$SERVER_ERROR_FILE" \
-    --printer-file "$PRINTER_FILE" \
-    "${SERVER_ARGS[@]}" 2>&1 | tee /tmp/cpnet_server.log &
-SERVER_PID=$!
-
-sleep 1
 
 # ── Build MAME arguments ──
 MAME_ARGS=(
@@ -280,17 +293,33 @@ else
 fi
 
 # ── Start live throughput graph in a new terminal window ──
-# server.py writes /tmp/serial_monitor.csv; serial_graph.py displays it
-if ! $HEADLESS; then
+if ! $HEADLESS && ! $CONSOLE_MODE; then
     osascript -e "tell app \"Terminal\" to do script \"exec python3 '${SCRIPT_DIR}/serial_graph.py'\"" >/dev/null 2>&1 || true
 fi
 
-"$MAME" "${MAME_ARGS[@]}"
+if $CONSOLE_MODE; then
+    # Console mode: server runs in FOREGROUND for terminal raw I/O.
+    # MAME launches in background after a delay (server must bind port first).
+    # Server stdout = CP/M console, server stderr → log file.
+    (sleep 1 && exec "$MAME" "${MAME_ARGS[@]}") &
+    MAME_PID=$!
+    trap 'kill $MAME_PID 2>/dev/null; wait $MAME_PID 2>/dev/null' EXIT
+    echo "CP/M remote console — Ctrl-] to exit"
+    echo "Server log: /tmp/cpnet_server.log"
+    "${SERVER_CMD[@]}" 2>/tmp/cpnet_server.log
+    echo ""
+    echo "Server exited."
+else
+    "${SERVER_CMD[@]}" 2>&1 | tee /tmp/cpnet_server.log &
+    SERVER_PID=$!
+    sleep 1
+    "$MAME" "${MAME_ARGS[@]}"
 
-# ── Cleanup ──
-echo "MAME exited. Stopping server..."
-kill "$SERVER_PID" 2>/dev/null || true
-wait "$SERVER_PID" 2>/dev/null || true
+    # ── Cleanup ──
+    echo "MAME exited. Stopping server..."
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+fi
 
 # ── Analyse server log (setup mode) ──
 if $SETUP_MODE && [ -s "$PRINTER_FILE" ]; then
