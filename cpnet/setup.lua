@@ -14,8 +14,9 @@ local FPS = 50
 
 local BOOT_TIMEOUT    = 30 * FPS
 local PIP_RDR_TIMEOUT = 60 * FPS
-local SUBMIT_TIMEOUT  = 120 * FPS
+local SUBMIT_TIMEOUT  = 180 * FPS    -- 3 min for SUBMIT (all LOADs + RENs + CPNETLDR)
 local NETWORK_TIMEOUT = 15 * FPS
+local SETTLE_DELAY    =  2 * FPS
 
 local DISP_ROWS = 25
 local DISP_COLS = 80
@@ -161,7 +162,7 @@ local function configure_serial()
         if tag:find("FLOW_CONTROL") then
             for _, field in pairs(port.fields) do
                 if field.name:find("Flow Control") then
-                    field.user_value = 0x01  -- RTS
+                    field.user_value = 0x00  -- Off (was RTS; debugging RX)
                 end
             end
         end
@@ -193,6 +194,7 @@ local function advance_state()
         end
 
     elseif state == 2 then
+        -- PIP GO.SUB from serial (server.py delays send until baud rate is configured)
         if frame >= wait_until then
             print("[setup] PIP GO.SUB=RDR:")
             type_text("PIP GO.SUB=RDR:\r")
@@ -206,7 +208,7 @@ local function advance_state()
                 print("[setup] WARNING: PIP GO.SUB=RDR: timeout")
             end
             state = 3
-            wait_until = frame + 1
+            wait_until = frame + SETTLE_DELAY
         end
 
     elseif state == 3 then

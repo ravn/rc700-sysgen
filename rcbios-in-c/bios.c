@@ -730,7 +730,7 @@ static void jump_ccp(byte drive) __naked;
 void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
-     * _cboot from danish.bin on the disk image before we get here. */
+     * _cboot from _danish_tables (crt0.asm) before we get here. */
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
@@ -1300,8 +1300,9 @@ static void bios_conout_c(byte c)
         displ();
 }
 
-/* LIST: transmit character on SIO Channel B (printer) */
-void bios_list(byte c)
+/* LIST: transmit character on SIO Channel B (printer).
+ * Entry/exit shim in crt0.asm handles C↔A register translation. */
+void bios_list_body(byte c)
 {
     while (!prtflg)
         ;                       /* wait for TX ready */
@@ -1315,8 +1316,9 @@ void bios_list(byte c)
     hal_ei();
 }
 
-/* PUNCH: transmit character on SIO Channel A */
-void bios_punch(byte c)
+/* PUNCH: transmit character on SIO Channel A (serial).
+ * Entry/exit shim in crt0.asm handles C↔A register translation. */
+void bios_punch_body(byte c)
 {
     while (!ptpflg)
         ;                       /* wait for TX ready */
@@ -1330,8 +1332,9 @@ void bios_punch(byte c)
     hal_ei();
 }
 
-/* READER: read character from SIO Channel A ring buffer with RTS flow control */
-byte bios_reader(void)
+/* READER: read character from SIO Channel A ring buffer with RTS flow control.
+ * Return shim in crt0.asm does ld c,a after call. */
+byte bios_reader_body(void)
 {
     byte ch, new_tail, used;
 
@@ -1571,7 +1574,7 @@ void bios_wfitr(void) __naked
 /* READS (DA4D): Reader status.
  * Returns: A=0xFF if character available in RX ring buffer,
  *          A=0x00 if buffer empty. */
-byte bios_reads(void)
+byte bios_reads_body(void)
 {
     return (rxtail != rxhead) ? 0xFF : 0x00;
 }
@@ -1988,6 +1991,7 @@ void isr_sio_a_rx(void) __naked
         byte ch, new_head, used;
 
         ch = _port_sio_a_data;       /* read char (clears interrupt) */
+
         new_head = (rxhead + 1) & RXMASK;
 
         if (new_head == rxtail)
