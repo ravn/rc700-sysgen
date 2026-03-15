@@ -183,3 +183,4 @@ make profile-baseline   # Original BIOS: instruction-level trace
 make asm-test           # Correctness test only (no timing)
 ```
 | 2026-03-13 | c-bios-5473B | 156432261 | 39.108065s | 186598482 | 4130 |
+| 2026-03-15 | c-bios-5477B | 156432261 | 39.108065s | 185238201 | 4122 |

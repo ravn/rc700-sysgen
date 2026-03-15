@@ -89,8 +89,8 @@ extern volatile ConvTables _convtables;
 #define STR_(x) #x
 #define STR(x)  STR_(x)
 #define MSIZE_STR STR(MSIZE)
-#define BIAS        ((MSIZE - 20) * 1024)
-#define CPMB        (0x3400 + BIAS)         /* CCP base */
+#define BIAS        ((MSIZE - 20) * 1024u)
+#define CPMB        (0x3400u + BIAS)        /* CCP base */
 #define CPML        0x1600                  /* CCP + BDOS length */
 #define CCP_BASE    CPMB
 #define BDOS_BASE   (CPMB + 0x806)          /* BDOS entry */
@@ -352,9 +352,8 @@ extern word trkoff[];
 /*
  * CONFI configuration block — hardware init parameters.
  *
- * Originally disk-resident on Track 0 at offset 0x080 (runtime 0xD500).
- * Now embedded as a const struct (confi_defaults) in bios.c; the disk
- * offset 0x080 region is used for init code.
+ * Disk-resident on Track 0 at offset 0x080 (_confi_defaults in crt0.asm).
+ * _cboot copies it to runtime 0xD500 (CCP area, valid during init only).
  *
  * CONFI.COM reads/writes this block on disk; restoring the original
  * disk layout for CONFI.COM compatibility is a long-term goal.
@@ -613,9 +612,8 @@ typedef struct {
                              *   0x01 = boot from hard disk */
 } ConfiBlock;
 
-/* Default CONFI configuration — embedded const copy in bios.c.
- * _cboot copies confi.bin from physical 0x080 to runtime 0xD500
- * (CCP area, valid during init only — overwritten after boot). */
+/* Runtime access to CONFI block (copied to CCP area by _cboot).
+ * Valid during init only — CCP overwrites this area after boot. */
 #ifndef HOST_TEST
 #define CFG (*(volatile ConfiBlock *)CFG_ADDR)
 #else
