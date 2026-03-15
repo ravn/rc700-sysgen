@@ -402,6 +402,15 @@ SNDERR1:
 ; Sends FNC=FFh handshake to server, receives node IDs.
 ; Returns: A = 0 on success, 0FFh on error
 NTWKIN:
+	; Drain any bytes buffered during boot (e.g. null_modem init zeros).
+	; The C-BIOS ring buffer captures all received bytes from SIO init;
+	; these must be consumed before the protocol exchange starts.
+NTWKDR:	CALL	B$RSTA		; reader status
+	OR	A
+	JR	Z,NTWKD1	; buffer empty
+	CALL	B$READ		; consume and discard
+	JR	NTWKDR
+NTWKD1:
 	; Build init request at MSGBUF (5-byte header + 1 data byte)
 	LD	IX,MSGBUF
 	LD	(IX+0),0	; FMT = 0

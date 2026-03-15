@@ -38,6 +38,7 @@ SETUP_MODE=false
 SERIAL_TRANSFER=false
 INJECT=false
 FAST=false
+GDB_MODE=false
 SERVER_ARGS=()
 
 # ── Parse arguments ──
@@ -66,6 +67,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --fast)
             FAST=true
+            shift
+            ;;
+        --gdb)
+            GDB_MODE=true
             shift
             ;;
         *)
@@ -106,13 +111,21 @@ fi
 rm -f "$CPNET_DIR/HLCOPY2.TXT" "$CPNET_DIR/BIGCOPY2."'$01'
 
 # ── Find MAME ──
-MAME="${MAME_DIR}/regnecentralend"
-if [ ! -x "$MAME" ]; then
-    MAME="${MAME_DIR}/regnecentralen"
-fi
-if [ ! -x "$MAME" ]; then
-    echo "ERROR: MAME binary not found"
-    exit 1
+if $GDB_MODE; then
+    MAME="${MAME_DIR}/regnecentralend"
+    if [ ! -x "$MAME" ]; then
+        echo "ERROR: GDB mode requires debug MAME build (regnecentralend)"
+        exit 1
+    fi
+else
+    MAME="${MAME_DIR}/regnecentralend"
+    if [ ! -x "$MAME" ]; then
+        MAME="${MAME_DIR}/regnecentralen"
+    fi
+    if [ ! -x "$MAME" ]; then
+        echo "ERROR: MAME binary not found"
+        exit 1
+    fi
 fi
 
 # ── Known file locations ──
@@ -123,7 +136,7 @@ CCP_SPR="${HOME}/git/cpnet-z80/dist/ccp.spr"
 NETWORK_COM="${HOME}/git/cpnet-z80/dist/network.com"
 CHKSUM_CIM="${SCRIPT_DIR}/zout/chksum.cim"
 ZMAC="${PROJECT_DIR}/zmac/bin/zmac"
-BIOS_CIM="${PROJECT_DIR}/rcbios/zout/BIOS.cim"
+BIOS_CIM="${PROJECT_DIR}/rcbios-in-c/bios.cim"
 
 # ── Always start from a clean reference disk ──
 if [ ! -f "$REFERENCE_IMAGE" ]; then
@@ -143,9 +156,9 @@ echo "Building CHKSUM.COM..."
 "$ZMAC" -z "${SCRIPT_DIR}/chksum.asm" -o "$CHKSUM_CIM"
 
 # ── Build BIOS and patch disk ──
-echo "Building BIOS (REL30 MAXI, 38400 baud)..."
-make -C "${PROJECT_DIR}/rcbios" rel30-maxi --no-print-directory
-echo "Patching BIOS onto disk image..."
+echo "Building C-BIOS (MAXI, 38400 baud)..."
+make -C "${PROJECT_DIR}/rcbios-in-c" bios --no-print-directory
+echo "Patching C-BIOS onto disk image..."
 python3 "${PROJECT_DIR}/rcbios/patch_bios.py" "$WORK_IMAGE" "$BIOS_CIM"
 
 if $SERIAL_TRANSFER; then
@@ -216,7 +229,7 @@ for tag, port in pairs(ports) do
     if tag:find("FLOW_CONTROL") then
         for name, field in pairs(port.fields) do
             if name:find("Flow Control") then
-                field.user_value = 0x01  -- RTS
+                field.user_value = 0x00  -- Off (was RTS; debugging RX)
             end
         end
     end
@@ -246,12 +259,17 @@ sleep 1
 MAME_ARGS=(
     rc702
     -rompath "${MAME_DIR}/roms"
-    -flop "$WORK_IMAGE"
+    -flop1 "$WORK_IMAGE"
     -rs232a null_modem
     -bitb "socket.localhost:${SERIAL_PORT}"
     -skip_gameinfo -window -nomaximize -resolution0 1100x720
     -autoboot_script "$LUA_SCRIPT"
 )
+
+if $GDB_MODE; then
+    MAME_ARGS+=(-debug -debugger gdbstub -debugger_port 23946 -nothrottle)
+    echo "=== GDB MODE: connect with python3 /tmp/gdb_cpnet_probe.py ==="
+fi
 
 if $HEADLESS; then
     MAME_ARGS+=(-sound none -nothrottle)

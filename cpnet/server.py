@@ -133,6 +133,7 @@ class SerialConnection:
     def connect(self):
         """Connect to MAME null_modem TCP socket."""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.sock.connect((self.host, self.port))
         self.sock.settimeout(30.0)
         self.monitor.start()
@@ -1152,6 +1153,7 @@ def main():
         client_sock, addr = srv.accept()
         print(f"Connection from {addr}")
         conn.sock = client_sock
+        conn.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         conn.sock.settimeout(30.0)
         conn.monitor.start()
         srv.close()

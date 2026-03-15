@@ -161,7 +161,7 @@ local function configure_serial()
         if tag:find("FLOW_CONTROL") then
             for _, field in pairs(port.fields) do
                 if field.name:find("Flow Control") then
-                    field.user_value = 0x01  -- RTS
+                    field.user_value = 0x00  -- Off (was RTS; debugging RX)
                 end
             end
         end
