@@ -24,7 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 MAME_DIR="${HOME}/git/mame"
-SERIAL_PORT=4321
+SERIAL_PORT=4002
 WORK_IMAGE="/tmp/cpnet_test.imd"
 CPNET_DIR="/tmp/cpnet_files"
 RESULT_FILE="/tmp/cpnet_test_results.txt"
@@ -40,6 +40,7 @@ INJECT=false
 FAST=false
 GDB_MODE=false
 CONSOLE_MODE=false
+NO_SERVER=false
 SERVER_ARGS=()
 
 # ── Parse arguments ──
@@ -76,6 +77,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --console)
             CONSOLE_MODE=true
+            shift
+            ;;
+        --no-server)
+            NO_SERVER=true
             shift
             ;;
         *)
@@ -145,6 +150,7 @@ NDOS_SPR="${HOME}/git/cpnet-z80/dist/ndos.spr"
 CPNETLDR_COM="${HOME}/git/cpnet-z80/dist/cpnetldr.com"
 CCP_SPR="${HOME}/git/cpnet-z80/dist/ccp.spr"
 NETWORK_COM="${HOME}/git/cpnet-z80/dist/network.com"
+LOGIN_COM="${HOME}/git/cpnet-z80/dist/login.com"
 CHKSUM_CIM="${SCRIPT_DIR}/zout/chksum.cim"
 ZMAC="${PROJECT_DIR}/zmac/bin/zmac"
 BIOS_CIM="${PROJECT_DIR}/rcbios-in-c/bios.cim"
@@ -192,21 +198,23 @@ if $INJECT; then
     echo "Injecting CP/NET files into disk image..."
     FORMAT="rc702-8dd"
     cpmcp -f "$FORMAT" "$WORK_IMAGE" "$SNIOS_SPR"    "0:SNIOS.SPR"
-    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$NDOS_SPR"     "0:NDOS.SPR"
-    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$CCP_SPR"      "0:CCP.SPR"
-    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$CPNETLDR_COM" "0:CPNETLDR.COM"
-    cpmcp -f "$FORMAT" "$WORK_IMAGE" "$NETWORK_COM"  "0:NETWORK.COM"
+    # Inject all CP/NET command files from dist/
+    CPNET_DIST="${HOME}/git/cpnet-z80/dist"
+    for f in "$CPNET_DIST"/*.com "$CPNET_DIST"/*.spr; do
+        NAME=$(basename "$f" | tr '[:lower:]' '[:upper:]')
+        cpmcp -f "$FORMAT" "$WORK_IMAGE" "$f" "0:$NAME"
+    done
     cpmcp -f "$FORMAT" "$WORK_IMAGE" "$CHKSUM_CIM"   "0:CHKSUM.COM"
     # Generate $$$.SUB: CP/M auto-runs these commands on boot (reverse execution order)
     python3 -c "
 def rec(cmd):
     b = cmd.encode('ascii')
     return bytes([len(b)]) + b + bytes(127 - len(b))
-data = rec('DIR H:') + rec('NETWORK H:=B:') + rec('CPNETLDR')
+data = rec('DIR H:') + rec('NETWORK H:=B:') + rec('LOGIN PASSWORD') + rec('CPNETLDR')
 open('/tmp/cpnet_sub.tmp', 'wb').write(data)
 "
     cpmcp -f "$FORMAT" "$WORK_IMAGE" /tmp/cpnet_sub.tmp '0:$$$.SUB'
-    echo 'Injection complete ($$$.SUB: CPNETLDR -> NETWORK H:=B: -> DIR H:).'
+    echo 'Injection complete ($$$.SUB: CPNETLDR -> LOGIN PASSWORD -> NETWORK H:=B: -> DIR H:).'
 fi
 
 
@@ -245,6 +253,27 @@ for tag, port in pairs(ports) do
         end
     end
 end
+-- Take a screenshot after 20 seconds (enough for SUB to complete)
+local screenshot_timer = 25
+local screenshot_taken = false
+emu.register_frame_done(function()
+    if not screenshot_taken then
+        screenshot_timer = screenshot_timer - (1/60)
+        if screenshot_timer <= 0 then
+            local video = manager.machine.video
+            video:snapshot()
+            -- Also try saving to known path
+            local screen = manager.machine.screens[":screen"]
+            if screen then
+                screen:snapshot("/tmp/mame_cpnet.png")
+                print("Screenshot saved to /tmp/mame_cpnet.png")
+            else
+                print("Screenshot via video:snapshot()")
+            end
+            screenshot_taken = true
+        end
+    end
+end)
 LUAEOF
     echo "=== MANUAL MODE ==="
     echo "  Type: CPNETLDR"
@@ -265,8 +294,12 @@ SERVER_CMD=(
 $CONSOLE_MODE && SERVER_CMD+=(--console)
 
 # ── Start server ──
-echo "Starting CP/NET server on port ${SERIAL_PORT}..."
 rm -f "$SERVER_ERROR_FILE" "$PRINTER_FILE"
+if $NO_SERVER; then
+    echo "Skipping server launch (--no-server): expecting external server on port ${SERIAL_PORT}"
+else
+    echo "Starting CP/NET server on port ${SERIAL_PORT}..."
+fi
 
 # ── Build MAME arguments ──
 MAME_ARGS=(
@@ -297,7 +330,10 @@ if ! $HEADLESS && ! $CONSOLE_MODE; then
     osascript -e "tell app \"Terminal\" to do script \"exec python3 '${SCRIPT_DIR}/serial_graph.py'\"" >/dev/null 2>&1 || true
 fi
 
-if $CONSOLE_MODE; then
+if $NO_SERVER; then
+    # No server — just launch MAME connecting to external server
+    "$MAME" "${MAME_ARGS[@]}"
+elif $CONSOLE_MODE; then
     # Console mode: server runs in FOREGROUND for terminal raw I/O.
     # MAME launches in background after a delay (server must bind port first).
     # Server stdout = CP/M console, server stderr → log file.

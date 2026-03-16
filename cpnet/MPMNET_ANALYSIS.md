@@ -109,7 +109,11 @@ Simplified `NTWKIN` for CP/NET 1.2 compatibility: removed FNC=FF handshake (MP/M
 
 ## Status
 
-The nwinit fix has NOT been verified end-to-end. The fix is logically correct (confirmed by BNKXIOS layout analysis and the 0xFFEB crash proving the original calculation is wrong), but MP/M still needs rebuilding and testing with the corrected NETWRKIF.
+**Verified end-to-end (2026-03-17).** The RC702 MAME emulator successfully
+connects to z80pack MP/M CP/NET server on TCP port 4002. CPNETLDR, LOGIN,
+NETWORK, and DIR all work. The boot sequence requires `LOGIN PASSWORD`
+before `NETWORK` — without it, the server returns error 0x0C on all
+requests. See `Z80PACK_MPMNET.md` for the full integration guide.
 
 ## References
 
