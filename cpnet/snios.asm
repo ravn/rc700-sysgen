@@ -28,6 +28,9 @@ ENQ	EQU	05H		; Enquire
 ACK	EQU	06H		; Acknowledge
 NAK	EQU	15H		; Negative Acknowledge
 
+; Slave node ID (must match server configuration)
+SLAVEID	EQU	01H		; our node on the network
+
 ; Retry and timeout parameters
 MAXRETRY EQU	10		; max send/receive retries
 TMRETRY	EQU	100		; timeout retries per attempt
@@ -399,8 +402,9 @@ SNDERR1:
 ;================================================
 ;= NTWKIN - NETWORK INITIALIZATION               =
 ;================================================
-; Sends FNC=FFh handshake to server, receives node IDs.
-; Returns: A = 0 on success, 0FFh on error
+; CP/NET 1.2: no handshake needed.  Just drain stale bytes,
+; set slave ID and ACTIVE flag.  Login is handled by NDOS (FNC=64).
+; Returns: A = 0 on success
 NTWKIN:
 	; Drain any bytes buffered during boot (e.g. null_modem init zeros).
 	; The C-BIOS ring buffer captures all received bytes from SIO init;
@@ -411,44 +415,15 @@ NTWKDR:	CALL	B$RSTA		; reader status
 	CALL	B$READ		; consume and discard
 	JR	NTWKDR
 NTWKD1:
-	; Build init request at MSGBUF (5-byte header + 1 data byte)
-	LD	IX,MSGBUF
-	LD	(IX+0),0	; FMT = 0
-	LD	(IX+3),0FFH	; FNC = 255 (INIT REQUEST)
-	LD	(IX+4),0	; SIZ = 0
-	LD	BC,MSGBUF
-	CALL	SNDMS0		; SEND (BYPASS ACTIVE CHECK)
-	OR	A
-	JR	NZ,INITERR	; SEND FAILED
-
-	LD	BC,MSGBUF	; RECEIVE RESPONSE INTO SAME AREA
-	CALL	RCVMS0		; RECEIVE (BYPASS ACTIVE CHECK)
-	OR	A
-	JR	NZ,INITERR	; RECEIVE FAILED
-
-	; Response header: DID=our ID, SID=server ID
-	LD	A,(MSGBUF+1)	; DID = OUR NODE ID
-	LD	(CFGTBL+1),A	; STORE OUR SLAVE ID
+	; Set slave ID (must match server expectation)
+	LD	A,SLAVEID
+	LD	(CFGTBL+1),A
+	; Mark network active
 	LD	A,ACTIVE
-	LD	(CFGTBL+0),A	; NETWORK STATUS = ACTIVE
-	; Check if server requested remote console (flags byte, bit 0)
-	; Init response data: [client_node, server_node, flags] at MSGBUF+5..+7
-	LD	A,(MSGBUF+7)	; DATA[2] = FLAGS
-	BIT	0,A
-	JR	Z,NOINIT	; NO REMOTE CONSOLE
-	; Mark console as remote for NDOS
-	; NDOS uses CONTAD=CFGTBL+1, then BSCONS=33, so device byte is at CFGTBL+34
-	LD	A,80H		; REMOTE FLAG SET, DEVICE 0
-	LD	(CFGTBL+34),A	; NDOS CONSOLE DEVICE BYTE
-	LD	A,(MSGBUF+2)	; SID = SERVER NODE FROM INIT RESPONSE
-	LD	(CFGTBL+35),A	; CONSOLE SERVER NODE ID
-NOINIT:	XOR	A
+	LD	(CFGTBL+0),A
+	XOR	A
 	LD	(CFGTBL+43),A	; CLEAR SIZ - DISCARD LST OUTPUT
 	RET			; A=0 SUCCESS
-
-INITERR:
-	LD	A,0FFH
-	RET
 
 ;================================================
 ;= REMAINING SNIOS ENTRY POINTS                  =
