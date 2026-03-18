@@ -1,8 +1,8 @@
-# Plan: Convert Remaining crt0.asm to C
+# Plan: Convert BIOS to Pure C
 
-Goal: eliminate hand-written assembly from the C BIOS so the entire BIOS
-is expressed in C (plus minimal `__naked` stubs where the compiler cannot
-express the intent).
+Goal: a pure C program with no assembly files.  Minimal inline asm is
+acceptable where the compiler cannot express the intent (DI/EI, SP
+manipulation, LDIR, port I/O).
 
 ## Current Assembly in crt0.asm (~450 lines)
 
