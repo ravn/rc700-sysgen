@@ -17,10 +17,6 @@
 ; The Makefile concatenates bios_BOOT.bin and bios_BIOS.bin (trimmed
 ; to exclude BSS) to produce bios.cim.
 
-    EXTERN _bios_hw_init
-    EXTERN __BOOT_tail, __BIOS_head
-    EXTERN __bss_compiler_head, __bss_compiler_size
-
 ; CP/M memory layout — derived from MSIZE, same as BIOS.MAC.
 MSIZE   EQU 56                      ; available memory excl. BIOS (KB)
 BIAS    EQU (MSIZE - 20) * 1024
@@ -31,69 +27,24 @@ BIOSAD  EQU CPMB + CPML             ; BIOS base (= 0xDA00 for 56K)
 ; ====================================================================
 ; BOOT section (physical address 0x0000)
 ;
-; First sector of Track 0.  The ROM reads the first word as the boot
-; pointer (physical address to jump to after loading Track 0 to 0x0000).
-; The " RC702" signature at offset 8 identifies the disk as a system disk.
+; First sector of Track 0.  Boot pointer + signature + padding,
+; followed by CONFI defaults and conversion tables.
 ;
-; NOTE: The original CP/M boot sector had a simple jump instruction here, but
-; we have moved the relocating boot code (_cboot) here as there was room, and
-; it keeps logic simpler which the sdcc linker likes.
-;
-; _cboot follows the signature, fitting within the 128-byte boot sector.
-; Assembled at 0x0000 — the address where it actually executes.
+; The cboot() function (boot_entry.c, compiled into BOOT section)
+; is placed after the data blocks by the linker.
 ; ====================================================================
 
     SECTION BOOT
 
     org 0x0000
 
-    defw _cboot             ; +0x00: boot pointer (physical address of _cboot)
+    EXTERN _cboot
+
+    defw _cboot             ; +0x00: boot pointer (physical address of cboot)
     defs 6                  ; +0x02: reserved (zeros)
-    defm " RC702"           ; +0x08: system signature (6 bytes) - this is what autoload looks for.
+    defm " RC702"           ; +0x08: system signature (6 bytes)
 
     INCLUDE "builddate.inc" ; Timestamp bios for visual verification.
-
-_cboot:                     ; cold boot init code
-    di
-
-    ; Relocate BIOS section from physical to runtime address.
-    ; On disk: BOOT (config data) then BIOS (JP table + C code).
-    ; The ROM loaded Track 0 to 0x0000, so BIOS sits at physical
-    ; address __BOOT_tail.  Copy it to __BIOS_head (0xDA00).
-
-    ld hl, __BOOT_tail              ; physical source
-    ld de, __BIOS_head              ; runtime destination (0xDA00)
-    ld bc, __bss_compiler_head - __BIOS_head  ; code + rodata + data size
-    ldir
-
-    ; Copy CONFI block and conversion tables from disk to runtime addresses.
-    ; _confi_defaults (128 bytes) at physical 0x080 → CPMB+0x1100 (init-only)
-    ; _conv_tables  (384 bytes) at physical 0x100 → 0xF680 (ConvTables)
-
-    ld hl, _confi_defaults      ; physical source in BOOT section
-    ld de, CPMB + 0x1100        ; CONFI runtime address (CCP area, init-only)
-    ld bc, 128                  ; CONFI block size
-    ldir
-    ; HL now at _conv_tables, copy to ConvTables
-    ld de, 0xF680               ; ConvTables runtime address
-    ld bc, 384                  ; outcon(128) + inconv(256)
-    ldir
-
-    ; Zero BSS (uninitialized static variables, not in binary)
-    ld hl, __bss_compiler_head
-    ld (hl), 0
-    ld de, __bss_compiler_head + 1
-    ld bc, __bss_compiler_size - 1
-    ldir
-
-    ; Set up stack (use DMA buffer area temporarily)
-    ld sp, 0x80             ; BUFF
-
-    ; Call C hardware initialization (relocated, runs at runtime address)
-    call _bios_hw_init
-
-    ; Jump to BIOS cold boot entry (relocated JP table)
-    jp BIOSAD
 
     defs 128 - ASMPC        ; pad to end of boot sector (128 bytes total)
 
