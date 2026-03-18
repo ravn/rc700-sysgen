@@ -261,6 +261,24 @@ or explicit section attributes on each function/data block.
 2. Move boot header (pointer, signature) to C
 3. Minimal crt0.asm: only section ordering declarations remain
 
+### Phase 5: Externalize linker block definitions
+
+After phases 1-4, crt0.asm contains only SECTION declarations that
+control linker ordering.  Goal: move these out of the project entirely.
+
+Options:
+- **z88dk custom target config**: Define section ordering in a `.cfg`
+  file under `z88dk/lib/config/`.  z88dk's `+z80` target allows custom
+  section maps via `-pragma-define` and config files.
+- **Linker script**: z88dk's z80asm linker supports `-split-bin` and
+  section ordering via the module link order.  If all C files declare
+  their own sections, the link order in the Makefile determines layout.
+- **Pragma in C**: `#pragma codeseg`, `#pragma dataseg` etc. in the C
+  source files can declare sections without any .asm file.
+
+The end state: **no .asm files in the project**.  All Z80 code is either
+compiler-generated C or inline `__asm` blocks within C functions.
+
 ## Risks
 
 - **JP table correctness**: If any JP address is wrong, the system
