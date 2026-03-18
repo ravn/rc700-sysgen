@@ -234,6 +234,38 @@ by the peephole optimizer (the `call _body; ... ret` in the shim becomes
 direct execution when the body follows immediately).  The `push hl` /
 `pop hl` wrapping must remain since HL preservation is required by SNIOS.
 
+### Shim implementation notes
+
+**Unity build ordering**: The shim+body pairs must stay adjacent in the
+final compilation unit.  sdcc preserves function order within a
+translation unit, but if separate .c files are linked, the linker may
+reorder.  Use the unity build (`bios.c` as single TU) or verify that
+sdcc/z88dk preserves order.
+
+**`__naked` and implicit `ret`**: Some sdcc versions insert an implicit
+`ret` after `__naked` function bodies.  If this happens, there's a dead
+`ret` between the shim and the body.  The peephole optimizer should
+remove it, but verify in the listing.
+
+**`bios_list` tail-call case**: This is the simplest — the shim is just
+`ld a,c` with no jump or return.  The body follows immediately by source
+placement.  No `jp` needed; no peephole rule needed.  It works purely
+by adjacency.  This is more robust than relying on the peephole to
+recognize `jp _body` / `_body:` — just omit the `jp` entirely.
+
+**`push hl` / `pop hl` shims cannot fully fall through**: `bios_reader`
+does `push hl; call body; pop hl; ld c,a; ret`.  The body must *return*
+to the shim for the `pop hl` cleanup, so the `call` cannot be eliminated.
+Only the call/ret overhead (6 bytes, ~27 T-states) could theoretically
+be saved by moving the HL save/restore into the body, but that pollutes
+the C body with ABI glue.  Accept the call overhead for now.
+
+**CP/NET HL preservation is conditional**: The `push hl` / `pop hl`
+in the punch/reader/reads shims exists solely for SNIOS (CP/NET).
+If CP/NET support is made a build flag, these shims could be simplified
+to just `ld a,c` / `ld c,a` for non-networked builds, saving 4 bytes
+and ~21 T-states per call.
+
 ### 4. BOOT Header + Data Blocks
 
 The boot pointer, signature, CONFI defaults, and conversion tables are
