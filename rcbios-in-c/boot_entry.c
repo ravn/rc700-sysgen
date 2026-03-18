@@ -12,7 +12,7 @@
 /* Linker symbols for section boundaries.
  * z88dk linker defines these with double underscore; C adds another
  * underscore prefix, so we use single underscore here → ___name in asm. */
-extern byte _BOOT_tail;
+extern byte _BOOT_CODE_tail;
 extern byte _BIOS_head;
 extern byte _bss_compiler_head;
 extern word _bss_compiler_size;
@@ -55,9 +55,10 @@ static void boot_zero(void *dst, word count) __naked
  * Relocates BIOS, copies config data, zeroes BSS. */
 static void cboot_body(void)
 {
-    /* Relocate BIOS section from physical to runtime address */
+    /* Relocate BIOS section from physical to runtime address.
+     * BIOS binary starts right after the last BOOT sub-section. */
     boot_copy((void *)BIOS_BASE,
-              &_BOOT_tail,
+              &_BOOT_CODE_tail,
               (word)&_bss_compiler_head - BIOS_BASE);
 
     /* Copy CONFI defaults to CCP area (init-only) */
