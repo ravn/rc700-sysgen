@@ -34,22 +34,8 @@ BIOSAD  EQU CPMB + CPML             ; BIOS base (= 0xDA00 for 56K)
 ; is placed after the data blocks by the linker.
 ; ====================================================================
 
-    SECTION BOOT
-
+    SECTION BOOT            ; boot header (from boot_hdr.c)
     org 0x0000
-
-    EXTERN _cboot
-
-    defw _cboot             ; +0x00: boot pointer (physical address of cboot)
-    defs 6                  ; +0x02: reserved (zeros)
-    defm " RC702"           ; +0x08: system signature (6 bytes)
-
-    INCLUDE "builddate.inc" ; Timestamp bios for visual verification.
-
-    defs 128 - ASMPC        ; pad to end of boot sector (128 bytes total)
-
-; CONFI defaults (128 bytes) and conversion tables (384 bytes)
-; are in boot_data.c, compiled into the BOOT_DATA section.
 
     SECTION BOOT_DATA       ; CONFI + conversion tables (from boot_data.c)
     SECTION BOOT_CODE       ; cboot() and helpers (from boot_entry.c)
