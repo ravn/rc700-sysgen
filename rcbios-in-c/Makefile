@@ -78,11 +78,12 @@ builddate.inc: FORCE
 
 FORCE:
 
-bios: crt0.asm boot_entry.c bios.c hal.h bios.h builddate.h builddate.inc peephole.def
+bios: crt0.asm boot_data.c boot_entry.c bios.c hal.h bios.h builddate.h builddate.inc peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
-	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c boot_entry.o
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c boot_data.c -o boot_data.o && \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c boot_entry.c -o boot_entry.o && \
+	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c boot_data.o boot_entry.o
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 	CODESIZE=$$((0x$$BSS_HEAD - 0xDA00)); \
 	cat bios_BOOT.bin > bios.cim; \
@@ -249,5 +250,5 @@ test:
 
 clean:
 	rm -f bios bios.rom bios.cim bios_code.bin bios_BIOS.bin bios_BOOT.bin bios.map bios.lis
-	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis *.c.asm builddate.h builddate.inc boot_entry.o
+	rm -f *.o *.sym bios.def zcc_opt.def *.c.lis *.c.asm builddate.h builddate.inc boot_entry.o boot_data.o
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd
