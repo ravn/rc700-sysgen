@@ -176,6 +176,32 @@ def write_markdown(tables, outpath):
                 f.write("```\n\n")
 
 
+def write_z88dk_inc(table, filepath):
+    """Write a z88dk-format .inc file for inclusion in crt0.asm."""
+    name = table["name"]
+    all_bytes = table["output"] + table["input"] + table["semigraphic"]
+
+    with open(filepath, "w") as f:
+        f.write(f"; {name} character conversion tables for RC702\n")
+        f.write(f"; Generated from CONFI.COM by extract_conv_tables.py\n")
+        f.write(f"; 384 bytes: outcon[128] + inconv[128] + extended/semigraphic[128]\n\n")
+
+        sections = [
+            ("outcon[128]: output conversion (character -> display)", 0, 128),
+            ("inconv lower[128]: input conversion (keyboard -> internal)", 128, 256),
+            ("inconv upper[128]: extended keyboard / semigraphic", 256, 384),
+        ]
+
+        for label, start, end in sections:
+            f.write(f"    ; --- {label} ---\n")
+            for row_start in range(start, end, 8):
+                row = all_bytes[row_start:row_start + 8]
+                hex_vals = ",".join(f"0x{b:02X}" for b in row)
+                hi = row_start // 16
+                f.write(f"    defb {hex_vals} ; {hi:X}x\n")
+            f.write("\n")
+
+
 MAC_FILENAMES = {
     "Danish": "DANISH.MAC",
     "Swedish": "SWEDISH.MAC",
@@ -354,13 +380,24 @@ def main():
     write_markdown(tables, mdpath)
     print(f"Wrote {mdpath}")
 
-    # Write .MAC files
+    # Write .MAC files (zmac/DRI format for rcbios/src/)
     if mac_dir:
         os.makedirs(mac_dir, exist_ok=True)
         for t in tables:
             macpath = os.path.join(mac_dir, MAC_FILENAMES[t["name"]])
             write_mac_file(t, macpath)
             print(f"Wrote {macpath}")
+
+    # Write z88dk .inc files (for rcbios-in-c/crt0.asm)
+    if mac_dir:
+        # mac_dir is e.g. rcbios/src, so go up two levels to repo root
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(mac_dir)))
+        inc_dir = os.path.join(repo_root, "rcbios-in-c")
+        if os.path.isdir(inc_dir):
+            for t in tables:
+                incpath = os.path.join(inc_dir, t["name"].lower() + "_tables.inc")
+                write_z88dk_inc(t, incpath)
+                print(f"Wrote {incpath}")
 
 
 if __name__ == "__main__":

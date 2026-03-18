@@ -18,6 +18,11 @@ endif
 ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
+# Language conversion table: DANISH (default), SWEDISH, GERMAN,
+# UK_ASCII, US_ASCII, FRENCH, LIBRARY
+# Pass KBLANG=<language> to select. Omit or KBLANG=DANISH for default.
+KBLANG ?= DANISH
+
 # sdcc via z88dk: register calling convention, optimize for size
 # --sdcccall 1: register-based parameter passing (A/HL/DE)
 # --disable-warning 296: suppressed because we use --no-crt and link NO stdlib.
@@ -32,6 +37,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
+         $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG)) \
          -m --list -create-app
 
 # Disk image tools

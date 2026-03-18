@@ -730,7 +730,7 @@ static void jump_ccp(byte drive) __naked;
 void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
-     * _cboot from _danish_tables (crt0.asm) before we get here. */
+     * _cboot from _conv_tables (crt0.asm) before we get here. */
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
