@@ -60,8 +60,8 @@ reasons:
 
 ## What actually happened
 
-The 5-15% overhead estimate proved optimistic for this workload.
-Here is the size progression:
+The 5-15% overhead estimate proved optimistic for the initial approach.
+Here is the full size progression:
 
 | Stage                              | CODE.bin | vs target | Notes                    |
 |------------------------------------|----------|-----------|--------------------------|
@@ -70,134 +70,95 @@ Here is the size progression:
 | `--opt-code-size` + allocs tuning  | 3053 B   | +57%      | Compiler flags only      |
 | + `__z88dk_fastcall/callee`, no switch | 2421 B | +25%   | Calling convention work  |
 | + Init routines moved to asm       | 2249 B   | +16%      | PIO/CTC/DMA/CRT in asm  |
-| All C functions moved to asm       | 2042 B   | +5%       | Only asm, no C files     |
+| All C functions moved to asm       | 2042 B   | +5%       | Interim all-assembly     |
 | Hand-optimized assembly            | 1937 B   | -0.4%     | Fits in 2048 with 6 spare |
+| **sdcc + sdcccall(1), mostly C**   | **~1880 B** | **-3%** | **Final: 1984 B total** |
 
-The pure C version was **2.2x the target size**.  Even after exhaustive
-optimization of compiler flags, calling conventions, and code structure,
-the best achievable C output was still 25% over budget (2421 bytes vs
-1943 usable).  Fitting the ROM required moving every function to
-hand-written Z80 assembly.
+The initial pure C version was **2.2x the target size**.  However, the
+initial approach used suboptimal compiler flags and the wrong backend.
+After discovering that sdcc with `--sdcccall 1` produces 36% smaller code
+than sccz80, and adding custom peephole rules, almost all code was moved
+**back from assembly to C**.  The final ROM is **1984 bytes** — 64 bytes
+under the 2048-byte limit — and boots successfully in the rc700 emulator.
 
-## Why the compiler couldn't match hand-written assembly
+## Compiler overhead analysis
 
-### 1. IX frame pointer overhead (5+ bytes per function)
+The initial builds revealed significant overhead from the compiler, but
+most of it was addressable through configuration and coding style changes.
 
-zsdcc uses the IX register as a frame pointer.  Every function with
-local variables or multiple parameters generates:
+### Sources of overhead (and mitigations)
 
-```z80
-    call ___sdcc_enter_ix    ; 3 bytes (+ 11-byte runtime function)
-    ...
-    ld sp, ix                ; 2 bytes
-    pop ix                   ; 2 bytes
-    ret                      ; 1 byte
-```
+| Source | Initial cost | Mitigation | Status |
+|--------|-------------|------------|--------|
+| IX frame pointer | 5+ B/function | `--fomit-frame-pointer` | Eliminated |
+| Stack parameter passing | 3-7 B/call | `sdcccall(1)`: params in A/HL/DE | Eliminated |
+| sccz80 byte→word promotion | 2+ B/access | Switch to sdcc backend | Eliminated |
+| Redundant register loads | 2 B/occurrence | Custom peephole rules | Eliminated |
+| No LDIR/CPI generation | 4-8 B/block op | Hand-written in crt0.asm | Mitigated |
+| ISR register save overhead | ~10 B/ISR | Manual wrappers in crt0.asm | Mitigated |
+| JP vs JR for short branches | 1 B/branch | z88dk peephole rules (-SO3) | Partially |
+| No cross-function register alloc | varies | Unity build helps somewhat | Accepted |
 
-The `___sdcc_enter_ix` runtime function (11 bytes, shared) plus the
-per-function prologue/epilogue adds at least 5 bytes per function.
-With ~25 functions in the ROM, this alone accounts for ~125 bytes plus
-the 11-byte runtime — roughly 7% of the budget consumed by function
-preambles.
+The key insight was that **the initial overhead was not inherent to C
+compilation** — it was largely caused by using the wrong backend (sccz80
+instead of sdcc) with wrong flags (missing `--sdcccall 1` and
+`--fomit-frame-pointer`).  With correct configuration, sdcc produces
+code dense enough for a 2KB ROM.
 
-Hand-written assembly avoids IX entirely, using register pairs and
-direct stack manipulation.
+### What remains in assembly
 
-### 2. The ROM is almost entirely I/O register manipulation
+Only a few constructs genuinely require hand-written assembly:
 
-The ROA375 boot ROM has very little algorithmic content.  It is
-dominated by:
+- **Entry stub**: DI, SP setup, LDIR relocation (18 bytes)
+- **ISR wrappers**: Manual PUSH/POP + SP switch + EI+RETI (because
+  `__interrupt` enables interrupts too early for safe DMA reprogramming)
+- **`jp (hl)`**: No C equivalent for indirect one-way jump
+- **Interrupt vector table**: 32-byte table of 16-bit pointers
 
-- Writing initialization sequences to hardware ports (PIO, CTC, DMA, CRT)
-- Polling FDC status registers in tight loops
-- Building 9-byte FDC command buffers and sending them byte-by-byte
-- Copying small blocks with LDIR
-- Comparing short byte sequences
-
-For this workload, C's abstraction overhead (function calls, stack
-frames, parameter passing) is pure cost with no compensating benefit.
-The "5-15% overhead" estimate assumes a mix of algorithmic and I/O
-code; a ROM that is 90% hardware register manipulation hits the worst
-case.
-
-### 3. No Z80-specific idiom generation
-
-The compiler cannot generate several Z80 idioms that the hand-written
-code uses extensively:
-
-| Idiom              | Hand-written      | Compiler output         | Overhead |
-|--------------------|-------------------|-------------------------|----------|
-| Block copy         | `LDIR` (2 bytes)  | Loop with `LD A,(HL)` etc. | 4-8 B |
-| Counted loop       | `DJNZ label` (2B) | `DEC; JR NZ` (3B)      | 1 B/loop |
-| Direct port I/O    | `IN A,(n)` (2B)   | `__sfr` works well      | 0        |
-| Compare-and-branch | `CP (HL)` (1B)    | `LD A,(HL); CP n` (3B) | 2 B      |
-| Tail call          | `JP target` (3B)  | Full epilogue + RET (5-7B) | 2-4 B |
-| Inline delay       | 12 bytes inline   | CALL + frame (17+ B)   | 5+ B    |
-
-These add up across the ~25 functions and ~40 loops in the ROM.
-
-### 4. Section and alignment overhead
-
-The z88dk linker generates separate CODE and BSS sections.  The
-interrupt vector table requires `ALIGN 256`, wasting up to 255 bytes
-of padding.  In practice this consumed ~23 bytes, but the section
-headers and linker metadata add further overhead that hand-written
-assembly avoids by controlling layout directly.
-
-### 5. Calling convention overhead for multi-parameter functions
-
-Functions like `flo7(drive_head, cylinder)`, `readtk(command, retries)`,
-and `stpdma(address, count, mode)` require stack-based parameter
-passing.  Each call site pushes 2-3 words onto the stack; even with
-`__z88dk_callee` the callee must pop them.  Hand-written assembly
-keeps values in registers across related calls, avoiding the
-push/pop overhead entirely.
-
-### 6. No cross-function optimization
-
-zsdcc compiles one function at a time.  It cannot:
-
-- Inline small functions into callers
-- Propagate constants across function boundaries
-- Eliminate redundant port reads when the same status register is
-  checked by caller and callee
-- Share register allocations between caller and callee
-
-A "unity build" (`#include` all .c files into one translation unit)
-was tried but did not help — zsdcc still respects function boundaries.
+These total ~267 lines of crt0.asm — the structural skeleton of the ROM.
+All boot logic, FDC driver, peripheral initialization, format tables,
+and interrupt handler bodies are compiled C.
 
 ## Conclusion
 
-z88dk was the correct choice among available Z80 C compilers — no
-other toolchain would have produced smaller output.  However, the
-5-15% overhead estimate does not apply to hardware-register-heavy
-bare-metal code with many small functions, tight loops, and Z80-
-specific idioms.  For this class of workload the actual overhead
-was 25-125%, depending on optimization effort.
+z88dk with the sdcc backend and `sdcccall(1)` can produce a working
+2KB Z80 boot ROM in C.  The final ROM is **1984 bytes** (64 bytes under
+the 2048-byte limit) and boots successfully.
 
-The project architecture still proved valuable: the C source files
-serve as the **host-testable reference implementation** (compiled with
-`-DHOST_TEST` using the mock HAL), while the Z80 ROM is built entirely
-from `crt0.asm`.  This gives both the readability/testability benefits
-of C and the density of hand-written assembly, at the cost of
-maintaining two implementations that must be kept in sync.
+The initial 5-15% overhead estimate was wrong for the initial compiler
+configuration, but the project proved that iterating on backend selection,
+calling conventions, and peephole rules can close the gap.  The critical
+flags are:
+
+```
+-clib=sdcc_iy --opt-code-size -SO3
+-Cs"--sdcccall 1" -Cs"--fomit-frame-pointer"
+-custom-copt-rules=peephole.def
+```
+
+The HAL/mock architecture enables host-native testing of the same C
+source that compiles into the ROM — no separate reference implementation
+is needed.
 
 ### Lessons learned
 
-1. **"5-15% overhead" is a best-case figure** for mixed algorithmic/IO
-   code.  Pure I/O manipulation code should budget 30-50% overhead
-   minimum.
+1. **Backend and calling convention selection matter more than any other
+   optimization.**  sdcc with `sdcccall(1)` produces 36% smaller code
+   than sccz80 for this workload.  This single change made the difference
+   between "impossible" and "64 bytes to spare".
 
-2. **Frame pointer elimination** is the single biggest win — if zsdcc
-   could avoid IX frames for leaf functions, the overhead would drop
-   significantly.
+2. **`-SO3` and `-O3` are different flags for different compilers.**
+   Mixing them up causes silent misconfiguration.  `-SO3` is for sdcc;
+   `-O3` is for sccz80.
 
-3. **For ROMs under 4 KB**, hand-written assembly remains the pragmatic
-   choice if size is a hard constraint.  C becomes viable at 8 KB+
-   where the fixed overhead is proportionally smaller.
+3. **Custom peephole rules are essential** for I/O-heavy code.
+   The compiler naively reloads registers between consecutive port writes
+   with the same value; project-specific rules fix this at no risk.
 
-4. **The HAL/mock architecture works regardless** of whether the final
-   target code is C or assembly.  Designing the C version first and
-   then translating to assembly was faster than writing the assembly
-   from scratch, because the C version served as an unambiguous
-   specification with test coverage.
+4. **2KB is achievable for C on Z80** with the right compiler
+   configuration.  The earlier conclusion that "ROMs under 4KB require
+   hand-written assembly" was proven wrong.
+
+5. **The HAL/mock architecture works.** Designing with a hardware
+   abstraction layer enables host testing and makes the code readable
+   and maintainable — which was the whole point of the C rewrite.

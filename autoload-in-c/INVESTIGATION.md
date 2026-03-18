@@ -104,11 +104,17 @@ The initial all-C build (with only the minimal crt0.asm bootstrap) produced:
 | Original assembly ROM    | —           | —           | 2048 B   |
 | z88dk/zsdcc (all C)      | 4353 B      | 105 B       | 4458 B   |
 | z88dk/sccz80 (all C)     | 2466 B      | 105 B       | 2571 B   |
-| Final (all hand asm)     | 1919 B      | 105 B       | 2024 B   |
+| Interim (all hand asm)   | 1919 B      | 105 B       | 2024 B   |
+| Final (mostly C, sdcc)   | ~1880 B     | ~104 B      | 1984 B   |
 
-The zsdcc backend produced code **2.2x the size of the original assembly**
-— not the predicted 5-15% overhead, but a **117% overhead**. Even sccz80,
-which fared much better, was still **34% over budget** (2571 vs 2048 bytes).
+The initial zsdcc backend produced code **2.2x the size of the original
+assembly** — not the predicted 5-15% overhead, but a **117% overhead**.
+Even sccz80, which fared much better, was still **34% over budget**
+(2571 vs 2048 bytes).  However, these were early results with suboptimal
+compiler flags and architecture choices.  After switching to sdcc with
+`sdcccall(1)`, adding custom peephole rules, and iteratively moving
+functions back from assembly to C, the final ROM is **1984 bytes** —
+64 bytes under the 2048-byte limit, with almost all code in C.
 
 ### Why the Estimate Was Wrong
 
@@ -158,8 +164,12 @@ boot ROM is fundamentally different:
 
 ### The Progression
 
-With the all-C zsdcc build at 4458 bytes (117% over), we attempted
-aggressive C-level optimization:
+The path to a working C ROM went through three phases:
+
+**Phase 1: Initial C attempts (too large)**
+
+With the all-C zsdcc build at 4458 bytes (117% over), aggressive C-level
+optimization was attempted:
 
 - `static` on all internal functions (enables inlining)
 - Unity build (all .c files compiled as one translation unit)
@@ -167,65 +177,99 @@ aggressive C-level optimization:
 - `__z88dk_callee` for multi-parameter functions
 - `-SO3 --opt-code-size --max-allocs-per-node200000` compiler flags
 
-This was still far over budget. The sccz80 backend produced 2571 bytes —
+This was still far over budget.  The sccz80 backend produced 2571 bytes —
 closer, but still 523 bytes over.
 
-The only path to 2048 bytes was moving functions from C to hand-written
-Z80 assembly in crt0.asm, one by one, starting with the largest and most
-inefficiently compiled:
+**Phase 2: Retreat to assembly**
 
-1. HAL functions (port I/O wrappers) — trivial in assembly, bloated in C
-2. FDC driver (polling loops, status checks) — register-intensive
-3. Format table lookups — simple indexed addressing
-4. Boot logic (init sequences, density detection, error handling)
-5. Everything else
+Functions were moved from C to hand-written Z80 assembly in crt0.asm,
+one by one, starting with the largest and most inefficiently compiled.
+Each function moved to assembly saved 30-60% of its C-compiled size.
+After moving every function to assembly, the ROM was 2024 bytes.
 
-Each function moved to assembly saved 30-60% of its C-compiled size. After
-moving *every* function to assembly, the final ROM is 2024 bytes — 24 bytes
-under the limit, and actually 24 bytes *smaller* than the original 2048-byte
-ROM (which had only 2 bytes of unused padding).
+**Phase 3: Return to C (the breakthrough)**
+
+Three key discoveries enabled moving almost all code back from assembly
+to C:
+
+1. **sdcc backend with `sdcccall(1)`** — switching from sccz80 to sdcc
+   and enabling the register-based calling convention (params in A/HL/DE)
+   produced 36% smaller code than sccz80.  This was the single biggest win.
+
+2. **Custom peephole rules** (`peephole.def`) — project-specific rules
+   to eliminate redundant register loads in I/O initialization sequences.
+
+3. **`--fomit-frame-pointer`** — eliminates IX frame pointer overhead
+   for functions that don't need it.
+
+Functions were moved back from crt0.asm to C one by one, verifying the
+ROM still fit after each change.  The progression (Feb 2026):
+- hal_delay, peripheral init (PIO/CTC/DMA/CRT) → C
+- b7_cmp6, b7_chksys (pointer-increment style avoids IX) → C
+- hal_fdc_wait_write, hal_fdc_wait_read (sdcc generates same code) → C
+- NMI handler → nmi.c (`__critical __interrupt`)
+- DUMINT → isr.c (`__interrupt`)
+- hal_ei/hal_di → inline asm macros in hal.h
 
 ### The Final State
 
-The `autoload-in-c/` directory now contains:
+The `autoload-in-c/` directory now contains a **mostly-C ROM** at 1984
+bytes (64 bytes under the 2048-byte limit), which boots successfully in
+the rc700 emulator.
 
-- **crt0.asm** — the complete ROM in hand-written Z80 assembly (~1500 lines),
-  all functions that were originally C are now assembly
-- **boot.c, fdc.c, fmt.c, init.c, isr.c** — C implementations wrapped in
-  `#ifdef HOST_TEST`, used only for host testing
-- **hal_host.c** — mock HAL for host testing
-- **test_boot.c, test_fdc.c** — host tests that verify logic via the C code
-- **hal.h, boot.h** — shared declarations (with z88dk attributes for ROM,
-  plain C for host tests)
+**C code (compiled for Z80):**
+- **boot.c** — boot logic, directory validation, error handling (327 lines)
+- **fdc.c** — FDC driver: seek, read, sense, result handling (192 lines)
+- **fmt.c** — disk format tables and track geometry (68 lines)
+- **init.c** — peripheral initialization: PIO, CTC, DMA, CRT (108 lines)
+- **isr.c** — interrupt handler bodies: CRT refresh, floppy (60 lines)
+- **hal_z80.c** — FDC wait loops, delay timer (49 lines)
+- **boot_entry.c** — early-boot C: clear screen, init FDC, banner (40 lines)
+- **nmi.c** — NMI handler stub (15 lines)
+- **rom_all.c** — unity build for cross-function optimization
 
-The C code serves as the *specification* and *test harness*, while the
-actual ROM is pure assembly. The HAL pattern successfully enables host
-testing of the boot logic — just not as compiled Z80 code.
+**Assembly (crt0.asm, ~267 lines):**
+- Entry stub (DI, SP setup, LDIR relocation, JP)
+- Interrupt vector table (32 bytes)
+- ISR wrappers: manual PUSH/POP, SP switch to ISTACK, CALL body, EI+RETI
+  (required because `__interrupt` enables interrupts too early for DMA safety)
+- `jump_to` (jp (hl)), `halt_msg` (LDI loop), `halt_forever`
 
-## Why z88dk Was Still the Right Choice
+**Host testing:**
+- **hal_host.c** — mock HAL logging calls for assertions
+- **test_boot.c, test_fdc.c** — host tests via the same C source
+- **hal.h, boot.h** — shared declarations (Z80 attrs for ROM, plain C for host)
 
-Despite the C code being too large for the final ROM, z88dk was the correct
-choice for this project:
+The C code is both the **production implementation** and the **test harness**.
+Only interrupt wrappers and a few assembly-only idioms (LDIR relocation,
+jp (hl)) remain in crt0.asm.
 
-1. **It provided the build infrastructure.** z88dk's linker, section model,
-   custom crt0 support, and binary output generation are used in the final
-   build even though no C-compiled code remains. The `+z80 -clib=sdcc_iy`
-   target with `--no-crt` correctly assembles crt0.asm and produces the ROM
-   binary.
+## Why z88dk Was the Right Choice
 
-2. **The C code was written and tested first.** Having working, tested C
-   implementations of every function made translating to assembly
-   straightforward and correct. Each assembly function could be verified
-   against the C reference.
+z88dk proved it can produce a working 2KB ROM in C:
 
-3. **sccz80 came surprisingly close.** At 2571 bytes (34% over), sccz80
-   was within reach of fitting if the ROM had been ~600 bytes larger (e.g.,
-   a 4KB PROM). For a less extreme size constraint, C would have worked.
+1. **The sdcc backend with `sdcccall(1)` was the key.** The register-based
+   calling convention (params in A/HL/DE, return in L/HL) eliminates most
+   stack frame overhead.  Combined with `--opt-code-size`, `--fomit-frame-pointer`,
+   and `-SO3` peephole optimization, sdcc produces code dense enough for
+   a 2KB ROM.
 
-4. **No other toolchain would have done better.** The fundamental problem is
-   that 2048 bytes is too tight for *any* compiler when the code is 95% I/O
-   register manipulation. The overhead is inherent to compilation, not
-   specific to z88dk.
+2. **Custom peephole rules close the gap.** z88dk's extensible peephole
+   optimizer (`-custom-copt-rules`) allows project-specific patterns to be
+   optimized without modifying the compiler.
+
+3. **The section model handles ROM layout.** Separate BOOT (runs from ROM),
+   NMI (fixed at 0x0066), and CODE (relocated to RAM) sections, with
+   linker symbols for the LDIR relocation — all handled by z88dk's linker.
+
+4. **Host-native testing via the same C source.** The HAL pattern lets
+   the same boot.c/fdc.c/init.c compile on x86/ARM with a mock HAL,
+   enabling test coverage without Z80 hardware.
+
+5. **It is not to be expected that other toolchains could do much better.**
+   z88dk's combination of patched sdcc backend, custom peephole optimizer,
+   flexible section model, and sdcccall(1) register ABI is uniquely suited
+   to extreme size constraints on Z80.
 
 ## What If: Global Variables Instead of Parameters
 
@@ -507,14 +551,18 @@ flags.
   that is mostly `IN`/`OUT` sequences with status polling, compiler overhead
   is 30-120%.
 
-- **2KB is below the practical minimum for C on Z80.** A more realistic
-  lower bound for useful C code on Z80 (with z88dk) is approximately 4KB.
-  Below that, the calling convention and register management overhead
-  dominates.
+- **2KB is achievable for C on Z80, but requires careful optimization.**
+  The initial builds were far over budget, but iterative work on compiler
+  flags, calling conventions, custom peephole rules, and selective use of
+  hand-written assembly for hot paths brought the final ROM to 1984 bytes
+  — 64 bytes under the 2048-byte limit. The ROM boots successfully in the
+  rc700 emulator. The earlier conclusion that "2KB is below the practical
+  minimum for C on Z80" was proven wrong by doing.
 
-- **The HAL pattern works for testability even when the final code is
-  assembly.** Writing C first, testing it, then translating to assembly is a
-  productive workflow. The C serves as executable documentation.
+- **The HAL pattern works for testability.** Writing C with a hardware
+  abstraction layer enables host-native testing of boot logic without Z80
+  hardware. The C code is both the production implementation and the test
+  harness.
 
 - **sdcc with `--opt-code-size -SO3 --sdcccall 1` produces the smallest
   code** among z88dk backends for I/O-heavy code.  sccz80 was initially
