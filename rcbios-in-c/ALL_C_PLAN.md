@@ -180,7 +180,7 @@ stack.
 `cboot_body()` can be a normal C function.  After it returns, the __naked
 wrapper sets SP to 0x80 (CP/M DMA buffer area) and jumps to BIOS.
 
-### 3. ISR Shims → C with __naked
+### 3. ISR Shims → __naked C, placed before body for fall-through
 
 The 4 shims handle CP/M↔sdcccall(1) calling convention mismatch:
 
@@ -191,23 +191,48 @@ _bios_reader: push hl; call _bios_reader_body; pop hl; ld c,a; ret
 _bios_reads:  push hl; call _bios_reads_body; pop hl; ld c,a; ret
 ```
 
-These can become `__naked` C functions:
+These become `__naked` C functions placed **immediately before** their
+corresponding `_body` function in the source file.  This lets the
+peephole optimizer eliminate the call/jp entirely via fall-through:
 
 ```c
+/* Shim: CP/M passes char in C, sdcccall(1) expects A */
 void bios_list(void) __naked {
     __asm
         ld a, c
-        jp _bios_list_body
     __endasm;
+    /* fall through to bios_list_body below */
+}
+
+void bios_list_body(byte ch) {
+    /* ... actual list output code ... */
 }
 ```
 
-This is trivially equivalent.  The inline asm is minimal (2-5 instructions)
-and the `__naked` attribute prevents the compiler from adding any overhead.
+The peephole optimizer sees `jp _bios_list_body` followed by the
+`_bios_list_body:` label and eliminates the jump.  For the `push hl`
+/ `pop hl` shims (punch, reader, reads), the pattern is:
 
-**Note**: These shims exist because sdcc merges __naked functions with
-their callees during optimization.  Using separate translation units or
-`__asm` blocks in the function prevents this.
+```c
+void bios_reader(void) __naked {
+    __asm
+        push hl
+        call _bios_reader_body
+        pop hl
+        ld c, a
+        ret
+    __endasm;
+}
+
+void bios_reader_body(void) {
+    /* ... */
+}
+```
+
+Here the `call`+`ret` pair in the body can be optimized to fall-through
+by the peephole optimizer (the `call _body; ... ret` in the shim becomes
+direct execution when the body follows immediately).  The `push hl` /
+`pop hl` wrapping must remain since HL preservation is required by SNIOS.
 
 ### 4. BOOT Header + Data Blocks
 
