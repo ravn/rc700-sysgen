@@ -259,7 +259,7 @@ _conv_tables:
 
     EXTERN _bios_boot, _bios_wboot
     EXTERN _bios_const, _bios_conin, _bios_conout
-    EXTERN _bios_list_body, _bios_punch_body, _bios_reader_body
+    EXTERN _bios_list, _bios_punch, _bios_reader
     EXTERN _bios_home, _bios_seldsk
     EXTERN _bios_settrk, _bios_setsec, _bios_setdma
     EXTERN _bios_read, _bios_write
@@ -270,9 +270,9 @@ jt_wboot:   jp _bios_wboot      ; 0xDA03: warm boot
 jt_const:   jp _bios_const      ; 0xDA06: console status
 jt_conin:   jp _bios_conin      ; 0xDA09: console input
 jt_conout:  jp _bios_conout     ; 0xDA0C: console output
-jt_list:    jp _bios_list       ; 0xDA0F: list output (shim below)
-jt_punch:   jp _bios_punch      ; 0xDA12: punch output (shim below)
-jt_reader:  jp _bios_reader     ; 0xDA15: reader input (shim below)
+jt_list:    jp _bios_list       ; 0xDA0F: list output (shim in bios.c)
+jt_punch:   jp _bios_punch      ; 0xDA12: punch output (shim in bios.c)
+jt_reader:  jp _bios_reader     ; 0xDA15: reader input (shim in bios.c)
 jt_home:    jp _bios_home       ; 0xDA18: home disk
 jt_seldsk:  jp _bios_seldsk     ; 0xDA1B: select disk
 jt_settrk:  jp _bios_settrk     ; 0xDA1E: set track
@@ -297,7 +297,7 @@ jt_sectran: jp _bios_sectran    ; 0xDA30: sector translate
 ; (see bios.h, JT macro).
 ; ====================================================================
 
-    EXTERN _bios_wfitr, _bios_reads_body, _bios_linsel
+    EXTERN _bios_wfitr, _bios_reads, _bios_linsel
     EXTERN _bios_exit, _bios_clock, _bios_hrdfmt
 
     defb 0          ; 0xDA33: adrmod — cursor addressing mode.
@@ -358,7 +358,7 @@ jt_wfitr:   jp _bios_wfitr      ; 0xDA4A: WFITR — write format track.
                                 ;   Entry point for FORMAT.COM to write
                                 ;   a formatted track to floppy disk.
 
-jt_reads:   jp _bios_reads      ; 0xDA4D: READS — reader status (shim below).
+jt_reads:   jp _bios_reads      ; 0xDA4D: READS — reader status (shim in bios.c).
                                 ;   Returns SIO-A receive buffer status.
                                 ;   Used by SNIOS for CP/NET.
 
@@ -403,45 +403,6 @@ defc _istack = 0xF600       ; interrupt stack top (grows down from IVT)
 ; ====================================================================
 
     SECTION code_compiler
-
-; CP/M↔sdcccall(1) calling convention shims.
-; Entry: CP/M passes byte param in C; sdcccall(1) expects A.
-; Exit:  CP/M expects byte return in C; sdcccall(1) returns in A.
-; These MUST be in asm — sdcc merges naked C wrappers with callees.
-
-    PUBLIC _bios_list
-    PUBLIC _bios_punch
-    PUBLIC _bios_reader
-    PUBLIC _bios_reads
-
-; Entry shims: ld a,c then jp to body
-_bios_list:
-    ld a, c
-    jp _bios_list_body
-
-_bios_punch:
-    push hl
-    ld a, c
-    call _bios_punch_body
-    pop hl
-    ret
-
-; Exit shims: call body, ld c,a, ret
-; HL preserved — SNIOS callers depend on it (not guaranteed by CP/M ABI,
-; but widely assumed by DRI code including SNIOS SEND/RECVBT).
-_bios_reader:
-    push hl
-    call _bios_reader_body
-    pop hl
-    ld c, a
-    ret
-
-_bios_reads:
-    push hl
-    call _bios_reads_body
-    pop hl
-    ld c, a
-    ret
 
     SECTION rodata_compiler
     SECTION data_compiler

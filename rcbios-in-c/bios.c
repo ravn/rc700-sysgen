@@ -1301,7 +1301,14 @@ static void bios_conout_c(byte c)
 }
 
 /* LIST: transmit character on SIO Channel B (printer).
- * Entry/exit shim in crt0.asm handles C↔A register translation. */
+ * CP/M passes char in C register; sdcccall(1) expects A.
+ * __naked shim translates, then falls through to body. */
+void bios_list(void) __naked
+{
+    __asm__("ld a, c\n");
+    /* fall through to bios_list_body */
+}
+
 void bios_list_body(byte c)
 {
     while (!prtflg)
@@ -1317,7 +1324,17 @@ void bios_list_body(byte c)
 }
 
 /* PUNCH: transmit character on SIO Channel A (serial).
- * Entry/exit shim in crt0.asm handles C↔A register translation. */
+ * CP/M passes char in C; sdcccall(1) expects A.
+ * HL preserved for SNIOS (CP/NET). */
+void bios_punch(void) __naked
+{
+    __asm__("push hl     \n"
+            "ld a, c     \n"
+            "call _bios_punch_body \n"
+            "pop hl      \n"
+            "ret         \n");
+}
+
 void bios_punch_body(byte c)
 {
     while (!ptpflg)
@@ -1333,7 +1350,17 @@ void bios_punch_body(byte c)
 }
 
 /* READER: read character from SIO Channel A ring buffer with RTS flow control.
- * Return shim in crt0.asm does ld c,a after call. */
+ * CP/M expects return in A; also copies to C.
+ * HL preserved for SNIOS (CP/NET). */
+void bios_reader(void) __naked
+{
+    __asm__("push hl     \n"
+            "call _bios_reader_body \n"
+            "pop hl      \n"
+            "ld c, a     \n"
+            "ret         \n");
+}
+
 byte bios_reader_body(void)
 {
     byte ch, new_tail, used;
@@ -1355,6 +1382,23 @@ byte bios_reader_body(void)
     }
 
     return ch;
+}
+
+/* READS (DA4D): Reader status.
+ * Returns: A=0xFF if character available, A=0x00 if empty.
+ * HL preserved for SNIOS (CP/NET). */
+void bios_reads(void) __naked
+{
+    __asm__("push hl     \n"
+            "call _bios_reads_body \n"
+            "pop hl      \n"
+            "ld c, a     \n"
+            "ret         \n");
+}
+
+byte bios_reads_body(void)
+{
+    return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 
 void bios_home(void)
@@ -1569,14 +1613,6 @@ void bios_wfitr(void) __naked
             "ld a, (_rstab + 1)     \n"
             "ld c, a                \n"
             "ret                    \n");
-}
-
-/* READS (DA4D): Reader status.
- * Returns: A=0xFF if character available in RX ring buffer,
- *          A=0x00 if buffer empty. */
-byte bios_reads_body(void)
-{
-    return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 
 /* LINSEL (DA50): PROCEDURE LINE_SELECT
