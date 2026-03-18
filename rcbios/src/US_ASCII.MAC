@@ -1,5 +1,5 @@
 	TITLE	OUTPUT CONVERSION TABLE
-; SUBTTL	DANISH
+; SUBTTL	US ASCII
 	PAGE
 
 ;              ASCII          OUTPUT            COMMENT
@@ -70,7 +70,7 @@
 	DB	 61;		 61:		=
 	DB	 62;		 62:		>
 	DB	 63;		 63:		?
-	DB	 64;		 64:		@
+	DB	  5;		 64:		@
 	DB	 65;		 65:		A
 	DB	 66;		 66:		B
 	DB	 67;		 67:		C
@@ -103,12 +103,12 @@
 	DB	 88;		 88:		X
 	DB	 89;		 89:		Y
 	DB	 90;		 90:		Z
-	DB	 91;		 91:		[
-	DB	 92;		 92:		\
-	DB	 93;		 93:		]
+	DB	 11;		 91:		[
+	DB	 12;		 92:		\
+	DB	 13;		 93:		]
 	DB	 94;		 94:		^
 	DB	 95;		 95:		_
-	DB	 96;		 96:		`
+	DB	 22;		 96:		`
 	DB	 97;		 97:		a
 	DB	 98;		 98:		b
 	DB	 99;		 99:		c
@@ -138,17 +138,17 @@
 	DB	120;		120:		x
 	DB	121;		121:		y
 	DB	122;		122:		z
-	DB	123;		123:		{
-	DB	124;		124:		|
+	DB	 27;		123:		{
+	DB	 28;		124:		|
 
 	PAGE
 
-	DB	125;		125:		}
-	DB	126;		126:		~
+	DB	 29;		125:		}
+	DB	 15;		126:		~
 	DB	127;		127:		RUBOUT
 
 	; TITLE INPUT CONVERSION TABLE
-	; SUBTTL DANISH
+	; SUBTTL US ASCII
 
 	PAGE
 
@@ -375,7 +375,7 @@
 	DB	130;		198:		PF3
 	DB	199;		199:
 	DB	  8;		200:		SHIFT LEFT ARROW
-	DB	201;		201:		SHIFT RIGHT TAB
+	DB	  9;		201:		SHIFT RIGHT TAB
 	DB	 10;		202:		SHIFT DOWN ARROW
 	DB	132;		203:		PF5
 	DB	133;		204:		PF6

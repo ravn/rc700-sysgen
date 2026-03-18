@@ -1,5 +1,5 @@
 	TITLE	OUTPUT CONVERSION TABLE
-; SUBTTL	DANISH
+; SUBTTL	LIBRARY
 	PAGE
 
 ;              ASCII          OUTPUT            COMMENT
@@ -42,7 +42,7 @@
 
 	PAGE
 
-	DB	 36;		 36:		$
+	DB	  4;		 36:		$
 	DB	 37;		 37:		%
 	DB	 38;		 38:		&
 	DB	 39;		 39:		'
@@ -66,11 +66,11 @@
 	DB	 57;		 57:		9
 	DB	 58;		 58:		:
 	DB	 59;		 59:		;
-	DB	 60;		 60:		<
+	DB	 11;		 60:		<
 	DB	 61;		 61:		=
-	DB	 62;		 62:		>
+	DB	 13;		 62:		>
 	DB	 63;		 63:		?
-	DB	 64;		 64:		@
+	DB	  5;		 64:		@
 	DB	 65;		 65:		A
 	DB	 66;		 66:		B
 	DB	 67;		 67:		C
@@ -108,7 +108,7 @@
 	DB	 93;		 93:		]
 	DB	 94;		 94:		^
 	DB	 95;		 95:		_
-	DB	 96;		 96:		`
+	DB	 22;		 96:		`
 	DB	 97;		 97:		a
 	DB	 98;		 98:		b
 	DB	 99;		 99:		c
@@ -144,11 +144,11 @@
 	PAGE
 
 	DB	125;		125:		}
-	DB	126;		126:		~
+	DB	 16;		126:		~
 	DB	127;		127:		RUBOUT
 
 	; TITLE INPUT CONVERSION TABLE
-	; SUBTTL DANISH
+	; SUBTTL LIBRARY
 
 	PAGE
 
@@ -198,12 +198,12 @@
 	DB	 39;		 39:		'
 	DB	 40;		 40:		(
 	DB	 41;		 41:		)
-	DB	 42;		 42:		*
-	DB	 43;		 43:		+
+	DB	 94;		 42:		*
+	DB	126;		 43:		+
 	DB	 44;		 44:		,
-	DB	 45;		 45:		-
+	DB	 43;		 45:		-
 	DB	 46;		 46:		.
-	DB	 47;		 47:		/
+	DB	 45;		 47:		/
 	DB	 48;		 48:		0
 	DB	 49;		 49:		1
 	DB	 50;		 50:		2
@@ -214,13 +214,13 @@
 	DB	 55;		 55:		7
 	DB	 56;		 56:		8
 	DB	 57;		 57:		9
-	DB	 58;		 58:		:
-	DB	 59;		 59:		;
-	DB	 60;		 60:		<
-	DB	 61;		 61:		=
-	DB	 62;		 62:		>
-	DB	 63;		 63:		?
-	DB	 64;		 64:		@
+	DB	 42;		 58:		:
+	DB	 47;		 59:		;
+	DB	 59;		 60:		<
+	DB	 63;		 61:		=
+	DB	 58;		 62:		>
+	DB	 95;		 63:		?
+	DB	 60;		 64:		@
 	DB	 65;		 65:		A
 	DB	 66;		 66:		B
 	DB	 67;		 67:		C
@@ -256,9 +256,9 @@
 	DB	 91;		 91:		[
 	DB	 92;		 92:		\
 	DB	 93;		 93:		]
-	DB	 94;		 94:		^
-	DB	 95;		 95:		_
-	DB	 96;		 96:		`
+	DB	 64;		 94:		^
+	DB	 61;		 95:		_
+	DB	 62;		 96:		`
 	DB	 97;		 97:		a
 	DB	 98;		 98:		b
 	DB	 99;		 99:		c
@@ -294,42 +294,42 @@
 	PAGE
 
 	DB	125;		125:		}
-	DB	126;		126:		~
+	DB	 96;		126:		~
 	DB	127;		127:		RUBOUT
 	DB	128;		128:
-	DB	  1;		129:		HOME
+	DB	 29;		129:		HOME
 	DB	130;		130:
-	DB	  3;		131:		PA1
-	DB	  4;		132:		PA2
+	DB	 12;		131:		PA1
+	DB	 18;		132:		PA2
 	DB	  5;		133:		LEFT TAB
 	DB	134;		134:
 	DB	135;		135:
 	DB	  8;		136:		LEFT ARROW
 	DB	  9;		137:		RIGHT TAB
 	DB	 10;		138:		DOWN ARROW
-	DB	 11;		139:		PA3
+	DB	 21;		139:		PA3
 	DB	 12;		140:		CLEAR
 	DB	 13;		141:		CR
-	DB	 14;		142:		PA4
+	DB	 19;		142:		PA4
 	DB	143;		143:
 	DB	 16;		144:		PA5
 	DB	145;		145:
 	DB	146;		146:
 	DB	147;		147:
-	DB	 20;		148:		SHIFT PA1
-	DB	 21;		149:		SHIFT PA2
+	DB	148;		148:		SHIFT PA1
+	DB	149;		149:		SHIFT PA2
 
 	PAGE
 
 	DB	150;		150:
 	DB	151;		151:
 	DB	 24;		152:		RIGHT ARROW
-	DB	 25;		153:		SHIFT PA3
+	DB	153;		153:		SHIFT PA3
 	DB	 26;		154:		UP ARROW
 	DB	 27;		155:		SHIFT ESCAPE
-	DB	 28;		156:		SHIFT PA4
+	DB	156;		156:		SHIFT PA4
 	DB	157;		157:
-	DB	 30;		158:		SHIFT PA5
+	DB	158;		158:		SHIFT PA5
 	DB	159;		159:
 	DB	 32;		160:		SPACE
 	DB	 49;		161:		1 (NUMPAD)
@@ -366,17 +366,17 @@
 	DB	189;		189:
 	DB	 46;		190:		.
 	DB	131;		191:		PF4
-	DB	 18;		192:		SHIFT HOME
+	DB	192;		192:		SHIFT HOME
 	DB	134;		193:		PF7
 	DB	194;		194:
 	DB	195;		195:
 	DB	196;		196:
-	DB	  5;		197:		SHIFT LEFT TAB
+	DB	197;		197:		SHIFT LEFT TAB
 	DB	130;		198:		PF3
 	DB	199;		199:
-	DB	  8;		200:		SHIFT LEFT ARROW
+	DB	200;		200:		SHIFT LEFT ARROW
 	DB	201;		201:		SHIFT RIGHT TAB
-	DB	 10;		202:		SHIFT DOWN ARROW
+	DB	202;		202:		SHIFT DOWN ARROW
 	DB	132;		203:		PF5
 	DB	133;		204:		PF6
 	DB	205;		205:
@@ -390,9 +390,9 @@
 	DB	213;		213:
 	DB	128;		214:		PF1
 	DB	215;		215:
-	DB	 24;		216:		SHIFT RIGHT ARROW
+	DB	216;		216:		SHIFT RIGHT ARROW
 	DB	217;		217:
-	DB	 26;		218:		SHIFT UP ARROW
+	DB	218;		218:		SHIFT UP ARROW
 	DB	219;		219:
 	DB	220;		220:
 	DB	221;		221:

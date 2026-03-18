@@ -1,5 +1,5 @@
 	TITLE	OUTPUT CONVERSION TABLE
-; SUBTTL	DANISH
+; SUBTTL	FRENCH
 	PAGE
 
 ;              ASCII          OUTPUT            COMMENT
@@ -70,7 +70,7 @@
 	DB	 61;		 61:		=
 	DB	 62;		 62:		>
 	DB	 63;		 63:		?
-	DB	 64;		 64:		@
+	DB	  5;		 64:		@
 	DB	 65;		 65:		A
 	DB	 66;		 66:		B
 	DB	 67;		 67:		C
@@ -103,12 +103,12 @@
 	DB	 88;		 88:		X
 	DB	 89;		 89:		Y
 	DB	 90;		 90:		Z
-	DB	 91;		 91:		[
-	DB	 92;		 92:		\
-	DB	 93;		 93:		]
+	DB	 11;		 91:		[
+	DB	 12;		 92:		\
+	DB	 13;		 93:		]
 	DB	 94;		 94:		^
 	DB	 95;		 95:		_
-	DB	 96;		 96:		`
+	DB	 22;		 96:		`
 	DB	 97;		 97:		a
 	DB	 98;		 98:		b
 	DB	 99;		 99:		c
@@ -138,23 +138,23 @@
 	DB	120;		120:		x
 	DB	121;		121:		y
 	DB	122;		122:		z
-	DB	123;		123:		{
-	DB	124;		124:		|
+	DB	 27;		123:		{
+	DB	 28;		124:		|
 
 	PAGE
 
-	DB	125;		125:		}
-	DB	126;		126:		~
+	DB	 29;		125:		}
+	DB	 15;		126:		~
 	DB	127;		127:		RUBOUT
 
 	; TITLE INPUT CONVERSION TABLE
-	; SUBTTL DANISH
+	; SUBTTL FRENCH
 
 	PAGE
 
 ;             ASCII     INPUT		COMMENT
 	DB	  0;		  0:
-	DB	  1;		  1:		A-CTRL
+	DB	 17;		  1:		A-CTRL
 	DB	  2;		  2:		B-CTRL
 	DB	  3;		  3:		C-CTRL
 	DB	  4;		  4:		D-CTRL
@@ -170,16 +170,16 @@
 	DB	 14;		 14:		N-CTRL
 	DB	 15;		 15:		O-CTRL
 	DB	 16;		 16:		P-CTRL
-	DB	 17;		 17:		Q-CTRL
+	DB	  1;		 17:		Q-CTRL
 	DB	 18;		 18:		R-CTRL
 	DB	 19;		 19:		S-CTRL
 	DB	 20;		 20:		T-CTRL
 	DB	 21;		 21:		U-CTRL
 	DB	 22;		 22:		V-CTRL
-	DB	 23;		 23:		W-CTRL
+	DB	 26;		 23:		W-CTRL
 	DB	 24;		 24:		X-CTRL
 	DB	 25;		 25:		Y-CTRL
-	DB	 26;		 26:		Z-CTRL
+	DB	 23;		 26:		Z-CTRL
 	DB	 27;		 27:		ESC
 	DB	 28;		 28:
 	DB	 29;		 29:
@@ -221,7 +221,7 @@
 	DB	 62;		 62:		>
 	DB	 63;		 63:		?
 	DB	 64;		 64:		@
-	DB	 65;		 65:		A
+	DB	 81;		 65:		A
 	DB	 66;		 66:		B
 	DB	 67;		 67:		C
 	DB	 68;		 68:		D
@@ -236,11 +236,11 @@
 	DB	 74;		 74:		J
 	DB	 75;		 75:		K
 	DB	 76;		 76:		L
-	DB	 77;		 77:		M
+	DB	 91;		 77:		M
 	DB	 78;		 78:		N
 	DB	 79;		 79:		O
 	DB	 80;		 80:		P
-	DB	 81;		 81:		Q
+	DB	 65;		 81:		Q
 	DB	 82;		 82:		R
 	DB	 83;		 83:		S
 
@@ -249,17 +249,17 @@
 	DB	 84;		 84:		T
 	DB	 85;		 85:		U
 	DB	 86;		 86:		V
-	DB	 87;		 87:		W
+	DB	 90;		 87:		W
 	DB	 88;		 88:		X
 	DB	 89;		 89:		Y
-	DB	 90;		 90:		Z
-	DB	 91;		 91:		[
+	DB	 87;		 90:		Z
+	DB	 77;		 91:		[
 	DB	 92;		 92:		\
 	DB	 93;		 93:		]
 	DB	 94;		 94:		^
 	DB	 95;		 95:		_
 	DB	 96;		 96:		`
-	DB	 97;		 97:		a
+	DB	113;		 97:		a
 	DB	 98;		 98:		b
 	DB	 99;		 99:		c
 	DB	100;		100:		d
@@ -271,24 +271,24 @@
 	DB	106;		106:		j
 	DB	107;		107:		k
 	DB	108;		108:		l
-	DB	109;		109:		m
+	DB	123;		109:		m
 	DB	110;		110:		n
 	DB	111;		111:		o
 
 	PAGE
 
 	DB	112;		112:		p
-	DB	113;		113:		q
+	DB	 97;		113:		q
 	DB	114;		114:		r
 	DB	115;		115:		s
 	DB	116;		116:		t
 	DB	117;		117:		u
 	DB	118;		118:		v
-	DB	119;		119:		w
+	DB	122;		119:		w
 	DB	120;		120:		x
 	DB	121;		121:		y
-	DB	122;		122:		z
-	DB	123;		123:		{
+	DB	119;		122:		z
+	DB	109;		123:		{
 	DB	124;		124:		|
 
 	PAGE

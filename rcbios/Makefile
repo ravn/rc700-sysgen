@@ -6,6 +6,11 @@
 #   make rel14-maxi  - Build rel.1.4 BIOS (8" maxi, 58K)
 #   make verify      - Build all and verify against reference binaries
 #
+# Language selection (default: Danish):
+#   make rel23-mini KBLANG=US_ASCII
+#   make rel30-mini KBLANG=SWEDISH
+#   Available: DANISH SWEDISH GERMAN UK_ASCII US_ASCII FRENCH LIBRARY
+#
 # Patch and test:
 #   make patch-test  - Patch BIOS onto disk images and boot-test in emulator
 #
@@ -19,6 +24,14 @@
 
 ZMAC = ../zmac/bin/zmac
 ZMFLAGS = -z --dri -I src
+
+# Language conversion table: DANISH (default), SWEDISH, GERMAN,
+# UK_ASCII, US_ASCII, FRENCH, LIBRARY
+# Pass KBLANG=<language> to select. Omit or KBLANG=DANISH for default.
+KBLANG ?= DANISH
+ifneq ($(KBLANG),DANISH)
+ZMFLAGS += -D$(KBLANG)
+endif
 
 RC700 = $(HOME)/git/rc700
 EMU = $(RC700)/rc700-vt100
