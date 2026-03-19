@@ -45,7 +45,11 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
 
-ZLFLAGS = -m --list -create-app -Cz"--org 0"
+# z88dk library: provides intrinsic_ldi, intrinsic_outi, etc.
+# Only referenced symbols are linked — zero overhead if unused.
+ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
+
+ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
 # Disk image tools
 PATCH = python3 ../rcbios/patch_bios.py
