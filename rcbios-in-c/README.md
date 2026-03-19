@@ -231,25 +231,27 @@ from offset 0, and jumps there.
 **Disk layout (bios.cim, loaded by ROM to physical address 0x0000):**
 
 ```
-Offset  Size   Section     Source          Contents
-------  -----  ----------  -------------   --------------------------------
-0x0000    128  BOOT        boot_block.c    Boot pointer (→coldboot),
-                                           " RC702" signature, builddate
-0x0080    512  BOOT_DATA   boot_confi.c    CONFI defaults (128B) +
-                                           conversion tables (384B)
-0x0280     67  BOOT_CODE   boot_entry.c    coldboot() + relocate_bios()
-0x02C3    113  BIOS        bios_jump_vector_table.c     JP table + JTVARS + extended JP
-0x0334   4722  code+data   bios.c          BIOS code + const data
+Offset  Size   Section     Source              Contents
+------  -----  ----------  -----------------   --------------------------------
+0x0000    128  BOOT        boot_block.c        Boot pointer (→coldboot),
+                                               " RC702" signature, builddate
+0x0080    512  BOOT_DATA   boot_confi.c        CONFI defaults (128B) +
+                                               conversion tables (384B)
+0x0280    505  BOOT_CODE   boot_entry.c        coldboot() + relocate_bios()
+                           bios_hw_init.c      bios_hw_init() + IVT + setup
+0x0477    113  BIOS        bios_jump_vector_table.c  JP table + JTVARS
+0x04E8   4284  code+data   bios.c              BIOS code + const data
 ------  -----
 Total:  5542 bytes
-  Boot loader (0x0000-0x02C2):  707 bytes — discarded after boot
-  BIOS payload (0x02C3-end):   4835 bytes — relocated to BIOS_BASE
+  Boot loader (0x0000-0x0476): 1143 bytes — discarded after boot
+  BIOS payload (0x0477-end):   4397 bytes — relocated to BIOS_BASE
 ```
 
 The ROM loads the entire file to address 0x0000.  coldboot() copies
-the BIOS payload (offset 0x02C3 onward) to BIOS_BASE (0xDA00 for
+the BIOS payload (offset 0x0477 onward) to BIOS_BASE (0xDA00 for
 56K), copies CONFI and conversion tables to their runtime addresses,
-zeros BSS, and jumps to BIOS_BASE.
+zeros BSS, calls bios_hw_init (from BOOT_CODE, not yet overwritten),
+and jumps to bios_boot.
 
 **Runtime memory map (after relocation by coldboot, 56K system):**
 
@@ -262,11 +264,11 @@ Address         Size   Contents
 0xCA06-0xCA08           BDOS entry
 0xD500-0xD548      72  CONFI config block (copied at boot, init-only)
 0xDA00-0xDA70     113  BIOS JP table + JTVARS + extended JP
-0xDA71-0xEB5A    4330  BIOS code (compiled C)
-0xEB5B-0xECB0     342  BIOS const data (rodata)
-0xECB1-0xECC2      18  BIOS initialized data
-0xECE3-0xF2D0    1518  BSS (static variables, zeroed at boot)
-0xF2D1-0xF4FF     559  Free (BIOS stack growth headroom)
+0xDA71-0xE9A4    3892  BIOS code (compiled C)
+0xE9A5-0xEAFA     342  BIOS const data (rodata)
+0xEAFB-0xEB0C      18  BIOS initialized data
+0xEB2D-0xF11A    1518  BSS (static variables, zeroed at boot)
+0xF11B-0xF4FF     997  Free (BIOS stack growth headroom)
 0xF500-0xF5FF     256  BIOS stack (grows down)
 0xF600-0xF67F     128  IVT + interrupt stack (Mode 2, page-aligned)
 0xF680-0xF7FF     384  OUTCON/INCONV conversion tables
@@ -277,6 +279,9 @@ Address         Size   Contents
 All addresses from 0xDA00 onward are derived from `MSIZE` (default 56)
 via `BIOS_BASE = 0x3400 + (MSIZE-20)*1024 + 0x1600`.  Addresses from
 0xF500 upward are hardware-fixed (display, IVT alignment, work area).
+
+Moving bios_hw_init to BOOT_CODE freed 438 bytes from the resident
+BIOS (4835 → 4397), increasing stack headroom from 559 to 997 bytes.
 
 **Boot sequence (coldboot in boot_entry.c):**
 
