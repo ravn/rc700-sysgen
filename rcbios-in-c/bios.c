@@ -1681,12 +1681,19 @@ static byte sio_rd1(void)
 
 static byte ls_line;
 
+/* LINSEL entry: extract A=port, B=line from CP/M registers,
+ * then call C body.  Returns result in A (0=no CTS, 0xFF=CTS). */
 void bios_linsel(void) __naked
 {
     __asm__("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */
             "ld a, b                \n"
-            "ld (_ls_line), a       \n");  /* B=line (0-2) */
+            "ld (_ls_line), a       \n"); /* B=line (0-2) */
+    bios_linsel_body();
+    /* sdcccall(1) returns byte in A — correct for CP/M */
+}
 
+static byte bios_linsel_body(void)
+{
     /* Wait for all-sent (RR1 bit 0) */
     while (!(sio_rd1() & 0x01))
         ;
@@ -1698,14 +1705,12 @@ void bios_linsel(void) __naked
     sio_wr5(0x00);
     hal_ei();
 
-    if (ls_line == 0) {
-        __asm__("xor a                \n"
-                "ret                  \n");
-    }
+    if (ls_line == 0)
+        return 0;
 
     /* Select line: line=1→DTR only, line=2→DTR+RTS */
     {
-        static byte wr5val;
+        byte wr5val;
         wr5val = (byte)(ls_line << 1);      /* RTS bit position */
         hal_di();
         sio_wr5(wr5val);
@@ -1719,17 +1724,14 @@ void bios_linsel(void) __naked
     waitd(2);
 
     /* Check CTS (RR0 bit 5) — cached by ISR */
-    if ((ls_port ? rr0_b : rr0_a) & 0x20) {
-        __asm__("ld a, #0xFF           \n"
-                "ret                  \n");
-    }
+    if ((ls_port ? rr0_b : rr0_a) & 0x20)
+        return 0xFF;
 
     /* No CTS — release line */
     hal_di();
     sio_wr5(0x00);
     hal_ei();
-    __asm__("xor a                  \n"
-            "ret                    \n");
+    return 0;
 }
 
 /* EXIT (DA53): PROCEDURE DEF_EXIT_ROUTINE
