@@ -64,15 +64,54 @@ rather than linked in one step.
 4. **Faster iteration**: Changing bios.c only rebuilds the BIOS, not
    the boot sector.
 
+## Using z88dk CRT (without --no-crt)
+
+The classic z80 CRT (`z80_crt0.asm`) supports `CRT_INCLUDE_PREAMBLE`
+— a hook that includes `crt_preamble.asm` at the origin address,
+BEFORE the `start:` label.  This is where the JP table goes:
+
+```
+org 0xDA00        ← CRT_ORG_CODE
+JP table (113B)   ← crt_preamble.asm (= bios_page data)
+start:            ← CRT init: SP, BSS zero, heap, interrupts
+call _main        ← calls bios_boot_c (renamed to main)
+```
+
+The bios_boot JP entry jumps directly to `start:` (CRT init).
+All other JP entries jump to their normal functions.
+
+Benefits of using the CRT:
+- BSS zeroing handled by CRT (eliminates our manual LDIR)
+- Library support (memcpy, memset, intrinsics all link)
+- `atexit()` support if needed
+- Standard program structure with `main()`
+
+To enable: `-pragma-define:CRT_INCLUDE_PREAMBLE=1` and provide
+`crt_preamble.asm` in the include path containing the JP table data.
+
+### Loader dependencies on BIOS
+
+The loader (boot_entry.c) needs these values from the BIOS build:
+
+| Value | Current source | Standalone approach |
+|-------|---------------|---------------------|
+| BIOS physical offset | `_BOOT_CODE_tail` (linker) | Known from BOOT size |
+| Code+data size | `_bss_compiler_head - BIOS_BASE` (linker) | From BIOS .map or file size |
+| BSS address | `_bss_compiler_head` (linker) | From BIOS .map |
+| BSS size | `_bss_compiler_size` (linker) | From BIOS .map |
+
+With CRT: the CRT handles BSS zeroing, so the loader only needs to
+know the BIOS binary size (for LDIR copy).  BSS address/size are no
+longer the loader's concern.
+
 ## Constraints
 
 - **bios.c depends on CONFI data at CFG_ADDR (0xD500)**: The loader
   must copy CONFI defaults there before jumping to BIOS.  This is an
   implicit contract, not a link-time dependency.
 - **Conversion tables at CONV_ADDR (0xF680)**: Same — loader copies.
-- **BSS at 0xECE3-0xF2D1**: Loader must zero this region.
 - **IVT at 0xF600**: BIOS initializes this itself (setup_ivt).
-- **JP table at 0xDA00**: Part of the BIOS binary (bios_page.c).
+- **JP table at 0xDA00**: Via CRT_INCLUDE_PREAMBLE in preamble.asm.
 
 ## Implementation
 
