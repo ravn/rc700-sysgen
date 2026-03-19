@@ -21,9 +21,8 @@
     SECTION BOOT_DATA
     SECTION BOOT_CODE
 
-    SECTION BIOS
+    SECTION BIOS            ; JP table + JTVARS (const struct from bios_page.c)
     org 0xDA00
-    defs 113                ; JP table + JTVARS + extended JP (filled at boot)
 
     SECTION code_compiler
     SECTION rodata_compiler

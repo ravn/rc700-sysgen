@@ -577,90 +577,13 @@ static void setup_ivt(void)
 }
 
 /* ================================================================
- * BIOS page initialization (JP table + JTVARS at 0xDA00-0xDA70).
- *
- * The 113-byte BIOS page is reserved as zeros in crt0.asm.
- * This function fills in JP opcodes and addresses at boot time.
- * Called from bios_hw_init() before _cboot jumps to BIOSAD.
- * ================================================================ */
-
-/* Write a JP instruction (0xC3 addr16) at the given address. */
-static void set_jp(word addr, void *target)
-{
-    volatile byte *p = (volatile byte *)addr;
-    p[0] = 0xC3;
-    p[1] = (word)target & 0xFF;
-    p[2] = (word)target >> 8;
-}
-
-/* Forward declarations for all BIOS entry points */
-void bios_boot(void);
-void bios_wboot(void);
-byte bios_const(void);
-byte bios_conin(void);
-void bios_conout(byte c);
-void bios_list(void);
-void bios_punch(void);
-void bios_reader(void);
-void bios_home(void);
-word bios_seldsk(byte d);
-void bios_settrk(word t);
-void bios_setsec(word s);
-void bios_setdma(word a);
-byte bios_read(void);
-byte bios_write(byte type);
-byte bios_listst(void);
-word bios_sectran(word sec);
-void bios_wfitr(void);
-void bios_reads(void);
-void bios_linsel(void);
-void bios_exit(void);
-void bios_clock(void);
-void bios_hrdfmt(void);
-
-static void init_bios_page(void)
-{
-    /* Standard CP/M 2.2 BIOS jump table (17 entries at 0xDA00) */
-    set_jp(0xDA00, bios_boot);
-    set_jp(0xDA03, bios_wboot);
-    set_jp(0xDA06, bios_const);
-    set_jp(0xDA09, bios_conin);
-    set_jp(0xDA0C, bios_conout);
-    set_jp(0xDA0F, bios_list);
-    set_jp(0xDA12, bios_punch);
-    set_jp(0xDA15, bios_reader);
-    set_jp(0xDA18, bios_home);
-    set_jp(0xDA1B, bios_seldsk);
-    set_jp(0xDA1E, bios_settrk);
-    set_jp(0xDA21, bios_setsec);
-    set_jp(0xDA24, bios_setdma);
-    set_jp(0xDA27, bios_read);
-    set_jp(0xDA2A, bios_write);
-    set_jp(0xDA2D, bios_listst);
-    set_jp(0xDA30, bios_sectran);
-
-    /* JTVARS at 0xDA33: already zero from relocation (cboot zeroes it).
-     * fd0_term at 0xDA47 must be 0xFF. */
-    *((volatile byte *)0xDA47) = 0xFF;
-
-    /* Extended jump table (0xDA49+) */
-    /* 0xDA49: reserved byte (already 0) */
-    set_jp(0xDA4A, bios_wfitr);
-    set_jp(0xDA4D, bios_reads);
-    set_jp(0xDA50, bios_linsel);
-    set_jp(0xDA53, bios_exit);
-    set_jp(0xDA56, bios_clock);
-    set_jp(0xDA59, bios_hrdfmt);
-}
-
-/* ================================================================
  * Hardware initialization (called from crt0.asm after relocation)
  * ================================================================ */
 
 void bios_hw_init(void)
 {
-    /* Initialize JP table and JTVARS before anything else */
-    init_bios_page();
+    /* JP table and JTVARS are const-initialized in bios_page.c.
+     * No runtime init needed — linker resolves all JP addresses. */
 
     /* Set up interrupt vector table and IM2 before any device init */
     setup_ivt();
