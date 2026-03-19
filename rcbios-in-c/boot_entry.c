@@ -45,7 +45,7 @@ extern const byte conv_tables[384];
 /* Hardware init (in BIOS section, runs after relocation) */
 extern void bios_hw_init(void);
 
-/* Cold boot body — called from coldboot() with valid SP (ROM provides it).
+/* Cold boot body — called from coldboot() to relocate. SP not set yet so no stack-using functions allowed.
  * Relocates BIOS, copies config data, zeroes BSS.
  *
  * sdcc inlines memcpy as LDIR and memset as LDIR (large) or DJNZ (small).
@@ -66,7 +66,7 @@ static void relocate_bios(void)
 
     /* Zero BSS.  Cannot use memset() here because __bss_compiler_size
      * is a linker symbol, not a compile-time constant — sdcc emits a
-     * library call instead of inlining LDIR. */
+     * library call instead of inlining LDIR. TODO:  Can this be circumvented? */
     {
         byte *p = &_bss_compiler_head;
         word n = (word)&_bss_compiler_size;
@@ -79,13 +79,15 @@ static void relocate_bios(void)
 extern void bios_boot(void);
 
 /* Cold boot entry point.  Called by ROM via boot pointer at offset 0.
- * __naked: no prologue/epilogue (SP changes mid-function, can't have
- * compiler-generated push/pop). */
+ * __naked: no prologue/epilogue.
+ *
+ * The ROM sets SP to 0xBFFF (safe TPA memory below CCP).  Interrupts
+ * are disabled throughout — bios_boot() eventually enables them after
+ * setting SP to the BIOS private stack at 0xF500. */
 void coldboot(void) __naked
 {
     __asm__("di\n");
     relocate_bios();
-    __asm__("ld sp, #0x0080\n");       /* switch to CP/M DMA buffer area */
     bios_hw_init();
-    bios_boot();                       /* enter BIOS cold boot — never returns */
+    bios_boot();                       /* sets SP to 0xF500, never returns */
 }
