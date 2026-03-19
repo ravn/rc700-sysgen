@@ -87,5 +87,5 @@ void cboot(void) __naked
     cboot_body();
     __asm__("ld sp, #0x0080\n");       /* switch to CP/M DMA buffer area */
     bios_hw_init();
-    __asm__("jp _bios_boot\n");        /* enter BIOS cold boot — never returns */
+    bios_boot();                       /* enter BIOS cold boot — never returns */
 }
