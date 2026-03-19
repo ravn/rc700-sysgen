@@ -569,7 +569,13 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
 };
 
 /* Set the Z80 I register.  sdcccall(1) passes byte param in A,
- * so the inline ld i,a picks it up directly. */
+ * so the inline ld i,a picks it up directly.
+ *
+ * Must NOT be declared inline — inlining removes the call boundary
+ * and with it the sdcccall(1) guarantee that A holds the parameter.
+ * sdcc has no input operand syntax for inline asm (unlike GCC), so
+ * the compiler can't see the dependency and optimizes away the load.
+ * Tested: inline version emits ld i,a without ld a,page — wrong. */
 static void set_i_reg(byte page)
 {
     (void)page;
