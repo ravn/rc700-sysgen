@@ -653,8 +653,8 @@ void bios_hw_init(void)
     /* Clear display buffer with spaces */
     memset(DISPLAY_ROW(0), ' ', sizeof(Display));
 
-    /* Clear work area (0xFFD1-0xFFFF with zeros) */
-    memset((void *)0xFFD1, 0, 0x002F);
+    /* Clear work area (curx through end of 64K address space) */
+    memset((void *)(WORK_ADDR + 1), 0, 0xFFFF - WORK_ADDR);
 
     /* CRT 8275: reset and program */
     _port_crt_cmd = 0x00;       /* reset */
@@ -740,7 +740,7 @@ static void jump_ccp(byte drive) __naked;
 /* Cold boot entry — sets BIOS stack then calls bios_boot_c. */
 void bios_boot(void) __naked
 {
-    __asm__("ld sp, #0xF500\n");       /* use BIOS private stack */
+    __asm__("ld sp, #" STR(BIOS_STACK) "\n");       /* use BIOS private stack */
     bios_boot_c();
 }
 
@@ -817,7 +817,7 @@ static void jump_ccp(byte drive) __naked
 {
     (void)drive;
     __asm__("ld c, a               \n"
-            "jp 0xC400             \n"); /* CCP_BASE */
+            "jp 0xC400             \n"); /* CCP_BASE (56K) */
 }
 
 void bios_wboot(void) __naked
@@ -1741,10 +1741,10 @@ void bios_linsel(void) __naked
  * The callback must NOT enable interrupts and must return via RET. */
 void bios_exit(void) __naked
 {
-    __asm__("ld (0xFFE5), hl        \n"  /* warmjp = callback address */
-            "ex de, hl              \n"
-            "ld (0xFFDF), hl        \n"  /* timer1 = countdown */
-            "ret                    \n");
+    __asm__("ld (" STR(WARMJP_ADDR) "), hl \n"  /* warmjp = callback address */
+            "ex de, hl                   \n"
+            "ld (" STR(TIMER1_ADDR) "), hl \n" /* timer1 = countdown */
+            "ret                         \n");
 }
 
 /* CLOCK (DA56): PROCEDURE CLOCK
@@ -1758,13 +1758,13 @@ void bios_clock(void) __naked
     __asm__("or a                   \n"
             "jr z, _clock_set       \n"
             "di                     \n"  /* read clock */
-            "ld de, (0xFFFC)        \n"  /* rtc0 */
-            "ld hl, (0xFFFE)        \n"  /* rtc2 */
+            "ld de, (" STR(RTC0_ADDR) ") \n"
+            "ld hl, (" STR(RTC2_ADDR) ") \n"
             "ei                     \n"
             "ret                    \n"
             "_clock_set:            \n"
-            "ld (0xFFFC), de        \n"  /* set clock */
-            "ld (0xFFFE), hl        \n"
+            "ld (" STR(RTC0_ADDR) "), de \n"  /* set clock */
+            "ld (" STR(RTC2_ADDR) "), hl \n"
             "ret                    \n");
 }
 
@@ -1820,7 +1820,7 @@ void bios_hrdfmt(void) { }
 static inline void isr_enter(void) __naked
 {
     __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #0xF600       \n"
+            "ld sp, #" STR(ISTACK_ADDR) " \n"
             "push af              \n");
 }
 
@@ -1835,7 +1835,7 @@ static inline void isr_exit(void) __naked
 static inline void isr_enter_full(void) __naked
 {
     __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #0xF600       \n"
+            "ld sp, #" STR(ISTACK_ADDR) " \n"
             "push af              \n"
             "push bc              \n"
             "push de              \n"

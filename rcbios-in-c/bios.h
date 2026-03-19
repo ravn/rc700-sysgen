@@ -68,6 +68,7 @@ typedef struct {
                              * Identity = no conversion. */
 } ConvTables;
 
+#define BIOS_STACK  0xF500      /* BIOS private stack top (grows down) */
 #define CONV_ADDR   0xF680      /* runtime address of conversion tables */
 #ifndef HOST_TEST
 #define CONV (*(volatile ConvTables *)CONV_ADDR)
@@ -215,7 +216,15 @@ typedef struct {
 } WorkArea;
 
 #ifndef HOST_TEST
-#define W (*(volatile WorkArea *)0xFFD0)
+#define WORK_ADDR   0xFFD0      /* work area base address */
+#define W (*(volatile WorkArea *)WORK_ADDR)
+
+/* Absolute addresses for work area fields (used in inline asm).
+ * These MUST match the WorkArea struct layout above. */
+#define TIMER1_ADDR 0xFFDF      /* WorkArea.timer1 */
+#define WARMJP_ADDR 0xFFE5      /* WorkArea.warmjp */
+#define RTC0_ADDR   0xFFFC      /* WorkArea.rtc0 */
+#define RTC2_ADDR   0xFFFE      /* WorkArea.rtc2 */
 #else
 extern volatile WorkArea _workarea;
 #define W _workarea
