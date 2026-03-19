@@ -1,10 +1,30 @@
-/* boot_entry.c — Cold boot initialization (BOOT section).
+/* boot_entry.c — Cold boot initialization (BOOT_CODE section).
  *
- * Compiled with --codeseg BOOT so code runs at physical address 0x0000,
- * not at BIOS runtime address.  Executes before BIOS relocation.
+ * Compiled with --codeseg BOOT_CODE so code runs at physical addresses
+ * after the BOOT data sections, not at BIOS runtime address.
+ * Executes before BIOS relocation.
  *
  * The ROM (ROA375) loads Track 0 to address 0x0000, sets SP to 0xBFFF,
  * and jumps to the boot pointer at offset 0.  That points to cboot().
+ *
+ * Memory layout during cboot execution:
+ *
+ *   Physical (loaded by ROM)       Runtime (after relocation)
+ *   ─────────────────────────      ──────────────────────────
+ *   0x0000  BOOT header (128B)     0x0000  CP/M zero page
+ *   0x0080  CONFI defaults (128B)  ──→ CFG_ADDR (0xD500, CCP area)
+ *   0x0100  Conv tables (384B)     ──→ 0xF680 (OUTCON/INCONV)
+ *   0x0280  Boot code (this file)  (discarded after boot)
+ *   0x02CE+ BIOS binary            ──→ 0xDA00 (BIOS_BASE)
+ *                                      0xDA00  JP table + JTVARS (113B)
+ *                                      0xDA71+ BIOS code
+ *                                      BSS     ──→ zeroed by cboot
+ *                                      0xF600  IVT + interrupt stack
+ *                                      0xF680  OUTCON/INCONV (384B)
+ *                                      0xF800  Display memory (80×25)
+ *
+ * All memcpy/memset calls MUST be inlined by sdcc (no library available).
+ * The Makefile checks boot_entry.c.lis for any call _mem* and fails.
  */
 
 #include <string.h>
