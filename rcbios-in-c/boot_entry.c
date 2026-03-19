@@ -5,9 +5,9 @@
  * Executes before BIOS relocation.
  *
  * The ROM (ROA375) loads Track 0 to address 0x0000, sets SP to 0xBFFF,
- * and jumps to the boot pointer at offset 0.  That points to cboot().
+ * and jumps to the boot pointer at offset 0.  That points to coldboot().
  *
- * Memory layout during cboot execution:
+ * Memory layout during coldboot execution:
  *
  *   Physical (loaded by ROM)       Runtime (after relocation)
  *   ─────────────────────────      ──────────────────────────
@@ -18,7 +18,7 @@
  *   0x02CE+ BIOS binary            ──→ 0xDA00 (BIOS_BASE)
  *                                      0xDA00  JP table + JTVARS (113B)
  *                                      0xDA71+ BIOS code
- *                                      BSS     ──→ zeroed by cboot
+ *                                      BSS     ──→ zeroed by coldboot
  *                                      0xF600  IVT + interrupt stack
  *                                      0xF680  OUTCON/INCONV (384B)
  *                                      0xF800  Display memory (80×25)
@@ -45,12 +45,12 @@ extern const byte conv_tables[384];
 /* Hardware init (in BIOS section, runs after relocation) */
 extern void bios_hw_init(void);
 
-/* Cold boot body — called from cboot() with valid SP (ROM provides it).
+/* Cold boot body — called from coldboot() with valid SP (ROM provides it).
  * Relocates BIOS, copies config data, zeroes BSS.
  *
  * sdcc inlines memcpy as LDIR and memset as LDIR (large) or DJNZ (small).
  * No library functions are linked — verified in the .asm listing. */
-static void cboot_body(void)
+static void relocate_bios(void)
 {
     /* Relocate BIOS section from physical to runtime address.
      * BIOS binary starts right after the last BOOT sub-section. */
@@ -81,10 +81,10 @@ extern void bios_boot(void);
 /* Cold boot entry point.  Called by ROM via boot pointer at offset 0.
  * __naked: no prologue/epilogue (SP changes mid-function, can't have
  * compiler-generated push/pop). */
-void cboot(void) __naked
+void coldboot(void) __naked
 {
     __asm__("di\n");
-    cboot_body();
+    relocate_bios();
     __asm__("ld sp, #0x0080\n");       /* switch to CP/M DMA buffer area */
     bios_hw_init();
     bios_boot();                       /* enter BIOS cold boot — never returns */

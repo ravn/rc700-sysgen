@@ -230,16 +230,16 @@ from offset 0, and jumps there.
 ```
 Offset  Section     Source file     Contents
 ------  ----------  -------------   -----------------------------------------
-0x0000  BOOT        boot_block.c      Boot pointer (→cboot), " RC702" signature,
+0x0000  BOOT        boot_block.c      Boot pointer (→coldboot), " RC702" signature,
                                     build timestamp, zero-padded to 128 bytes
 0x0080  BOOT_DATA   boot_confi.c     CONFI defaults (128B) + conversion tables
                                     (384B) = 512 bytes
-0x0280  BOOT_CODE   boot_entry.c    cboot(), boot_copy(), boot_zero() helpers
+0x0280  BOOT_CODE   boot_entry.c    coldboot(), boot_copy(), boot_zero() helpers
 0x02CE+ BIOS        bios_page.c     Const JP table (17+6 entries) + JTVARS
                     bios.c          All BIOS code (ISRs, disk I/O, display, etc.)
 ```
 
-**Runtime addresses (after relocation by cboot):**
+**Runtime addresses (after relocation by coldboot):**
 
 ```
 0x0000-0x00FF   CP/M zero page (warm boot JP, IOBYTE, BDOS entry)
@@ -247,13 +247,13 @@ Offset  Section     Source file     Contents
 0xCA06          BDOS entry
 0xDA00-0xDA70   BIOS JP table + JTVARS + extended JP (from bios_page.c)
 0xDA71+         BIOS code (from bios.c)
-0xEF00+         BSS (static variables, zeroed by cboot)
+0xEF00+         BSS (static variables, zeroed by coldboot)
 0xF600          Interrupt stack + IVT (Z80 Mode 2, 256-byte aligned)
 0xF680          OUTCON/INCONV conversion tables (copied from BOOT_DATA)
 0xF800          Display refresh memory (80×25)
 ```
 
-**Boot sequence (cboot in boot_entry.c):**
+**Boot sequence (coldboot in boot_entry.c):**
 
 1. DI (disable interrupts)
 2. LDIR: copy BIOS section from physical offset to 0xDA00 (runtime address)
@@ -271,7 +271,7 @@ Offset  Section     Source file     Contents
 | crt0.asm | — | Section ordering and org addresses (linker scaffolding, no code) |
 | boot_block.c | BOOT | Boot sector header: pointer, signature, timestamp |
 | boot_confi.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
-| boot_entry.c | BOOT_CODE | Cold boot: cboot(), LDIR-based copy/zero helpers |
+| boot_entry.c | BOOT_CODE | Cold boot: coldboot(), LDIR-based copy/zero helpers |
 | bios_page.c | BIOS | Const JP table + JTVARS (linker-resolved function pointers) |
 | bios.c | code_compiler | All BIOS logic: ISRs, console, disk, serial, display |
 | bios.h | — | Structs, macros, port definitions, memory map |

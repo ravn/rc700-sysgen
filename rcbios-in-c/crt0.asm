@@ -6,13 +6,13 @@
 ; BOOT sections (physical address 0x0000, loaded by ROM from Track 0):
 ;   BOOT       — boot header: pointer, signature, builddate (boot_block.c)
 ;   BOOT_DATA  — CONFI defaults + conversion tables (boot_confi.c)
-;   BOOT_CODE  — cold boot code: cboot(), LDIR helpers (boot_entry.c)
+;   BOOT_CODE  — cold boot code: coldboot(), LDIR helpers (boot_entry.c)
 ;
-; BIOS section (runtime address 0xDA00, relocated by cboot):
+; BIOS section (runtime address 0xDA00, relocated by coldboot):
 ;   BIOS       — JP table + JTVARS reservation (filled by init_bios_page)
 ;   code_compiler, rodata_compiler, data_compiler — compiled C code
 ;
-; BSS (not stored on disk, zeroed by cboot):
+; BSS (not stored on disk, zeroed by coldboot):
 ;   BSS, bss_compiler
 
     SECTION BOOT
