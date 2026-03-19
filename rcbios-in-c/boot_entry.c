@@ -7,6 +7,7 @@
  * and jumps to the boot pointer at offset 0.  That points to cboot().
  */
 
+#include <string.h>
 #include "bios.h"
 
 /* Linker symbols for section boundaries.
@@ -24,51 +25,34 @@ extern const byte conv_tables[384];
 /* Hardware init (in BIOS section, runs after relocation) */
 extern void bios_hw_init(void);
 
-/* LDIR-based block copy: dst=HL, src=DE, count on stack (sdcccall 1). */
-static void boot_copy(void *dst, const void *src, word count) __naked
-{
-    (void)dst; (void)src; (void)count;
-    __asm__("ex de, hl        \n"   /* HL=src, DE=dst (LDIR convention) */
-            "pop af            \n"   /* return address */
-            "pop bc            \n"   /* count */
-            "push af           \n"   /* restore return address */
-            "ldir              \n"
-            "ret               \n");
-}
-
-/* LDIR-based block zero: dst=HL, count=DE (sdcccall 1). */
-static void boot_zero(void *dst, word count) __naked
-{
-    (void)dst; (void)count;
-    __asm__("ld (hl), #0       \n"
-            "ld b, d           \n"
-            "ld c, e           \n"
-            "ld e, l           \n"
-            "ld d, h           \n"
-            "inc de            \n"
-            "dec bc            \n"
-            "ldir              \n"
-            "ret               \n");
-}
-
 /* Cold boot body — called from cboot() with valid SP (ROM provides it).
- * Relocates BIOS, copies config data, zeroes BSS. */
+ * Relocates BIOS, copies config data, zeroes BSS.
+ *
+ * sdcc inlines memcpy as LDIR and memset as LDIR (large) or DJNZ (small).
+ * No library functions are linked — verified in the .asm listing. */
 static void cboot_body(void)
 {
     /* Relocate BIOS section from physical to runtime address.
      * BIOS binary starts right after the last BOOT sub-section. */
-    boot_copy((void *)BIOS_BASE,
-              &_BOOT_CODE_tail,
-              (word)&_bss_compiler_head - BIOS_BASE);
+    memcpy((void *)BIOS_BASE,
+           &_BOOT_CODE_tail,
+           (word)&_bss_compiler_head - BIOS_BASE);
 
     /* Copy CONFI defaults to CCP area (init-only) */
-    boot_copy((void *)CFG_ADDR, &confi_defaults, 128);
+    memcpy((void *)CFG_ADDR, confi_defaults, 128);
 
     /* Copy conversion tables to runtime address */
-    boot_copy((void *)0xF680, &conv_tables, 384);
+    memcpy((void *)0xF680, conv_tables, 384);
 
-    /* Zero BSS */
-    boot_zero((void *)&_bss_compiler_head, (word)&_bss_compiler_size);
+    /* Zero BSS.  Cannot use memset() here because __bss_compiler_size
+     * is a linker symbol, not a compile-time constant — sdcc emits a
+     * library call instead of inlining LDIR. */
+    {
+        byte *p = &_bss_compiler_head;
+        word n = (word)&_bss_compiler_size;
+        *p = 0;
+        memcpy(p + 1, p, n - 1);
+    }
 }
 
 /* Cold boot entry point.  Called by ROM via boot pointer at offset 0.
