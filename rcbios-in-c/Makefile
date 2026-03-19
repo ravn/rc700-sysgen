@@ -69,7 +69,7 @@ IMG_DATA = $(HOME)/Downloads/PolyPascal_3.10.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test
+.PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test
 
 all: bios size
 
@@ -205,6 +205,31 @@ mame-maxi: bios
 		-flop1 /tmp/bios_c_maxi.mfi \
 		-flop2 /tmp/bios_c_data.mfi \
 		-skip_gameinfo -window -resolution 1100x720
+
+# CONOTEST.COM — display control code exercise test (standard CP/M program)
+conotest: conout_test.c builddate.h
+	export PATH="$(Z88DK)/bin:$$PATH" && \
+	export ZCCCFG="$(ZCCCFG)" && \
+	$(ZCC) +cpm -clib=sdcc_iy -SO3 --opt-code-size \
+		-Cs"--std-sdcc99" -create-app -o conotest conout_test.c
+	@echo "conotest.com: $$(wc -c < conotest.com | tr -d ' ') bytes"
+
+# Combined boot + conout test (disk test + conout exercise)
+conout-test: bios conotest
+	cp $(IMG_MAXI) /tmp/bios_c_conout.imd
+	$(PATCH) /tmp/bios_c_conout.imd bios.cim
+	$(CPMCP) -f rc702-8dd /tmp/bios_c_conout.imd conotest.com 0:CONOTEST.COM
+	$(eval KBBUF_ADDR := $(shell grep '_kbbuf ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
+	$(eval KBHEAD_ADDR := $(shell grep '_kbhead ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
+	sed 's/KBBUF_ADDR/$(KBBUF_ADDR)/g; s/KBHEAD_ADDR/$(KBHEAD_ADDR)/g' mame_conout_autotest.lua > /tmp/bios_c_conout_test.lua
+	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_conout.imd \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-nothrottle \
+		-autoboot_script /tmp/bios_c_conout_test.lua
+	@echo "--- CONOUT test result ---"
+	@cat /tmp/conout_result.txt
+	@grep -q '^PASS' /tmp/conout_result.txt && echo "=== CONOUT TEST PASSED ===" || (echo "=== CONOUT TEST FAILED ==="; exit 1)
 
 # Automated MAME disk test (maxi, with Lua script)
 # Usage: make mame-test [IMG=/path/to/image.imd]
