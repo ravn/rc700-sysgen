@@ -298,7 +298,7 @@ typedef struct {
 } JTVars;
 
 #ifndef HOST_TEST
-#define JT (*(volatile JTVars *)0xDA33)
+#define JT (*(volatile JTVars *)(BIOS_BASE + 0x33))  /* after 17 JP entries */
 #else
 extern volatile JTVars _jtvars;
 #define JT _jtvars
