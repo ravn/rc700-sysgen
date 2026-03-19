@@ -98,6 +98,14 @@ bios: crt0.asm boot_block.c boot_confi.c boot_entry.c bios_page.c bios.c hal.h b
 	cat bios_BOOT.bin > bios.cim; \
 	dd if=bios_BIOS.bin bs=1 count=$$CODESIZE 2>/dev/null >> bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
+	@SIG=$$(dd if=bios.cim bs=1 skip=8 count=6 2>/dev/null); \
+	if [ "$$SIG" != " RC702" ]; then \
+		echo "ERROR: RC702 signature not found at offset 8 in boot sector!"; \
+		echo "Expected ' RC702' at offset 0x08. Got: '$$SIG'"; \
+		xxd -s 0 -l 16 bios.cim; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
 	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \
 		echo "ERROR: IX/IY-relative addressing found in compiled code!"; \
 		echo "Local variables must be static (no recursion in BIOS)."; \
