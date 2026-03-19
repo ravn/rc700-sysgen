@@ -570,11 +570,10 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
 
 /* Set the Z80 I register.  sdcccall(1) passes byte param in A,
  * so the inline ld i,a picks it up directly. */
-static void set_i_reg(byte page) __naked
+static void set_i_reg(byte page)
 {
     (void)page;
-    __asm__("ld i, a\n"
-            "ret\n");
+    __asm__("ld i, a\n");
 }
 
 /* Copy IVT to page-aligned RAM and enable IM2 */
