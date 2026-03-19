@@ -290,6 +290,13 @@ to exclude BSS) to produce `bios.cim`.
   table in bios_page.c works — no runtime initialization needed.
 - Each Boot sub-section (BOOT, BOOT_DATA, BOOT_CODE) requires a
   separate .c file because `--codeseg`/`--constseg` flags are per-file.
+  Tested: `#pragma constseg` mid-file is **file-global, not positional**
+  — the last pragma wins for all const data in the file.  So two const
+  arrays in different sections cannot share a .c file.
+- sdcc rejects byte decomposition of function pointers in const
+  initializers (`(byte)(word)func` → "not a constant expression") but
+  accepts whole function pointers (`(fptr)func` → `DEFW _func`).
+  The JP table exploits this with `{ byte opcode, fptr target }` structs.
 
 ### ISR design
 
