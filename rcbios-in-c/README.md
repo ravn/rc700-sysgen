@@ -219,18 +219,77 @@ Accessed via macros (`curx`, `cury`, `timer1`, `fd0[n]`, etc.) that expand to
 `W.field` or `JT.field` where `W`/`JT` are volatile struct pointers. This
 generates efficient direct-address code and saved 33 bytes vs individual `__at()`.
 
+### Disk layout and boot process
+
+The BIOS binary (`bios.cim`) is written to Track 0 of the floppy disk.
+The ROM (ROA375) loads Track 0 to address 0x0000, reads the boot pointer
+from offset 0, and jumps there.
+
+**Track 0 layout (bios.cim):**
+
+```
+Offset  Section     Source file     Contents
+------  ----------  -------------   -----------------------------------------
+0x0000  BOOT        boot_hdr.c      Boot pointer (→cboot), " RC702" signature,
+                                    build timestamp, zero-padded to 128 bytes
+0x0080  BOOT_DATA   boot_data.c     CONFI defaults (128B) + conversion tables
+                                    (384B) = 512 bytes
+0x0280  BOOT_CODE   boot_entry.c    cboot(), boot_copy(), boot_zero() helpers
+0x02CE+ BIOS        bios_page.c     Const JP table (17+6 entries) + JTVARS
+                    bios.c          All BIOS code (ISRs, disk I/O, display, etc.)
+```
+
+**Runtime addresses (after relocation by cboot):**
+
+```
+0x0000-0x00FF   CP/M zero page (warm boot JP, IOBYTE, BDOS entry)
+0xC400          CCP base (56K system)
+0xCA06          BDOS entry
+0xDA00-0xDA70   BIOS JP table + JTVARS + extended JP (from bios_page.c)
+0xDA71+         BIOS code (from bios.c)
+0xEF00+         BSS (static variables, zeroed by cboot)
+0xF600          Interrupt stack + IVT (Z80 Mode 2, 256-byte aligned)
+0xF680          OUTCON/INCONV conversion tables (copied from BOOT_DATA)
+0xF800          Display refresh memory (80×25)
+```
+
+**Boot sequence (cboot in boot_entry.c):**
+
+1. DI (disable interrupts)
+2. LDIR: copy BIOS section from physical offset to 0xDA00 (runtime address)
+3. LDIR: copy CONFI defaults (128B) to CCP area (temporary, init-only)
+4. LDIR: copy conversion tables (384B) to 0xF680
+5. LDIR: zero BSS
+6. Set SP to 0x0080 (CP/M DMA buffer)
+7. Call `bios_hw_init()` (IVT, PIO, CTC, SIO, DMA, CRT, FDC init)
+8. JP 0xDA00 (BIOS cold boot entry)
+
+### Source files
+
+| File | Section | Description |
+|------|---------|-------------|
+| crt0.asm | — | Section ordering and org addresses (linker scaffolding, no code) |
+| boot_hdr.c | BOOT | Boot sector header: pointer, signature, timestamp |
+| boot_data.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
+| boot_entry.c | BOOT_CODE | Cold boot: cboot(), LDIR-based copy/zero helpers |
+| bios_page.c | BIOS | Const JP table + JTVARS (linker-resolved function pointers) |
+| bios.c | code_compiler | All BIOS logic: ISRs, console, disk, serial, display |
+| bios.h | — | Structs, macros, port definitions, memory map |
+| hal.h | — | Hardware abstraction: __sfr port declarations |
+
+Each C file is compiled into its own section via `--codeseg`/`--constseg`
+flags. The section ordering in crt0.asm determines the binary layout.
+The Makefile concatenates `bios_BOOT.bin` and `bios_BIOS.bin` (trimmed
+to exclude BSS) to produce `bios.cim`.
+
 ### z88dk notes
 
-- crt0.asm defines two sections: `BOOT` at `org 0x0000` (boot sector +
-  CONFI/danish data, 640 bytes) and `BIOS` at `org BIOSAD` (JP table +
-  C code).  The Makefile concatenates the two `.bin` outputs, trimming
-  BSS, to produce `bios.cim`.
 - `-pragma-define:CRT_ORG_CODE=0x0000` sets the binary output origin.
-- The ROM bootstrap loads Track 0 to 0x0000, reads the boot pointer
-  from offset 0, and jumps to `_cboot` in the boot sector.  `_cboot`
-  LDIRs the BIOS section from its physical location to runtime address
-  BIOSAD, copies CONFI/danish to their runtime locations, zeroes BSS,
-  then JPs to BIOSAD.
+- sdcc resolves function pointers in const struct initializers via
+  `DEFB`+`DEFW` with linker-resolved addresses.  This is how the JP
+  table in bios_page.c works — no runtime initialization needed.
+- Each Boot sub-section (BOOT, BOOT_DATA, BOOT_CODE) requires a
+  separate .c file because `--codeseg`/`--constseg` flags are per-file.
 
 ### ISR design
 
