@@ -28,6 +28,12 @@ KBLANG ?= DANISH
 # --disable-warning 296: suppressed because we use --no-crt and link NO stdlib.
 #   The build rule checks the map file for any accidentally-linked sdcccall(0)
 #   library functions (__div*, __mod*, __mul*) and fails if found.
+# ZFLAGS: common flags for compile (-c) and link steps.
+# ZLFLAGS: additional flags for the final link step only.
+#   -create-app: invoke appmake to split binary into BOOT/BIOS sections.
+#   -Cm"--binorg 0": tell appmake the binary starts at address 0
+#     (suppresses "could not get the code ORG" warning that occurs
+#     because --no-crt has no standard CRT to read the origin from).
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
          -Cs"--fomit-frame-pointer" \
@@ -37,8 +43,9 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
-         $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG)) \
-         -m --list -create-app
+         $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
+
+ZLFLAGS = -m --list -create-app -Cz--org -Cz0
 
 # Disk image tools
 PATCH = python3 ../rcbios/patch_bios.py
@@ -85,7 +92,7 @@ bios: crt0.asm boot_hdr.c boot_data.c boot_entry.c bios_page.c bios.c hal.h bios
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c boot_data.c -o boot_data.o && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c boot_entry.c -o boot_entry.o && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c bios_page.c -o bios_page.o && \
-	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c boot_hdr.o boot_data.o boot_entry.o bios_page.o
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios crt0.asm bios.c boot_hdr.o boot_data.o boot_entry.o bios_page.o
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 	CODESIZE=$$((0x$$BSS_HEAD - 0xDA00)); \
 	cat bios_BOOT.bin > bios.cim; \
