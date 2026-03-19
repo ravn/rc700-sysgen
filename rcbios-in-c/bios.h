@@ -68,8 +68,9 @@ typedef struct {
                              * Identity = no conversion. */
 } ConvTables;
 
+#define CONV_ADDR   0xF680      /* runtime address of conversion tables */
 #ifndef HOST_TEST
-#define CONV (*(volatile ConvTables *)0xF680)
+#define CONV (*(volatile ConvTables *)CONV_ADDR)
 #else
 extern volatile ConvTables _convtables;
 #define CONV _convtables

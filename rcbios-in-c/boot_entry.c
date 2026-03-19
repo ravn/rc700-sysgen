@@ -62,7 +62,7 @@ static void cboot_body(void)
     memcpy((void *)CFG_ADDR, confi_on_disk, 128);
 
     /* Copy conversion tables to runtime address */
-    memcpy((void *)0xF680, conv_tables, 384);
+    memcpy((void *)CONV_ADDR, conv_tables, 384);
 
     /* Zero BSS.  Cannot use memset() here because __bss_compiler_size
      * is a linker symbol, not a compile-time constant — sdcc emits a
