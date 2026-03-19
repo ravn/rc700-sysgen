@@ -1,4 +1,4 @@
-/* boot_data.c — CONFI defaults and conversion tables (BOOT_DATA section).
+/* boot_confi.c — CONFI defaults and conversion tables (BOOT_DATA section).
  *
  * Compiled with --codeseg BOOT_DATA --constseg BOOT_DATA so data lands
  * in the BOOT_DATA section, between the boot sector header and boot code.

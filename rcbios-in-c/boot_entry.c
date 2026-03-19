@@ -38,7 +38,7 @@ extern byte _BIOS_head;
 extern byte _bss_compiler_head;
 extern word _bss_compiler_size;
 
-/* Data blocks in BOOT_DATA section (defined in boot_data.c) */
+/* Data blocks in BOOT_DATA section (defined in boot_confi.c) */
 extern const byte confi_on_disk[128];
 extern const byte conv_tables[384];
 

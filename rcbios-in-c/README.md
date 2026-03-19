@@ -230,9 +230,9 @@ from offset 0, and jumps there.
 ```
 Offset  Section     Source file     Contents
 ------  ----------  -------------   -----------------------------------------
-0x0000  BOOT        boot_hdr.c      Boot pointer (→cboot), " RC702" signature,
+0x0000  BOOT        boot_block.c      Boot pointer (→cboot), " RC702" signature,
                                     build timestamp, zero-padded to 128 bytes
-0x0080  BOOT_DATA   boot_data.c     CONFI defaults (128B) + conversion tables
+0x0080  BOOT_DATA   boot_confi.c     CONFI defaults (128B) + conversion tables
                                     (384B) = 512 bytes
 0x0280  BOOT_CODE   boot_entry.c    cboot(), boot_copy(), boot_zero() helpers
 0x02CE+ BIOS        bios_page.c     Const JP table (17+6 entries) + JTVARS
@@ -269,8 +269,8 @@ Offset  Section     Source file     Contents
 | File | Section | Description |
 |------|---------|-------------|
 | crt0.asm | — | Section ordering and org addresses (linker scaffolding, no code) |
-| boot_hdr.c | BOOT | Boot sector header: pointer, signature, timestamp |
-| boot_data.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
+| boot_block.c | BOOT | Boot sector header: pointer, signature, timestamp |
+| boot_confi.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
 | boot_entry.c | BOOT_CODE | Cold boot: cboot(), LDIR-based copy/zero helpers |
 | bios_page.c | BIOS | Const JP table + JTVARS (linker-resolved function pointers) |
 | bios.c | code_compiler | All BIOS logic: ISRs, console, disk, serial, display |

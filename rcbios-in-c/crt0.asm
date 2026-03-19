@@ -4,8 +4,8 @@
 ; layout: section ordering and origin addresses that z88dk requires.
 ;
 ; BOOT sections (physical address 0x0000, loaded by ROM from Track 0):
-;   BOOT       — boot header: pointer, signature, builddate (boot_hdr.c)
-;   BOOT_DATA  — CONFI defaults + conversion tables (boot_data.c)
+;   BOOT       — boot header: pointer, signature, builddate (boot_block.c)
+;   BOOT_DATA  — CONFI defaults + conversion tables (boot_confi.c)
 ;   BOOT_CODE  — cold boot code: cboot(), LDIR helpers (boot_entry.c)
 ;
 ; BIOS section (runtime address 0xDA00, relocated by cboot):
