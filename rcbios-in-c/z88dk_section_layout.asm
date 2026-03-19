@@ -1,4 +1,4 @@
-; crt0.asm — Section ordering and origin addresses for z88dk linker.
+; z88dk_section_layout.asm — Section ordering and origin addresses for z88dk linker.
 ;
 ; All code and data are in C files. This file defines only the binary
 ; layout: section ordering and origin addresses that z88dk requires.

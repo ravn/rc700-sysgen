@@ -4,7 +4,7 @@ Goal: a pure C program with no assembly files.  Minimal inline asm is
 acceptable where the compiler cannot express the intent (DI/EI, SP
 manipulation, LDIR, port I/O).
 
-## Current Assembly in crt0.asm (~450 lines)
+## Current Assembly in z88dk_section_layout.asm (~450 lines)
 
 | Block | Lines | Bytes | Purpose |
 |-------|-------|-------|---------|
@@ -297,7 +297,7 @@ or explicit section attributes on each function/data block.
 1. Define `BiosPage` struct in bios.h
 2. Place it `__at(0xDA00)` in the BIOS section
 3. Add `init_jp_table()` to bios_hw_init() to fill JP opcodes
-4. Remove JP table and JTVARS from crt0.asm
+4. Remove JP table and JTVARS from z88dk_section_layout.asm
 5. Verify: build, check addresses in .map, boot in MAME
 
 ### Phase 2: _cboot as __naked + C body
@@ -309,18 +309,18 @@ or explicit section attributes on each function/data block.
 
 ### Phase 3: ISR shims as __naked C
 
-1. Move 4 shims from crt0.asm to bios.c as __naked functions
+1. Move 4 shims from z88dk_section_layout.asm to bios.c as __naked functions
 2. Verify: boot, test serial I/O (SNIOS depends on HL preservation)
 
 ### Phase 4: Data blocks as C arrays
 
 1. Move CONFI defaults and conversion tables to C const arrays
 2. Move boot header (pointer, signature) to C
-3. Minimal crt0.asm: only section ordering declarations remain
+3. Minimal z88dk_section_layout.asm: only section ordering declarations remain
 
 ### Phase 5: Externalize linker block definitions
 
-After phases 1-4, crt0.asm contains only SECTION declarations that
+After phases 1-4, z88dk_section_layout.asm contains only SECTION declarations that
 control linker ordering.  Goal: move these out of the project entirely.
 
 Options:

@@ -52,13 +52,13 @@ void isr_pio_par(void) __interrupt(17);
 /* ================================================================
  * CONFI configuration block
  *
- * Loaded from disk (Track 0 offset 0x080) by _cboot in crt0.asm.
+ * Loaded from disk (Track 0 offset 0x080) by coldboot in boot_entry.c.
  * Copied to 0xD500 (CCP area, valid during init only).
  * bios_hw_init() reads CFG fields to configure CTC, SIO, DMA, CRT, FDC.
  * ================================================================ */
 
 /* ================================================================
- * Disk data tables (moved from crt0.asm)
+ * Disk data tables
  * ================================================================ */
 
 /* Sector translation tables */
@@ -597,7 +597,7 @@ static void setup_ivt(void)
 }
 
 /* ================================================================
- * Hardware initialization (called from crt0.asm after relocation)
+ * Hardware initialization (called from coldboot after relocation)
  * ================================================================ */
 
 void bios_hw_init(void)
@@ -753,7 +753,7 @@ void bios_boot(void) __naked
 void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
-     * _cboot from _conv_tables (crt0.asm) before we get here. */
+     * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
@@ -1798,7 +1798,7 @@ void bios_hrdfmt(void) { }
  * The RC702 requires interrupts disabled in ALL interrupt handlers.
  * Nested interrupts are never safe on this hardware.
  *
- * The (N) numbers match the IVT index in crt0.asm (_itrtab):
+ * The (N) numbers match the IVT index in bios.c (_itrtab):
  *   0-1  CTC1 ch0-1: isr_dummy          (__interrupt, baud rate)
  *   2    CTC1 ch2: isr_crt            (__naked)
  *   3    CTC1 ch3: isr_floppy         (__naked)

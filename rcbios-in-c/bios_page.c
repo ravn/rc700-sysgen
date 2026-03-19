@@ -6,7 +6,7 @@
  * The JP entries use { opcode, function_pointer } pairs. sdcc emits
  * DEFB+DEFW with linker-resolved addresses — no runtime init needed.
  *
- * This replaces both the defs 113 in crt0.asm and init_bios_page()
+ * This replaces both the defs 113 in the former crt0.asm and init_bios_page()
  * in bios.c.
  */
 

@@ -4,7 +4,7 @@
  * in the BOOT_DATA section, between the boot sector header and boot code.
  *
  * Disk layout:
- *   0x000-0x07F  BOOT sector (header + padding, in crt0.asm)
+ *   0x000-0x07F  BOOT sector (header + padding, in boot_block.c)
  *   0x080-0x0FF  CONFI defaults (128 bytes, this file)
  *   0x100-0x27F  Conversion tables (384 bytes, this file)
  *   0x280+       Boot code (boot_entry.c, BOOT_CODE section)

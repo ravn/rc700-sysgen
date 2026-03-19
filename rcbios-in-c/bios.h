@@ -2,7 +2,7 @@
  * bios.h — RC702 CP/M BIOS declarations
  *
  * Constants, memory layout, and extern declarations for fixed-address
- * variables defined in crt0.asm via DEFC.
+ * variables and structs at fixed addresses.
  */
 
 #ifndef BIOS_H
@@ -254,12 +254,11 @@ extern volatile WorkArea _workarea;
  *
  * Located immediately after the BIOS JP table (17 entries at 0xDA00)
  * and before the extended JP table (0xDA49+).  Storage is in the
- * crt0.asm binary at fixed addresses.
  *
  * External programs (CONFI.COM, FORMAT.COM, etc.) depend on these
  * exact addresses — they are part of the BIOS ABI.
  *
- * Initialized to zeros/0xFF by crt0.asm defb directives; populated
+ * Initialized by bios_page.c const struct (zeros + fd0_term=0xFF); populated
  * by bios_hw_init() and bios_boot() from CONFI block values.
  */
 typedef struct {
@@ -280,7 +279,7 @@ typedef struct {
                              *   1 = RC850/RC855
                              *   2 = ITT3290
                              *   3 = RC703
-                             * Set to 0 by crt0.asm; not modified by BIOS. */
+                             * Set to 0 by bios_page.c initializer; not modified by BIOS. */
     byte  fd0[16];          /* 0xDA37-0xDA46: active drive format table.
                              * One format code per drive (A-P).
                              * Initialized from CFG.infd[] at boot.
@@ -362,7 +361,7 @@ extern word trkoff[];
 /*
  * CONFI configuration block — hardware init parameters.
  *
- * Disk-resident on Track 0 at offset 0x080 (_confi_on_disk in crt0.asm).
+ * Disk-resident on Track 0 at offset 0x080 (_confi_on_disk in boot_confi.c).
  * _cboot copies it to runtime 0xD500 (CCP area, valid during init only).
  *
  * CONFI.COM reads/writes this block on disk; restoring the original

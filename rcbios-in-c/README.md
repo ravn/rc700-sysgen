@@ -64,7 +64,7 @@ improvements:
   in assembly — everything else is C.
 - **IVT in C**: Interrupt vector table moved from assembly to a C function pointer
   array, letting the linker resolve ISR addresses.
-- **Dual-section layout**: crt0.asm defines two sections (BOOT at 0x0000, BIOS at
+- **Dual-section layout**: z88dk_section_layout.asm defines two sections (BOOT at 0x0000, BIOS at
   BIOSAD) with CONFI block and Danish tables included as binary files.  The Makefile
   concatenates the two sections into bios.cim.
 - **MSIZE-derived addresses**: All CP/M addresses (CCP, BDOS, BIOS) derived from
@@ -146,7 +146,7 @@ Analysis of remaining raw pointer patterns that could use cleaner C constructs:
 
 **Priority 1 — CTC config** (`bios_hw_init`, lines 585-590):
 `*((&mode0) + 2)` etc. — taking address of scalar then offsetting. The 8 CTC bytes
-are contiguous in crt0.asm. Declaring as `extern byte ctc_config[8]` allows
+are contiguous in z88dk_section_layout.asm. Declaring as `extern byte ctc_config[8]` allows
 `ctc_config[2]` indexing.
 
 **Priority 2 — DPH struct** (`bios_hw_init` lines 663-672, `bios_seldsk` lines 1434-1438):
@@ -184,10 +184,10 @@ make clean   # remove build artifacts
 
 ## Architecture
 
-The design has a clean separation: crt0.asm handles the binary layout, boot
+The design has a clean separation: z88dk_section_layout.asm handles the binary layout, boot
 relocation, and JP table; everything else is C.
 
-- **crt0.asm**: Two-section layout (BOOT at 0x0000, BIOS at BIOSAD).  Boot sector
+- **z88dk_section_layout.asm**: Two-section layout (BOOT at 0x0000, BIOS at BIOSAD).  Boot sector
   with relocator (_cboot), JP table, JTVARS, section ordering.  All CP/M addresses
   derived from `MSIZE EQU 56`.
 - **confi.bin** / **danish.bin**: CONFI config block (128 bytes) and Danish conversion
@@ -268,7 +268,7 @@ Offset  Section     Source file     Contents
 
 | File | Section | Description |
 |------|---------|-------------|
-| crt0.asm | — | Section ordering and org addresses (linker scaffolding, no code) |
+| z88dk_section_layout.asm | — | Section ordering and org addresses (linker scaffolding, no code) |
 | boot_block.c | BOOT | Boot sector header: pointer, signature, timestamp |
 | boot_confi.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
 | boot_entry.c | BOOT_CODE | Cold boot: coldboot(), LDIR-based copy/zero helpers |
@@ -278,7 +278,7 @@ Offset  Section     Source file     Contents
 | hal.h | — | Hardware abstraction: __sfr port declarations |
 
 Each C file is compiled into its own section via `--codeseg`/`--constseg`
-flags. The section ordering in crt0.asm determines the binary layout.
+flags. The section ordering in z88dk_section_layout.asm determines the binary layout.
 The Makefile concatenates `bios_BOOT.bin` and `bios_BIOS.bin` (trimmed
 to exclude BSS) to produce `bios.cim`.
 
@@ -351,7 +351,7 @@ interrupts permanently disabled — a fatal error on the RC702 where all
 I/O (keyboard, floppy, serial) is interrupt-driven.  The number N is an
 sdcc-internal slot that prevents duplicate declarations; it does NOT
 generate or affect the interrupt vector table (sdcc has no IVT generation
-for Z80).  Our vector table is defined manually in crt0.asm (`itrtab`
+for Z80).  Our vector table is defined manually in z88dk_section_layout.asm (`itrtab`
 at 0xDB00).  Every `__interrupt` in this project must use `(N)`.
 
 #### Which ISRs use which form
@@ -383,7 +383,7 @@ The binary on disk contains only code and initialized data. Uninitialized variab
 (buffers, driver state) are in BSS, placed by the linker after all code/data sections,
 not written to the floppy image. The cold boot code zeroes BSS using
 `__bss_compiler_head`/`__bss_compiler_size` linker symbols. Section ordering is
-declared explicitly in crt0.asm to ensure all code/data sections precede BSS.
+declared explicitly in z88dk_section_layout.asm to ensure all code/data sections precede BSS.
 The `code_string` section (containing `memset`) must be declared before BSS to
 avoid linker placement errors.
 
@@ -530,7 +530,7 @@ zeroed by `_cboot`.
 |----------|------:|--:|
 | Boot sector (compiled) | 128 | 2.0 |
 | _cboot + free INIT space | 1280 | 20.3 |
-| crt0.asm (JP table + JTVARS) | 112 | 1.8 |
+| z88dk_section_layout.asm (JP table + JTVARS) | 112 | 1.8 |
 | C code (functions + ISRs) | ~4250 | 67.2 |
 | Const data (CONFI + tables + library) | ~554 | 8.8 |
 | **Total** | **6324** | |
@@ -565,7 +565,7 @@ at offset 0x100; that region is now part of the free INIT space.
 ## Next steps
 
 - MINI (5.25") support (currently 110 bytes over mini limit, needs size reduction)
-- Move remaining inline asm from bios.c to crt0.asm (see `PURE_C_PLAN.md`)
+- Move remaining inline asm from bios.c to z88dk_section_layout.asm (see `PURE_C_PLAN.md`)
 - Remove BGSTAR code (~419 bytes, largest single saving)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
 - Further peephole rules and micro-optimizations
