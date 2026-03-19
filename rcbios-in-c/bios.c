@@ -817,13 +817,17 @@ static void wboot_c(void)
 #endif
 }
 
+/* CCP entry point — __at makes the linker resolve the address from
+ * the CCP_BASE expression, avoiding a hardcoded hex literal in asm. */
+static volatile byte __at(CCP_BASE) ccp_entry_point;
+
 /* Jump to CCP entry point — does not return.
  * drive (in A via sdcccall(1)) is moved to C for CP/M convention. */
 static void jump_ccp(byte drive) __naked
 {
     (void)drive;
     __asm__("ld c, a               \n"
-            "jp 0xC400             \n"); /* CCP_BASE (56K) */
+            "jp _ccp_entry_point   \n");
 }
 
 void bios_wboot(void) __naked
