@@ -1,8 +1,6 @@
 /*
  * bios.c — RC702 CP/M BIOS in C (REL30)
  *
- * Phase 1d: CRT ISR, keyboard input, console output with escape sequences.
- *
  * ISRs that switch stacks use __naked wrappers (not __interrupt) because
  * sdcc's __interrupt puts EI at the function START, enabling nested
  * interrupts.  The CRT ISR must run with interrupts disabled to protect
@@ -14,6 +12,14 @@
  * BGSTAR (background bitmap): 250-byte position bitmap
  * (1 bit per screen cell). Ctrl-S enters background mode; Ctrl-T
  * returns to foreground; Ctrl-U clears only foreground characters.
+ *
+ * CONVENTION: __naked shim functions that translate CP/M register-based
+ * calling conventions to sdcccall(1) are placed IMMEDIATELY BEFORE their
+ * corresponding C body function.  This allows the z88dk peephole
+ * optimizer to eliminate the tail call (jp/call) when the body is the
+ * next function.  Do not insert other functions between a shim and its
+ * body.  Example: bios_list() + bios_list_body(), bios_boot() +
+ * bios_boot_c(), bios_linsel() + bios_linsel_body().
  */
 
 #include <string.h>
