@@ -64,7 +64,7 @@ improvements:
   in assembly — everything else is C.
 - **IVT in C**: Interrupt vector table moved from assembly to a C function pointer
   array, letting the linker resolve ISR addresses.
-- **Dual-section layout**: crt0.asm defines two sections (BOOT at 0x0000, BIOS at
+- **Dual-section layout**: z88dk_section_layout.asm defines two sections (BOOT at 0x0000, BIOS at
   BIOSAD) with CONFI block and Danish tables included as binary files.  The Makefile
   concatenates the two sections into bios.cim.
 - **MSIZE-derived addresses**: All CP/M addresses (CCP, BDOS, BIOS) derived from
@@ -146,7 +146,7 @@ Analysis of remaining raw pointer patterns that could use cleaner C constructs:
 
 **Priority 1 — CTC config** (`bios_hw_init`, lines 585-590):
 `*((&mode0) + 2)` etc. — taking address of scalar then offsetting. The 8 CTC bytes
-are contiguous in crt0.asm. Declaring as `extern byte ctc_config[8]` allows
+are contiguous in z88dk_section_layout.asm. Declaring as `extern byte ctc_config[8]` allows
 `ctc_config[2]` indexing.
 
 **Priority 2 — DPH struct** (`bios_hw_init` lines 663-672, `bios_seldsk` lines 1434-1438):
@@ -184,10 +184,10 @@ make clean   # remove build artifacts
 
 ## Architecture
 
-The design has a clean separation: crt0.asm handles the binary layout, boot
+The design has a clean separation: z88dk_section_layout.asm handles the binary layout, boot
 relocation, and JP table; everything else is C.
 
-- **crt0.asm**: Two-section layout (BOOT at 0x0000, BIOS at BIOSAD).  Boot sector
+- **z88dk_section_layout.asm**: Two-section layout (BOOT at 0x0000, BIOS at BIOSAD).  Boot sector
   with relocator (_cboot), JP table, JTVARS, section ordering.  All CP/M addresses
   derived from `MSIZE EQU 56`.
 - **confi.bin** / **danish.bin**: CONFI config block (128 bytes) and Danish conversion
@@ -219,18 +219,112 @@ Accessed via macros (`curx`, `cury`, `timer1`, `fd0[n]`, etc.) that expand to
 `W.field` or `JT.field` where `W`/`JT` are volatile struct pointers. This
 generates efficient direct-address code and saved 33 bytes vs individual `__at()`.
 
+### Disk layout and boot process
+
+The BIOS binary (`bios.cim`) is written to Track 0 of the floppy disk.
+The ROM (ROA375) loads Track 0 to address 0x0000, reads the boot pointer
+from offset 0, and jumps there.
+
+**Track 0 layout (bios.cim):**
+
+```
+Offset  Section     Source file     Contents
+------  ----------  -------------   -----------------------------------------
+0x0000  BOOT        boot_block.c      Boot pointer (→coldboot), " RC702" signature,
+                                    build timestamp, zero-padded to 128 bytes
+0x0080  BOOT_DATA   boot_confi.c     CONFI defaults (128B) + conversion tables
+                                    (384B) = 512 bytes
+0x0280  BOOT_CODE   boot_entry.c    coldboot(), boot_copy(), boot_zero() helpers
+0x02CE+ BIOS        bios_page.c     Const JP table (17+6 entries) + JTVARS
+                    bios.c          All BIOS code (ISRs, disk I/O, display, etc.)
+```
+
+**Runtime addresses (after relocation by coldboot):**
+
+```
+0x0000-0x00FF   CP/M zero page (warm boot JP, IOBYTE, BDOS entry)
+0xC400          CCP base (56K system)
+0xCA06          BDOS entry
+0xDA00-0xDA70   BIOS JP table + JTVARS + extended JP (from bios_page.c)
+0xDA71+         BIOS code (from bios.c)
+0xEF00+         BSS (static variables, zeroed by coldboot)
+0xF600          Interrupt stack + IVT (Z80 Mode 2, 256-byte aligned)
+0xF680          OUTCON/INCONV conversion tables (copied from BOOT_DATA)
+0xF800          Display refresh memory (80×25)
+```
+
+**Boot sequence (coldboot in boot_entry.c):**
+
+1. DI (disable interrupts)
+2. LDIR: copy BIOS section from physical offset to 0xDA00 (runtime address)
+3. LDIR: copy CONFI defaults (128B) to CCP area (temporary, init-only)
+4. LDIR: copy conversion tables (384B) to 0xF680
+5. LDIR: zero BSS
+6. Set SP to 0x0080 (CP/M DMA buffer)
+7. Call `bios_hw_init()` (IVT, PIO, CTC, SIO, DMA, CRT, FDC init)
+8. JP 0xDA00 (BIOS cold boot entry)
+
+### Source files
+
+| File | Section | Description |
+|------|---------|-------------|
+| z88dk_section_layout.asm | — | Section ordering and org addresses (linker scaffolding, no code) |
+| boot_block.c | BOOT | Boot sector header: pointer, signature, timestamp |
+| boot_confi.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
+| boot_entry.c | BOOT_CODE | Cold boot: coldboot(), LDIR-based copy/zero helpers |
+| bios_page.c | BIOS | Const JP table + JTVARS (linker-resolved function pointers) |
+| bios.c | code_compiler | All BIOS logic: ISRs, console, disk, serial, display |
+| bios.h | — | Structs, macros, port definitions, memory map |
+| hal.h | — | Hardware abstraction: __sfr port declarations |
+
+Each C file is compiled into its own section via `--codeseg`/`--constseg`
+flags. The section ordering in z88dk_section_layout.asm determines the binary layout.
+The Makefile concatenates `bios_BOOT.bin` and `bios_BIOS.bin` (trimmed
+to exclude BSS) to produce `bios.cim`.
+
 ### z88dk notes
 
-- crt0.asm defines two sections: `BOOT` at `org 0x0000` (boot sector +
-  CONFI/danish data, 640 bytes) and `BIOS` at `org BIOSAD` (JP table +
-  C code).  The Makefile concatenates the two `.bin` outputs, trimming
-  BSS, to produce `bios.cim`.
 - `-pragma-define:CRT_ORG_CODE=0x0000` sets the binary output origin.
-- The ROM bootstrap loads Track 0 to 0x0000, reads the boot pointer
-  from offset 0, and jumps to `_cboot` in the boot sector.  `_cboot`
-  LDIRs the BIOS section from its physical location to runtime address
-  BIOSAD, copies CONFI/danish to their runtime locations, zeroes BSS,
-  then JPs to BIOSAD.
+- **appmake `+rom`**: z88dk's binary output tool.  `-create-app` on the
+  final link invokes `z88dk-appmake +rom` which splits the linker output
+  into per-section `.bin` files (`bios_BOOT.bin`, `bios_BIOS.bin`, etc.).
+  The Makefile concatenates these to produce `bios.cim`.
+  - With `--no-crt`, appmake cannot determine the code origin from the
+    CRT file and warns: "could not get the code ORG".  Suppressed with
+    `-Cz--org -Cz0` which passes `--org 0` to appmake (BOOT starts at
+    0x0000).
+  - `--code-fence N` restricts CODE below address N.  Could be used
+    to catch BIOS code overflowing into BSS/IVT (e.g. `--code-fence 0xF600`).
+  - **`-Cz`** passes options to appmake.  Not `-Cm` (that's m4) or
+    `-Ca` (assembler) or `-Cl` (linker).
+  - In Makefiles, `-Cz"--org 0"` works (make handles quoting).
+    On the command line, split as `-Cz--org -Cz0` to avoid shell issues.
+- **z88dk intrinsics** (`#include <intrinsic.h>`): compile to single
+  Z80 instructions with no call overhead.  Available intrinsics:
+  - `intrinsic_di()`, `intrinsic_ei()` — DI/EI
+  - `intrinsic_halt()` — HALT
+  - `intrinsic_nop()` — NOP
+  - `intrinsic_im_0()`, `intrinsic_im_1()`, `intrinsic_im_2()` — IM 0/1/2
+  - `intrinsic_reti()`, `intrinsic_retn()` — RETI/RETN
+  - `intrinsic_ex_de_hl()` — EX DE,HL
+  - `intrinsic_exx()` — EXX
+  - `intrinsic_swap_endian_16(n)` — byte-swap 16-bit value
+  - `intrinsic_return_bc()`, `intrinsic_return_de()` — return BC/DE as pointer
+  - `intrinsic_stub()` — no-op (placeholder)
+  All preserve registers (marked `__preserves_regs`).  Tested: `intrinsic_di()`
+  emits a single `di` instruction even inside `__naked` functions.
+- sdcc resolves function pointers in const struct initializers via
+  `DEFB`+`DEFW` with linker-resolved addresses.  This is how the JP
+  table in bios_page.c works — no runtime initialization needed.
+- Each Boot sub-section (BOOT, BOOT_DATA, BOOT_CODE) requires a
+  separate .c file because `--codeseg`/`--constseg` flags are per-file.
+  Tested: `#pragma constseg` mid-file is **file-global, not positional**
+  — the last pragma wins for all const data in the file.  So two const
+  arrays in different sections cannot share a .c file.
+- sdcc rejects byte decomposition of function pointers in const
+  initializers (`(byte)(word)func` → "not a constant expression") but
+  accepts whole function pointers (`(fptr)func` → `DEFW _func`).
+  The JP table exploits this with `{ byte opcode, fptr target }` structs.
 
 ### ISR design
 
@@ -257,7 +351,7 @@ interrupts permanently disabled — a fatal error on the RC702 where all
 I/O (keyboard, floppy, serial) is interrupt-driven.  The number N is an
 sdcc-internal slot that prevents duplicate declarations; it does NOT
 generate or affect the interrupt vector table (sdcc has no IVT generation
-for Z80).  Our vector table is defined manually in crt0.asm (`itrtab`
+for Z80).  Our vector table is defined manually in z88dk_section_layout.asm (`itrtab`
 at 0xDB00).  Every `__interrupt` in this project must use `(N)`.
 
 #### Which ISRs use which form
@@ -289,7 +383,7 @@ The binary on disk contains only code and initialized data. Uninitialized variab
 (buffers, driver state) are in BSS, placed by the linker after all code/data sections,
 not written to the floppy image. The cold boot code zeroes BSS using
 `__bss_compiler_head`/`__bss_compiler_size` linker symbols. Section ordering is
-declared explicitly in crt0.asm to ensure all code/data sections precede BSS.
+declared explicitly in z88dk_section_layout.asm to ensure all code/data sections precede BSS.
 The `code_string` section (containing `memset`) must be declared before BSS to
 avoid linker placement errors.
 
@@ -401,14 +495,14 @@ D522h–DA00h     1246  Free INIT space (zeros, available for init code)
 DA00h–DA33h       51  BIOS JP table (17 entries, fixed address)
 DA33h–DA4Ah       23  JTVARS (CONFI configuration variables)
 DA4Ah–DA70h       38  Extended JP table entries (INTJP0-10)
-DA70h+          ....  C code, ISRs, const data (incl. confi_defaults)
+DA70h+          ....  C code, ISRs, const data (incl. confi_on_disk)
 ```
 
 The INIT section (D480–DA00) is overwritten by CCP after cold boot;
 only the resident portion (DA00+) must fit the system track.  The
 free INIT region (D522–DA00, 1246 bytes) can hold init-only code.
 
-The CONFI configuration block (72 bytes) is embedded as `confi_defaults`
+The CONFI configuration block (72 bytes) is embedded as `confi_on_disk`
 in the resident C code section.  The original disk layout placed this
 at offset 0x080; restoring that for CONFI.COM is a long-term goal.
 
@@ -436,7 +530,7 @@ zeroed by `_cboot`.
 |----------|------:|--:|
 | Boot sector (compiled) | 128 | 2.0 |
 | _cboot + free INIT space | 1280 | 20.3 |
-| crt0.asm (JP table + JTVARS) | 112 | 1.8 |
+| z88dk_section_layout.asm (JP table + JTVARS) | 112 | 1.8 |
 | C code (functions + ISRs) | ~4250 | 67.2 |
 | Const data (CONFI + tables + library) | ~554 | 8.8 |
 | **Total** | **6324** | |
@@ -471,7 +565,7 @@ at offset 0x100; that region is now part of the free INIT space.
 ## Next steps
 
 - MINI (5.25") support (currently 110 bytes over mini limit, needs size reduction)
-- Move remaining inline asm from bios.c to crt0.asm (see `PURE_C_PLAN.md`)
+- Move remaining inline asm from bios.c to z88dk_section_layout.asm (see `PURE_C_PLAN.md`)
 - Remove BGSTAR code (~419 bytes, largest single saving)
 - Shared stack-switch trampoline (~50 bytes saving, see `OPTIMIZATION_PLAN.md`)
 - Further peephole rules and micro-optimizations

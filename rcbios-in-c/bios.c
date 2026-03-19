@@ -1,8 +1,6 @@
 /*
  * bios.c — RC702 CP/M BIOS in C (REL30)
  *
- * Phase 1d: CRT ISR, keyboard input, console output with escape sequences.
- *
  * ISRs that switch stacks use __naked wrappers (not __interrupt) because
  * sdcc's __interrupt puts EI at the function START, enabling nested
  * interrupts.  The CRT ISR must run with interrupts disabled to protect
@@ -14,9 +12,18 @@
  * BGSTAR (background bitmap): 250-byte position bitmap
  * (1 bit per screen cell). Ctrl-S enters background mode; Ctrl-T
  * returns to foreground; Ctrl-U clears only foreground characters.
+ *
+ * CONVENTION: __naked shim functions that translate CP/M register-based
+ * calling conventions to sdcccall(1) are placed IMMEDIATELY BEFORE their
+ * corresponding C body function.  This allows the z88dk peephole
+ * optimizer to eliminate the tail call (jp/call) when the body is the
+ * next function.  Do not insert other functions between a shim and its
+ * body.  Example: bios_list() + bios_list_body(), bios_boot() +
+ * bios_boot_c(), bios_linsel() + bios_linsel_body().
  */
 
 #include <string.h>
+#include <intrinsic.h>
 #include "hal.h"
 #include "bios.h"
 #include "builddate.h"
@@ -45,13 +52,13 @@ void isr_pio_par(void) __interrupt(17);
 /* ================================================================
  * CONFI configuration block
  *
- * Loaded from disk (Track 0 offset 0x080) by _cboot in crt0.asm.
+ * Loaded from disk (Track 0 offset 0x080) by coldboot in boot_entry.c.
  * Copied to 0xD500 (CCP area, valid during init only).
  * bios_hw_init() reads CFG fields to configure CTC, SIO, DMA, CRT, FDC.
  * ================================================================ */
 
 /* ================================================================
- * Disk data tables (moved from crt0.asm)
+ * Disk data tables
  * ================================================================ */
 
 /* Sector translation tables */
@@ -567,21 +574,37 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
     isr_pio_par,            /* 17: PIO ch.B — parallel output */
 };
 
+/* Set the Z80 I register.  sdcccall(1) passes byte param in A,
+ * so the inline ld i,a picks it up directly.
+ *
+ * Must NOT be declared inline — inlining removes the call boundary
+ * and with it the sdcccall(1) guarantee that A holds the parameter.
+ * sdcc has no input operand syntax for inline asm (unlike GCC), so
+ * the compiler can't see the dependency and optimizes away the load.
+ * Tested: inline version emits ld i,a without ld a,page — wrong. */
+static void set_i_reg(byte page)
+{
+    (void)page;
+    __asm__("ld i, a\n");
+}
+
 /* Copy IVT to page-aligned RAM and enable IM2 */
 static void setup_ivt(void)
 {
     memcpy((void *)IVT_ADDR, ivt_template, sizeof(ivt_template));
-    __asm__("ld a, #0xF6          \n"   /* IVT_ADDR >> 8 */
-            "ld i, a              \n"
-            "im 2                 \n");
+    set_i_reg(IVT_ADDR >> 8);
+    intrinsic_im_2();
 }
 
 /* ================================================================
- * Hardware initialization (called from crt0.asm after relocation)
+ * Hardware initialization (called from coldboot after relocation)
  * ================================================================ */
 
 void bios_hw_init(void)
 {
+    /* JP table and JTVARS are const-initialized in bios_page.c.
+     * No runtime init needed — linker resolves all JP addresses. */
+
     /* Set up interrupt vector table and IM2 before any device init */
     setup_ivt();
     /* PIO: set interrupt vectors and modes */
@@ -636,8 +659,8 @@ void bios_hw_init(void)
     /* Clear display buffer with spaces */
     memset(DISPLAY_ROW(0), ' ', sizeof(Display));
 
-    /* Clear work area (0xFFD1-0xFFFF with zeros) */
-    memset((void *)0xFFD1, 0, 0x002F);
+    /* Clear work area (curx through end of 64K address space) */
+    memset((void *)(WORK_ADDR + 1), 0, 0xFFFF - WORK_ADDR);
 
     /* CRT 8275: reset and program */
     _port_crt_cmd = 0x00;       /* reset */
@@ -699,13 +722,6 @@ void bios_hw_init(void)
  * BIOS entry points
  * ================================================================ */
 
-void bios_boot(void) __naked
-{
-    __asm__("ld sp, #0xF500       \n"  /* use BIOS private stack */
-            "jp _bios_boot_c      \n");
-}
-
-
 static void puts_p(const char *s)
 {
     while (*s)
@@ -727,10 +743,17 @@ static void readi(void)
 static void wboot_c(void);
 static void jump_ccp(byte drive) __naked;
 
+/* Cold boot entry — sets BIOS stack then calls bios_boot_c. */
+void bios_boot(void) __naked
+{
+    __asm__("ld sp, #" STR(BIOS_STACK) "\n");       /* use BIOS private stack */
+    bios_boot_c();
+}
+
 void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
-     * _cboot from _conv_tables (crt0.asm) before we get here. */
+     * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
@@ -794,18 +817,22 @@ static void wboot_c(void)
 #endif
 }
 
+/* CCP entry point — __at makes the linker resolve the address from
+ * the CCP_BASE expression, avoiding a hardcoded hex literal in asm. */
+static volatile byte __at(CCP_BASE) ccp_entry_point;
+
 /* Jump to CCP entry point — does not return.
  * drive (in A via sdcccall(1)) is moved to C for CP/M convention. */
 static void jump_ccp(byte drive) __naked
 {
     (void)drive;
     __asm__("ld c, a               \n"
-            "jp 0xC400             \n"); /* CCP_BASE */
+            "jp _ccp_entry_point   \n");
 }
 
 void bios_wboot(void) __naked
 {
-    __asm__("ld sp, #0xF500       \n"  /* use BIOS private stack */
+    __asm__("ld sp, #" STR(BIOS_STACK) " \n"  /* use BIOS private stack */
             "jp _wboot_c          \n");
 }
 
@@ -1285,8 +1312,8 @@ static void specc(void)
 void bios_conout(byte c) __naked
 {
     (void)c;
-    __asm__("ld a, c               \n");
-    /* fall through to bios_conout_c */
+    __asm__("ld a, c               \n"
+            "jp _bios_conout_c     \n"); /* explicit tail call */
 }
 
 static void bios_conout_c(byte c)
@@ -1301,7 +1328,14 @@ static void bios_conout_c(byte c)
 }
 
 /* LIST: transmit character on SIO Channel B (printer).
- * Entry/exit shim in crt0.asm handles C↔A register translation. */
+ * CP/M passes char in C register; sdcccall(1) expects A.
+ * __naked shim translates, then falls through to body. */
+void bios_list(void) __naked
+{
+    __asm__("ld a, c               \n"
+            "jp _bios_list_body    \n"); /* explicit tail call */
+}
+
 void bios_list_body(byte c)
 {
     while (!prtflg)
@@ -1317,7 +1351,17 @@ void bios_list_body(byte c)
 }
 
 /* PUNCH: transmit character on SIO Channel A (serial).
- * Entry/exit shim in crt0.asm handles C↔A register translation. */
+ * CP/M passes char in C; sdcccall(1) expects A.
+ * HL preserved for SNIOS (CP/NET). */
+void bios_punch(void) __naked
+{
+    __asm__("push hl     \n"
+            "ld a, c     \n"
+            "call _bios_punch_body \n"
+            "pop hl      \n"
+            "ret         \n");
+}
+
 void bios_punch_body(byte c)
 {
     while (!ptpflg)
@@ -1333,7 +1377,17 @@ void bios_punch_body(byte c)
 }
 
 /* READER: read character from SIO Channel A ring buffer with RTS flow control.
- * Return shim in crt0.asm does ld c,a after call. */
+ * CP/M expects return in A; also copies to C.
+ * HL preserved for SNIOS (CP/NET). */
+void bios_reader(void) __naked
+{
+    __asm__("push hl     \n"
+            "call _bios_reader_body \n"
+            "pop hl      \n"
+            "ld c, a     \n"
+            "ret         \n");
+}
+
 byte bios_reader_body(void)
 {
     byte ch, new_tail, used;
@@ -1355,6 +1409,23 @@ byte bios_reader_body(void)
     }
 
     return ch;
+}
+
+/* READS (DA4D): Reader status.
+ * Returns: A=0xFF if character available, A=0x00 if empty.
+ * HL preserved for SNIOS (CP/NET). */
+void bios_reads(void) __naked
+{
+    __asm__("push hl     \n"
+            "call _bios_reads_body \n"
+            "pop hl      \n"
+            "ld c, a     \n"
+            "ret         \n");
+}
+
+byte bios_reads_body(void)
+{
+    return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 
 void bios_home(void)
@@ -1519,8 +1590,8 @@ byte bios_read(void)
 byte bios_write(byte type) __naked
 {
     (void)type;
-    __asm__("ld a, c               \n");
-    /* fall through to bios_write_c */
+    __asm__("ld a, c               \n"
+            "jp _bios_write_c      \n"); /* explicit tail call */
 }
 
 static byte bios_write_c(byte wt)
@@ -1569,14 +1640,6 @@ void bios_wfitr(void) __naked
             "ld a, (_rstab + 1)     \n"
             "ld c, a                \n"
             "ret                    \n");
-}
-
-/* READS (DA4D): Reader status.
- * Returns: A=0xFF if character available in RX ring buffer,
- *          A=0x00 if buffer empty. */
-byte bios_reads_body(void)
-{
-    return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 
 /* LINSEL (DA50): PROCEDURE LINE_SELECT
@@ -1628,12 +1691,19 @@ static byte sio_rd1(void)
 
 static byte ls_line;
 
+/* LINSEL entry: extract A=port, B=line from CP/M registers,
+ * then call C body.  Returns result in A (0=no CTS, 0xFF=CTS). */
 void bios_linsel(void) __naked
 {
     __asm__("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */
             "ld a, b                \n"
-            "ld (_ls_line), a       \n");  /* B=line (0-2) */
+            "ld (_ls_line), a       \n"); /* B=line (0-2) */
+    bios_linsel_body();
+    /* sdcccall(1) returns byte in A — correct for CP/M */
+}
 
+static byte bios_linsel_body(void)
+{
     /* Wait for all-sent (RR1 bit 0) */
     while (!(sio_rd1() & 0x01))
         ;
@@ -1645,14 +1715,12 @@ void bios_linsel(void) __naked
     sio_wr5(0x00);
     hal_ei();
 
-    if (ls_line == 0) {
-        __asm__("xor a                \n"
-                "ret                  \n");
-    }
+    if (ls_line == 0)
+        return 0;
 
     /* Select line: line=1→DTR only, line=2→DTR+RTS */
     {
-        static byte wr5val;
+        byte wr5val;
         wr5val = (byte)(ls_line << 1);      /* RTS bit position */
         hal_di();
         sio_wr5(wr5val);
@@ -1666,17 +1734,14 @@ void bios_linsel(void) __naked
     waitd(2);
 
     /* Check CTS (RR0 bit 5) — cached by ISR */
-    if ((ls_port ? rr0_b : rr0_a) & 0x20) {
-        __asm__("ld a, #0xFF           \n"
-                "ret                  \n");
-    }
+    if ((ls_port ? rr0_b : rr0_a) & 0x20)
+        return 0xFF;
 
     /* No CTS — release line */
     hal_di();
     sio_wr5(0x00);
     hal_ei();
-    __asm__("xor a                  \n"
-            "ret                    \n");
+    return 0;
 }
 
 /* EXIT (DA53): PROCEDURE DEF_EXIT_ROUTINE
@@ -1688,10 +1753,10 @@ void bios_linsel(void) __naked
  * The callback must NOT enable interrupts and must return via RET. */
 void bios_exit(void) __naked
 {
-    __asm__("ld (0xFFE5), hl        \n"  /* warmjp = callback address */
-            "ex de, hl              \n"
-            "ld (0xFFDF), hl        \n"  /* timer1 = countdown */
-            "ret                    \n");
+    __asm__("ld (" STR(WARMJP_ADDR) "), hl \n"  /* warmjp = callback address */
+            "ex de, hl                   \n"
+            "ld (" STR(TIMER1_ADDR) "), hl \n" /* timer1 = countdown */
+            "ret                         \n");
 }
 
 /* CLOCK (DA56): PROCEDURE CLOCK
@@ -1705,13 +1770,13 @@ void bios_clock(void) __naked
     __asm__("or a                   \n"
             "jr z, _clock_set       \n"
             "di                     \n"  /* read clock */
-            "ld de, (0xFFFC)        \n"  /* rtc0 */
-            "ld hl, (0xFFFE)        \n"  /* rtc2 */
+            "ld de, (" STR(RTC0_ADDR) ") \n"
+            "ld hl, (" STR(RTC2_ADDR) ") \n"
             "ei                     \n"
             "ret                    \n"
             "_clock_set:            \n"
-            "ld (0xFFFC), de        \n"  /* set clock */
-            "ld (0xFFFE), hl        \n"
+            "ld (" STR(RTC0_ADDR) "), de \n"  /* set clock */
+            "ld (" STR(RTC2_ADDR) "), hl \n"
             "ret                    \n");
 }
 
@@ -1733,7 +1798,7 @@ void bios_hrdfmt(void) { }
  * The RC702 requires interrupts disabled in ALL interrupt handlers.
  * Nested interrupts are never safe on this hardware.
  *
- * The (N) numbers match the IVT index in crt0.asm (_itrtab):
+ * The (N) numbers match the IVT index in bios.c (_itrtab):
  *   0-1  CTC1 ch0-1: isr_dummy          (__interrupt, baud rate)
  *   2    CTC1 ch2: isr_crt            (__naked)
  *   3    CTC1 ch3: isr_floppy         (__naked)
@@ -1767,7 +1832,7 @@ void bios_hrdfmt(void) { }
 static inline void isr_enter(void) __naked
 {
     __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #0xF600       \n"
+            "ld sp, #" STR(ISTACK_ADDR) " \n"
             "push af              \n");
 }
 
@@ -1782,7 +1847,7 @@ static inline void isr_exit(void) __naked
 static inline void isr_enter_full(void) __naked
 {
     __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #0xF600       \n"
+            "ld sp, #" STR(ISTACK_ADDR) " \n"
             "push af              \n"
             "push bc              \n"
             "push de              \n"

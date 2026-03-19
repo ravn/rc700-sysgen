@@ -176,6 +176,31 @@ def write_markdown(tables, outpath):
                 f.write("```\n\n")
 
 
+def write_c_header(table, filepath):
+    """Write a C header file with the conversion table as a byte array initializer."""
+    name = table["name"]
+    all_bytes = table["output"] + table["input"] + table["semigraphic"]
+
+    with open(filepath, "w") as f:
+        f.write(f"/* {name} character conversion tables for RC702\n")
+        f.write(f" * Generated from CONFI.COM by extract_conv_tables.py\n")
+        f.write(f" * 384 bytes: outcon[128] + inconv[128] + extended/semigraphic[128] */\n")
+
+        sections = [
+            ("outcon[128]: output conversion", 0, 128),
+            ("inconv lower[128]: input conversion", 128, 256),
+            ("inconv upper[128]: extended keyboard / semigraphic", 256, 384),
+        ]
+
+        for label, start, end in sections:
+            f.write(f"\n    /* {label} */\n")
+            for row_start in range(start, end, 8):
+                row = all_bytes[row_start:row_start + 8]
+                hex_vals = ", ".join(f"0x{b:02X}" for b in row)
+                comma = "," if row_start + 8 < 384 else ""
+                f.write(f"    {hex_vals}{comma}\n")
+
+
 def write_z88dk_inc(table, filepath):
     """Write a z88dk-format .inc file for inclusion in crt0.asm."""
     name = table["name"]
@@ -398,6 +423,11 @@ def main():
                 incpath = os.path.join(inc_dir, t["name"].lower() + "_tables.inc")
                 write_z88dk_inc(t, incpath)
                 print(f"Wrote {incpath}")
+            # Also generate C header files
+            for t in tables:
+                hpath = os.path.join(inc_dir, t["name"].lower() + "_tables.h")
+                write_c_header(t, hpath)
+                print(f"Wrote {hpath}")
 
 
 if __name__ == "__main__":

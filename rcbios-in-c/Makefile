@@ -28,6 +28,12 @@ KBLANG ?= DANISH
 # --disable-warning 296: suppressed because we use --no-crt and link NO stdlib.
 #   The build rule checks the map file for any accidentally-linked sdcccall(0)
 #   library functions (__div*, __mod*, __mul*) and fails if found.
+# ZFLAGS: common flags for compile (-c) and link steps.
+# ZLFLAGS: additional flags for the final link step only.
+#   -create-app: invoke appmake to split binary into BOOT/BIOS sections.
+#   -Cm"--binorg 0": tell appmake the binary starts at address 0
+#     (suppresses "could not get the code ORG" warning that occurs
+#     because --no-crt has no standard CRT to read the origin from).
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
          -Cs"--fomit-frame-pointer" \
@@ -37,8 +43,13 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
-         $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG)) \
-         -m --list -create-app
+         $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
+
+# z88dk library: provides intrinsic_ldi, intrinsic_outi, etc.
+# Only referenced symbols are linked — zero overhead if unused.
+ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
+
+ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
 # Disk image tools
 PATCH = python3 ../rcbios/patch_bios.py
@@ -58,7 +69,7 @@ IMG_DATA = $(HOME)/Downloads/PolyPascal_3.10.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi mame-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test
+.PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test
 
 all: bios size
 
@@ -78,19 +89,38 @@ builddate.inc: FORCE
 
 FORCE:
 
-bios: crt0.asm bios.c hal.h bios.h builddate.h builddate.inc peephole.def
+bios: z88dk_section_layout.asm boot_block.c boot_confi.c boot_entry.c bios_page.c bios.c hal.h bios.h builddate.h builddate.inc peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
-	$(ZCC) $(ZFLAGS) -o bios crt0.asm bios.c
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -Cs"--constseg BOOT" -c boot_block.c -o boot_block.o && \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c boot_confi.c -o boot_confi.o && \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c boot_entry.c -o boot_entry.o && \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c bios_page.c -o bios_page.o && \
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm bios.c boot_block.o boot_confi.o boot_entry.o bios_page.o
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 	CODESIZE=$$((0x$$BSS_HEAD - 0xDA00)); \
 	cat bios_BOOT.bin > bios.cim; \
 	dd if=bios_BIOS.bin bs=1 count=$$CODESIZE 2>/dev/null >> bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
+	@SIG=$$(dd if=bios.cim bs=1 skip=8 count=6 2>/dev/null); \
+	if [ "$$SIG" != " RC702" ]; then \
+		echo "ERROR: RC702 signature not found at offset 8 in boot sector!"; \
+		echo "Expected ' RC702' at offset 0x08. Got: '$$SIG'"; \
+		xxd -s 0 -l 16 bios.cim; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
 	@if grep -q 'ix[+-]\|iy[+-]' bios.c.lis 2>/dev/null; then \
 		echo "ERROR: IX/IY-relative addressing found in compiled code!"; \
 		echo "Local variables must be static (no recursion in BIOS)."; \
 		grep 'ix[+-]\|iy[+-]' bios.c.lis; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
+	@if grep -q 'call.*_memset\|call.*_memcpy\|call.*_memmove' boot_entry.c.lis 2>/dev/null; then \
+		echo "ERROR: Library call in boot_entry.c — must be fully inlined!"; \
+		echo "cboot_body runs before BIOS relocation; no library is available."; \
+		grep 'call.*_mem' boot_entry.c.lis; \
 		rm -f bios.cim; \
 		exit 1; \
 	fi
@@ -175,6 +205,31 @@ mame-maxi: bios
 		-flop1 /tmp/bios_c_maxi.mfi \
 		-flop2 /tmp/bios_c_data.mfi \
 		-skip_gameinfo -window -resolution 1100x720
+
+# CONOTEST.COM — display control code exercise test (standard CP/M program)
+conotest: conout_test.c builddate.h
+	export PATH="$(Z88DK)/bin:$$PATH" && \
+	export ZCCCFG="$(ZCCCFG)" && \
+	$(ZCC) +cpm -clib=sdcc_iy -SO3 --opt-code-size \
+		-Cs"--std-sdcc99" -create-app -o conotest conout_test.c
+	@echo "conotest.com: $$(wc -c < conotest.com | tr -d ' ') bytes"
+
+# Combined boot + conout test (disk test + conout exercise)
+conout-test: bios conotest
+	cp $(IMG_MAXI) /tmp/bios_c_conout.imd
+	$(PATCH) /tmp/bios_c_conout.imd bios.cim
+	$(CPMCP) -f rc702-8dd /tmp/bios_c_conout.imd conotest.com 0:CONOTEST.COM
+	$(eval KBBUF_ADDR := $(shell grep '_kbbuf ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
+	$(eval KBHEAD_ADDR := $(shell grep '_kbhead ' bios.map | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/'))
+	sed 's/KBBUF_ADDR/$(KBBUF_ADDR)/g; s/KBHEAD_ADDR/$(KBHEAD_ADDR)/g' mame_conout_autotest.lua > /tmp/bios_c_conout_test.lua
+	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_conout.imd \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-nothrottle \
+		-autoboot_script /tmp/bios_c_conout_test.lua
+	@echo "--- CONOUT test result ---"
+	@cat /tmp/conout_result.txt
+	@grep -q '^PASS' /tmp/conout_result.txt && echo "=== CONOUT TEST PASSED ===" || (echo "=== CONOUT TEST FAILED ==="; exit 1)
 
 # Automated MAME disk test (maxi, with Lua script)
 # Usage: make mame-test [IMG=/path/to/image.imd]

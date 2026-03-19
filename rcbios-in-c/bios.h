@@ -2,7 +2,7 @@
  * bios.h — RC702 CP/M BIOS declarations
  *
  * Constants, memory layout, and extern declarations for fixed-address
- * variables defined in crt0.asm via DEFC.
+ * variables and structs at fixed addresses.
  */
 
 #ifndef BIOS_H
@@ -68,8 +68,10 @@ typedef struct {
                              * Identity = no conversion. */
 } ConvTables;
 
+#define BIOS_STACK  0xF500      /* BIOS private stack top (grows down) */
+#define CONV_ADDR   0xF680      /* runtime address of conversion tables */
 #ifndef HOST_TEST
-#define CONV (*(volatile ConvTables *)0xF680)
+#define CONV (*(volatile ConvTables *)CONV_ADDR)
 #else
 extern volatile ConvTables _convtables;
 #define CONV _convtables
@@ -214,7 +216,15 @@ typedef struct {
 } WorkArea;
 
 #ifndef HOST_TEST
-#define W (*(volatile WorkArea *)0xFFD0)
+#define WORK_ADDR   0xFFD0      /* work area base address */
+#define W (*(volatile WorkArea *)WORK_ADDR)
+
+/* Absolute addresses for work area fields (used in inline asm).
+ * These MUST match the WorkArea struct layout above. */
+#define TIMER1_ADDR 0xFFDF      /* WorkArea.timer1 */
+#define WARMJP_ADDR 0xFFE5      /* WorkArea.warmjp */
+#define RTC0_ADDR   0xFFFC      /* WorkArea.rtc0 */
+#define RTC2_ADDR   0xFFFE      /* WorkArea.rtc2 */
 #else
 extern volatile WorkArea _workarea;
 #define W _workarea
@@ -244,12 +254,11 @@ extern volatile WorkArea _workarea;
  *
  * Located immediately after the BIOS JP table (17 entries at 0xDA00)
  * and before the extended JP table (0xDA49+).  Storage is in the
- * crt0.asm binary at fixed addresses.
  *
  * External programs (CONFI.COM, FORMAT.COM, etc.) depend on these
  * exact addresses — they are part of the BIOS ABI.
  *
- * Initialized to zeros/0xFF by crt0.asm defb directives; populated
+ * Initialized by bios_page.c const struct (zeros + fd0_term=0xFF); populated
  * by bios_hw_init() and bios_boot() from CONFI block values.
  */
 typedef struct {
@@ -270,7 +279,7 @@ typedef struct {
                              *   1 = RC850/RC855
                              *   2 = ITT3290
                              *   3 = RC703
-                             * Set to 0 by crt0.asm; not modified by BIOS. */
+                             * Set to 0 by bios_page.c initializer; not modified by BIOS. */
     byte  fd0[16];          /* 0xDA37-0xDA46: active drive format table.
                              * One format code per drive (A-P).
                              * Initialized from CFG.infd[] at boot.
@@ -352,7 +361,7 @@ extern word trkoff[];
 /*
  * CONFI configuration block — hardware init parameters.
  *
- * Disk-resident on Track 0 at offset 0x080 (_confi_defaults in crt0.asm).
+ * Disk-resident on Track 0 at offset 0x080 (_confi_on_disk in boot_confi.c).
  * _cboot copies it to runtime 0xD500 (CCP area, valid during init only).
  *
  * CONFI.COM reads/writes this block on disk; restoring the original
