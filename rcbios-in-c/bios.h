@@ -352,7 +352,7 @@ extern word trkoff[];
 /*
  * CONFI configuration block — hardware init parameters.
  *
- * Disk-resident on Track 0 at offset 0x080 (_confi_defaults in crt0.asm).
+ * Disk-resident on Track 0 at offset 0x080 (_confi_on_disk in crt0.asm).
  * _cboot copies it to runtime 0xD500 (CCP area, valid during init only).
  *
  * CONFI.COM reads/writes this block on disk; restoring the original

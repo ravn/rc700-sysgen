@@ -15,7 +15,7 @@
 /* CONFI hardware configuration defaults (128 bytes).
  * Sector 2 of Track 0.  CONFI.COM reads/writes this block.
  * See ConfiBlock typedef in bios.h for field documentation. */
-const byte confi_defaults[128] = {
+const byte confi_on_disk[128] = {
     /* CTC channels 0-3 (ports 0x0C-0x0F) */
     0x47, 0x01,         /* +0x00: ctc_mode0, ctc_count0 (SIO-A: 38400 baud) */
     0x47, 0x20,         /* +0x02: ctc_mode1, ctc_count1 (SIO-B: 1200 baud) */

@@ -78,7 +78,7 @@ The JP table MUST be at exactly 0xDA00 and each entry MUST be exactly
 The cold boot routine performs:
 1. DI (implicit from `__critical`)
 2. memcpy: `__BOOT_tail` → `__BIOS_head` (BIOS relocation)
-3. memcpy: `_confi_defaults` → `CFG_ADDR` (128 bytes)
+3. memcpy: `_confi_on_disk` → `CFG_ADDR` (128 bytes)
 4. memcpy: `_conv_tables` → `0xF680` (384 bytes)
 5. memset: `__bss_compiler_head` → 0 (BSS zeroing)
 6. SP = 0x80
@@ -93,7 +93,7 @@ void cboot(void) __naked __critical {
     memcpy((void *)BIOS_BASE, (void *)__BOOT_tail, bios_code_size);
 
     /* Step 2-3: copy CONFI and conversion tables */
-    memcpy((void *)CFG_ADDR, confi_defaults, 128);
+    memcpy((void *)CFG_ADDR, confi_on_disk, 128);
     memcpy((void *)0xF680, conv_tables, 384);
 
     /* Step 4: zero BSS */
@@ -163,7 +163,7 @@ void cboot(void) __naked __critical {
 void cboot_body(void) {
     /* Normal C function — compiler manages registers */
     memcpy((void *)BIOS_BASE, &__BOOT_tail, bios_code_size);
-    memcpy((void *)CFG_ADDR, confi_defaults, 128);
+    memcpy((void *)CFG_ADDR, confi_on_disk, 128);
     memcpy((void *)0xF680, conv_tables, 384);
     memset((void *)&__bss_compiler_head, 0, bss_size);
 }

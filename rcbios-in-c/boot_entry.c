@@ -39,7 +39,7 @@ extern byte _bss_compiler_head;
 extern word _bss_compiler_size;
 
 /* Data blocks in BOOT_DATA section (defined in boot_data.c) */
-extern const byte confi_defaults[128];
+extern const byte confi_on_disk[128];
 extern const byte conv_tables[384];
 
 /* Hardware init (in BIOS section, runs after relocation) */
@@ -59,7 +59,7 @@ static void cboot_body(void)
            (word)&_bss_compiler_head - BIOS_BASE);
 
     /* Copy CONFI defaults to CCP area (init-only) */
-    memcpy((void *)CFG_ADDR, confi_defaults, 128);
+    memcpy((void *)CFG_ADDR, confi_on_disk, 128);
 
     /* Copy conversion tables to runtime address */
     memcpy((void *)0xF680, conv_tables, 384);

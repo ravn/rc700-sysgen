@@ -467,14 +467,14 @@ D522h–DA00h     1246  Free INIT space (zeros, available for init code)
 DA00h–DA33h       51  BIOS JP table (17 entries, fixed address)
 DA33h–DA4Ah       23  JTVARS (CONFI configuration variables)
 DA4Ah–DA70h       38  Extended JP table entries (INTJP0-10)
-DA70h+          ....  C code, ISRs, const data (incl. confi_defaults)
+DA70h+          ....  C code, ISRs, const data (incl. confi_on_disk)
 ```
 
 The INIT section (D480–DA00) is overwritten by CCP after cold boot;
 only the resident portion (DA00+) must fit the system track.  The
 free INIT region (D522–DA00, 1246 bytes) can hold init-only code.
 
-The CONFI configuration block (72 bytes) is embedded as `confi_defaults`
+The CONFI configuration block (72 bytes) is embedded as `confi_on_disk`
 in the resident C code section.  The original disk layout placed this
 at offset 0x080; restoring that for CONFI.COM is a long-term goal.
 
