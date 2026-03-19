@@ -92,6 +92,9 @@ input (works with both C and original BIOS).  Added instruction-level profiling 
 Baseline: C BIOS is 5.2% slower than original REL2.3 on TYPE FILEX.PRN (188M vs 179M
 cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
 
+2026-03-19:  All code is now in --no-crt C except for the entry stub and ISR stack switch wrappers.  
+
+
 ## Status
 
 **Feature-complete** — CP/M boots to A> on MAXI 8" with two floppy drives.
