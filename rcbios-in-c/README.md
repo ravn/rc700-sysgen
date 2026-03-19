@@ -228,19 +228,28 @@ The BIOS binary (`bios.cim`) is written to Track 0 of the floppy disk.
 The ROM (ROA375) loads Track 0 to address 0x0000, reads the boot pointer
 from offset 0, and jumps there.
 
-**Track 0 layout (bios.cim):**
+**Disk layout (bios.cim, loaded by ROM to physical address 0x0000):**
 
 ```
-Offset  Section     Source file     Contents
-------  ----------  -------------   -----------------------------------------
-0x0000  BOOT        boot_block.c      Boot pointer (→coldboot), " RC702" signature,
-                                    build timestamp, zero-padded to 128 bytes
-0x0080  BOOT_DATA   boot_confi.c     CONFI defaults (128B) + conversion tables
-                                    (384B) = 512 bytes
-0x0280  BOOT_CODE   boot_entry.c    coldboot(), boot_copy(), boot_zero() helpers
-0x02CE+ BIOS        bios_page.c     Const JP table (17+6 entries) + JTVARS
-                    bios.c          All BIOS code (ISRs, disk I/O, display, etc.)
+Offset  Size   Section     Source          Contents
+------  -----  ----------  -------------   --------------------------------
+0x0000    128  BOOT        boot_block.c    Boot pointer (→coldboot),
+                                           " RC702" signature, builddate
+0x0080    512  BOOT_DATA   boot_confi.c    CONFI defaults (128B) +
+                                           conversion tables (384B)
+0x0280     67  BOOT_CODE   boot_entry.c    coldboot() + relocate_bios()
+0x02C3    113  BIOS        bios_page.c     JP table + JTVARS + extended JP
+0x0334   4722  code+data   bios.c          BIOS code + const data
+------  -----
+Total:  5542 bytes
+  Boot loader (0x0000-0x02C2):  707 bytes — discarded after boot
+  BIOS payload (0x02C3-end):   4835 bytes — relocated to BIOS_BASE
 ```
+
+The ROM loads the entire file to address 0x0000.  coldboot() copies
+the BIOS payload (offset 0x02C3 onward) to BIOS_BASE (0xDA00 for
+56K), copies CONFI and conversion tables to their runtime addresses,
+zeros BSS, and jumps to BIOS_BASE.
 
 **Runtime memory map (after relocation by coldboot, 56K system):**
 
