@@ -1308,8 +1308,8 @@ static void specc(void)
 void bios_conout(byte c) __naked
 {
     (void)c;
-    __asm__("ld a, c               \n");
-    /* fall through to bios_conout_c */
+    __asm__("ld a, c               \n"
+            "jp _bios_conout_c     \n"); /* explicit tail call */
 }
 
 static void bios_conout_c(byte c)
@@ -1328,8 +1328,8 @@ static void bios_conout_c(byte c)
  * __naked shim translates, then falls through to body. */
 void bios_list(void) __naked
 {
-    __asm__("ld a, c\n");
-    /* fall through to bios_list_body */
+    __asm__("ld a, c               \n"
+            "jp _bios_list_body    \n"); /* explicit tail call */
 }
 
 void bios_list_body(byte c)
@@ -1586,8 +1586,8 @@ byte bios_read(void)
 byte bios_write(byte type) __naked
 {
     (void)type;
-    __asm__("ld a, c               \n");
-    /* fall through to bios_write_c */
+    __asm__("ld a, c               \n"
+            "jp _bios_write_c      \n"); /* explicit tail call */
 }
 
 static byte bios_write_c(byte wt)
