@@ -75,6 +75,9 @@ static void cboot_body(void)
     }
 }
 
+/* Forward declaration — bios_boot() never returns. */
+extern void bios_boot(void);
+
 /* Cold boot entry point.  Called by ROM via boot pointer at offset 0.
  * __naked: no prologue/epilogue (SP changes mid-function, can't have
  * compiler-generated push/pop). */
@@ -84,5 +87,5 @@ void cboot(void) __naked
     cboot_body();
     __asm__("ld sp, #0x0080\n");       /* switch to CP/M DMA buffer area */
     bios_hw_init();
-    __asm__("jp 0xDA00\n");            /* BIOSAD — never returns */
+    __asm__("jp _bios_boot\n");        /* enter BIOS cold boot — never returns */
 }
