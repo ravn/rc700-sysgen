@@ -87,7 +87,9 @@ extern volatile ConvTables _convtables;
  * BIAS  = offset from 20K base CP/M to actual addresses.
  * CPMB  = CCP base.  BDOS = CPMB + 0x806.  BIOS = CPMB + CPML.
  * CPML  = 0x1600 = length of CCP + BDOS. */
-#define MSIZE       56
+#ifndef MSIZE
+#define MSIZE       56          /* default; overridden by -DMSIZE=N from Makefile */
+#endif
 #define STR_(x) #x
 #define STR(x)  STR_(x)
 #define MSIZE_STR STR(MSIZE)

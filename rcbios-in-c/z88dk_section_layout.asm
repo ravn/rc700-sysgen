@@ -8,8 +8,9 @@
 ;   BOOT_DATA  — CONFI defaults + conversion tables (boot_confi.c)
 ;   BOOT_CODE  — cold boot code: coldboot(), LDIR helpers (boot_entry.c)
 ;
-; BIOS section (runtime address 0xDA00, relocated by coldboot):
-;   BIOS       — JP table + JTVARS reservation (filled by init_bios_page)
+; BIOS section (runtime address BIOSAD, relocated by coldboot):
+;   BIOSAD is passed from the Makefile via -Ca-DBIOSAD=0xNNNN
+;   BIOS       — JP table + JTVARS (const struct from bios_page.c)
 ;   code_compiler, rodata_compiler, data_compiler — compiled C code
 ;
 ; BSS (not stored on disk, zeroed by coldboot):
@@ -21,8 +22,8 @@
     SECTION BOOT_DATA
     SECTION BOOT_CODE
 
-    SECTION BIOS            ; JP table + JTVARS (const struct from bios_page.c)
-    org 0xDA00
+    SECTION BIOS
+    org BIOSAD              ; derived from MSIZE in Makefile
 
     SECTION code_compiler
     SECTION rodata_compiler

@@ -23,6 +23,14 @@ ZCCCFG = $(Z88DK)/lib/config
 # Pass KBLANG=<language> to select. Omit or KBLANG=DANISH for default.
 KBLANG ?= DANISH
 
+# CP/M memory layout — single source of truth for MSIZE.
+# All addresses are derived: BIAS, CPMB, BIOSAD.
+# bios.h uses MSIZE from -D; z88dk_section_layout.asm uses BIOSAD from -Ca-D.
+MSIZE ?= 56
+BIAS  = $(shell echo $$(( ($(MSIZE) - 20) * 1024 )))
+CPMB  = $(shell printf '0x%04X' $$(( 0x3400 + $(BIAS) )))
+BIOSAD = $(shell printf '0x%04X' $$(( 0x3400 + $(BIAS) + 0x1600 )))
+
 # sdcc via z88dk: register calling convention, optimize for size
 # --sdcccall 1: register-based parameter passing (A/HL/DE)
 # --disable-warning 296: suppressed because we use --no-crt and link NO stdlib.
@@ -30,8 +38,7 @@ KBLANG ?= DANISH
 #   library functions (__div*, __mod*, __mul*) and fails if found.
 # ZFLAGS: common flags for compile (-c) and link steps.
 # ZLFLAGS: additional flags for the final link step only.
-#   -create-app: invoke appmake to split binary into BOOT/BIOS sections.
-#   -Cm"--binorg 0": tell appmake the binary starts at address 0
+#   -Cz"--org 0": tell appmake the binary starts at address 0
 #     (suppresses "could not get the code ORG" warning that occurs
 #     because --no-crt has no standard CRT to read the origin from).
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
@@ -43,6 +50,8 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
+         -Cs"-DMSIZE=$(MSIZE)" \
+         -Ca-DBIOSAD=$(BIOSAD) \
          $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
 
 # z88dk library: provides intrinsic_ldi, intrinsic_outi, etc.
@@ -98,7 +107,7 @@ bios: z88dk_section_layout.asm boot_block.c boot_confi.c boot_entry.c bios_page.
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c bios_page.c -o bios_page.o && \
 	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm bios.c boot_block.o boot_confi.o boot_entry.o bios_page.o
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
-	CODESIZE=$$((0x$$BSS_HEAD - 0xDA00)); \
+	CODESIZE=$$((0x$$BSS_HEAD - $(BIOSAD))); \
 	cat bios_BOOT.bin > bios.cim; \
 	dd if=bios_BIOS.bin bs=1 count=$$CODESIZE 2>/dev/null >> bios.cim
 	@echo "bios.cim: $$(wc -c < bios.cim | tr -d ' ') bytes"
