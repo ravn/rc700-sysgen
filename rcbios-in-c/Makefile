@@ -45,7 +45,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
 
-ZLFLAGS = -m --list -create-app -Cz--org -Cz0
+ZLFLAGS = -m --list -create-app -Cz"--org 0"
 
 # Disk image tools
 PATCH = python3 ../rcbios/patch_bios.py

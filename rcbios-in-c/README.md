@@ -297,7 +297,8 @@ to exclude BSS) to produce `bios.cim`.
     to catch BIOS code overflowing into BSS/IVT (e.g. `--code-fence 0xF600`).
   - **`-Cz`** passes options to appmake.  Not `-Cm` (that's m4) or
     `-Ca` (assembler) or `-Cl` (linker).
-  - Arguments with values must be split: `-Cz--org -Cz0` (not `-Cz"--org 0"`).
+  - In Makefiles, `-Cz"--org 0"` works (make handles quoting).
+    On the command line, split as `-Cz--org -Cz0` to avoid shell issues.
 - sdcc resolves function pointers in const struct initializers via
   `DEFB`+`DEFW` with linker-resolved addresses.  This is how the JP
   table in bios_page.c works — no runtime initialization needed.
