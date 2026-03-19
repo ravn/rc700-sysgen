@@ -568,12 +568,20 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
     isr_pio_par,            /* 17: PIO ch.B — parallel output */
 };
 
+/* Set the Z80 I register.  sdcccall(1) passes byte param in A,
+ * so the inline ld i,a picks it up directly. */
+static void set_i_reg(byte page) __naked
+{
+    (void)page;
+    __asm__("ld i, a\n"
+            "ret\n");
+}
+
 /* Copy IVT to page-aligned RAM and enable IM2 */
 static void setup_ivt(void)
 {
     memcpy((void *)IVT_ADDR, ivt_template, sizeof(ivt_template));
-    __asm__("ld a, #0xF6          \n"   /* IVT_ADDR >> 8 */
-            "ld i, a              \n");
+    set_i_reg(IVT_ADDR >> 8);
     intrinsic_im_2();
 }
 
