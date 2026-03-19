@@ -299,6 +299,20 @@ to exclude BSS) to produce `bios.cim`.
     `-Ca` (assembler) or `-Cl` (linker).
   - In Makefiles, `-Cz"--org 0"` works (make handles quoting).
     On the command line, split as `-Cz--org -Cz0` to avoid shell issues.
+- **z88dk intrinsics** (`#include <intrinsic.h>`): compile to single
+  Z80 instructions with no call overhead.  Available intrinsics:
+  - `intrinsic_di()`, `intrinsic_ei()` — DI/EI
+  - `intrinsic_halt()` — HALT
+  - `intrinsic_nop()` — NOP
+  - `intrinsic_im_0()`, `intrinsic_im_1()`, `intrinsic_im_2()` — IM 0/1/2
+  - `intrinsic_reti()`, `intrinsic_retn()` — RETI/RETN
+  - `intrinsic_ex_de_hl()` — EX DE,HL
+  - `intrinsic_exx()` — EXX
+  - `intrinsic_swap_endian_16(n)` — byte-swap 16-bit value
+  - `intrinsic_return_bc()`, `intrinsic_return_de()` — return BC/DE as pointer
+  - `intrinsic_stub()` — no-op (placeholder)
+  All preserve registers (marked `__preserves_regs`).  Tested: `intrinsic_di()`
+  emits a single `di` instruction even inside `__naked` functions.
 - sdcc resolves function pointers in const struct initializers via
   `DEFB`+`DEFW` with linker-resolved addresses.  This is how the JP
   table in bios_page.c works — no runtime initialization needed.

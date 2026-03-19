@@ -28,6 +28,7 @@
  */
 
 #include <string.h>
+#include <intrinsic.h>
 #include "bios.h"
 
 /* Linker symbols for section boundaries.
@@ -86,7 +87,7 @@ extern void bios_boot(void);
  * setting SP to the BIOS private stack at 0xF500. */
 void coldboot(void) __naked
 {
-    __asm__("di\n");
+    intrinsic_di();
     relocate_bios();
     bios_hw_init();
     bios_boot();                       /* sets SP to 0xF500, never returns */
