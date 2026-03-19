@@ -285,6 +285,16 @@ to exclude BSS) to produce `bios.cim`.
 ### z88dk notes
 
 - `-pragma-define:CRT_ORG_CODE=0x0000` sets the binary output origin.
+- **appmake `+rom`**: z88dk's binary output tool.  `-create-app` on the
+  final link invokes `z88dk-appmake +rom` which splits the linker output
+  into per-section `.bin` files (`bios_BOOT.bin`, `bios_BIOS.bin`, etc.).
+  The Makefile concatenates these to produce `bios.cim`.
+  - With `--no-crt`, appmake cannot determine the code origin from the
+    CRT file and warns: "could not get the code ORG".  Suppressed with
+    `-Cz--org -Cz0` which passes `--org 0` to appmake (BOOT starts at
+    0x0000).
+  - **`-Cz`** passes options to appmake.  Not `-Cm` (that's m4) or
+    `-Ca` (assembler) or `-Cl` (linker).
 - sdcc resolves function pointers in const struct initializers via
   `DEFB`+`DEFW` with linker-resolved addresses.  This is how the JP
   table in bios_page.c works — no runtime initialization needed.
