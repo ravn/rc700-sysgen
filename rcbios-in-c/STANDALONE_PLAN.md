@@ -9,14 +9,14 @@ disk installation.
 
 ## Proven: Standalone compilation works
 
-Tested: bios.c + bios_page.c compile to a standalone binary with:
+Tested: bios.c + bios_jump_vector_table.c compile to a standalone binary with:
 
 ```
 zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
     -pragma-define:CRT_ORG_CODE=0xDA00 \
     -Cz"--org 0xDA00" \
     -lz80 -create-app \
-    -o bios_standalone layout.asm bios.c bios_page.o
+    -o bios_standalone layout.asm bios.c bios_jump_vector_table.o
 ```
 
 Output: `bios_standalone_BIOS.bin` = 6353 bytes (includes BSS gap).
@@ -28,7 +28,7 @@ Trimmed to BSS head: **4835 bytes** of code+data at 0xDA00-0xECE3.
  STANDALONE BIOS (compile once)          LOADER (separate build)
  ─────────────────────────────          ─────────────────────────
  bios.c        → code_compiler          boot_block.c  → BOOT
- bios_page.c   → BIOS (JP table)        boot_confi.c  → BOOT_DATA
+ bios_jump_vector_table.c   → BIOS (JP table)        boot_confi.c  → BOOT_DATA
  bios.h, hal.h → headers                boot_entry.c  → BOOT_CODE
  layout.asm    → section ordering
                                          Loader reads bios_core.bin
@@ -72,7 +72,7 @@ BEFORE the `start:` label.  This is where the JP table goes:
 
 ```
 org 0xDA00        ← CRT_ORG_CODE
-JP table (113B)   ← crt_preamble.asm (= bios_page data)
+JP table (113B)   ← crt_preamble.asm (= bios_jump_vector_table data)
 start:            ← CRT init: SP, BSS zero, heap, interrupts
 call _main        ← calls bios_boot_c (renamed to main)
 ```
@@ -117,7 +117,7 @@ longer the loader's concern.
 
 ### Phase 1: Split the Makefile
 
-Add a `bios-core` target that compiles bios.c + bios_page.c into
+Add a `bios-core` target that compiles bios.c + bios_jump_vector_table.c into
 bios_core.bin (trimmed at BSS head).  The existing `bios` target
 calls `bios-core`, then compiles the loader and concatenates.
 

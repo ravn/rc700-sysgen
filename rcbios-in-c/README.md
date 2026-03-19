@@ -238,7 +238,7 @@ Offset  Size   Section     Source          Contents
 0x0080    512  BOOT_DATA   boot_confi.c    CONFI defaults (128B) +
                                            conversion tables (384B)
 0x0280     67  BOOT_CODE   boot_entry.c    coldboot() + relocate_bios()
-0x02C3    113  BIOS        bios_page.c     JP table + JTVARS + extended JP
+0x02C3    113  BIOS        bios_jump_vector_table.c     JP table + JTVARS + extended JP
 0x0334   4722  code+data   bios.c          BIOS code + const data
 ------  -----
 Total:  5542 bytes
@@ -299,7 +299,7 @@ stay disabled until bios_boot's init path enables them.
 | boot_block.c | BOOT | Boot sector header: pointer, signature, timestamp |
 | boot_confi.c | BOOT_DATA | CONFI config defaults + keyboard conversion tables |
 | boot_entry.c | BOOT_CODE | Cold boot: coldboot(), LDIR-based copy/zero helpers |
-| bios_page.c | BIOS | Const JP table + JTVARS (linker-resolved function pointers) |
+| bios_jump_vector_table.c | BIOS | Const JP table + JTVARS (linker-resolved function pointers) |
 | bios.c | code_compiler | All BIOS logic: ISRs, console, disk, serial, display |
 | bios.h | — | Structs, macros, port definitions, memory map |
 | hal.h | — | Hardware abstraction: __sfr port declarations |
@@ -342,7 +342,7 @@ to exclude BSS) to produce `bios.cim`.
   emits a single `di` instruction even inside `__naked` functions.
 - sdcc resolves function pointers in const struct initializers via
   `DEFB`+`DEFW` with linker-resolved addresses.  This is how the JP
-  table in bios_page.c works — no runtime initialization needed.
+  table in bios_jump_vector_table.c works — no runtime initialization needed.
 - Each Boot sub-section (BOOT, BOOT_DATA, BOOT_CODE) requires a
   separate .c file because `--codeseg`/`--constseg` flags are per-file.
   Tested: `#pragma constseg` mid-file is **file-global, not positional**

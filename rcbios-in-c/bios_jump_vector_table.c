@@ -1,4 +1,4 @@
-/* bios_page.c — BIOS JP table + JTVARS + extended JP table (BIOS section).
+/* bios_jump_vector_table.c — BIOS JP table + JTVARS + extended JP table (BIOS section).
  *
  * Compiled with --codeseg BIOS --constseg BIOS so the struct lands at
  * the start of the BIOS section (runtime address 0xDA00).
@@ -6,7 +6,7 @@
  * The JP entries use { opcode, function_pointer } pairs. sdcc emits
  * DEFB+DEFW with linker-resolved addresses — no runtime init needed.
  *
- * This replaces both the defs 113 in the former crt0.asm and init_bios_page()
+ * This replaces both the defs 113 in the former crt0.asm and init_bios_jump_vector_table()
  * in bios.c.
  */
 
@@ -89,7 +89,7 @@ const struct {
     /* Reserved */
     byte    reserved[19];       /* 0xDA5C-0xDA6E */
     word    pchsav;             /* 0xDA6F-0xDA70 */
-} bios_page = {
+} bios_jump_vector_table = {
     /* Standard JP table */
     .jt_boot    = { 0xC3, (fptr)bios_boot },
     .jt_wboot   = { 0xC3, (fptr)bios_wboot },

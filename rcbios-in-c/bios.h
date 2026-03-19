@@ -260,7 +260,7 @@ extern volatile WorkArea _workarea;
  * External programs (CONFI.COM, FORMAT.COM, etc.) depend on these
  * exact addresses — they are part of the BIOS ABI.
  *
- * Initialized by bios_page.c const struct (zeros + fd0_term=0xFF); populated
+ * Initialized by bios_jump_vector_table.c const struct (zeros + fd0_term=0xFF); populated
  * by bios_hw_init() and bios_boot() from CONFI block values.
  */
 typedef struct {
@@ -281,7 +281,7 @@ typedef struct {
                              *   1 = RC850/RC855
                              *   2 = ITT3290
                              *   3 = RC703
-                             * Set to 0 by bios_page.c initializer; not modified by BIOS. */
+                             * Set to 0 by bios_jump_vector_table.c initializer; not modified by BIOS. */
     byte  fd0[16];          /* 0xDA37-0xDA46: active drive format table.
                              * One format code per drive (A-P).
                              * Initialized from CFG.infd[] at boot.

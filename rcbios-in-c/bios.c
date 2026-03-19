@@ -602,7 +602,7 @@ static void setup_ivt(void)
 
 void bios_hw_init(void)
 {
-    /* JP table and JTVARS are const-initialized in bios_page.c.
+    /* JP table and JTVARS are const-initialized in bios_jump_vector_table.c.
      * No runtime init needed — linker resolves all JP addresses. */
 
     /* Set up interrupt vector table and IM2 before any device init */

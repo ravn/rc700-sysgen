@@ -98,14 +98,14 @@ builddate.inc: FORCE
 
 FORCE:
 
-bios: z88dk_section_layout.asm boot_block.c boot_confi.c boot_entry.c bios_page.c bios.c hal.h bios.h builddate.h builddate.inc peephole.def
+bios: z88dk_section_layout.asm boot_block.c boot_confi.c boot_entry.c bios_jump_vector_table.c bios.c hal.h bios.h builddate.h builddate.inc peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -Cs"--constseg BOOT" -c boot_block.c -o boot_block.o && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c boot_confi.c -o boot_confi.o && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c boot_entry.c -o boot_entry.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c bios_page.c -o bios_page.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm bios.c boot_block.o boot_confi.o boot_entry.o bios_page.o
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c bios_jump_vector_table.c -o bios_jump_vector_table.o && \
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm bios.c boot_block.o boot_confi.o boot_entry.o bios_jump_vector_table.o
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 	CODESIZE=$$((0x$$BSS_HEAD - $(BIOSAD))); \
 	cat bios_BOOT.bin > bios.cim; \

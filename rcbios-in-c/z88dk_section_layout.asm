@@ -10,7 +10,7 @@
 ;
 ; BIOS section (runtime address BIOSAD, relocated by coldboot):
 ;   BIOSAD is passed from the Makefile via -Ca-DBIOSAD=0xNNNN
-;   BIOS       — JP table + JTVARS (const struct from bios_page.c)
+;   BIOS       — JP table + JTVARS (const struct from bios_jump_vector_table.c)
 ;   code_compiler, rodata_compiler, data_compiler — compiled C code
 ;
 ; BSS (not stored on disk, zeroed by coldboot):
