@@ -723,11 +723,11 @@ static void readi(void)
 static void wboot_c(void);
 static void jump_ccp(byte drive) __naked;
 
-/* Cold boot entry — sets BIOS stack then falls through to bios_boot_c. */
+/* Cold boot entry — sets BIOS stack then calls bios_boot_c. */
 void bios_boot(void) __naked
 {
     __asm__("ld sp, #0xF500\n");       /* use BIOS private stack */
-    /* fall through to bios_boot_c */
+    bios_boot_c();
 }
 
 void bios_boot_c(void)
