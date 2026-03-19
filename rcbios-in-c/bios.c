@@ -832,7 +832,7 @@ static void jump_ccp(byte drive) __naked
 
 void bios_wboot(void) __naked
 {
-    __asm__("ld sp, #0xF500       \n"  /* use BIOS private stack */
+    __asm__("ld sp, #" STR(BIOS_STACK) " \n"  /* use BIOS private stack */
             "jp _wboot_c          \n");
 }
 
