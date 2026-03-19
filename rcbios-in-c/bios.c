@@ -17,6 +17,7 @@
  */
 
 #include <string.h>
+#include <intrinsic.h>
 #include "hal.h"
 #include "bios.h"
 #include "builddate.h"
@@ -572,8 +573,8 @@ static void setup_ivt(void)
 {
     memcpy((void *)IVT_ADDR, ivt_template, sizeof(ivt_template));
     __asm__("ld a, #0xF6          \n"   /* IVT_ADDR >> 8 */
-            "ld i, a              \n"
-            "im 2                 \n");
+            "ld i, a              \n");
+    intrinsic_im_2();
 }
 
 /* ================================================================
