@@ -98,6 +98,13 @@ bios: crt0.asm boot_hdr.c boot_data.c boot_entry.c bios_page.c bios.c hal.h bios
 		rm -f bios.cim; \
 		exit 1; \
 	fi
+	@if grep -q 'call.*_memset\|call.*_memcpy\|call.*_memmove' boot_entry.c.lis 2>/dev/null; then \
+		echo "ERROR: Library call in boot_entry.c — must be fully inlined!"; \
+		echo "cboot_body runs before BIOS relocation; no library is available."; \
+		grep 'call.*_mem' boot_entry.c.lis; \
+		rm -f bios.cim; \
+		exit 1; \
+	fi
 	@if grep -qE '__div[us]|__mod[us]|__mul[us]' bios.map 2>/dev/null; then \
 		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
 		echo "These will silently produce WRONG RESULTS (warning 296 scenario)."; \
