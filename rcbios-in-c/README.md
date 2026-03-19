@@ -242,30 +242,45 @@ Offset  Section     Source file     Contents
                     bios.c          All BIOS code (ISRs, disk I/O, display, etc.)
 ```
 
-**Runtime addresses (after relocation by coldboot):**
+**Runtime memory map (after relocation by coldboot, 56K system):**
 
 ```
-0x0000-0x00FF   CP/M zero page (warm boot JP, IOBYTE, BDOS entry)
-0xC400          CCP base (56K system)
-0xCA06          BDOS entry
-0xDA00-0xDA70   BIOS JP table + JTVARS + extended JP (from bios_page.c)
-0xDA71+         BIOS code (from bios.c)
-0xEF00+         BSS (static variables, zeroed by coldboot)
-0xF600          Interrupt stack + IVT (Z80 Mode 2, 256-byte aligned)
-0xF680          OUTCON/INCONV conversion tables (copied from BOOT_DATA)
-0xF800          Display refresh memory (80×25)
+Address         Size   Contents
+──────────────  ─────  ──────────────────────────────────────────────
+0x0000-0x00FF     256  CP/M zero page (warm boot JP, IOBYTE, BDOS)
+0x0100-0xC3FF   50432  TPA (transient program area)
+0xC400-0xC405           CCP base
+0xCA06-0xCA08           BDOS entry
+0xD500-0xD548      72  CONFI config block (copied at boot, init-only)
+0xDA00-0xDA70     113  BIOS JP table + JTVARS + extended JP
+0xDA71-0xEB5A    4330  BIOS code (compiled C)
+0xEB5B-0xECB0     342  BIOS const data (rodata)
+0xECB1-0xECC2      18  BIOS initialized data
+0xECE3-0xF2D0    1518  BSS (static variables, zeroed at boot)
+0xF2D1-0xF4FF     559  Free (BIOS stack growth headroom)
+0xF500-0xF5FF     256  BIOS stack (grows down)
+0xF600-0xF67F     128  IVT + interrupt stack (Mode 2, page-aligned)
+0xF680-0xF7FF     384  OUTCON/INCONV conversion tables
+0xF800-0xFFCF    2000  Display refresh memory (80×25, 8275 CRT DMA)
+0xFFD0-0xFFFF      48  Work area (timers, cursor, RTC)
 ```
+
+All addresses from 0xDA00 onward are derived from `MSIZE` (default 56)
+via `BIOS_BASE = 0x3400 + (MSIZE-20)*1024 + 0x1600`.  Addresses from
+0xF500 upward are hardware-fixed (display, IVT alignment, work area).
 
 **Boot sequence (coldboot in boot_entry.c):**
 
-1. DI (disable interrupts)
-2. LDIR: copy BIOS section from physical offset to 0xDA00 (runtime address)
-3. LDIR: copy CONFI defaults (128B) to CCP area (temporary, init-only)
-4. LDIR: copy conversion tables (384B) to 0xF680
-5. LDIR: zero BSS
-6. Set SP to 0x0080 (CP/M DMA buffer)
-7. Call `bios_hw_init()` (IVT, PIO, CTC, SIO, DMA, CRT, FDC init)
-8. JP 0xDA00 (BIOS cold boot entry)
+1. DI (disable interrupts, via `intrinsic_di()`)
+2. `memcpy`: copy BIOS section from physical offset to BIOS_BASE (0xDA00)
+3. `memcpy`: copy CONFI defaults (128B) to CCP area (init-only)
+4. `memcpy`: copy conversion tables (384B) to CONV_ADDR (0xF680)
+5. `memcpy`+zero: zero BSS
+6. Call `bios_hw_init()` (IVT, PIO, CTC, SIO, DMA, CRT, FDC init)
+7. Call `bios_boot()` (sets SP to BIOS_STACK, never returns)
+
+Uses ROM's stack pointer (0xBFFF) throughout steps 1-7.  Interrupts
+stay disabled until bios_boot's init path enables them.
 
 ### Source files
 
