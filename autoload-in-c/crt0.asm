@@ -8,36 +8,25 @@
 ; Section layout:
 ;   BOOT     0x0000  begin() + C init code (boot_entry.c)
 ;   NMI      0x0066  NMI handler (nmi.c)
-;   CODE     0x7000  IVT data + all C code (relocated to RAM by begin)
+;   INTVEC   0x7000  Interrupt vector table (page-aligned for IM2)
+;   CODE     follows C code (relocated to RAM by begin)
 
 	EXTERN	_dumint, _crtint, _flpint   ; ISRs in isr.c
 	EXTERN	__tail                      ; linker: end of last section
 
-; ====================================================================
-; BOOT section (ROM address 0x0000) — begin() in boot_entry.c
-; ====================================================================
-
 	SECTION	BOOT
 	ORG	0x0000
-
-; ====================================================================
-; NMI section (0x0066) — nmi.c provides nmi_noop (RETN)
-; ====================================================================
 
 	SECTION	NMI
 	ORG	0x0066
 
-; ====================================================================
-; CODE section (0x7000) — relocated to RAM by begin()
-; ====================================================================
-
-	SECTION CODE
+	SECTION INTVEC
 	ORG	0x7000
 
 ; Interrupt vector table — 16 entries, page-aligned for Z80 IM2.
+; I register = 0x70, vector address = I*256 + data_bus_byte.
 ; Must stay in asm: sdcc's ROM model creates duplicate symbols for
-; initialized data, preventing placement in a custom section.
-INTVEC:
+; initialized data, preventing placement in a custom C section.
 	DW	_dumint         ;  +0: Dummy
 	DW	_dumint         ;  +2: PIO Port A
 	DW	_dumint         ;  +4: PIO Port B
@@ -55,7 +44,8 @@ INTVEC:
 	DW	_dumint         ; +28: Dummy
 	DW	_dumint         ; +30: Dummy
 
-; g_state: fixed RAM address alias. Must stay in asm — sdcc __at(0xBF00)
-; creates a BSS allocation gap that causes boot hang.
+	SECTION CODE
+
+; g_state: fixed RAM address alias.
 	PUBLIC	_g_state
 	DEFC	_g_state = 0xBF00

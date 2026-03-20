@@ -18,7 +18,7 @@
 
 /* Linker symbols for self-relocation.
  * C adds _ prefix: _X → __X in linker namespace. */
-extern byte _CODE_head;     /* __CODE_head = 0x7000 (IVT/CODE start) */
+extern byte _INTVEC_head;     /* __INTVEC_head = 0x7000 (IVT/CODE start) */
 extern byte _NMI_tail;      /* __NMI_tail  = 0x0068 (PROM offset of CODE) */
 extern byte _tail;           /* __tail = end of last section */
 
@@ -37,8 +37,8 @@ void begin(void) __naked
     intrinsic_di();
     __asm__("ld sp, #" STR(ROM_STACK) "   \n"
             "ld hl, #0x0000               \n"
-            "ld de, #__CODE_head - __NMI_tail  \n"
-            "ld bc, #__tail - __CODE_head + __NMI_tail \n"
+            "ld de, #__INTVEC_head - __NMI_tail  \n"
+            "ld bc, #__tail - __INTVEC_head + __NMI_tail \n"
             "ldir                         \n");
     init_relocated();
 }

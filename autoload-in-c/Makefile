@@ -59,10 +59,10 @@ rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg NMI"  -c nmi.c       -o nmi.o && \
 	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o nmi.o
-	@ls -la roa375_BOOT.bin roa375_NMI.bin roa375_CODE.bin 2>/dev/null
+	@ls -la roa375_BOOT.bin roa375_NMI.bin roa375_INTVEC.bin 2>/dev/null
 	@BOOT=$$(wc -c < roa375_BOOT.bin); \
 	 NMI=$$(wc -c < roa375_NMI.bin); \
-	 CODE=$$(wc -c < roa375_CODE.bin); \
+	 CODE=$$(wc -c < roa375_INTVEC.bin); \
 	 GAP=$$((0x0066 - BOOT)); \
 	 PROM=$$((0x0068 + CODE)); \
 	 echo "BOOT: $$BOOT bytes, gap: $$GAP bytes, NMI: $$NMI bytes at 0x0066, CODE: $$CODE bytes"; \
@@ -92,11 +92,11 @@ FLOPPY = $(HOME)/Downloads/CPM_med_COMAL80.imd
 
 prom: rom
 	@BOOT=$$(wc -c < roa375_BOOT.bin | tr -d ' '); \
-	 CODE=$$(wc -c < roa375_CODE.bin | tr -d ' '); \
+	 CODE=$$(wc -c < roa375_INTVEC.bin | tr -d ' '); \
 	 { cat roa375_BOOT.bin; \
 	   perl -e "print \"\\xff\" x (0x66 - $$BOOT)"; \
 	   cat roa375_NMI.bin; \
-	   cat roa375_CODE.bin; \
+	   cat roa375_INTVEC.bin; \
 	   perl -e "print \"\\xff\" x (2048 - 0x68 - $$CODE)"; \
 	 } > roa375.ic66; \
 	 echo "roa375.ic66: $$(wc -c < roa375.ic66 | tr -d ' ') bytes"
