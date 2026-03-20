@@ -129,8 +129,8 @@ static const char b7_sysc[] = "SYSC";
 static uint8_t *b7_dir;
 
 void boot7(void) {
-    if (b7_cmp6((const uint8_t *)0x0002, (const uint8_t *)msg_rc700) == 0) {
-        b7_dir = (uint8_t *)0x0B80;
+    if (b7_cmp6((const uint8_t *)RC700_SIG_OFF, (const uint8_t *)msg_rc700) == 0) {
+        b7_dir = (uint8_t *)BOOT_DIR_OFF;
         while ((uint16_t)b7_dir < 0x0D00) {
             if (*b7_dir == 0) {
                 b7_dir += 0x20;
@@ -148,7 +148,7 @@ void boot7(void) {
         goto nosys;
     }
 
-    if (b7_cmp6((const uint8_t *)0x0008, (const uint8_t *)msg_rc702) == 0) {
+    if (b7_cmp6((const uint8_t *)RC702_SIG_OFF, (const uint8_t *)msg_rc702) == 0) {
         jump_to(*(uint16_t *)0x0000);
         return;
     }

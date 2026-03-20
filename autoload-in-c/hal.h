@@ -128,8 +128,11 @@ __sfr __at 0xFC _port_dma_clbp;
 #define hal_crt_command(d)          (_port_crt_cmd = (d))
 #define hal_crt_status()            (_port_crt_cmd)
 
-#define hal_ei()  __asm ei __endasm
-#define hal_di()  __asm di __endasm
+/* Use z88dk intrinsics for DI/EI — gives the compiler correct
+ * register preservation information (__preserves_regs). */
+#include <intrinsic.h>
+#define hal_ei()  intrinsic_ei()
+#define hal_di()  intrinsic_di()
 
 /* CTC channel writes — direct port I/O, no switch overhead */
 #define hal_ctc_write(ch, d) do { \

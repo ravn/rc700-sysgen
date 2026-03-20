@@ -21,15 +21,20 @@
 #define FDC_MFM           0x40  /* set bit 6 for MFM (double density) */
 
 /* Memory layout constants */
-#define FLOPPYDATA  0x0000
-#define COMALBOOT   0x1000
-#define PROM1_ADDR  0x2000
-#define DIROFF      0x0B60
-#define DIREND_HI   0x0D
-#define DSPSTR_ADDR 0x7800
-#define DSP_CHARS   0x0780
-#define ATTOFF      7
-#define SECSZ0      0x80
+#define FLOPPYDATA  0x0000      /* Track 0 loaded here by ROM */
+#define COMALBOOT   0x1000      /* COMAL-80 boot address */
+#define PROM1_ADDR  0x2000      /* Secondary PROM (network boot) */
+#define DIROFF      0x0B60      /* Directory start in Track 0 */
+#define DIREND_HI   0x0D        /* Directory end high byte */
+#define DSPSTR_ADDR 0x7800      /* Display refresh memory (80x24) */
+#define DSP_CHARS   0x0780      /* Display buffer size (1920 bytes) */
+#define ATTOFF      7           /* Attribute byte offset in dir entry */
+#define SECSZ0      0x80        /* Sector size for Track 0 Side 0 (128B) */
+
+/* Boot signature offsets in Track 0 */
+#define RC700_SIG_OFF  0x0002   /* " RC700" signature at offset 2 */
+#define RC702_SIG_OFF  0x0008   /* " RC702" signature at offset 8 */
+#define BOOT_DIR_OFF   0x0B80   /* Directory area for RC702 format */
 
 /*
  * Boot state — all variables used by the boot ROM.

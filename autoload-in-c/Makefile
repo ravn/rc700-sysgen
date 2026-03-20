@@ -33,6 +33,11 @@ ZCCCFG = $(Z88DK)/lib/config
 # C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc into CODE section)
 # boot_entry.c: compiled into BOOT section (runs from ROM before relocation)
 # Assembly: crt0.asm (hand-written startup + utilities)
+#
+# ZFLAGS: compile flags (used for -c steps and final link).
+# ZLFLAGS: link-only flags (appmake, library).
+#   -Cz"--org 0": tell appmake the binary starts at address 0
+#     (suppresses "could not get the code ORG" warning with --no-crt).
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
          -Cs"--fomit-frame-pointer" \
@@ -40,15 +45,20 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--sdcccall 1" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
-         -pragma-define:CRT_ORG_BSS=0x8000 \
-         -m --list -create-app
+         -pragma-define:CRT_ORG_BSS=0x8000
+
+# z88dk library: provides intrinsic_di/ei/im_2, etc.
+# Only referenced symbols are linked — zero overhead if unused.
+ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
+
+ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
 rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg NMI"  -c nmi.c       -o nmi.o && \
-	$(ZCC) $(ZFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o nmi.o
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o nmi.o
 	@ls -la roa375_BOOT.bin roa375_NMI.bin roa375_CODE.bin 2>/dev/null
 	@BOOT=$$(wc -c < roa375_BOOT.bin); \
 	 NMI=$$(wc -c < roa375_NMI.bin); \
@@ -64,6 +74,15 @@ rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 	 else \
 	   echo "OK: $$((2048 - PROM)) bytes under 2048-byte limit"; \
 	 fi
+	@if grep -q 'ix[+-]\|iy[+-]' rom_all.c.lis 2>/dev/null; then \
+		echo "WARNING: IX/IY-relative addressing found (check if locals can be static):"; \
+		grep 'ix[+-]\|iy[+-]' rom_all.c.lis; \
+	fi
+	@if grep -qE '__div[us]|__mod[us]|__mul[us]' roa375.map 2>/dev/null; then \
+		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
+		grep -E '__div[us]|__mod[us]|__mul[us]' roa375.map; \
+		exit 1; \
+	fi
 
 # Assemble PROM image: BOOT + 0xFF gap + NMI + CODE + 0xFF pad to 2048
 MAME = /Users/ravn/git/mame
@@ -119,7 +138,7 @@ mamesym: roa375.map
 
 clean:
 	rm -f test_boot test_fdc roa375 roa375_*.bin roa375_mame.sym roa375_debug.cmd roa375.ic66
-	rm -f *.o *.bin *.map *.sym *.lis *.def *.rom
+	rm -f *.o *.bin *.map *.sym *.lis zcc_opt.def *.rom
 	rm -f zcc_opt.def
 
 .PHONY: test rom prom mame mamesym rc700 clean
