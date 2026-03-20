@@ -39,8 +39,6 @@ C rewrite of the ROA375 autoload PROM using z88dk with sdcc backend:
 - `init.c` - Hardware initialization (PIO, CTC, DMA, CRT)
 - `rom_all.c` - Unity build (includes all C files for cross-function optimization)
 - `hal.h` / `boot.h` - Headers
-- `hal_host.c` - Mock HAL for host testing
-- `test_boot.c` / `test_fdc.c` - Host test suites
 
 #### PROM Image Layout (2048 bytes max)
 ```

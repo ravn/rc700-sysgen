@@ -1,12 +1,8 @@
 /*
  * hal.h — Hardware Abstraction Layer for RC702 autoload PROM
  *
- * Isolates all port I/O behind a C interface so the same boot logic
- * compiles for both the real Z80 target (z88dk) and a host test harness.
- *
- * On Z80: simple port writes are inline via __sfr; only FL02/FLO3 remain
+ * Z80 build: simple port writes are inline via __sfr; only FL02/FLO3 remain
  * as real functions (they contain loops).
- * On host: all functions are real, with mock recording for test assertions.
  */
 
 #ifndef HAL_H
@@ -15,55 +11,6 @@
 #include <stdint.h>
 
 #include "boot.h"  /* byte, word typedefs */
-
-#ifdef HOST_TEST
-
-/* ================================================================
- * HOST TEST BUILD — all functions are real (defined in hal_host.c)
- * ================================================================ */
-
-byte hal_diskette_size(void);
-byte hal_read_sw1(void);
-void hal_prom_disable(void);
-void hal_motor(byte on);
-void hal_beep(void);
-
-void hal_fdc_command(byte cmd);
-byte hal_fdc_status(void);
-byte hal_fdc_data_read(void);
-void hal_fdc_data_write(byte data);
-void hal_fdc_wait_write(byte val);
-byte hal_fdc_wait_read(void);
-
-void hal_dma_command(byte cmd);
-void hal_dma_mask(byte channel);
-void hal_dma_unmask(byte channel);
-void hal_dma_clear_bp(void);
-void hal_dma_mode(byte mode);
-void hal_dma_ch1_addr(word addr);
-void hal_dma_ch1_wc(word wc);
-void hal_dma_ch2_addr(word addr);
-void hal_dma_ch2_wc(word wc);
-void hal_dma_ch3_addr(word addr);
-void hal_dma_ch3_wc(word wc);
-byte hal_dma_status(void);
-
-void hal_pio_write_a_data(byte data);
-void hal_pio_write_a_ctrl(byte data);
-void hal_pio_write_b_data(byte data);
-void hal_pio_write_b_ctrl(byte data);
-
-void hal_ctc_write(byte channel, byte data);
-
-void hal_crt_param(byte data);
-void hal_crt_command(byte data);
-byte hal_crt_status(void);
-
-void hal_delay(byte outer, byte inner);
-void hal_ei(void);
-void hal_di(void);
-
-#else /* Z80 TARGET BUILD */
 
 /* ================================================================
  * Z80 BUILD — inline port I/O via __sfr, minimal function calls
@@ -174,7 +121,5 @@ __sfr __at 0xFC _port_dma_clbp;
 void hal_fdc_wait_write(byte val);
 byte hal_fdc_wait_read(void);
 void hal_delay(byte outer, byte inner);
-
-#endif /* HOST_TEST */
 
 #endif /* HAL_H */

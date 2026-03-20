@@ -59,7 +59,6 @@ typedef uint16_t word;
  *
  * Z80: BSS is inside CODE (no separate ORG), so variables are part of
  * the PROM payload — copied to RAM by begin() as zeros.
- * Host: normal BSS, zeroed by OS.
  */
 
 extern byte fdcres[7];   /* FDC result bytes (ST0-N) */
@@ -90,20 +89,11 @@ extern word trkovr;     /* track overflow */
 extern byte errsav;      /* saved error code */
 
 /* Display buffer */
-#ifdef HOST_TEST
-extern byte dspstr[2000];
-extern word scroll_offset;
-#else
 #define dspstr         ((byte *)0x7800)
 #define scroll_offset  (*(word *)0x7FF5)
-#endif
 
 /* init.c — peripheral init called from crt0.asm after SP/I/IM2 setup */
 void init_peripherals(void);
-void init_pio(void);
-void init_ctc(void);
-void init_dma(void);
-void init_crt(void);
 void init_fdc(void);
 
 /* fmt.c */
@@ -145,22 +135,13 @@ void crt_refresh(void);
 byte b7_cmp6(const byte *a, const byte *b);
 byte b7_chksys(const byte *dir, const byte *pattern);
 
-#ifdef HOST_TEST
-void mcopy(byte *dst, const byte *src, byte len);
-byte mcmp(const byte *a, const byte *b, byte len);
-#endif
-
 /* Implemented in crt0.asm */
 void halt_forever(void);
 
 /* Transfer control to address — never returns.
  * Uses a function pointer call (CALL, not JP).  The dangling return
  * address on the stack is harmless since the target never returns. */
-#ifdef HOST_TEST
-void jump_to(word addr);
-#else
 #define jump_to(addr) ((void (*)(void))(addr))()
-#endif
 
 /* syscall — addr in HL, bc packed as 16-bit in DE */
 void syscall(word addr, word bc);

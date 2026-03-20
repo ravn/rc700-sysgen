@@ -44,11 +44,6 @@ byte errsav = 0;
  * defined consecutively above — do not reorder or insert between them.
  * Verified at runtime by assert in test suite. */
 
-#ifdef HOST_TEST
-byte dspstr[2000];
-word scroll_offset;
-#endif
-
 /* Error/status message strings — non-static for assembly access */
 const char msg_rc700[]   = " RC700";
 const char msg_rc702[]   = " RC702";
@@ -57,29 +52,8 @@ const char msg_nocat[]   = " **NO KATALOG** ";
 const char msg_nodisk[]  = " **NO DISKETTE NOR LINEPROG** ";
 const char msg_diskerr[] = "**DISKETTE ERROR** ";
 
-#ifdef HOST_TEST
-void clear_screen(void) {
-    byte *p = dspstr;
-    word i = 80 * 25;
-    while (i--) *p++ = 0x20;
-}
-void mcopy(byte *dst, const byte *src, byte len) {
-    while (len--) *dst++ = *src++;
-}
-
-byte mcmp(const byte *a, const byte *b, byte len) {
-    while (len--) {
-        if (*a++ != *b++) return 1;
-    }
-    return 0;
-}
-
-#endif /* HOST_TEST */
-
 /* halt_forever — infinite loop (never returns) */
-#ifndef HOST_TEST
 void halt_forever(void) { for (;;); }
-#endif
 
 /* halt_msg — copy 'len' bytes to display buffer, then halt forever.
  *
@@ -118,17 +92,6 @@ byte b7_chksys(const byte *dir, const byte *pattern) {
     if ((dir[3] & 0x3F) != 0x13) return 1;
     return 0;
 }
-
-#ifdef HOST_TEST
-void display_banner(void) {
-    const byte *src = (const byte *)msg_rc700;
-    byte *dst = dspstr;
-    byte i = 6;
-    while (i--) *dst++ = *src++;
-    scroll_offset = 0;
-    hal_crt_command(0x23);  /* start display: burst space=0, 8 DMA cycles/burst */
-}
-#endif
 
 void errdsp(byte code) {
     errsav = code;
@@ -202,12 +165,10 @@ nosys:
 }
 
 void check_prom1(void) {
-#ifndef HOST_TEST
     if (b7_cmp6((const byte *)0x2002, (const byte *)msg_rc702) == 0) {
         jump_to(*(word *)0x2000);
         return;
     }
-#endif
     halt_msg((const byte *)msg_nodisk, 30);
 }
 
@@ -279,9 +240,7 @@ void flboot(void) {
     memadr = FLOPPYDATA;
     rdtrk0(0x7300 - 0x7000);
     dsktyp = 1;
-#ifndef HOST_TEST
     jump_to(COMALBOOT);
-#endif
 }
 
 static void fldsk1(void) {
@@ -352,7 +311,6 @@ void syscall(word addr, word bc) {
     }
 }
 
-#ifndef HOST_TEST
 int main(void) {
     /* PIO, CTC, DMA, CRT are initialized in crt0.asm before _main */
     init_fdc();
@@ -361,4 +319,3 @@ int main(void) {
     preinit();
     return 0;
 }
-#endif

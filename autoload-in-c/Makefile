@@ -1,28 +1,11 @@
 # Makefile for RC702 autoload PROM rewrite
 #
-# Host tests:  make test
 # Z80 build:   make rom      (requires z88dk)
 # PROM image:  make prom     (assembles 2048-byte roa375.ic66)
 # MAME launch: make mame     (builds, installs PROM, launches with debugger)
 # MAME syms:   make mamesym  (generates roa375_mame.sym for debugger)
 # RC700 emu:   make rc700    (builds PROM, compiles & runs rc700 emulator)
 # Clean:       make clean
-
-CC = cc
-CFLAGS = -Wall -Wextra -std=c99 -DHOST_TEST
-
-# Host test builds (uses mock HAL)
-HOST_COMMON = boot.c fdc.c fmt.c init.c isr.c hal_host.c
-
-test: test_boot test_fdc
-	./test_boot
-	./test_fdc
-
-test_boot: test_boot.c $(HOST_COMMON) hal.h boot.h
-	$(CC) $(CFLAGS) -o $@ test_boot.c $(HOST_COMMON)
-
-test_fdc: test_fdc.c $(HOST_COMMON) hal.h boot.h
-	$(CC) $(CFLAGS) -o $@ test_fdc.c $(HOST_COMMON)
 
 # Z80 ROM build (requires z88dk in ../z88dk)
 Z88DK = ../z88dk
@@ -112,6 +95,7 @@ mame: prom mamesym
 	@grep -q '^PASS' /tmp/boot_test_result.txt
 
 # Build and run the RC700 emulator with SDL2
+CC = cc
 RC700_SRC = cpu0.c cpu1.c cpu2.c cpu3.c cpu4.c cpu5.c cpu6.c cpu7.c \
             rom.c charrom.c charram.c pio.c sio.c ctc.c dma.c crt.c \
             fdc.c wdc.c ftp.c disk.c fifo.c monitor.c disasm.c
@@ -140,8 +124,8 @@ mamesym: roa375.map
 	@echo "wrote roa375_mame.sym ($$(wc -l < roa375_mame.sym) symbols)"
 
 clean:
-	rm -f test_boot test_fdc roa375 roa375_*.bin roa375_mame.sym roa375_debug.cmd roa375.ic66
+	rm -f roa375 roa375_*.bin roa375_mame.sym roa375_debug.cmd roa375.ic66
 	rm -f *.o *.bin *.map *.sym *.lis zcc_opt.def *.rom
 	rm -f zcc_opt.def
 
-.PHONY: test rom prom mame mamesym rc700 clean
+.PHONY: rom prom mame mamesym rc700 clean

@@ -5,7 +5,8 @@
  * to see all functions at once, enabling cross-function inlining,
  * dead code elimination, and better register allocation.
  *
- * Only used for Z80 ROM build; host tests compile individually.
+ * intvec.c is compiled separately (intvec.o) and linked first so the
+ * linker places the IVT at 0x7000 (page-aligned for Z80 IM2).
  */
 
 #include "hal_z80.c"

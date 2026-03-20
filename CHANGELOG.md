@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-03-20: Remove HOST_TEST abstraction from autoload-in-c
+
+### What was done
+Removed the host-native unit testing abstraction (HAL mock + HOST_TEST
+`#ifdef` guards) from the autoload-in-c PROM rewrite. This simplifies all
+sources for the Z80-only build path and eliminates dead code paths that
+added complexity without current value.
+
+**Files deleted:**
+- `hal_host.c` — mock HAL implementation for host builds
+- `test_boot.c` — host-native boot logic tests
+- `test_fdc.c` — host-native FDC driver tests
+
+**Files modified:**
+- `hal.h` — removed `#ifdef HOST_TEST` function-declaration block (47 lines),
+  kept only Z80 `__sfr` port declarations and `#define` macros
+- `boot.h` — removed `dspstr[]`/`scroll_offset` array declarations,
+  `mcopy`/`mcmp` declarations, `jump_to` function declaration, and
+  `init_pio`/`init_ctc`/`init_dma`/`init_crt` declarations (all test-only)
+- `boot.c` — removed 6 HOST_TEST blocks: heap display buffer, `clear_screen`/
+  `mcopy`/`mcmp` implementations, guards around `halt_forever`, `check_prom1`,
+  `flboot`, and `main()`
+- `init.c` — removed 3 HOST_TEST blocks: individual init functions (duplicate
+  of `init_peripherals`), guards around `set_i_reg`/`init_relocated`/
+  `clear_screen`/`init_fdc`/`display_banner`
+- `isr.c` — removed `#ifndef HOST_TEST` guards from ISR definitions
+- `code.c` — updated comment (removed "host tests compile individually" note)
+- `Makefile` — removed `CC`, `CFLAGS`, `HOST_COMMON`, `test`/`test_boot`/
+  `test_fdc` targets; removed `test` from `.PHONY`; kept `CC` for rc700 target
+- `CLAUDE.md` — removed `hal_host.c` and `test_boot.c`/`test_fdc.c` from listing
+
+### User choices
+- **Remove host testing entirely**: The HAL abstraction and host test harness
+  added complexity for limited benefit. The user decided to consolidate all
+  sources for maximum sdcc cross-function optimization in the unity build.
+- **Keep intvec.c as separate compilation unit**: The plan proposed merging
+  intvec.c into code.c, but this was abandoned because the linker requires
+  intvec.o to be linked first to place the IVT at address 0x7000 (Z80 IM2
+  page-aligned requirement). Including it in the unity build moved the IVT
+  after the code, breaking the memory layout.
+
+### Verification
+- CODE binary is byte-identical to pre-change reference
+- BOOT binary differs only in the 2-byte build timestamp
+
+---
+
 ## 2026-03-20: Session summary
 
 ### What was done

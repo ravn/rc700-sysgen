@@ -1,7 +1,5 @@
 /*
  * isr.c — Interrupt service routines for RC702 autoload
- *
- * Compiled by sdcc for Z80, by cc for host tests.
  */
 
 #include "hal.h"
@@ -43,7 +41,6 @@ void crt_refresh(void) {
 }
 
 /* dumint — dummy handler for unused interrupt vectors (generates EI; RETI) */
-#ifndef HOST_TEST
 void dumint(void) __interrupt(0) {
 }
 
@@ -66,4 +63,3 @@ void flpint(void) __critical __interrupt(2) {
         flo6();
     }
 }
-#endif
