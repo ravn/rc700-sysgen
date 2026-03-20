@@ -14,8 +14,7 @@
 
 #include <stdint.h>
 
-typedef uint8_t  byte;
-typedef uint16_t word;
+#include "boot.h"  /* byte, word typedefs */
 
 #ifdef HOST_TEST
 

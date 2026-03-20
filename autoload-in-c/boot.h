@@ -11,6 +11,9 @@
 
 #include <stdint.h>
 
+typedef uint8_t  byte;
+typedef uint16_t word;
+
 /* NEC uPD765 (Intel 8272) FDC command bytes */
 #define FDC_SENSE_DRIVE   0x04
 #define FDC_RECALIBRATE   0x07
@@ -20,7 +23,7 @@
 #define FDC_READ_ID       0x0A
 #define FDC_MFM           0x40  /* set bit 6 for MFM (double density) */
 
-/* byte/word typedefs are in hal.h (included by all source files) */
+/* byte/word typedefs above — hal.h includes this header */
 
 /* Stringification macros for inline asm constants */
 #define STR_(x) #x

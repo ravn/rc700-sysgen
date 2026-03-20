@@ -88,7 +88,7 @@ rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 MAME = /Users/ravn/git/mame
 MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
 RC700 = ../../rc700
-FLOPPY = $(HOME)/Downloads/CPM_med_COMAL80.imd
+FLOPPY = $(HOME)/Downloads/SW1711-I8.imd
 
 prom: rom
 	@BOOT=$$(wc -c < roa375_BOOT.bin | tr -d ' '); \
@@ -105,8 +105,13 @@ prom: rom
 
 mame: prom mamesym
 	@awk '{printf "comadd %s,%s\n", $$1, $$2}' roa375_mame.sym > roa375_debug.cmd
-	$(MAME)/regnecentralen rc702 -rompath $(MAME)/roms -debug \
+	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+		-nothrottle -window -skip_gameinfo \
+		-seconds_to_run 60 \
+		-autoboot_script mame_boot_test.lua \
 		-flop1 "$(FLOPPY)"
+	@cat /tmp/boot_test_result.txt
+	@grep -q '^PASS' /tmp/boot_test_result.txt
 
 # Build and run the RC700 emulator with SDL2
 RC700_SRC = cpu0.c cpu1.c cpu2.c cpu3.c cpu4.c cpu5.c cpu6.c cpu7.c \
