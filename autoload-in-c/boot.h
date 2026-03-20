@@ -137,8 +137,9 @@ void check_prom1(void);
 /* isr.c */
 void crt_refresh(void);
 
-/* Implemented in crt0.asm (C fallback in boot.c for HOST_TEST) */
-void halt_msg(const byte *msg);
+/* halt_msg is a macro in boot.c — must include boot.c or boot.h+boot.c.
+ * IMPORTANT: len must NOT include NUL terminator.
+ * halt_msg(msg_ptr, byte_count) — copies to display then halts. */
 
 /* Comparison helpers — C in boot.c (pointer-increment avoids IX frame) */
 byte b7_cmp6(const byte *a, const byte *b);

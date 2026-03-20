@@ -5,14 +5,15 @@
  * via sdcccall(1) ABI and return status values directly.
  */
 
+#include <string.h>
 #include "hal.h"
 #include "boot.h"
 
 #define ST (&g_state)
 
 /*
- * Global boot state.
- * Z80: defined in crt0.asm at 0xBF00 (DEFC _g_state = 0xBF00).
+ * Global boot state at fixed RAM address.
+ * Z80: __at(0xBF00) places it at the fixed address.
  * Host: allocated here in BSS.
  */
 #ifdef HOST_TEST
@@ -46,14 +47,27 @@ byte mcmp(const byte *a, const byte *b, byte len) {
     return 0;
 }
 
-/* HOST_TEST halt_msg — C fallback (null-terminated copy) */
-void halt_msg(const byte *msg) {
-    byte *dst = dspstr;
-    while (*msg) *dst++ = *msg++;
-    halt_forever();
-}
-
 #endif /* HOST_TEST */
+
+/* halt_forever — infinite loop (never returns) */
+#ifndef HOST_TEST
+void halt_forever(void) { for (;;); }
+#endif
+
+/* halt_msg — copy 'len' bytes to display buffer, then halt forever.
+ *
+ * Implemented as a macro so 'len' is a compile-time constant at
+ * each call site — sdcc inlines memcpy as LDIR for constant lengths.
+ * If halt_msg were a function, sdcc would emit a library call to
+ * _memcpy instead of inlining, costing ~20 extra bytes.
+ *
+ * IMPORTANT: 'len' must NOT include the NUL terminator.
+ * The message strings are C string literals with trailing NUL,
+ * but only 'len' bytes (without the NUL) are copied to display. */
+#define halt_msg(msg, len) do { memcpy(dspstr, (msg), (len)); halt_forever(); } while(0)
+
+/* HALT_MSG(str) — display string literal and halt.
+ * Automatically computes length excluding NUL terminator. */
 
 /* b7_cmp6 — compare 6 bytes.  Pointer-increment style generates compact
  * sdcc output (17 bytes, no IX frame) vs indexed a[i] (35 bytes with IX). */
@@ -94,7 +108,7 @@ void errdsp(byte code) {
     hal_ei();
     if (ST->dsktyp & 0x01) return;
     hal_beep();
-    halt_msg((const byte *)msg_diskerr);
+    halt_msg((const byte *)msg_diskerr, 19);
 }
 
 /*
@@ -153,11 +167,11 @@ void boot7(void) {
         return;
     }
 
-    halt_msg((const byte *)msg_nocat);
+    halt_msg((const byte *)msg_nocat, 16);
     return;
 
 nosys:
-    halt_msg((const byte *)msg_nosys);
+    halt_msg((const byte *)msg_nosys, 21);
 }
 
 void check_prom1(void) {
@@ -167,7 +181,7 @@ void check_prom1(void) {
         return;
     }
 #endif
-    halt_msg((const byte *)msg_nodisk);
+    halt_msg((const byte *)msg_nodisk, 30);
 }
 
 static void nxthds(void) {
