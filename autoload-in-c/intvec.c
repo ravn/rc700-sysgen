@@ -13,7 +13,9 @@ extern void flpint(void);
 
 typedef void (*isr_t)(void);
 
+#ifdef __SDCC
 #pragma constseg CODE
+#endif
 
 const isr_t intvec[16] = {
     dumint,     /*  +0: Dummy */

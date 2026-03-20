@@ -20,7 +20,9 @@
  */
 
 #include <string.h>
+#ifdef __SDCC
 #include <intrinsic.h>
+#endif
 #include "rom.h"
 
 /* ================================================================
@@ -111,15 +113,15 @@ void init_peripherals(void) {
     pio_write_b_ctrl(0x83);
 
     /* CTC setup */
-    ctc_write(0, 0x08);    /* interrupt vector base (D0=0: vector word) */
-    ctc_write(0, 0x47);    /* counter mode, falling edge, TC follows, reset */
-    ctc_write(0, 0x20);    /* time constant = 32 */
-    ctc_write(1, 0x47);    /* same config as Ch0 */
-    ctc_write(1, 0x20);
-    ctc_write(2, 0xD7);
-    ctc_write(2, 0x01);
-    ctc_write(3, 0xD7);
-    ctc_write(3, 0x01);
+    ctc0_write(0x08);    /* interrupt vector base (D0=0: vector word) */
+    ctc0_write(0x47);    /* counter mode, falling edge, TC follows, reset */
+    ctc0_write(0x20);    /* time constant = 32 */
+    ctc1_write(0x47);    /* same config as Ch0 */
+    ctc1_write(0x20);
+    ctc2_write(0xD7);
+    ctc2_write(0x01);
+    ctc3_write(0xD7);
+    ctc3_write(0x01);
 
     /* DMA setup */
     dma_command(0x20);
@@ -771,8 +773,8 @@ void crt_refresh(void) {
     dma_unmask(3);          /* re-enable Ch3 */
 
     /* Rearm CTC Ch2: counter mode, interrupt, falling edge, TC follows */
-    ctc_write(2, 0xD7);
-    ctc_write(2, 0x01);    /* time constant = 1 (every retrace) */
+    ctc2_write(0xD7);
+    ctc2_write(0x01);    /* time constant = 1 (every retrace) */
 }
 
 /* dumint — dummy handler for unused interrupt vectors (generates EI; RETI) */

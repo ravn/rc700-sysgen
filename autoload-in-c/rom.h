@@ -15,6 +15,16 @@
 
 #include <stdint.h>
 
+/* Stub sdcc keywords for non-sdcc compilers (CLion, clangd) */
+#ifndef __SDCC
+#define __sfr
+#define __at(x)
+#define __interrupt(x)
+#define __critical
+#define __naked
+#define __asm__(x)
+#endif
+
 typedef uint8_t  byte;
 typedef uint16_t word;
 
@@ -74,6 +84,7 @@ typedef uint16_t word;
  * to different ports with the same value (e.g. two OUT instructions both
  * needing A=0x4F).  Custom peephole rules in peephole.def eliminate these
  * redundant loads, saving 2 bytes per occurrence in init sequences. */
+#ifdef __SDCC
 __sfr __at 0x14 _port_sw1;
 __sfr __at 0x18 _port_ramen;
 __sfr __at 0x1C _port_bib;
@@ -99,6 +110,20 @@ __sfr __at 0xF8 _port_dma_cmd;
 __sfr __at 0xFA _port_dma_smsk;
 __sfr __at 0xFB _port_dma_mode;
 __sfr __at 0xFC _port_dma_clbp;
+#else
+/* Stubs for non-sdcc compilers (CLion indexing, clangd, etc.) */
+extern volatile unsigned char _port_sw1, _port_ramen, _port_bib;
+extern volatile unsigned char _port_pio_a_data, _port_pio_b_data;
+extern volatile unsigned char _port_pio_a_ctrl, _port_pio_b_ctrl;
+extern volatile unsigned char _port_ctc0, _port_ctc1, _port_ctc2, _port_ctc3;
+extern volatile unsigned char _port_crt_param, _port_crt_cmd;
+extern volatile unsigned char _port_fdc_status, _port_fdc_data;
+extern volatile unsigned char _port_dma_ch1_addr, _port_dma_ch1_wc;
+extern volatile unsigned char _port_dma_ch2_addr, _port_dma_ch2_wc;
+extern volatile unsigned char _port_dma_ch3_addr, _port_dma_ch3_wc;
+extern volatile unsigned char _port_dma_cmd, _port_dma_smsk;
+extern volatile unsigned char _port_dma_mode, _port_dma_clbp;
+#endif
 
 /* Simple port read/write — compile to single IN/OUT instructions */
 #define read_sw1()              (_port_sw1)
@@ -130,17 +155,25 @@ __sfr __at 0xFC _port_dma_clbp;
 
 /* Use z88dk intrinsics for DI/EI — gives the compiler correct
  * register preservation information (__preserves_regs). */
+#ifdef __SDCC
 #include <intrinsic.h>
 #define ei()  intrinsic_ei()
 #define di()  intrinsic_di()
+#else
+static inline void ei(void) {}
+static inline void di(void) {}
+static inline void intrinsic_di(void) {}
+static inline void intrinsic_ei(void) {}
+static inline void intrinsic_im_2(void) {}
+#endif
 
-/* CTC channel writes — direct port I/O, no switch overhead */
-#define ctc_write(ch, d) do { \
-    if      ((ch) == 0) _port_ctc0 = (d); \
-    else if ((ch) == 1) _port_ctc1 = (d); \
-    else if ((ch) == 2) _port_ctc2 = (d); \
-    else                _port_ctc3 = (d); \
-} while(0)
+/* CTC channel writes — direct port I/O, no switch overhead.
+ * Separate macros per channel avoid unreachable-code warnings
+ * from dead branches when the channel is a compile-time constant. */
+#define ctc0_write(d)           (_port_ctc0 = (d))
+#define ctc1_write(d)           (_port_ctc1 = (d))
+#define ctc2_write(d)           (_port_ctc2 = (d))
+#define ctc3_write(d)           (_port_ctc3 = (d))
 
 /* DMA channel address/word count — two consecutive port writes */
 #define dma_ch1_addr(addr) do { \

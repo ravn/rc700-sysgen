@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-03-21: Build cleanup and CLion support
+
+### What was done
+1. **`ctc_write` macro split** into `ctc0_write`..`ctc3_write` — eliminates
+   sdcc warning 126 (unreachable code) from dead if/else branches when the
+   channel is a compile-time constant.
+2. **Suppress sdcc warning 296** via `--disable-warning 296` (same approach
+   as rcbios-in-c). The warning is a false positive when using `--no-crt`
+   with `--sdcccall 1`.
+3. **Rename build output** from `roa375` to `prom0` — output files are now
+   `prom0_BOOT.bin`, `prom0_CODE.bin`, `prom0.ic66`, `prom0.map`. Emulator
+   install paths keep the original `roa375` names.
+4. **Add `all` target** to Makefile (`all: clean rom`) as default.
+5. **CLion/CMake support** — added `CMakeLists.txt` for IDE indexing and
+   `#ifndef __SDCC` guards in `rom.h` that stub sdcc keywords (`__sfr`,
+   `__at`, `__interrupt`, `__critical`, `__naked`, `__asm__`) and provide
+   `extern volatile unsigned char` port declarations plus inline stubs for
+   intrinsic functions. Guarded `#include <intrinsic.h>` and
+   `#pragma constseg` with `#ifdef __SDCC` in all source files.
+6. **`.gitignore`** — added `autoload-in-c/prom0` and `cmake-build-*/`.
+
+### User choices
+- User asked to suppress warning 296 the same way as rcbios-in-c
+  (`--disable-warning 296`) rather than grep-filtering
+- User chose `prom0` as the build output name
+- User asked for CLion project support; opened the project and iteratively
+  fixed navigation for `boot_rom.c` (missing `intrinsic_di`/`intrinsic_ei`
+  stubs) and `intvec.c` (unguarded `#pragma constseg`)
+
+### Verification
+- Zero warnings from z88dk build
+- Binary output unchanged (68 + 1987 bytes)
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Clean up autoload-in-c naming
 
 ### What was done

@@ -7,7 +7,9 @@
  */
 
 #include <string.h>
+#ifdef __SDCC
 #include <intrinsic.h>
+#endif
 #include "rom.h"
 
 /* Linker symbols for self-relocation.
