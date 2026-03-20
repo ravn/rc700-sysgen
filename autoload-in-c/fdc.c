@@ -30,6 +30,35 @@
 #include "hal.h"
 #include "boot.h"
 
+/*
+ * waitfl timing model — must be long enough for worst-case FM track read.
+ *
+ * hal_delay(outer, inner) compiles to:
+ *   outer × inner × 256 DJNZ iterations × 13 T-states = total T-states
+ *
+ * waitfl calls hal_delay once per iteration, with 255 iterations max.
+ * Total timeout = 255 × hal_delay T-states.
+ *
+ * Worst case: 8" FM track at 360 RPM = 166ms/revolution.
+ * Head may need to wait for sector 1 (~1 revolution) then read all
+ * 26 sectors (~1 revolution) = 332ms.  Add margin → require ≥400ms.
+ *
+ * Assembly DELAY(B=1,C=1) used a 16-bit HL loop: 511×24T = 12,264T.
+ * hal_delay(1,4) = 4×256×13 = 13,312T — matches within 8%.
+ */
+#define WAITFL_DELAY_OUTER  1
+#define WAITFL_DELAY_INNER  4
+
+/* Compute timeout in ms using long arithmetic to avoid 16-bit overflow.
+ * T-states = 255 × outer × inner × 256 × 13 (DJNZ at 13T/iteration).
+ * Split: per_iter = outer × inner × 256 × 13, total_ms = 255 × per_iter / (MHz×1000). */
+#define Z80_MHZ           4  /* RC702: Z80-A at 4 MHz */
+#define WAITFL_PER_ITER  ((long)(WAITFL_DELAY_OUTER) * (WAITFL_DELAY_INNER) * 256 * 13)
+#define WAITFL_MS        (255L * WAITFL_PER_ITER / (Z80_MHZ * 1000))
+
+/* Compile-time check: timeout must cover two FM revolutions + margin */
+typedef char _waitfl_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
+
 #define ST (&g_state)
 
 void snsdrv(void) {
@@ -75,7 +104,7 @@ void rsult(void) {
 
 byte waitfl(byte timeout) {
     while (--timeout) {
-        hal_delay(1, 1);
+        hal_delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
         if (ST->flpflg & 0x02) {
             hal_di();
             ST->flpflg = 0;
@@ -146,8 +175,13 @@ byte chkres(void) {
     }
 }
 
+/* File-scope global to avoid IX frame pointer in readtk's retry loop.
+ * Safe: no recursion in the call graph (verified). */
+static byte readtk_cmd;
+
 byte readtk(byte cmd, byte retries) {
     byte r;
+    readtk_cmd = cmd;
     ST->reptim = retries;
 
     while (1) {
@@ -156,11 +190,11 @@ byte readtk(byte cmd, byte retries) {
         ST->flpflg = 0;
         hal_ei();
 
-        if ((cmd & 0x0F) != FDC_READ_ID) {
+        if ((readtk_cmd & 0x0F) != FDC_READ_ID) {
             stpdma();
         }
 
-        flrtrk(cmd);
+        flrtrk(readtk_cmd);
 
         if (waitfl(0xFF)) return 1;
 
