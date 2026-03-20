@@ -37,11 +37,9 @@
 ;
 
 	; External symbols provided by C code
-	EXTERN	_main
-	EXTERN	_crt_refresh
 	EXTERN	_dumint
-	EXTERN	_flpint_body
-	EXTERN	_init_peripherals
+	EXTERN	_crtint
+	EXTERN	_flpint
 
 	; __tail — linker-generated symbol: address of the byte past the end of
 	; the last output section (here: CODE).  The z80asm linker generates one
@@ -61,18 +59,12 @@ BEGIN:
 	DI
 	LD	SP, 0xBFFF		; Stack below display buffer
 
-; Copy full PROM to RAM: BOOT+NMI at INTVEC-0x68, CODE at INTVEC (0x7000).
+; Copy full PROM to RAM: BOOT+NMI at CODE-0x68, CODE at 0x7000.
 ; 0x68 = BOOT section max (0x66 bytes) + NMI (2 bytes).
-; CODE does not relocate to 0x0000 because INTVEC must be 256-byte aligned:
-; Z80 IM2 forms the vector address as I*256 + data_bus_byte, so the table
-; base must be on a page boundary.  0x7000 satisfies this; 0x0000 would too,
-; but the CCP/BDOS/BIOS cold-boot image is loaded there after PROM disable.
-; Copying the full PROM (not just CODE) means anything placed in the BOOT
-; gap between this LDIR stub and the NMI vector is also copied to upper RAM
-; and remains accessible after hal_prom_disable().
+; CODE starts at 0x7000 (page-aligned for Z80 IM2 interrupt vectors).
 	LD	HL, 0x0000		; source: start of PROM
 	LD	DE, INTVEC - 0x68	; destination: BOOT lands here, CODE at INTVEC
-	LD	BC, __tail - INTVEC + 0x68  ; byte count: __tail = end of CODE section
+	LD	BC, __tail - INTVEC + 0x68  ; byte count
 	LDIR
 	JP	INIT_RELOCATED		; Jump to relocated init code
 
@@ -104,7 +96,8 @@ BEGIN:
 ; symbol __CODE_head — both equal 0x7000.
 ;------------------------------------------------------------------------
 
-	PUBLIC	INTVEC
+; Interrupt vector table — 16 entries at 0x7000 (page-aligned for IM2).
+; References C functions (_dumint in isr.c) and asm wrappers below.
 INTVEC:
 	DW	_dumint			; +0:  Dummy
 	DW	_dumint			; +2:  PIO Port A
@@ -112,8 +105,8 @@ INTVEC:
 	DW	_dumint			; +6:  Dummy
 	DW	_dumint			; +8:  CTC CH0
 	DW	_dumint			; +10: CTC CH1
-	DW	CRTINT			; +12: CTC CH2 - Display
-	DW	FLPINT			; +14: CTC CH3 - Floppy
+	DW	_crtint			; +12: CTC CH2 - Display
+	DW	_flpint			; +14: CTC CH3 - Floppy
 	DW	_dumint			; +16: Dummy
 	DW	_dumint			; +18: Dummy
 	DW	_dumint			; +20: Dummy
@@ -127,14 +120,9 @@ INTVEC:
 ; INIT_RELOCATED — Z80-specific setup, then C peripheral init and main
 ;------------------------------------------------------------------------
 
-INIT_RELOCATED:
-	LD	SP, 0xBFFF		; Reset stack
-	LD	A, INTVEC / 0x100	; Interrupt vector page (0x70)
-	LD	I, A
-	IM	2			; Z80 interrupt mode 2
-	CALL	_init_peripherals	; PIO, CTC, DMA, CRT setup (C in init.c)
-	CALL	_main			; Enter C code (CALL for stack trace)
-	jr	_halt_forever		; Should never return
+; INIT_RELOCATED is now init_relocated() in init.c
+	EXTERN	_init_relocated
+INIT_RELOCATED	EQU	_init_relocated
 
 ;------------------------------------------------------------------------
 ; Long-term goal: replace these assembly interrupt wrappers with C functions
@@ -145,70 +133,8 @@ INIT_RELOCATED:
 ; See individual wrapper comments below for the specific open questions.
 ;------------------------------------------------------------------------
 
-;------------------------------------------------------------------------
-; CRTINT — CRT vertical retrace interrupt (CTC Ch2), calls C crt_refresh
-;
-; Must save ALL registers that sdcc may use as scratch: AF, BC, DE, HL.
-; BC is critical — sdcc uses B and C freely in compiled code, and
-; hal_delay uses B for DJNZ (inner loop) and C for DEC C (middle loop).
-; If BC is not saved, CRT interrupts during hal_delay corrupt its loop
-; counters, causing infinite delay loops that prevent boot from reaching
-; the FDC driver.
-;
-; Why not use sdcc __interrupt attribute instead of this wrapper:
-;
-;   __interrupt generates EI at the TOP of the handler (before register
-;   saves), allowing other interrupts (e.g. FLPINT) to fire while
-;   crt_refresh is mid-way through reprogramming the DMA channels.
-;   Reentrancy of crt_refresh itself is not a concern — at 50 Hz
-;   (mains-rate) it will complete long before the next retrace. But
-;   whether other active interrupts are safe to service during the DMA
-;   reprogramming sequence has not been verified. Until it is, we keep
-;   interrupts disabled for the full duration (EI only just before RETI).
-;
-;   Note: sdcc's __critical __interrupt is NOT an alternative here.
-;   It generates RETN (return-from-NMI) instead of RETI, which leaves
-;   interrupts permanently disabled on return for maskable interrupts,
-;   because Z80 clears both IFF1 and IFF2 when accepting a maskable
-;   interrupt — so the RETN restores IFF1=0.
-;------------------------------------------------------------------------
-
-CRTINT:
-	DI
-	PUSH	AF
-	PUSH	BC
-	PUSH	DE
-	PUSH	HL
-	CALL	_crt_refresh
-	POP	HL
-	POP	DE
-	POP	BC
-	POP	AF
-	EI
-	RETI
-
-;------------------------------------------------------------------------
-; FLPINT — Floppy disk interrupt (CTC Ch3), calls C flpint_body
-;
-; Same register-save requirement as CRTINT: must save AF, BC, DE, HL.
-; sdcc uses all four pairs as scratch, so any C call from an ISR can
-; corrupt them. Omitting any save will cause intermittent crashes when
-; the floppy interrupt fires while C code holds live values in registers.
-;------------------------------------------------------------------------
-
-FLPINT:
-	DI
-	PUSH	AF
-	PUSH	BC
-	PUSH	DE
-	PUSH	HL
-	CALL	_flpint_body
-	POP	HL
-	POP	DE
-	POP	BC
-	POP	AF
-	EI
-	RETI
+; ISR wrappers (crtint, flpint) are now in isr.c using __critical __interrupt.
+; dumint is also in isr.c using __interrupt.
 
 
 ;------------------------------------------------------------------------

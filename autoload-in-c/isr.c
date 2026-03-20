@@ -9,6 +9,8 @@
 
 #define ST (&g_state)
 
+static void flpint_body(void);
+
 /*
  * crt_refresh — CRT vertical retrace handler
  *
@@ -45,11 +47,25 @@ void crt_refresh(void) {
 
 /* dumint — dummy handler for unused interrupt vectors (generates EI; RETI) */
 #ifndef HOST_TEST
-void dumint(void) __interrupt {
+void dumint(void) __interrupt(0) {
+}
+
+/* crtint — CRT vertical retrace ISR (CTC Ch2).
+ * __critical: keeps interrupts disabled throughout (protects DMA programming).
+ * __interrupt(1): generates push/pop for all registers + EI + RETI.
+ * The (N) number is mandatory — without it sdcc generates RETN not RETI. */
+void crtint(void) __critical __interrupt(1) {
+    crt_refresh();
+}
+
+/* flpint — Floppy disk ISR (CTC Ch3).
+ * Same pattern as crtint. */
+void flpint(void) __critical __interrupt(2) {
+    flpint_body();
 }
 #endif
 
-void flpint_body(void) {
+static void flpint_body(void) {
     ST->flpflg = 2;
     hal_delay(0, ST->fdctmo);
     if (hal_fdc_status() & 0x10) {  /* CB=1: result phase ready */
