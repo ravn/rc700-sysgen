@@ -69,10 +69,10 @@ rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 	 echo "PROM image: $$PROM bytes (NMI_tail + CODE)"; \
 	 if [ $$BOOT -gt 102 ]; then \
 	   echo "ERROR: BOOT section ($$BOOT bytes) overflows into NMI handler at 0x0066"; \
-	 elif [ $$PROM -gt 2048 ]; then \
-	   echo "WARNING: PROM $$PROM exceeds 2048-byte limit by $$((PROM - 2048)) bytes"; \
+	 elif [ $$PROM -gt 4096 ]; then \
+	   echo "WARNING: PROM $$PROM exceeds 4096-byte limit by $$((PROM - 4096)) bytes"; \
 	 else \
-	   echo "OK: $$((2048 - PROM)) bytes under 2048-byte limit"; \
+	   echo "OK: $$((4096 - PROM)) bytes under 4096-byte limit (debug 4KB mode)"; \
 	 fi
 	@if grep -q 'ix[+-]\|iy[+-]' rom_all.c.lis 2>/dev/null; then \
 		echo "WARNING: IX/IY-relative addressing found (check if locals can be static):"; \
@@ -84,7 +84,8 @@ rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 		exit 1; \
 	fi
 
-# Assemble PROM image: BOOT + 0xFF gap + NMI + CODE + 0xFF pad to 2048
+# Assemble PROM image: BOOT + 0xFF gap + NMI + CODE + 0xFF pad to 4096
+# (temporarily using 4KB/2732 for debug diagnostics; revert to 2048/2716 for release)
 MAME = /Users/ravn/git/mame
 MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
 RC700 = ../../rc700
@@ -97,7 +98,7 @@ prom: rom
 	   perl -e "print \"\\xff\" x (0x66 - $$BOOT)"; \
 	   cat roa375_NMI.bin; \
 	   cat roa375_INTVEC.bin; \
-	   perl -e "print \"\\xff\" x (2048 - 0x68 - $$CODE)"; \
+	   perl -e "print \"\\xff\" x (4096 - 0x68 - $$CODE)"; \
 	 } > roa375.ic66; \
 	 echo "roa375.ic66: $$(wc -c < roa375.ic66 | tr -d ' ') bytes"
 	cp roa375.ic66 $(MAME_ROM)
