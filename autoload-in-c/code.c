@@ -14,3 +14,7 @@
 #include "fdc.c"
 #include "boot.c"
 #include "isr.c"
+
+/* Sentinel — must be last in the unity build.
+ * &code_end - &intvec = payload size to relocate from ROM to RAM. */
+const byte code_end = 0xFF;

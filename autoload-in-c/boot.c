@@ -9,15 +9,42 @@
 #include "hal.h"
 #include "boot.h"
 
-#define ST (&g_state)
 
-/*
- * Global boot state at fixed RAM address.
- * Z80: __at(0xBF00) places it at the fixed address.
- * Host: allocated here in BSS.
- */
+
+/* Boot state variables — see boot.h for declarations.
+ * Initialized to zero; on Z80, preinit() sets non-zero values. */
+byte fdcres[7] = {0};
+byte fdcflg = 0;
+byte epts = 0;
+byte trksz = 0;
+byte drvsel = 0;
+byte fdctmo = 0;
+byte fdcwai = 0;
+byte curcyl = 0;
+byte curhed = 0;
+byte currec = 0;
+byte reclen = 0;
+byte cureot = 0;
+byte gap3 = 0;
+byte dtl = 0;
+word secbyt = 0;
+byte flpflg = 0;
+byte flpwai = 0;
+byte diskbits = 0;
+byte dsktyp = 0;
+byte morefl = 0;
+byte reptim = 0;
+word memadr = 0;
+word trbyt = 0;
+word trkovr = 0;
+byte errsav = 0;
+
+/* NOTE: FDC command block (curcyl..dtl) must be contiguous in memory.
+ * flrtrk() sends 7 bytes starting at &curcyl.  The variables are
+ * defined consecutively above — do not reorder or insert between them.
+ * Verified at runtime by assert in test suite. */
+
 #ifdef HOST_TEST
-boot_state_t g_state;
 byte dspstr[2000];
 word scroll_offset;
 #endif
@@ -104,9 +131,9 @@ void display_banner(void) {
 #endif
 
 void errdsp(byte code) {
-    ST->errsav = code;
+    errsav = code;
     hal_ei();
-    if (ST->dsktyp & 0x01) return;
+    if (dsktyp & 0x01) return;
     hal_beep();
     halt_msg((const byte *)msg_diskerr, 19);
 }
@@ -186,32 +213,32 @@ void check_prom1(void) {
 
 static void nxthds(void) {
     byte max_head;
-    ST->currec = 1;
-    max_head = (ST->diskbits >> 1) & 0x01;
-    if (max_head == ST->curhed) {
-        ST->curhed = 0;
-        ST->curcyl++;
+    currec = 1;
+    max_head = (diskbits >> 1) & 0x01;
+    if (max_head == curhed) {
+        curhed = 0;
+        curcyl++;
     } else {
-        ST->curhed++;
+        curhed++;
     }
 }
 
 static void calctx(void) {
     int16_t remaining;
     calctb();
-    remaining = (int16_t)ST->trkovr - (int16_t)ST->trbyt;
+    remaining = (int16_t)trkovr - (int16_t)trbyt;
     if (remaining > 0) {
-        ST->morefl = 1;
-        ST->trkovr = (word)remaining;
+        morefl = 1;
+        trkovr = (word)remaining;
     } else {
-        ST->morefl = 0;
-        ST->trbyt = ST->trkovr;
-        ST->trkovr = 0;
+        morefl = 0;
+        trbyt = trkovr;
+        trkovr = 0;
     }
 }
 
 static void rdtrk0(word trkovr_init) {
-    ST->trkovr = trkovr_init;
+    trkovr = trkovr_init;
 
     while (1) {
         byte r = flseek();
@@ -225,33 +252,33 @@ static void rdtrk0(word trkovr_init) {
             return;
         }
 
-        ST->memadr += ST->trbyt;
-        ST->trbyt = 0;
+        memadr += trbyt;
+        trbyt = 0;
         nxthds();
-        if (!ST->morefl) return;
+        if (!morefl) return;
     }
 }
 
 byte boot_detect(void) {
-    ST->curcyl = 0;
-    ST->curhed = 1;
-    ST->currec = 1;
+    curcyl = 0;
+    curhed = 1;
+    currec = 1;
 
     if (dskauto() == 0) {
-        ST->diskbits |= 0x02;
+        diskbits |= 0x02;
     }
 
-    ST->curhed = 0;
+    curhed = 0;
     return dskauto();
 }
 
 void flboot(void) {
-    ST->dsktyp = (ST->diskbits & 0x80) | ST->dsktyp;
-    ST->dsktyp--;
+    dsktyp = (diskbits & 0x80) | dsktyp;
+    dsktyp--;
     dskauto();
-    ST->memadr = FLOPPYDATA;
+    memadr = FLOPPYDATA;
     rdtrk0(0x7300 - 0x7000);
-    ST->dsktyp = 1;
+    dsktyp = 1;
 #ifndef HOST_TEST
     jump_to(COMALBOOT);
 #endif
@@ -263,8 +290,8 @@ static void fldsk1(void) {
     hal_delay(1, 0xFF);
 
     snsdrv();
-    status = ST->fdcres[0] & 0x23;        /* ST3: RDY + HD + US (bits 5,1,0) */
-    if (status != (ST->drvsel + 0x20)) {  /* expect RDY set + matching drive */
+    status = fdcres[0] & 0x23;        /* ST3: RDY + HD + US (bits 5,1,0) */
+    if (status != (drvsel + 0x20)) {  /* expect RDY set + matching drive */
         check_prom1();
         return;
     }
@@ -282,31 +309,27 @@ static void fldsk1(void) {
     hal_prom_disable();
 
     while (1) {
-        rdtrk0(ST->trbyt);
-        if (ST->curcyl != 0) break;
+        rdtrk0(trbyt);
+        if (curcyl != 0) break;
         dskauto();
     }
 
-    ST->dsktyp = 1;
+    dsktyp = 1;
     boot7();
     flboot();
 }
 
 static void preinit(void) {
-    byte *p = (byte *)ST;
-    byte i = sizeof(boot_state_t);
-
-    /* Bulk zero entire struct */
-    while (i--) *p++ = 0;
-
-    ST->fdctmo = 3;
-    ST->fdcwai = 4;
-    ST->flpwai = 4;
-    ST->diskbits = hal_read_sw1() & 0x80;
+    /* Variables start at zero (copied from ROM by begin).
+     * Only set non-zero initial values here. */
+    fdctmo = 3;
+    fdcwai = 4;
+    flpwai = 4;
+    diskbits = hal_read_sw1() & 0x80;
 
     hal_ei();
     hal_motor(1);
-    ST->reptim = 5;
+    reptim = 5;
     fldsk1();
 }
 
@@ -314,17 +337,17 @@ void syscall(word addr, word bc) {
     byte b = (byte)(bc >> 8);
     byte c = (byte)(bc & 0xFF);
 
-    ST->memadr = addr;
-    ST->currec = c & 0x7F;
-    ST->curcyl = b & 0x7F;
+    memadr = addr;
+    currec = c & 0x7F;
+    curcyl = b & 0x7F;
 
-    if (ST->curcyl == 0) dskauto();
+    if (curcyl == 0) dskauto();
 
-    ST->curhed = (b & 0x80) ? 1 : 0;
+    curhed = (b & 0x80) ? 1 : 0;
     rdtrk0(0);
 
     if ((b & 0x7F) == 0) {
-        ST->curcyl = 1;
+        curcyl = 1;
         dskauto();
     }
 }

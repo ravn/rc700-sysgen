@@ -28,8 +28,6 @@ static int tests_passed = 0;
     printf("OK\n"); \
 } while(0)
 
-#define ST (&g_state)
-
 /* Test: clear_screen fills display buffer with spaces */
 static void test_clear_screen(void) {
     int i;
@@ -71,15 +69,15 @@ static void test_display_banner(void) {
 static void test_fmtlkp_maxi_n0_s0(void) {
     TEST("fmtlkp maxi N=0 side0: EOT=26, GAP3=7");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->diskbits = 0x00;         /* maxi, side 0 */
-    ST->reclen = 0;              /* N=0 */
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    diskbits = 0x00;         /* maxi, side 0 */
+    reclen = 0;              /* N=0 */
     fmtlkp();
 
-    assert(ST->cureot == 0x1A);  /* 26 */
-    assert(ST->gap3 == 0x07);
-    assert(ST->epts == 0x4C);    /* 76 */
-    assert(ST->dtl == 0x80);
+    assert(cureot == 0x1A);  /* 26 */
+    assert(gap3 == 0x07);
+    assert(epts == 0x4C);    /* 76 */
+    assert(dtl == 0x80);
 
     PASS();
 }
@@ -88,14 +86,14 @@ static void test_fmtlkp_maxi_n0_s0(void) {
 static void test_fmtlkp_mini_n2_s1(void) {
     TEST("fmtlkp mini N=2 side1: EOT=9, GAP3=27");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->diskbits = 0x81;         /* mini (bit7), side 1 (bit0) */
-    ST->reclen = 2;              /* N=2 */
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    diskbits = 0x81;         /* mini (bit7), side 1 (bit0) */
+    reclen = 2;              /* N=2 */
     fmtlkp();
 
-    assert(ST->cureot == 0x09);
-    assert(ST->gap3 == 0x1B);    /* 27 */
-    assert(ST->epts == 0x23);    /* 35 */
+    assert(cureot == 0x09);
+    assert(gap3 == 0x1B);    /* 27 */
+    assert(epts == 0x23);    /* 35 */
 
     PASS();
 }
@@ -104,16 +102,16 @@ static void test_fmtlkp_mini_n2_s1(void) {
 static void test_calctb_maxi_n0(void) {
     TEST("calctb maxi N=0: 26 * 128 = 3328");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->reclen = 0;
-    ST->cureot = 0x1A;           /* 26 */
-    ST->currec = 1;
-    ST->dsktyp = 0;              /* maxi */
-    ST->curhed = 0;
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    reclen = 0;
+    cureot = 0x1A;           /* 26 */
+    currec = 1;
+    dsktyp = 0;              /* maxi */
+    curhed = 0;
     calctb();
 
-    assert(ST->secbyt == 128);
-    assert(ST->trbyt == 3328);
+    assert(secbyt == 128);
+    assert(trbyt == 3328);
 
     PASS();
 }
@@ -122,16 +120,16 @@ static void test_calctb_maxi_n0(void) {
 static void test_calctb_maxi_n2(void) {
     TEST("calctb maxi N=2: 15 * 512 = 7680");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->reclen = 2;
-    ST->cureot = 0x0F;           /* 15 */
-    ST->currec = 1;
-    ST->dsktyp = 0;
-    ST->curhed = 0;
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    reclen = 2;
+    cureot = 0x0F;           /* 15 */
+    currec = 1;
+    dsktyp = 0;
+    curhed = 0;
     calctb();
 
-    assert(ST->secbyt == 512);
-    assert(ST->trbyt == 7680);
+    assert(secbyt == 512);
+    assert(trbyt == 7680);
 
     PASS();
 }
@@ -140,20 +138,20 @@ static void test_calctb_maxi_n2(void) {
 static void test_setfmt_inline(void) {
     TEST("setfmt logic: extract N from diskbits, call fmtlkp+calctb");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->diskbits = 0x08;         /* N=2 in bits 4-2 (0000_1000), maxi, side 0 */
-    ST->currec = 1;
-    ST->dsktyp = 0;
-    ST->curhed = 0;
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    diskbits = 0x08;         /* N=2 in bits 4-2 (0000_1000), maxi, side 0 */
+    currec = 1;
+    dsktyp = 0;
+    curhed = 0;
 
     /* Inline setfmt logic (same as dskauto does after Read ID) */
-    ST->reclen = (ST->diskbits >> 2) & 0x07;
+    reclen = (diskbits >> 2) & 0x07;
     fmtlkp();
     calctb();
 
-    assert(ST->reclen == 2);
-    assert(ST->cureot == 0x08);  /* maxi N=2 side0: EOT=8 */
-    assert(ST->trbyt == 4096);   /* 8 * 512 */
+    assert(reclen == 2);
+    assert(cureot == 0x08);  /* maxi N=2 side0: EOT=8 */
+    assert(trbyt == 4096);   /* 8 * 512 */
 
     PASS();
 }
