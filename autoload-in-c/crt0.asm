@@ -141,18 +141,7 @@ INIT_RELOCATED	EQU	_init_relocated
 ; Small utility functions
 ;------------------------------------------------------------------------
 
-; jump_to — permanent transfer of control to address in HL (no return)
-;
-; There is no C equivalent: a function-pointer call generates CALL (which
-; pushes a return address), not JP. The z88dk runtime does provide
-; ___sdcc_call_hl which is literally "jp (hl)", but it is an internal
-; compiler helper (triple-underscore), not a public API, and its intended
-; use is as a CALL dispatcher (caller expects a RET back), not a one-way
-; jump. Assembly is the only correct approach here.
-	PUBLIC	_jump_to
-_jump_to:
-	jp	(hl)
-
+; jump_to is now a C macro in boot.h (function pointer call).
 
 ;------------------------------------------------------------------------
 ; halt_msg — display null-terminated message then halt forever

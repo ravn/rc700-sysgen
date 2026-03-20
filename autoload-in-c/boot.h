@@ -149,7 +149,15 @@ uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len);
 
 /* Implemented in crt0.asm */
 void halt_forever(void);
+
+/* Transfer control to address — never returns.
+ * Uses a function pointer call (CALL, not JP).  The dangling return
+ * address on the stack is harmless since the target never returns. */
+#ifdef HOST_TEST
 void jump_to(uint16_t addr);
+#else
+#define jump_to(addr) ((void (*)(void))(addr))()
+#endif
 
 /* syscall — addr in HL, bc packed as 16-bit in DE */
 void syscall(uint16_t addr, uint16_t bc);
