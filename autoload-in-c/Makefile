@@ -13,9 +13,10 @@ ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
 # sdcc compiler with sdcccall(1) register calling convention
-# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc into CODE section)
+# rom.c: single-file Z80 build (HAL, init, FDC, format, boot, ISR)
 # boot_entry.c: compiled into BOOT section (runs from ROM before relocation)
-# Assembly: sections.asm (hand-written startup + utilities)
+# intvec.c: IVT, compiled separately and linked first for 0x7000 placement
+# sections.asm: linker section layout
 #
 # ZFLAGS: compile flags (used for -c steps and final link).
 # ZLFLAGS: link-only flags (appmake, library).
@@ -36,13 +37,13 @@ ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
 
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
-rom: sections.asm code.c boot_entry.c intvec.c boot.c fdc.c fmt.c isr.c peephole.def
+rom: sections.asm rom.c rom.h boot_entry.c intvec.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' "  ROA375-gensmedet $$(date '+%Y-%m-%d %H.%M')  " > build_stamp.h && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
 	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 sections.asm intvec.o code.c boot_entry.o
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 sections.asm intvec.o rom.c boot_entry.o
 	@ls -la roa375_BOOT.bin roa375_CODE.bin 2>/dev/null
 	@BOOT=$$(wc -c < roa375_BOOT.bin); \
 	 CODE=$$(wc -c < roa375_CODE.bin); \
@@ -54,9 +55,9 @@ rom: sections.asm code.c boot_entry.c intvec.c boot.c fdc.c fmt.c isr.c peephole
 	 else \
 	   echo "OK: $$((4096 - PROM)) bytes under 4096-byte limit (debug 4KB mode)"; \
 	 fi
-	@if grep -q 'ix[+-]\|iy[+-]' code.c.lis 2>/dev/null; then \
+	@if grep -q 'ix[+-]\|iy[+-]' rom.c.lis 2>/dev/null; then \
 		echo "WARNING: IX/IY-relative addressing found (check if locals can be static):"; \
-		grep 'ix[+-]\|iy[+-]' code.c.lis; \
+		grep 'ix[+-]\|iy[+-]' rom.c.lis; \
 	fi
 	@if grep -qE '__div[us]|__mod[us]|__mul[us]' roa375.map 2>/dev/null; then \
 		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
@@ -110,9 +111,6 @@ rc700: prom
 	$(RC700)/rc700-sdl2 "$(FLOPPY)"
 
 # Convert z88dk map file to MAME debugger symbol definitions.
-# Usage in MAME debugger console: copy-paste lines, or source via Lua.
-# Filters to addr entries only, strips C underscore prefix, skips
-# compiler-generated labels (l_*), sorts by address.
 mamesym: roa375.map
 	@awk '/= \$$[0-9A-Fa-f]+ ; addr,/ { \
 		name = $$1; addr = $$3; \

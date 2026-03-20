@@ -45,6 +45,34 @@ added complexity without current value.
 - CODE binary is byte-identical to pre-change reference
 - BOOT binary differs only in the 2-byte build timestamp
 
+## 2026-03-20: Consolidate autoload-in-c source files
+
+### What was done
+Merged 8 small C files and 2 headers into 2 files (`rom.c` + `rom.h`),
+eliminating the unity-build indirection layer (`code.c` including other `.c` files).
+
+**Before (11 C files + 2 headers):**
+`hal_z80.c`, `init.c`, `fmt.c`, `fdc.c`, `boot.c`, `isr.c` — included by
+`code.c` unity build; `hal.h`, `boot.h` — two headers; `nmi.c` — unused.
+
+**After (3 C files + 1 header):**
+- `rom.h` — single header (types, constants, port I/O macros, declarations)
+- `rom.c` — all CODE-section source (HAL, init, format, FDC, boot, ISR, sentinel)
+- `intvec.c` — IVT (compiled separately, linked first for 0x7000 placement)
+- `boot_entry.c` — BOOT section (unchanged, different codeseg)
+
+**Deleted:** `hal.h`, `boot.h`, `hal_z80.c`, `init.c`, `fmt.c`, `fdc.c`,
+`boot.c`, `isr.c`, `code.c`, `nmi.c` (10 files)
+
+### User choices
+- **Maximum consolidation**: user asked to combine as much as practically
+  possible. All CODE-section C goes into one file; only `intvec.c` and
+  `boot_entry.c` remain separate due to linker/codeseg constraints.
+
+### Verification
+- CODE binary is byte-identical to pre-consolidation build
+- BOOT binary differs only in the 2-byte build timestamp
+
 ---
 
 ## 2026-03-20: Session summary

@@ -6,7 +6,7 @@
  * Compiled with default codeseg (no --codeseg flag needed).
  */
 
-/* ISR declarations — defined in isr.c */
+/* ISR declarations — defined in rom.c */
 extern void dumint(void);
 extern void crtint(void);
 extern void flpint(void);

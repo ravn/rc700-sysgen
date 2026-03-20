@@ -30,15 +30,11 @@ Contains the RC702 autoload PROM:
 
 ### autoload-in-c/
 C rewrite of the ROA375 autoload PROM using z88dk with sdcc backend:
-- `crt0.asm` - Assembly startup, interrupt handlers, HAL functions
+- `rom.h` - Single header (types, constants, port I/O macros, declarations)
+- `rom.c` - All CODE-section C source (HAL, init, FDC, format, boot, ISR)
+- `intvec.c` - Z80 IM2 interrupt vector table (compiled separately, linked first)
 - `boot_entry.c` - Self-relocation loop (compiled into BOOT section)
-- `boot.c` - Boot logic, directory validation, error handling
-- `fdc.c` - FDC driver (seek, read, sense, result handling)
-- `fmt.c` - Disk format tables and track geometry
-- `isr.c` - Floppy interrupt body
-- `init.c` - Hardware initialization (PIO, CTC, DMA, CRT)
-- `rom_all.c` - Unity build (includes all C files for cross-function optimization)
-- `hal.h` / `boot.h` - Headers
+- `sections.asm` - Linker section layout (BOOT at 0x0000, CODE at 0x7000)
 
 #### PROM Image Layout (2048 bytes max)
 ```

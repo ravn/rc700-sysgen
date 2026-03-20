@@ -8,8 +8,7 @@
 
 #include <string.h>
 #include <intrinsic.h>
-#include "hal.h"
-#include "boot.h"
+#include "rom.h"
 
 /* Linker symbols for self-relocation.
  * C adds _ prefix; linker sees __X for extern byte _X.
