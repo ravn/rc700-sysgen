@@ -1,35 +1,24 @@
-; crt0.asm — ROM entry point, interrupt vector table, and section layout.
+; crt0.asm — Section layout, IVT data, and g_state address.
 ;
-; All executable code and data are in C files, except:
-;   - BEGIN: self-relocation stub (LDIR cannot be expressed in C)
-;   - INTVEC: interrupt vector table (must be at CODE section start, 0x7000)
+; All executable code is in C files. This file contains:
+;   - Section declarations with ORG (linker scaffolding)
+;   - INTVEC: interrupt vector table data (sdcc can't place in custom section)
+;   - g_state DEFC: fixed RAM address alias (sdcc __at causes boot hang)
 ;
 ; Section layout:
-;   BOOT     0x0000  ROM entry + C init code (boot_entry.c)
+;   BOOT     0x0000  begin() + C init code (boot_entry.c)
 ;   NMI      0x0066  NMI handler (nmi.c)
-;   CODE     0x7000  IVT + all C code (relocated to RAM by BEGIN)
+;   CODE     0x7000  IVT data + all C code (relocated to RAM by begin)
 
 	EXTERN	_dumint, _crtint, _flpint   ; ISRs in isr.c
-	EXTERN	_init_relocated             ; post-relocation init in init.c
 	EXTERN	__tail                      ; linker: end of last section
 
 ; ====================================================================
-; BOOT section (ROM address 0x0000)
+; BOOT section (ROM address 0x0000) — begin() in boot_entry.c
 ; ====================================================================
 
 	SECTION	BOOT
 	ORG	0x0000
-
-BEGIN:
-	DI
-	LD	SP, 0xBFFF
-	LD	HL, 0x0000              ; source: start of PROM
-	LD	DE, INTVEC - 0x68       ; dest: CODE at INTVEC (0x7000)
-	LD	BC, __tail - INTVEC + 0x68
-	LDIR
-	JP	_init_relocated         ; jump to relocated C code
-
-; boot_entry.c C code follows (--codeseg BOOT)
 
 ; ====================================================================
 ; NMI section (0x0066) — nmi.c provides nmi_noop (RETN)
@@ -39,14 +28,15 @@ BEGIN:
 	ORG	0x0066
 
 ; ====================================================================
-; CODE section (0x7000) — relocated to RAM by BEGIN
+; CODE section (0x7000) — relocated to RAM by begin()
 ; ====================================================================
 
 	SECTION CODE
 	ORG	0x7000
 
 ; Interrupt vector table — 16 entries, page-aligned for Z80 IM2.
-; I register = 0x70, vector address = I*256 + data_bus_byte.
+; Must stay in asm: sdcc's ROM model creates duplicate symbols for
+; initialized data, preventing placement in a custom section.
 INTVEC:
 	DW	_dumint         ;  +0: Dummy
 	DW	_dumint         ;  +2: PIO Port A
@@ -65,6 +55,7 @@ INTVEC:
 	DW	_dumint         ; +28: Dummy
 	DW	_dumint         ; +30: Dummy
 
-; g_state at fixed RAM address (used by all C code via boot.h extern)
+; g_state: fixed RAM address alias. Must stay in asm — sdcc __at(0xBF00)
+; creates a BSS allocation gap that causes boot hang.
 	PUBLIC	_g_state
 	DEFC	_g_state = 0xBF00
