@@ -1,4 +1,7 @@
 # rc700-sysgen
+
+2026-03-20:  AUTOLOAD and BIOS now in C and boots in MAME.
+
 Recreating byte exact source for RC702 adapted SYSGEN.COM
 
 For backward compatibility the RC702 system had multiple densities on the 8" floppy 
