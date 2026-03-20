@@ -29,13 +29,11 @@ static int tests_passed = 0;
     printf("OK\n"); \
 } while(0)
 
-#define ST (&g_state)
-
 /* Test: flo7 sends seek command with dh and cyl params */
 static void test_flo7_seek(void) {
     TEST("flo7: dh=4 cyl=5 sends seek to cyl 5");
 
-    memset(ST, 0, sizeof(*ST));
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
     mock_reset();
 
     flo7(4, 5);  /* dh=4 (head=1, drive=0), cyl=5 */
@@ -50,13 +48,13 @@ static void test_flo7_seek(void) {
 static void test_snsdrv(void) {
     TEST("snsdrv sends 0x04 + drive, reads ST3");
 
-    memset(ST, 0, sizeof(*ST));
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
     mock_reset();
     mock_fdc_push_read(0x28);   /* ST3 = track 0 + ready */
 
     snsdrv();
 
-    assert(ST->fdcres[0] == 0x28);
+    assert(fdcres[0] == 0x28);
 
     PASS();
 }
@@ -66,12 +64,12 @@ static void test_chkres_ok(void) {
     uint8_t r;
     TEST("chkres: ST0=0x00, ST1=0, ST2=0 -> success");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->drvsel = 0;
-    ST->reptim = 3;
-    ST->fdcres[0] = 0x00;       /* ST0: normal, drive 0 */
-    ST->fdcres[1] = 0x00;       /* ST1: no errors */
-    ST->fdcres[2] = 0x00;       /* ST2: no errors */
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    drvsel = 0;
+    reptim = 3;
+    fdcres[0] = 0x00;       /* ST0: normal, drive 0 */
+    fdcres[1] = 0x00;       /* ST1: no errors */
+    fdcres[2] = 0x00;       /* ST2: no errors */
 
     r = chkres();
     assert(r == 0);
@@ -84,16 +82,16 @@ static void test_chkres_error(void) {
     uint8_t r;
     TEST("chkres: ST0 mismatch -> error, retries decremented");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->drvsel = 0;
-    ST->reptim = 3;
-    ST->fdcres[0] = 0x40;       /* ST0: abnormal termination */
-    ST->fdcres[1] = 0x00;
-    ST->fdcres[2] = 0x00;
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    drvsel = 0;
+    reptim = 3;
+    fdcres[0] = 0x40;       /* ST0: abnormal termination */
+    fdcres[1] = 0x00;
+    fdcres[2] = 0x00;
 
     r = chkres();
     assert(r == 1);  /* Error, retries remaining */
-    assert(ST->reptim == 2);
+    assert(reptim == 2);
 
     PASS();
 }
@@ -103,16 +101,16 @@ static void test_chkres_exhausted(void) {
     uint8_t r;
     TEST("chkres: retries=1, error -> exhausted (2)");
 
-    memset(ST, 0, sizeof(*ST));
-    ST->drvsel = 0;
-    ST->reptim = 1;
-    ST->fdcres[0] = 0x40;
-    ST->fdcres[1] = 0x00;
-    ST->fdcres[2] = 0x00;
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
+    drvsel = 0;
+    reptim = 1;
+    fdcres[0] = 0x40;
+    fdcres[1] = 0x00;
+    fdcres[2] = 0x00;
 
     r = chkres();
     assert(r == 2);
-    assert(ST->reptim == 0);
+    assert(reptim == 0);
 
     PASS();
 }
@@ -122,13 +120,13 @@ static void test_waitfl_immediate(void) {
     uint8_t r;
     TEST("waitfl: flpflg=2 -> immediate success");
 
-    memset(ST, 0, sizeof(*ST));
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
     mock_reset();
-    ST->flpflg = 2;
+    flpflg = 2;
 
     r = waitfl(0xFF);
     assert(r == 0);
-    assert(ST->flpflg == 0);
+    assert(flpflg == 0);
 
     PASS();
 }
@@ -137,15 +135,15 @@ static void test_waitfl_immediate(void) {
 static void test_flo6(void) {
     TEST("flo6: reads ST0 and PCN");
 
-    memset(ST, 0, sizeof(*ST));
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
     mock_reset();
     mock_fdc_push_read(0x20);   /* ST0: seek end */
     mock_fdc_push_read(0x05);   /* PCN: cylinder 5 */
 
     flo6();
 
-    assert(ST->fdcres[0] == 0x20);
-    assert(ST->fdcres[1] == 0x05);
+    assert(fdcres[0] == 0x20);
+    assert(fdcres[1] == 0x05);
 
     PASS();
 }
@@ -154,15 +152,15 @@ static void test_flo6(void) {
 static void test_flo6_invalid(void) {
     TEST("flo6: ST0=0x80 (invalid) -> no PCN read");
 
-    memset(ST, 0, sizeof(*ST));
+    /* memset(ST, 0, sizeof(*ST)); -- TODO: reset individual vars */
     mock_reset();
     mock_fdc_push_read(0x80);   /* ST0: invalid command */
 
     flo6();
 
-    assert(ST->fdcres[0] == 0x80);
+    assert(fdcres[0] == 0x80);
     /* fdcres[1] should remain 0 (not read) */
-    assert(ST->fdcres[1] == 0x00);
+    assert(fdcres[1] == 0x00);
 
     PASS();
 }

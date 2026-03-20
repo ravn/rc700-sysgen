@@ -6,7 +6,6 @@
 
 #include "boot.h"
 
-#define ST (&g_state)
 
 static const byte maxifmt[4][4] = {
     { 0x1A, 0x07, 0x34, 0x07 },
@@ -25,21 +24,21 @@ static const byte minifmt[4][4] = {
 void fmtlkp(void) {
     const byte *tbl;
     byte side_offset;
-    byte n = ST->reclen & 0x03;
+    byte n = reclen & 0x03;
 
-    if (ST->diskbits & 0x80) {
+    if (diskbits & 0x80) {
         tbl = minifmt[n];
-        ST->epts = 0x23;
+        epts = 0x23;
     } else {
         tbl = maxifmt[n];
-        ST->epts = 0x4C;
+        epts = 0x4C;
     }
 
-    side_offset = (ST->diskbits & 0x01) ? 2 : 0;
-    ST->cureot = tbl[side_offset];
-    ST->trksz = tbl[side_offset];
-    ST->gap3 = tbl[side_offset + 1];
-    ST->dtl = 0x80;
+    side_offset = (diskbits & 0x01) ? 2 : 0;
+    cureot = tbl[side_offset];
+    trksz = tbl[side_offset];
+    gap3 = tbl[side_offset + 1];
+    dtl = 0x80;
 }
 
 void calctb(void) {
@@ -48,21 +47,21 @@ void calctb(void) {
     byte i;
 
     secbytes = 0x80;
-    for (i = 0; i < ST->reclen; i++) {
+    for (i = 0; i < reclen; i++) {
         secbytes <<= 1;
     }
-    ST->secbyt = secbytes;
+    secbyt = secbytes;
 
-    sectors = ST->cureot - ST->currec + 1;
+    sectors = cureot - currec + 1;
 
-    if ((ST->dsktyp & 0x80) && ST->curhed == 1) {
+    if ((dsktyp & 0x80) && curhed == 1) {
         sectors = 0x0A;
     }
 
     /* trbyt = sectors * (128 << N) = sectors << (7 + N) */
     {
-        word trbyt = (word)sectors;
-        for (i = 7 + ST->reclen; i != 0; i--) trbyt <<= 1;
-        ST->trbyt = trbyt;
+        word tb = (word)sectors;
+        for (i = 7 + reclen; i != 0; i--) tb <<= 1;
+        trbyt = tb;
     }
 }

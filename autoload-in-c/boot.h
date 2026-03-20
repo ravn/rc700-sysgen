@@ -54,43 +54,40 @@ typedef uint16_t word;
  * FDC command buffer: curcyl through dtl are contiguous and sent
  * sequentially by flrtrk() as the 7-byte parameter block.
  */
-typedef struct {
-    byte fdcres[7];      /* +0:  FDC result bytes */
-    byte fdcflg;         /* +7:  FDC flag */
-    byte epts;           /* +8:  end-of-track for seek */
-    byte trksz;          /* +9:  track size */
-    byte drvsel;         /* +10: drive select */
-    byte fdctmo;         /* +11: FDC timeout */
-    byte fdcwai;         /* +12: FDC wait count */
-    word spsav;         /* +13: saved SP */
-    byte combuf[2];      /* +15: command buffer prefix */
-    /* FDC command parameter block — contiguous, sent by flrtrk */
-    byte curcyl;         /* +17: current cylinder */
-    byte curhed;         /* +18: current head */
-    byte currec;         /* +19: current record/sector */
-    byte reclen;         /* +20: record length (N value) */
-    byte cureot;         /* +21: end of track */
-    byte gap3;           /* +22: gap 3 length */
-    byte dtl;            /* +23: data length */
-    word secbyt;        /* +24: sector bytes */
-    byte flpflg;         /* +26: floppy interrupt flag */
-    byte flpwai;         /* +27: floppy wait count */
-    byte diskbits;       /* +28: disk type bits */
-    byte dsktyp;         /* +29: disk type */
-    byte morefl;         /* +30: more data flag */
-    byte reptim;         /* +31: retry count */
-    word memadr;        /* +32: memory address */
-    word trbyt;         /* +34: transfer bytes */
-    word trkovr;        /* +36: track overflow */
-    byte errsav;         /* +38: saved error code */
-} boot_state_t;
-
 /*
- * Global boot state.
- * Z80: defined in crt0.asm at fixed address 0xBF00.
- * Host: allocated in boot.c BSS.
+ * Boot state — individual const globals, initialized to zero.
+ *
+ * Z80: BSS is inside CODE (no separate ORG), so variables are part of
+ * the PROM payload — copied to RAM by begin() as zeros.
+ * Host: normal BSS, zeroed by OS.
  */
-extern boot_state_t g_state;
+
+extern byte fdcres[7];   /* FDC result bytes (ST0-N) */
+extern byte fdcflg;      /* FDC flag */
+extern byte epts;        /* end-of-track for seek */
+extern byte trksz;       /* track size */
+extern byte drvsel;      /* drive select */
+extern byte fdctmo;      /* FDC timeout counter (init=3) */
+extern byte fdcwai;      /* FDC wait count (init=4) */
+/* FDC command parameter block — contiguous, sent by flrtrk() */
+extern byte curcyl;      /* current cylinder */
+extern byte curhed;      /* current head */
+extern byte currec;      /* current record/sector */
+extern byte reclen;      /* record length (N value) */
+extern byte cureot;      /* end of track */
+extern byte gap3;        /* gap 3 length */
+extern byte dtl;         /* data length */
+extern word secbyt;     /* sector byte count */
+extern byte flpflg;      /* floppy interrupt flag (0=idle, 2=done) */
+extern byte flpwai;      /* floppy wait count (init=4) */
+extern byte diskbits;    /* disk type bits */
+extern byte dsktyp;      /* disk type flag */
+extern byte morefl;      /* more data flag */
+extern byte reptim;      /* retry count */
+extern word memadr;     /* DMA memory address */
+extern word trbyt;      /* transfer byte count */
+extern word trkovr;     /* track overflow */
+extern byte errsav;      /* saved error code */
 
 /* Display buffer */
 #ifdef HOST_TEST

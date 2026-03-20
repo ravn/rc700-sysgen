@@ -7,7 +7,6 @@
 #include "hal.h"
 #include "boot.h"
 
-#define ST (&g_state)
 
 /*
  * crt_refresh — CRT vertical retrace handler
@@ -59,8 +58,8 @@ void crtint(void) __critical __interrupt(1) {
 /* flpint — Floppy disk ISR (CTC Ch3).
  * Body inlined (sdcc doesn't inline single-use static functions). */
 void flpint(void) __critical __interrupt(2) {
-    ST->flpflg = 2;
-    hal_delay(0, ST->fdctmo);
+    flpflg = 2;
+    hal_delay(0, fdctmo);
     if (hal_fdc_status() & 0x10) {  /* CB=1: result phase ready */
         rsult();
     } else {

@@ -132,3 +132,33 @@ void init_peripherals(void) {
     hal_crt_param(0x00);    /*   row = 0 */
     hal_crt_command(0xE0);  /* preset counters */
 }
+
+/* Functions moved from boot_entry.c (BOOT section) to CODE section
+ * so the unity build can optimize across them.  They run after
+ * relocation to RAM, called from main() in boot.c. */
+
+#ifndef HOST_TEST
+void clear_screen(void) {
+    byte *p = dspstr;
+    word i = 80 * 25;
+    while (i--) *p++ = 0x20;
+}
+
+void init_fdc(void) {
+    hal_delay(2, 157);
+    while (hal_fdc_status() & 0x1F) ;
+    hal_fdc_wait_write(0x03);
+    hal_fdc_wait_write(0x4F);
+    hal_fdc_wait_write(0x20);
+}
+
+void display_banner(void) {
+    extern const char msg_rc700[];
+    const byte *src = (const byte *)msg_rc700;
+    byte *dst = dspstr;
+    byte i = 6;
+    while (i--) *dst++ = *src++;
+    scroll_offset = 0;
+    hal_crt_command(0x23);
+}
+#endif

@@ -11,7 +11,9 @@ roa375_*.bin
 *.rom
 *.ic66
 zcc_opt.def
-rom_all.asm
-rom_all.c.asm
+code.asm
+code.c.asm
 roa375_sccz80
 roa375_debug.cmd
+build_stamp.h
+boot_entry.c.i

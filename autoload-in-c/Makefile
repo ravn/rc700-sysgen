@@ -32,7 +32,7 @@ ZCCCFG = $(Z88DK)/lib/config
 # sdcc compiler with sdcccall(1) register calling convention
 # C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc into CODE section)
 # boot_entry.c: compiled into BOOT section (runs from ROM before relocation)
-# Assembly: crt0.asm (hand-written startup + utilities)
+# Assembly: sections.asm (hand-written startup + utilities)
 #
 # ZFLAGS: compile flags (used for -c steps and final link).
 # ZLFLAGS: link-only flags (appmake, library).
@@ -53,30 +53,27 @@ ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
 
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
-rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
+rom: sections.asm code.c boot_entry.c intvec.c boot.c fdc.c fmt.c isr.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
+	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' "  ROA375-gensmedet $$(date '+%Y-%m-%d %H.%M')  " > build_stamp.h && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg NMI"  -c nmi.c       -o nmi.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 crt0.asm rom_all.c boot_entry.o nmi.o
-	@ls -la roa375_BOOT.bin roa375_NMI.bin roa375_INTVEC.bin 2>/dev/null
+	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 sections.asm intvec.o code.c boot_entry.o
+	@ls -la roa375_BOOT.bin roa375_CODE.bin 2>/dev/null
 	@BOOT=$$(wc -c < roa375_BOOT.bin); \
-	 NMI=$$(wc -c < roa375_NMI.bin); \
-	 CODE=$$(wc -c < roa375_INTVEC.bin); \
-	 GAP=$$((0x0066 - BOOT)); \
-	 PROM=$$((0x0068 + CODE)); \
-	 echo "BOOT: $$BOOT bytes, gap: $$GAP bytes, NMI: $$NMI bytes at 0x0066, CODE: $$CODE bytes"; \
-	 echo "PROM image: $$PROM bytes (NMI_tail + CODE)"; \
-	 if [ $$BOOT -gt 102 ]; then \
-	   echo "ERROR: BOOT section ($$BOOT bytes) overflows into NMI handler at 0x0066"; \
-	 elif [ $$PROM -gt 4096 ]; then \
+	 CODE=$$(wc -c < roa375_CODE.bin); \
+	 PROM=$$((BOOT + CODE)); \
+	 echo "BOOT: $$BOOT bytes, CODE: $$CODE bytes"; \
+	 echo "PROM image: $$PROM bytes (BOOT + INTVEC+CODE)"; \
+	 if [ $$PROM -gt 4096 ]; then \
 	   echo "WARNING: PROM $$PROM exceeds 4096-byte limit by $$((PROM - 4096)) bytes"; \
 	 else \
 	   echo "OK: $$((4096 - PROM)) bytes under 4096-byte limit (debug 4KB mode)"; \
 	 fi
-	@if grep -q 'ix[+-]\|iy[+-]' rom_all.c.lis 2>/dev/null; then \
+	@if grep -q 'ix[+-]\|iy[+-]' code.c.lis 2>/dev/null; then \
 		echo "WARNING: IX/IY-relative addressing found (check if locals can be static):"; \
-		grep 'ix[+-]\|iy[+-]' rom_all.c.lis; \
+		grep 'ix[+-]\|iy[+-]' code.c.lis; \
 	fi
 	@if grep -qE '__div[us]|__mod[us]|__mul[us]' roa375.map 2>/dev/null; then \
 		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
@@ -84,8 +81,9 @@ rom: crt0.asm rom_all.c boot_entry.c nmi.c boot.c fdc.c fmt.c isr.c peephole.def
 		exit 1; \
 	fi
 
-# Assemble PROM image: BOOT + 0xFF gap + NMI + CODE + 0xFF pad to 4096
-# (temporarily using 4KB/2732 for debug diagnostics; revert to 2048/2716 for release)
+# Assemble PROM image: BOOT + INTVEC+CODE + 0xFF pad to 4096
+# (temporarily using 4KB/2732 for debug; revert to 2048/2716 for release)
+# Without NMI section, BOOT and INTVEC+CODE are contiguous in the binary.
 MAME = /Users/ravn/git/mame
 MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
 RC700 = ../../rc700
@@ -93,12 +91,11 @@ FLOPPY = $(HOME)/Downloads/SW1711-I8.imd
 
 prom: rom
 	@BOOT=$$(wc -c < roa375_BOOT.bin | tr -d ' '); \
-	 CODE=$$(wc -c < roa375_INTVEC.bin | tr -d ' '); \
+	 CODE=$$(wc -c < roa375_CODE.bin | tr -d ' '); \
+	 TOTAL=$$((BOOT + CODE)); \
 	 { cat roa375_BOOT.bin; \
-	   perl -e "print \"\\xff\" x (0x66 - $$BOOT)"; \
-	   cat roa375_NMI.bin; \
-	   cat roa375_INTVEC.bin; \
-	   perl -e "print \"\\xff\" x (4096 - 0x68 - $$CODE)"; \
+	   cat roa375_CODE.bin; \
+	   perl -e "print \"\\xff\" x (4096 - $$TOTAL)"; \
 	 } > roa375.ic66; \
 	 echo "roa375.ic66: $$(wc -c < roa375.ic66 | tr -d ' ') bytes"
 	cp roa375.ic66 $(MAME_ROM)
