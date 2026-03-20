@@ -14,7 +14,7 @@ ZCCCFG = $(Z88DK)/lib/config
 
 # sdcc compiler with sdcccall(1) register calling convention
 # rom.c: single-file Z80 build (HAL, init, FDC, format, boot, ISR)
-# boot_entry.c: compiled into BOOT section (runs from ROM before relocation)
+# boot_rom.c: compiled into BOOT section (runs from ROM before relocation)
 # intvec.c: IVT, compiled separately and linked first for 0x7000 placement
 # sections.asm: linker section layout
 #
@@ -37,13 +37,13 @@ ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
 
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
-rom: sections.asm rom.c rom.h boot_entry.c intvec.c peephole.def
+rom: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' "  ROA375-gensmedet $$(date '+%Y-%m-%d %H.%M')  " > build_stamp.h && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o boot_rom.o && \
 	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 sections.asm intvec.o rom.c boot_entry.o
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 sections.asm intvec.o rom.c boot_rom.o
 	@ls -la roa375_BOOT.bin roa375_CODE.bin 2>/dev/null
 	@BOOT=$$(wc -c < roa375_BOOT.bin); \
 	 CODE=$$(wc -c < roa375_CODE.bin); \

@@ -101,41 +101,41 @@ __sfr __at 0xFB _port_dma_mode;
 __sfr __at 0xFC _port_dma_clbp;
 
 /* Simple port read/write — compile to single IN/OUT instructions */
-#define hal_read_sw1()              (_port_sw1)
-#define hal_diskette_size()         ((_port_sw1 >> 7) & 1)
-#define hal_prom_disable()          (_port_ramen = 1)
-#define hal_motor(on)               (_port_sw1 = (on) ? 1 : 0)
-#define hal_beep()                  (_port_bib = 0)
+#define read_sw1()              (_port_sw1)
+#define diskette_size()         ((_port_sw1 >> 7) & 1)
+#define prom_disable()          (_port_ramen = 1)
+#define motor(on)               (_port_sw1 = (on) ? 1 : 0)
+#define beep()                  (_port_bib = 0)
 
-#define hal_fdc_command(cmd)        (_port_fdc_data = (cmd))
-#define hal_fdc_status()            (_port_fdc_status)
-#define hal_fdc_data_read()         (_port_fdc_data)
-#define hal_fdc_data_write(d)       (_port_fdc_data = (d))
+#define fdc_command(cmd)        (_port_fdc_data = (cmd))
+#define fdc_status()            (_port_fdc_status)
+#define fdc_data_read()         (_port_fdc_data)
+#define fdc_data_write(d)       (_port_fdc_data = (d))
 
-#define hal_dma_command(cmd)        (_port_dma_cmd = (cmd))
-#define hal_dma_mask(ch)            (_port_dma_smsk = (ch) | 0x04)
-#define hal_dma_unmask(ch)          (_port_dma_smsk = (ch))
-#define hal_dma_clear_bp()          (_port_dma_clbp = 0)
-#define hal_dma_mode(m)             (_port_dma_mode = (m))
-#define hal_dma_status()            (_port_dma_cmd)
+#define dma_command(cmd)        (_port_dma_cmd = (cmd))
+#define dma_mask(ch)            (_port_dma_smsk = (ch) | 0x04)
+#define dma_unmask(ch)          (_port_dma_smsk = (ch))
+#define dma_clear_bp()          (_port_dma_clbp = 0)
+#define dma_mode(m)             (_port_dma_mode = (m))
+#define dma_status()            (_port_dma_cmd)
 
-#define hal_pio_write_a_data(d)     (_port_pio_a_data = (d))
-#define hal_pio_write_a_ctrl(d)     (_port_pio_a_ctrl = (d))
-#define hal_pio_write_b_data(d)     (_port_pio_b_data = (d))
-#define hal_pio_write_b_ctrl(d)     (_port_pio_b_ctrl = (d))
+#define pio_write_a_data(d)     (_port_pio_a_data = (d))
+#define pio_write_a_ctrl(d)     (_port_pio_a_ctrl = (d))
+#define pio_write_b_data(d)     (_port_pio_b_data = (d))
+#define pio_write_b_ctrl(d)     (_port_pio_b_ctrl = (d))
 
-#define hal_crt_param(d)            (_port_crt_param = (d))
-#define hal_crt_command(d)          (_port_crt_cmd = (d))
-#define hal_crt_status()            (_port_crt_cmd)
+#define crt_param(d)            (_port_crt_param = (d))
+#define crt_command(d)          (_port_crt_cmd = (d))
+#define crt_status()            (_port_crt_cmd)
 
 /* Use z88dk intrinsics for DI/EI — gives the compiler correct
  * register preservation information (__preserves_regs). */
 #include <intrinsic.h>
-#define hal_ei()  intrinsic_ei()
-#define hal_di()  intrinsic_di()
+#define ei()  intrinsic_ei()
+#define di()  intrinsic_di()
 
 /* CTC channel writes — direct port I/O, no switch overhead */
-#define hal_ctc_write(ch, d) do { \
+#define ctc_write(ch, d) do { \
     if      ((ch) == 0) _port_ctc0 = (d); \
     else if ((ch) == 1) _port_ctc1 = (d); \
     else if ((ch) == 2) _port_ctc2 = (d); \
@@ -143,27 +143,27 @@ __sfr __at 0xFC _port_dma_clbp;
 } while(0)
 
 /* DMA channel address/word count — two consecutive port writes */
-#define hal_dma_ch1_addr(addr) do { \
+#define dma_ch1_addr(addr) do { \
     _port_dma_ch1_addr = (byte)(addr); \
     _port_dma_ch1_addr = (byte)((addr) >> 8); \
 } while(0)
-#define hal_dma_ch1_wc(wc) do { \
+#define dma_ch1_wc(wc) do { \
     _port_dma_ch1_wc = (byte)(wc); \
     _port_dma_ch1_wc = (byte)((wc) >> 8); \
 } while(0)
-#define hal_dma_ch2_addr(addr) do { \
+#define dma_ch2_addr(addr) do { \
     _port_dma_ch2_addr = (byte)(addr); \
     _port_dma_ch2_addr = (byte)((addr) >> 8); \
 } while(0)
-#define hal_dma_ch2_wc(wc) do { \
+#define dma_ch2_wc(wc) do { \
     _port_dma_ch2_wc = (byte)(wc); \
     _port_dma_ch2_wc = (byte)((wc) >> 8); \
 } while(0)
-#define hal_dma_ch3_addr(addr) do { \
+#define dma_ch3_addr(addr) do { \
     _port_dma_ch3_addr = (byte)(addr); \
     _port_dma_ch3_addr = (byte)((addr) >> 8); \
 } while(0)
-#define hal_dma_ch3_wc(wc) do { \
+#define dma_ch3_wc(wc) do { \
     _port_dma_ch3_wc = (byte)(wc); \
     _port_dma_ch3_wc = (byte)((wc) >> 8); \
 } while(0)
@@ -172,9 +172,9 @@ __sfr __at 0xFC _port_dma_clbp;
  * HAL functions (implemented in rom.c)
  * ================================================================ */
 
-void hal_fdc_wait_write(byte val);
-byte hal_fdc_wait_read(void);
-void hal_delay(byte outer, byte inner);
+void fdc_wait_write(byte val);
+byte fdc_wait_read(void);
+void delay(byte outer, byte inner);
 
 /* ================================================================
  * Boot state — extern declarations

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-03-21: Clean up autoload-in-c naming
+
+### What was done
+1. **Remove `hal_` prefix** from all functions and macros in `rom.h` and `rom.c`.
+   With the HAL abstraction gone (Z80-only build), the prefix is just noise.
+   Examples: `hal_fdc_wait_write` → `fdc_wait_write`, `hal_ei` → `ei`,
+   `hal_dma_mask` → `dma_mask`.
+2. **Rename `boot_entry.c` → `boot_rom.c`** — clearer name for the BOOT-section
+   entry point (compiled with `--codeseg BOOT`).
+
+### User choices
+- User selected `hal_` in the source and asked to remove the prefix
+- User asked to rename `boot_entry.c`
+
+### Verification
+- Binary output unchanged (same BOOT/CODE sizes)
+
+---
+
 ## 2026-03-20: Remove HOST_TEST abstraction from autoload-in-c
 
 ### What was done

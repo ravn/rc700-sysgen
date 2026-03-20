@@ -29,17 +29,17 @@
  * These were originally hand-written assembly.  sdcc
  * generates nearly identical code from C.
  *
- * hal_delay timing note:
+ * delay timing note:
  *   The assembly version used dec a/jr nz (16 T-states/iteration) for the
  *   innermost loop.  sdcc generates djnz (13 T-states/iteration), making
  *   the delay ~19% shorter for the same parameters.  Callers that need to
  *   match the original timing must adjust their outer/inner values.
  *   See init_fdc for the compensated call (2, 157) that matches
  *   the original (1, 0xFF) assembly timing within 0.3%.
- *   If hal_delay is ever reverted to assembly, restore init_fdc to (1, 0xFF).
+ *   If delay is ever reverted to assembly, restore init_fdc to (1, 0xFF).
  * ================================================================ */
 
-void hal_fdc_wait_write(byte val) {
+void fdc_wait_write(byte val) {
     word t = 0;
     do {
         if ((_port_fdc_status & 0xC0) == 0x80) {
@@ -49,7 +49,7 @@ void hal_fdc_wait_write(byte val) {
     } while (++t);
 }
 
-byte hal_fdc_wait_read(void) {
+byte fdc_wait_read(void) {
     word t = 0;
     do {
         if ((_port_fdc_status & 0xC0) == 0xC0) {
@@ -59,7 +59,7 @@ byte hal_fdc_wait_read(void) {
     return 0xFF;
 }
 
-void hal_delay(byte outer, byte inner) {
+void delay(byte outer, byte inner) {
     if (!outer) return;
     do {
         byte mid = inner;
@@ -103,41 +103,41 @@ void init_relocated(void) __naked
  */
 void init_peripherals(void) {
     /* PIO setup */
-    hal_pio_write_a_ctrl(0x02);
-    hal_pio_write_b_ctrl(0x04);
-    hal_pio_write_a_ctrl(0x4F);
-    hal_pio_write_b_ctrl(0x0F);
-    hal_pio_write_a_ctrl(0x83);
-    hal_pio_write_b_ctrl(0x83);
+    pio_write_a_ctrl(0x02);
+    pio_write_b_ctrl(0x04);
+    pio_write_a_ctrl(0x4F);
+    pio_write_b_ctrl(0x0F);
+    pio_write_a_ctrl(0x83);
+    pio_write_b_ctrl(0x83);
 
     /* CTC setup */
-    hal_ctc_write(0, 0x08);    /* interrupt vector base (D0=0: vector word) */
-    hal_ctc_write(0, 0x47);    /* counter mode, falling edge, TC follows, reset */
-    hal_ctc_write(0, 0x20);    /* time constant = 32 */
-    hal_ctc_write(1, 0x47);    /* same config as Ch0 */
-    hal_ctc_write(1, 0x20);
-    hal_ctc_write(2, 0xD7);
-    hal_ctc_write(2, 0x01);
-    hal_ctc_write(3, 0xD7);
-    hal_ctc_write(3, 0x01);
+    ctc_write(0, 0x08);    /* interrupt vector base (D0=0: vector word) */
+    ctc_write(0, 0x47);    /* counter mode, falling edge, TC follows, reset */
+    ctc_write(0, 0x20);    /* time constant = 32 */
+    ctc_write(1, 0x47);    /* same config as Ch0 */
+    ctc_write(1, 0x20);
+    ctc_write(2, 0xD7);
+    ctc_write(2, 0x01);
+    ctc_write(3, 0xD7);
+    ctc_write(3, 0x01);
 
     /* DMA setup */
-    hal_dma_command(0x20);
-    hal_dma_mode(0xC0);
-    hal_dma_unmask(0);
-    hal_dma_mode(0x4A);
-    hal_dma_mode(0x4B);
+    dma_command(0x20);
+    dma_mode(0xC0);
+    dma_unmask(0);
+    dma_mode(0x4A);
+    dma_mode(0x4B);
 
     /* CRT setup — Intel 8275 commands (bits 7-5 = command code) */
-    hal_crt_command(0x00);  /* reset (expect 4 param bytes) */
-    hal_crt_param(0x4F);    /*   S=0, H=79: 80 chars/row */
-    hal_crt_param(0x98);    /*   V=2 vretrace, R=24: 25 rows */
-    hal_crt_param(0x9A);    /*   L=9 underline pos, U=10 lines/char */
-    hal_crt_param(0x5D);    /*   F=0, M=1 transparent, C=01 blink underline cursor, Z=28 hretrace */
-    hal_crt_command(0x80);  /* load cursor (expect 2 param bytes) */
-    hal_crt_param(0x00);    /*   column = 0 */
-    hal_crt_param(0x00);    /*   row = 0 */
-    hal_crt_command(0xE0);  /* preset counters */
+    crt_command(0x00);  /* reset (expect 4 param bytes) */
+    crt_param(0x4F);    /*   S=0, H=79: 80 chars/row */
+    crt_param(0x98);    /*   V=2 vretrace, R=24: 25 rows */
+    crt_param(0x9A);    /*   L=9 underline pos, U=10 lines/char */
+    crt_param(0x5D);    /*   F=0, M=1 transparent, C=01 blink underline cursor, Z=28 hretrace */
+    crt_command(0x80);  /* load cursor (expect 2 param bytes) */
+    crt_param(0x00);    /*   column = 0 */
+    crt_param(0x00);    /*   row = 0 */
+    crt_command(0xE0);  /* preset counters */
 }
 
 void clear_screen(void) {
@@ -147,11 +147,11 @@ void clear_screen(void) {
 }
 
 void init_fdc(void) {
-    hal_delay(2, 157);
-    while (hal_fdc_status() & 0x1F) ;
-    hal_fdc_wait_write(0x03);
-    hal_fdc_wait_write(0x4F);
-    hal_fdc_wait_write(0x20);
+    delay(2, 157);
+    while (fdc_status() & 0x1F) ;
+    fdc_wait_write(0x03);
+    fdc_wait_write(0x4F);
+    fdc_wait_write(0x20);
 }
 
 void display_banner(void) {
@@ -161,7 +161,7 @@ void display_banner(void) {
     byte i = 6;
     while (i--) *dst++ = *src++;
     scroll_offset = 0;
-    hal_crt_command(0x23);
+    crt_command(0x23);
 }
 
 /* ================================================================
@@ -232,14 +232,14 @@ void calctb(void) {
  *
  * NEC uPD765 (Intel 8272) commands and result handling.
  *
- * Main Status Register (hal_fdc_status(), port 0x04):
+ * Main Status Register (fdc_status(), port 0x04):
  *   bit 7: RQM — ready for CPU data transfer
  *   bit 6: DIO — direction (0=CPU->FDC write, 1=FDC->CPU read)
  *   bit 5: EXM — in execution phase
  *   bit 4: CB  — command busy (FDC has a command in progress)
  *   bits 3-0:   drive busy flags (per-drive seek in progress)
  *
- * Result registers (fdcres[], read via hal_fdc_wait_read()):
+ * Result registers (fdcres[], read via fdc_wait_read()):
  *   ST0 [0]: bit 7-6 = IC (interrupt code: 00=normal, 01=abnormal,
  *            10=invalid cmd, 11=not ready); bit 5 = SE (seek end);
  *            bit 2 = HD (head); bits 1-0 = US (unit/drive select)
@@ -252,18 +252,18 @@ void calctb(void) {
 /*
  * waitfl timing model — must be long enough for worst-case FM track read.
  *
- * hal_delay(outer, inner) compiles to:
+ * delay(outer, inner) compiles to:
  *   outer x inner x 256 DJNZ iterations x 13 T-states = total T-states
  *
- * waitfl calls hal_delay once per iteration, with 255 iterations max.
- * Total timeout = 255 x hal_delay T-states.
+ * waitfl calls delay once per iteration, with 255 iterations max.
+ * Total timeout = 255 x delay T-states.
  *
  * Worst case: 8" FM track at 360 RPM = 166ms/revolution.
  * Head may need to wait for sector 1 (~1 revolution) then read all
  * 26 sectors (~1 revolution) = 332ms.  Add margin -> require >=400ms.
  *
  * Assembly DELAY(B=1,C=1) used a 16-bit HL loop: 511x24T = 12,264T.
- * hal_delay(1,4) = 4x256x13 = 13,312T — matches within 8%.
+ * delay(1,4) = 4x256x13 = 13,312T — matches within 8%.
  */
 #define WAITFL_DELAY_OUTER  1
 #define WAITFL_DELAY_INNER  4
@@ -275,28 +275,28 @@ void calctb(void) {
 typedef char _waitfl_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
 
 void snsdrv(void) {
-    hal_fdc_wait_write(FDC_SENSE_DRIVE);
-    hal_fdc_wait_write(drvsel);
-    fdcres[0] = hal_fdc_wait_read(); /* ST3: drive status */
+    fdc_wait_write(FDC_SENSE_DRIVE);
+    fdc_wait_write(drvsel);
+    fdcres[0] = fdc_wait_read(); /* ST3: drive status */
 }
 
 void flo4(void) {
-    hal_fdc_wait_write(FDC_RECALIBRATE);
-    hal_fdc_wait_write(drvsel);
+    fdc_wait_write(FDC_RECALIBRATE);
+    fdc_wait_write(drvsel);
 }
 
 void flo6(void) {
-    hal_fdc_wait_write(FDC_SENSE_INT);
-    fdcres[0] = hal_fdc_wait_read();   /* ST0 */
+    fdc_wait_write(FDC_SENSE_INT);
+    fdcres[0] = fdc_wait_read();   /* ST0 */
     if ((fdcres[0] & 0xC0) != 0x80) {  /* IC != 10 (not "invalid cmd") */
-        fdcres[1] = hal_fdc_wait_read(); /* PCN (present cylinder) */
+        fdcres[1] = fdc_wait_read(); /* PCN (present cylinder) */
     }
 }
 
 void flo7(byte dh, byte cyl) {
-    hal_fdc_wait_write(FDC_SEEK);
-    hal_fdc_wait_write(dh & 0x07);  /* HD + US1/US0 (head + drive) */
-    hal_fdc_wait_write(cyl);        /* NCN (new cylinder number) */
+    fdc_wait_write(FDC_SEEK);
+    fdc_wait_write(dh & 0x07);  /* HD + US1/US0 (head + drive) */
+    fdc_wait_write(cyl);        /* NCN (new cylinder number) */
 }
 
 void rsult(void) {
@@ -304,10 +304,10 @@ void rsult(void) {
 
     fdcflg = 7;
     for (i = 0; i < 7; i++) {
-        fdcres[i] = hal_fdc_wait_read();
-        hal_delay(0, fdcwai);
-        if (!(hal_fdc_status() & 0x10)) {  /* CB=0: no more result bytes */
-            fdcres[i + 1] = hal_dma_status();
+        fdcres[i] = fdc_wait_read();
+        delay(0, fdcwai);
+        if (!(fdc_status() & 0x10)) {  /* CB=0: no more result bytes */
+            fdcres[i + 1] = dma_status();
             return;
         }
     }
@@ -317,11 +317,11 @@ void rsult(void) {
 
 byte waitfl(byte timeout) {
     while (--timeout) {
-        hal_delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
+        delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
         if (flpflg & 0x02) {
-            hal_di();
+            di();
             flpflg = 0;
-            hal_ei();
+            ei();
             return 0;
         }
     }
@@ -347,34 +347,34 @@ byte flseek(void) {
 }
 
 void stpdma(void) {
-    hal_di();
-    hal_dma_mask(1);
-    hal_dma_mode(0x45);  /* demand mode, addr increment, read, channel 1 */
-    hal_dma_clear_bp();
-    hal_dma_ch1_addr(memadr);
-    hal_dma_ch1_wc(trbyt - 1);
-    hal_dma_unmask(1);
-    hal_ei();
+    di();
+    dma_mask(1);
+    dma_mode(0x45);  /* demand mode, addr increment, read, channel 1 */
+    dma_clear_bp();
+    dma_ch1_addr(memadr);
+    dma_ch1_wc(trbyt - 1);
+    dma_unmask(1);
+    ei();
 }
 
 void flrtrk(byte cmd) {
     byte mfm_flag = (diskbits & 0x01) ? FDC_MFM : 0;
     byte dh = (curhed << 2) | drvsel;
 
-    hal_di();
+    di();
     fdcflg = 0xFF;
 
-    hal_fdc_wait_write(cmd + mfm_flag);
-    hal_fdc_wait_write(dh);
+    fdc_wait_write(cmd + mfm_flag);
+    fdc_wait_write(dh);
 
     if ((cmd & 0x0F) == FDC_READ_DATA) {
         byte *p = &curcyl;
         byte i;
         for (i = 0; i < 7; i++) {
-            hal_fdc_wait_write(p[i]);
+            fdc_wait_write(p[i]);
         }
     }
-    hal_ei();
+    ei();
 }
 
 byte chkres(void) {
@@ -399,9 +399,9 @@ byte readtk(byte cmd, byte retries) {
 
     while (1) {
         /* inline clrflf */
-        hal_di();
+        di();
         flpflg = 0;
-        hal_ei();
+        ei();
 
         if ((readtk_cmd & 0x0F) != FDC_READ_ID) {
             stpdma();
@@ -519,9 +519,9 @@ byte b7_chksys(const byte *dir, const byte *pattern) {
 
 void errdsp(byte code) {
     errsav = code;
-    hal_ei();
+    ei();
     if (dsktyp & 0x01) return;
-    hal_beep();
+    beep();
     halt_msg((const byte *)msg_diskerr, 19);
 }
 
@@ -663,7 +663,7 @@ void flboot(void) {
 static void fldsk1(void) {
     byte status;
 
-    hal_delay(1, 0xFF);
+    delay(1, 0xFF);
 
     snsdrv();
     status = fdcres[0] & 0x23;        /* ST3: RDY + HD + US (bits 5,1,0) */
@@ -682,7 +682,7 @@ static void fldsk1(void) {
         return;
     }
 
-    hal_prom_disable();
+    prom_disable();
 
     while (1) {
         rdtrk0(trbyt);
@@ -701,10 +701,10 @@ static void preinit(void) {
     fdctmo = 3;
     fdcwai = 4;
     flpwai = 4;
-    diskbits = hal_read_sw1() & 0x80;
+    diskbits = read_sw1() & 0x80;
 
-    hal_ei();
-    hal_motor(1);
+    ei();
+    motor(1);
     reptim = 5;
     fldsk1();
 }
@@ -754,25 +754,25 @@ int main(void) {
  * Called from CRTINT (CTC Ch2 interrupt) with interrupts disabled.
  */
 void crt_refresh(void) {
-    (void)hal_crt_status();     /* acknowledge CRT interrupt */
+    (void)crt_status();     /* acknowledge CRT interrupt */
 
-    hal_dma_mask(2);            /* disable Ch2 during reprogramming */
-    hal_dma_mask(3);            /* disable Ch3 during reprogramming */
-    hal_dma_clear_bp();         /* reset DMA byte pointer flip-flop */
+    dma_mask(2);            /* disable Ch2 during reprogramming */
+    dma_mask(3);            /* disable Ch3 during reprogramming */
+    dma_clear_bp();         /* reset DMA byte pointer flip-flop */
 
     word so = scroll_offset;
-    hal_dma_ch2_addr(DSPSTR_ADDR + so);
-    hal_dma_ch2_wc(80 * 25 - 1 - so);  /* remaining bytes from scroll point */
+    dma_ch2_addr(DSPSTR_ADDR + so);
+    dma_ch2_wc(80 * 25 - 1 - so);  /* remaining bytes from scroll point */
 
-    hal_dma_ch3_addr(DSPSTR_ADDR);
-    hal_dma_ch3_wc(80 * 25 - 1);       /* full screen buffer */
+    dma_ch3_addr(DSPSTR_ADDR);
+    dma_ch3_wc(80 * 25 - 1);       /* full screen buffer */
 
-    hal_dma_unmask(2);          /* re-enable Ch2 */
-    hal_dma_unmask(3);          /* re-enable Ch3 */
+    dma_unmask(2);          /* re-enable Ch2 */
+    dma_unmask(3);          /* re-enable Ch3 */
 
     /* Rearm CTC Ch2: counter mode, interrupt, falling edge, TC follows */
-    hal_ctc_write(2, 0xD7);
-    hal_ctc_write(2, 0x01);    /* time constant = 1 (every retrace) */
+    ctc_write(2, 0xD7);
+    ctc_write(2, 0x01);    /* time constant = 1 (every retrace) */
 }
 
 /* dumint — dummy handler for unused interrupt vectors (generates EI; RETI) */
@@ -791,8 +791,8 @@ void crtint(void) __critical __interrupt(1) {
  * Body inlined (sdcc doesn't inline single-use static functions). */
 void flpint(void) __critical __interrupt(2) {
     flpflg = 2;
-    hal_delay(0, fdctmo);
-    if (hal_fdc_status() & 0x10) {  /* CB=1: result phase ready */
+    delay(0, fdctmo);
+    if (fdc_status() & 0x10) {  /* CB=1: result phase ready */
         rsult();
     } else {
         flo6();

@@ -33,7 +33,7 @@ C rewrite of the ROA375 autoload PROM using z88dk with sdcc backend:
 - `rom.h` - Single header (types, constants, port I/O macros, declarations)
 - `rom.c` - All CODE-section C source (HAL, init, FDC, format, boot, ISR)
 - `intvec.c` - Z80 IM2 interrupt vector table (compiled separately, linked first)
-- `boot_entry.c` - Self-relocation loop (compiled into BOOT section)
+- `boot_rom.c` - Self-relocation loop (compiled into BOOT section)
 - `sections.asm` - Linker section layout (BOOT at 0x0000, CODE at 0x7000)
 
 #### PROM Image Layout (2048 bytes max)
