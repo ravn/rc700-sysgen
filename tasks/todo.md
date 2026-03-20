@@ -109,7 +109,7 @@ Making all BGSTAR-related code conditional for REL30 saves 382 bytes across
 11 code sections in DISPLAY.MAC (ADDOFF, CLRBIT, ESCSB/ESCSF/ESCCF procedures,
 plus background tails in FILL, SCROLL, ESCE, ESCK, ESCY, ESCDL, ESCIL, DISPL).
 TAB1 jump table entries for the 3 ESC handlers should point to DUMMY for REL30.
-See `memory/bgstar_analysis.md` for section-by-section breakdown with addresses
+See `rcbios/BGSTAR_ANALYSIS.md` for section-by-section breakdown with addresses
 and byte counts.
 
 ## Parked (not working on now)

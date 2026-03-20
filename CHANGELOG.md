@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-03-20: Session summary
+
+### What was done
+1. **Project rename**: `rc700-sysgen` → `rc700-gensmedet` ("Reforged")
+2. **Memory migration**: Found 31 memory files under old `.claude/` project path
+   (`-Users-ravn-git-rc700-sysgen`), copied them to the new project path
+3. **Documentation migration**: Moved 20 project knowledge files from `.claude/`
+   memory into the git repo (`rcbios/`, `cpnet/`, `docs/`)
+4. **Fix stale reference**: `tasks/todo.md` referenced moved file
+   `memory/bgstar_analysis.md` → updated to `rcbios/BGSTAR_ANALYSIS.md`
+5. **Session protocol**: Added feedback memory to always read `AGENT.md` at
+   session start
+
+### User choices
+- **Keep feedback in `.claude/`**: 7 behavioral feedback files (merge policy,
+  build flags, compiler testing, MAME build, MP/M server, BIOS calling
+  convention) stay in `.claude/` memory — they guide Claude Code behavior
+  across sessions, not project documentation
+- **Move knowledge to git**: All factual project documentation (BIOS analysis,
+  optimization plans, emulator notes, protocol specs, etc.) goes into the
+  git repo where it is version-controlled and tool-independent
+- **Always read AGENT.md**: Claude Code must read `AGENT.md` and
+  `tasks/lessons.md` at the start of every session
+- **Summarize before commit**: When preparing to commit, always summarize
+  work and choices in the project first
+
+---
+
 ## 2026-03-20: Project rename and documentation migration
 
 Renamed repository from `rc700-sysgen` to `rc700-gensmedet` ("Reforged").
