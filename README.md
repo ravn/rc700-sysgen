@@ -1,6 +1,6 @@
 # rc700-sysgen
 
-2026-03-20:  AUTOLOAD and BIOS now in C and boots in MAME.
+2026-03-20:  AUTOLOAD and BIOS now in pure C (with __asm) and boots in MAME.
 
 Recreating byte exact source for RC702 adapted SYSGEN.COM
 
