@@ -51,14 +51,14 @@ void flo6(void) {
     }
 }
 
-void flo7(uint8_t dh, uint8_t cyl) {
+void flo7(byte dh, byte cyl) {
     hal_fdc_wait_write(FDC_SEEK);
     hal_fdc_wait_write(dh & 0x07);  /* HD + US1/US0 (head + drive) */
     hal_fdc_wait_write(cyl);        /* NCN (new cylinder number) */
 }
 
 void rsult(void) {
-    uint8_t i;
+    byte i;
 
     ST->fdcflg = 7;
     for (i = 0; i < 7; i++) {
@@ -73,7 +73,7 @@ void rsult(void) {
     errdsp(0xFE);
 }
 
-uint8_t waitfl(uint8_t timeout) {
+byte waitfl(byte timeout) {
     while (--timeout) {
         hal_delay(1, 1);
         if (ST->flpflg & 0x02) {
@@ -87,19 +87,19 @@ uint8_t waitfl(uint8_t timeout) {
 }
 
 /* Shared helper: check seek/recalibrate result */
-static uint8_t chk_seekres(uint8_t expected_pcn) {
+static byte chk_seekres(byte expected_pcn) {
     if (waitfl(0xFF)) return 1;
     if ((ST->drvsel + 0x20) != ST->fdcres[0]) return 2; /* expect SE+drive in ST0 */
     if (expected_pcn != ST->fdcres[1]) return 2;       /* verify cylinder (PCN) */
     return 0;
 }
 
-uint8_t recalv(void) {
+byte recalv(void) {
     flo4();
     return chk_seekres(0);
 }
 
-uint8_t flseek(void) {
+byte flseek(void) {
     flo7((ST->curhed << 2) | ST->drvsel, ST->curcyl);
     return chk_seekres(ST->curcyl);
 }
@@ -115,9 +115,9 @@ void stpdma(void) {
     hal_ei();
 }
 
-void flrtrk(uint8_t cmd) {
-    uint8_t mfm_flag = (ST->diskbits & 0x01) ? FDC_MFM : 0;
-    uint8_t dh = (ST->curhed << 2) | ST->drvsel;
+void flrtrk(byte cmd) {
+    byte mfm_flag = (ST->diskbits & 0x01) ? FDC_MFM : 0;
+    byte dh = (ST->curhed << 2) | ST->drvsel;
 
     hal_di();
     ST->fdcflg = 0xFF;
@@ -126,8 +126,8 @@ void flrtrk(uint8_t cmd) {
     hal_fdc_wait_write(dh);
 
     if ((cmd & 0x0F) == FDC_READ_DATA) {
-        uint8_t *p = &ST->curcyl;
-        uint8_t i;
+        byte *p = &ST->curcyl;
+        byte i;
         for (i = 0; i < 7; i++) {
             hal_fdc_wait_write(p[i]);
         }
@@ -135,7 +135,7 @@ void flrtrk(uint8_t cmd) {
     hal_ei();
 }
 
-uint8_t chkres(void) {
+byte chkres(void) {
     if ((ST->fdcres[0] & 0xC3) == ST->drvsel &&  /* ST0: IC=00 + drive match */
         ST->fdcres[1] == 0 &&                     /* ST1: no errors */
         (ST->fdcres[2] & 0xBF) == 0) {            /* ST2: ignore CM (bit 6) */
@@ -146,8 +146,8 @@ uint8_t chkres(void) {
     }
 }
 
-uint8_t readtk(uint8_t cmd, uint8_t retries) {
-    uint8_t r;
+byte readtk(byte cmd, byte retries) {
+    byte r;
     ST->reptim = retries;
 
     while (1) {
@@ -170,7 +170,7 @@ uint8_t readtk(uint8_t cmd, uint8_t retries) {
     }
 }
 
-uint8_t dskauto(void) {
+byte dskauto(void) {
     ST->diskbits &= ~0x01;
 
     while (1) {

@@ -9,14 +9,14 @@
 #include <string.h>
 
 /* Mock state — set these from test code before calling boot logic */
-static uint8_t mock_sw1 = 0x80;        /* default: bit 7 set = mini floppy */
-static uint8_t mock_fdc_status = 0x80;  /* RQM set, ready */
-static uint8_t mock_fdc_data = 0;
-static uint8_t mock_dma_status = 0;
+static byte mock_sw1 = 0x80;        /* default: bit 7 set = mini floppy */
+static byte mock_fdc_status = 0x80;  /* RQM set, ready */
+static byte mock_fdc_data = 0;
+static byte mock_dma_status = 0;
 
 /* FDC data FIFO for multi-byte read sequences */
 #define FDC_FIFO_SIZE 16
-static uint8_t fdc_read_fifo[FDC_FIFO_SIZE];
+static byte fdc_read_fifo[FDC_FIFO_SIZE];
 static int fdc_read_fifo_head = 0;
 static int fdc_read_fifo_count = 0;
 
@@ -36,14 +36,14 @@ enum log_type {
 
 typedef struct {
     enum log_type type;
-    uint8_t data;
-    uint16_t data16;
+    byte data;
+    word data16;
 } log_entry_t;
 
 static log_entry_t call_log[MAX_LOG];
 static int log_count = 0;
 
-static void log_call(enum log_type type, uint8_t data) {
+static void log_call(enum log_type type, byte data) {
     if (log_count < MAX_LOG) {
         call_log[log_count].type = type;
         call_log[log_count].data = data;
@@ -52,7 +52,7 @@ static void log_call(enum log_type type, uint8_t data) {
     }
 }
 
-static void log_call16(enum log_type type, uint8_t data, uint16_t data16) {
+static void log_call16(enum log_type type, byte data, word data16) {
     if (log_count < MAX_LOG) {
         call_log[log_count].type = type;
         call_log[log_count].data = data;
@@ -72,13 +72,13 @@ void mock_reset(void) {
     fdc_read_fifo_count = 0;
 }
 
-void mock_set_sw1(uint8_t val) { mock_sw1 = val; }
-void mock_set_fdc_status(uint8_t val) { mock_fdc_status = val; }
-void mock_set_fdc_data(uint8_t val) { mock_fdc_data = val; }
-void mock_set_dma_status(uint8_t val) { mock_dma_status = val; }
+void mock_set_sw1(byte val) { mock_sw1 = val; }
+void mock_set_fdc_status(byte val) { mock_fdc_status = val; }
+void mock_set_fdc_data(byte val) { mock_fdc_data = val; }
+void mock_set_dma_status(byte val) { mock_dma_status = val; }
 int mock_get_log_count(void) { return log_count; }
 
-void mock_fdc_push_read(uint8_t val) {
+void mock_fdc_push_read(byte val) {
     if (fdc_read_fifo_count < FDC_FIFO_SIZE) {
         int idx = (fdc_read_fifo_head + fdc_read_fifo_count) % FDC_FIFO_SIZE;
         fdc_read_fifo[idx] = val;
@@ -90,11 +90,11 @@ log_entry_t *mock_get_log(void) { return call_log; }
 
 /* HAL implementation */
 
-uint8_t hal_read_sw1(void) {
+byte hal_read_sw1(void) {
     return mock_sw1;
 }
 
-uint8_t hal_diskette_size(void) {
+byte hal_diskette_size(void) {
     return (mock_sw1 >> 7) & 1;
 }
 
@@ -102,7 +102,7 @@ void hal_prom_disable(void) {
     log_call(LOG_PROM_DISABLE, 0);
 }
 
-void hal_motor(uint8_t on) {
+void hal_motor(byte on) {
     log_call(LOG_MOTOR, on);
 }
 
@@ -110,17 +110,17 @@ void hal_beep(void) {
     log_call(LOG_BEEP, 0);
 }
 
-void hal_fdc_command(uint8_t cmd) {
+void hal_fdc_command(byte cmd) {
     log_call(LOG_FDC_CMD, cmd);
 }
 
-uint8_t hal_fdc_status(void) {
+byte hal_fdc_status(void) {
     return mock_fdc_status;
 }
 
-uint8_t hal_fdc_data_read(void) {
+byte hal_fdc_data_read(void) {
     if (fdc_read_fifo_count > 0) {
-        uint8_t val = fdc_read_fifo[fdc_read_fifo_head];
+        byte val = fdc_read_fifo[fdc_read_fifo_head];
         fdc_read_fifo_head = (fdc_read_fifo_head + 1) % FDC_FIFO_SIZE;
         fdc_read_fifo_count--;
         return val;
@@ -128,29 +128,29 @@ uint8_t hal_fdc_data_read(void) {
     return mock_fdc_data;
 }
 
-void hal_fdc_data_write(uint8_t data) {
+void hal_fdc_data_write(byte data) {
     log_call(LOG_FDC_WRITE, data);
 }
 
-void hal_fdc_wait_write(uint8_t data) {
+void hal_fdc_wait_write(byte data) {
     log_call(LOG_FDC_WRITE, data);
 }
 
-uint8_t hal_fdc_wait_read(void) {
+byte hal_fdc_wait_read(void) {
     return hal_fdc_data_read();
 }
 
 /* DMA */
 
-void hal_dma_command(uint8_t cmd) {
+void hal_dma_command(byte cmd) {
     log_call(LOG_DMA_CMD, cmd);
 }
 
-void hal_dma_mask(uint8_t channel) {
+void hal_dma_mask(byte channel) {
     log_call(LOG_DMA_MASK, channel);
 }
 
-void hal_dma_unmask(uint8_t channel) {
+void hal_dma_unmask(byte channel) {
     log_call(LOG_DMA_UNMASK, channel);
 }
 
@@ -158,59 +158,59 @@ void hal_dma_clear_bp(void) {
     log_call(LOG_DMA_CLEAR_BP, 0);
 }
 
-void hal_dma_mode(uint8_t mode) {
+void hal_dma_mode(byte mode) {
     log_call(LOG_DMA_MODE, mode);
 }
 
-void hal_dma_ch1_addr(uint16_t addr) {
+void hal_dma_ch1_addr(word addr) {
     log_call16(LOG_DMA_ADDR, 1, addr);
 }
 
-void hal_dma_ch1_wc(uint16_t wc) {
+void hal_dma_ch1_wc(word wc) {
     log_call16(LOG_DMA_WC, 1, wc);
 }
 
-void hal_dma_ch2_addr(uint16_t addr) {
+void hal_dma_ch2_addr(word addr) {
     log_call16(LOG_DMA_ADDR, 2, addr);
 }
 
-void hal_dma_ch2_wc(uint16_t wc) {
+void hal_dma_ch2_wc(word wc) {
     log_call16(LOG_DMA_WC, 2, wc);
 }
 
-void hal_dma_ch3_addr(uint16_t addr) {
+void hal_dma_ch3_addr(word addr) {
     log_call16(LOG_DMA_ADDR, 3, addr);
 }
 
-void hal_dma_ch3_wc(uint16_t wc) {
+void hal_dma_ch3_wc(word wc) {
     log_call16(LOG_DMA_WC, 3, wc);
 }
 
-uint8_t hal_dma_status(void) {
+byte hal_dma_status(void) {
     return mock_dma_status;
 }
 
 /* PIO */
 
-void hal_pio_write_a_data(uint8_t data) { log_call(LOG_PIO_A_DATA, data); }
-void hal_pio_write_a_ctrl(uint8_t data) { log_call(LOG_PIO_A_CTRL, data); }
-void hal_pio_write_b_data(uint8_t data) { log_call(LOG_PIO_B_DATA, data); }
-void hal_pio_write_b_ctrl(uint8_t data) { log_call(LOG_PIO_B_CTRL, data); }
+void hal_pio_write_a_data(byte data) { log_call(LOG_PIO_A_DATA, data); }
+void hal_pio_write_a_ctrl(byte data) { log_call(LOG_PIO_A_CTRL, data); }
+void hal_pio_write_b_data(byte data) { log_call(LOG_PIO_B_DATA, data); }
+void hal_pio_write_b_ctrl(byte data) { log_call(LOG_PIO_B_CTRL, data); }
 
 /* CTC */
 
-void hal_ctc_write(uint8_t channel, uint8_t data) {
+void hal_ctc_write(byte channel, byte data) {
     log_call(LOG_CTC, (channel << 4) | (data & 0x0F));
 }
 
 /* CRT */
 
-void hal_crt_param(uint8_t data) { log_call(LOG_CRT_PARAM, data); }
-void hal_crt_command(uint8_t data) { log_call(LOG_CRT_CMD, data); }
-uint8_t hal_crt_status(void) { return 0; }
+void hal_crt_param(byte data) { log_call(LOG_CRT_PARAM, data); }
+void hal_crt_command(byte data) { log_call(LOG_CRT_CMD, data); }
+byte hal_crt_status(void) { return 0; }
 
 /* Delay — no-op in host tests */
-void hal_delay(uint8_t outer, uint8_t inner) {
+void hal_delay(byte outer, byte inner) {
     log_call(LOG_DELAY, outer);
     (void)inner;
 }
@@ -224,4 +224,4 @@ void hal_di(void) { log_call(LOG_DI, 0); }
 void halt_forever(void) { }
 
 /* jump_to — no-op in host tests */
-void jump_to(uint16_t addr) { (void)addr; }
+void jump_to(word addr) { (void)addr; }

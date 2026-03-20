@@ -28,7 +28,7 @@ void crt_refresh(void) {
     hal_dma_mask(3);            /* disable Ch3 during reprogramming */
     hal_dma_clear_bp();         /* reset DMA byte pointer flip-flop */
 
-    uint16_t so = scroll_offset;
+    word so = scroll_offset;
     hal_dma_ch2_addr(DSPSTR_ADDR + so);
     hal_dma_ch2_wc(80 * 25 - 1 - so);  /* remaining bytes from scroll point */
 
@@ -45,11 +45,20 @@ void crt_refresh(void) {
 
 /* dumint — dummy handler for unused interrupt vectors (generates EI; RETI) */
 #ifndef HOST_TEST
-void dumint(void) __interrupt {
+void dumint(void) __interrupt(0) {
 }
-#endif
 
-void flpint_body(void) {
+/* crtint — CRT vertical retrace ISR (CTC Ch2).
+ * __critical: keeps interrupts disabled throughout (protects DMA programming).
+ * __interrupt(1): generates push/pop for all registers + EI + RETI.
+ * The (N) number is mandatory — without it sdcc generates RETN not RETI. */
+void crtint(void) __critical __interrupt(1) {
+    crt_refresh();
+}
+
+/* flpint — Floppy disk ISR (CTC Ch3).
+ * Body inlined (sdcc doesn't inline single-use static functions). */
+void flpint(void) __critical __interrupt(2) {
     ST->flpflg = 2;
     hal_delay(0, ST->fdctmo);
     if (hal_fdc_status() & 0x10) {  /* CB=1: result phase ready */
@@ -58,3 +67,4 @@ void flpint_body(void) {
         flo6();
     }
 }
+#endif

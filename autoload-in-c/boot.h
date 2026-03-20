@@ -20,7 +20,16 @@
 #define FDC_READ_ID       0x0A
 #define FDC_MFM           0x40  /* set bit 6 for MFM (double density) */
 
+/* byte/word typedefs are in hal.h (included by all source files) */
+
+/* Stringification macros for inline asm constants */
+#define STR_(x) #x
+#define STR(x)  STR_(x)
+
 /* Memory layout constants */
+#define INTVEC_ADDR 0x7000      /* IVT base (page-aligned for Z80 IM2) */
+#define INTVEC_PAGE (INTVEC_ADDR >> 8)  /* I register value (0x70) */
+#define ROM_STACK   0xBFFF      /* Stack set by ROM entry / INIT_RELOCATED */
 #define FLOPPYDATA  0x0000      /* Track 0 loaded here by ROM */
 #define COMALBOOT   0x1000      /* COMAL-80 boot address */
 #define PROM1_ADDR  0x2000      /* Secondary PROM (network boot) */
@@ -43,34 +52,34 @@
  * sequentially by flrtrk() as the 7-byte parameter block.
  */
 typedef struct {
-    uint8_t fdcres[7];      /* +0:  FDC result bytes */
-    uint8_t fdcflg;         /* +7:  FDC flag */
-    uint8_t epts;           /* +8:  end-of-track for seek */
-    uint8_t trksz;          /* +9:  track size */
-    uint8_t drvsel;         /* +10: drive select */
-    uint8_t fdctmo;         /* +11: FDC timeout */
-    uint8_t fdcwai;         /* +12: FDC wait count */
-    uint16_t spsav;         /* +13: saved SP */
-    uint8_t combuf[2];      /* +15: command buffer prefix */
+    byte fdcres[7];      /* +0:  FDC result bytes */
+    byte fdcflg;         /* +7:  FDC flag */
+    byte epts;           /* +8:  end-of-track for seek */
+    byte trksz;          /* +9:  track size */
+    byte drvsel;         /* +10: drive select */
+    byte fdctmo;         /* +11: FDC timeout */
+    byte fdcwai;         /* +12: FDC wait count */
+    word spsav;         /* +13: saved SP */
+    byte combuf[2];      /* +15: command buffer prefix */
     /* FDC command parameter block — contiguous, sent by flrtrk */
-    uint8_t curcyl;         /* +17: current cylinder */
-    uint8_t curhed;         /* +18: current head */
-    uint8_t currec;         /* +19: current record/sector */
-    uint8_t reclen;         /* +20: record length (N value) */
-    uint8_t cureot;         /* +21: end of track */
-    uint8_t gap3;           /* +22: gap 3 length */
-    uint8_t dtl;            /* +23: data length */
-    uint16_t secbyt;        /* +24: sector bytes */
-    uint8_t flpflg;         /* +26: floppy interrupt flag */
-    uint8_t flpwai;         /* +27: floppy wait count */
-    uint8_t diskbits;       /* +28: disk type bits */
-    uint8_t dsktyp;         /* +29: disk type */
-    uint8_t morefl;         /* +30: more data flag */
-    uint8_t reptim;         /* +31: retry count */
-    uint16_t memadr;        /* +32: memory address */
-    uint16_t trbyt;         /* +34: transfer bytes */
-    uint16_t trkovr;        /* +36: track overflow */
-    uint8_t errsav;         /* +38: saved error code */
+    byte curcyl;         /* +17: current cylinder */
+    byte curhed;         /* +18: current head */
+    byte currec;         /* +19: current record/sector */
+    byte reclen;         /* +20: record length (N value) */
+    byte cureot;         /* +21: end of track */
+    byte gap3;           /* +22: gap 3 length */
+    byte dtl;            /* +23: data length */
+    word secbyt;        /* +24: sector bytes */
+    byte flpflg;         /* +26: floppy interrupt flag */
+    byte flpwai;         /* +27: floppy wait count */
+    byte diskbits;       /* +28: disk type bits */
+    byte dsktyp;         /* +29: disk type */
+    byte morefl;         /* +30: more data flag */
+    byte reptim;         /* +31: retry count */
+    word memadr;        /* +32: memory address */
+    word trbyt;         /* +34: transfer bytes */
+    word trkovr;        /* +36: track overflow */
+    byte errsav;         /* +38: saved error code */
 } boot_state_t;
 
 /*
@@ -82,11 +91,11 @@ extern boot_state_t g_state;
 
 /* Display buffer */
 #ifdef HOST_TEST
-extern uint8_t dspstr[2000];
-extern uint16_t scroll_offset;
+extern byte dspstr[2000];
+extern word scroll_offset;
 #else
-#define dspstr         ((uint8_t *)0x7800)
-#define scroll_offset  (*(uint16_t *)0x7FF5)
+#define dspstr         ((byte *)0x7800)
+#define scroll_offset  (*(word *)0x7FF5)
 #endif
 
 /* init.c — peripheral init called from crt0.asm after SP/I/IM2 setup */
@@ -105,47 +114,55 @@ void calctb(void);
 void snsdrv(void);
 void flo4(void);
 void flo6(void);
-void flo7(uint8_t dh, uint8_t cyl);
+void flo7(byte dh, byte cyl);
 void rsult(void);
-uint8_t recalv(void);         /* returns 0/1/2 */
-uint8_t flseek(void);         /* returns 0/1/2 */
-void flrtrk(uint8_t cmd);
-uint8_t waitfl(uint8_t timeout); /* returns 0=ok, 1=timeout */
-uint8_t chkres(void);         /* returns 0/1/2 */
-uint8_t readtk(uint8_t cmd, uint8_t retries); /* returns 0=ok, 1=error */
-uint8_t dskauto(void);        /* returns 0/1 */
+byte recalv(void);         /* returns 0/1/2 */
+byte flseek(void);         /* returns 0/1/2 */
+void flrtrk(byte cmd);
+byte waitfl(byte timeout); /* returns 0=ok, 1=timeout */
+byte chkres(void);         /* returns 0/1/2 */
+byte readtk(byte cmd, byte retries); /* returns 0=ok, 1=error */
+byte dskauto(void);        /* returns 0/1 */
 void stpdma(void);
 
 /* boot.c */
 void clear_screen(void);
 void display_banner(void);
-void errdsp(uint8_t code);
-uint8_t boot_detect(void);    /* returns 0/1 */
+void errdsp(byte code);
+byte boot_detect(void);    /* returns 0/1 */
 void boot7(void);
 void flboot(void);
 void check_prom1(void);
 
 /* isr.c */
 void crt_refresh(void);
-void flpint_body(void);
 
-/* Implemented in crt0.asm (C fallback in boot.c for HOST_TEST) */
-void halt_msg(const uint8_t *msg);
+/* halt_msg is a macro in boot.c — must include boot.c or boot.h+boot.c.
+ * IMPORTANT: len must NOT include NUL terminator.
+ * halt_msg(msg_ptr, byte_count) — copies to display then halts. */
 
 /* Comparison helpers — C in boot.c (pointer-increment avoids IX frame) */
-uint8_t b7_cmp6(const uint8_t *a, const uint8_t *b);
-uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern);
+byte b7_cmp6(const byte *a, const byte *b);
+byte b7_chksys(const byte *dir, const byte *pattern);
 
 #ifdef HOST_TEST
-void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len);
-uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len);
+void mcopy(byte *dst, const byte *src, byte len);
+byte mcmp(const byte *a, const byte *b, byte len);
 #endif
 
 /* Implemented in crt0.asm */
 void halt_forever(void);
-void jump_to(uint16_t addr);
+
+/* Transfer control to address — never returns.
+ * Uses a function pointer call (CALL, not JP).  The dangling return
+ * address on the stack is harmless since the target never returns. */
+#ifdef HOST_TEST
+void jump_to(word addr);
+#else
+#define jump_to(addr) ((void (*)(void))(addr))()
+#endif
 
 /* syscall — addr in HL, bc packed as 16-bit in DE */
-void syscall(uint16_t addr, uint16_t bc);
+void syscall(word addr, word bc);
 
 #endif /* BOOT_H */

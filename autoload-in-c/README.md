@@ -4,6 +4,9 @@ Rewrite of the ROA375 autoload PROM (2048-byte boot ROM) in C using
 z88dk.  The ROM initializes hardware, auto-detects floppy disk format,
 reads Track 0, and boots CP/M.
 
+2026-03-20:  Claude converted as much as it could (plus a little bit more) to C.  Still pending moving BEGIN and INTVEC to C.
+
+
 ## PROM image layout (roa375.ic66, 2048 bytes)
 
 ```

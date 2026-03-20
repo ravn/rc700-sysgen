@@ -63,9 +63,35 @@ void init_fdc(void) {
 
 #endif /* HOST_TEST */
 
+#ifndef HOST_TEST
+#include <intrinsic.h>
+
+/* Set Z80 I register.  sdcccall(1) passes byte in A; ld i,a uses it.
+ * Must NOT be inline — see rcbios-in-c documentation. */
+static void set_i_reg(byte page)
+{
+    (void)page;
+    __asm__("ld i, a\n");
+}
+
+/* Post-relocation entry point.  Called from BEGIN after LDIR.
+ * Sets SP, I register, IM2, then calls init_peripherals + main.
+ * __naked because we set SP mid-function. */
+void init_relocated(void) __naked
+{
+    __asm__("ld sp, #" STR(ROM_STACK) "\n");
+    set_i_reg(INTVEC_PAGE);
+    intrinsic_im_2();
+    init_peripherals();
+    main();
+    /* halt_forever — should never reach here */
+    for (;;)
+        ;
+}
+#endif /* !HOST_TEST */
+
 /*
  * init_peripherals — combined PIO/CTC/DMA/CRT initialization.
- * Called from INIT_RELOCATED in crt0.asm after SP/I/IM2 setup.
  * Uses hal macros which expand to direct __sfr port writes on Z80.
  */
 void init_peripherals(void) {
