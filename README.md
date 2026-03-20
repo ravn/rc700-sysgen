@@ -1,6 +1,15 @@
-# rc700-sysgen
+# rc700-gensmedet
+
+"Gensmedet" (Danish for "Reforged") is a project to recreate full sources
+for the Danish RC700 CP/M system from Regnecentralen .  (https://datamuseum.dk/wiki/RC700_Piccolo)
+
+
+
+
 
 2026-03-20:  AUTOLOAD and BIOS now in pure C (with __asm) and boots in MAME.
+
+
 
 Recreating byte exact source for RC702 adapted SYSGEN.COM
 
