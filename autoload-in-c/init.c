@@ -68,7 +68,7 @@ void init_fdc(void) {
 
 /* Set Z80 I register.  sdcccall(1) passes byte in A; ld i,a uses it.
  * Must NOT be inline — see rcbios-in-c documentation. */
-static void set_i_reg(uint8_t page)
+static void set_i_reg(byte page)
 {
     (void)page;
     __asm__("ld i, a\n");

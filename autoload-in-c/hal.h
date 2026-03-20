@@ -14,50 +14,53 @@
 
 #include <stdint.h>
 
+typedef uint8_t  byte;
+typedef uint16_t word;
+
 #ifdef HOST_TEST
 
 /* ================================================================
  * HOST TEST BUILD — all functions are real (defined in hal_host.c)
  * ================================================================ */
 
-uint8_t hal_diskette_size(void);
-uint8_t hal_read_sw1(void);
+byte hal_diskette_size(void);
+byte hal_read_sw1(void);
 void hal_prom_disable(void);
-void hal_motor(uint8_t on);
+void hal_motor(byte on);
 void hal_beep(void);
 
-void hal_fdc_command(uint8_t cmd);
-uint8_t hal_fdc_status(void);
-uint8_t hal_fdc_data_read(void);
-void hal_fdc_data_write(uint8_t data);
-void hal_fdc_wait_write(uint8_t data);
-uint8_t hal_fdc_wait_read(void);
+void hal_fdc_command(byte cmd);
+byte hal_fdc_status(void);
+byte hal_fdc_data_read(void);
+void hal_fdc_data_write(byte data);
+void hal_fdc_wait_write(byte val);
+byte hal_fdc_wait_read(void);
 
-void hal_dma_command(uint8_t cmd);
-void hal_dma_mask(uint8_t channel);
-void hal_dma_unmask(uint8_t channel);
+void hal_dma_command(byte cmd);
+void hal_dma_mask(byte channel);
+void hal_dma_unmask(byte channel);
 void hal_dma_clear_bp(void);
-void hal_dma_mode(uint8_t mode);
-void hal_dma_ch1_addr(uint16_t addr);
-void hal_dma_ch1_wc(uint16_t wc);
-void hal_dma_ch2_addr(uint16_t addr);
-void hal_dma_ch2_wc(uint16_t wc);
-void hal_dma_ch3_addr(uint16_t addr);
-void hal_dma_ch3_wc(uint16_t wc);
-uint8_t hal_dma_status(void);
+void hal_dma_mode(byte mode);
+void hal_dma_ch1_addr(word addr);
+void hal_dma_ch1_wc(word wc);
+void hal_dma_ch2_addr(word addr);
+void hal_dma_ch2_wc(word wc);
+void hal_dma_ch3_addr(word addr);
+void hal_dma_ch3_wc(word wc);
+byte hal_dma_status(void);
 
-void hal_pio_write_a_data(uint8_t data);
-void hal_pio_write_a_ctrl(uint8_t data);
-void hal_pio_write_b_data(uint8_t data);
-void hal_pio_write_b_ctrl(uint8_t data);
+void hal_pio_write_a_data(byte data);
+void hal_pio_write_a_ctrl(byte data);
+void hal_pio_write_b_data(byte data);
+void hal_pio_write_b_ctrl(byte data);
 
-void hal_ctc_write(uint8_t channel, uint8_t data);
+void hal_ctc_write(byte channel, byte data);
 
-void hal_crt_param(uint8_t data);
-void hal_crt_command(uint8_t data);
-uint8_t hal_crt_status(void);
+void hal_crt_param(byte data);
+void hal_crt_command(byte data);
+byte hal_crt_status(void);
 
-void hal_delay(uint8_t outer, uint8_t inner);
+void hal_delay(byte outer, byte inner);
 void hal_ei(void);
 void hal_di(void);
 
@@ -144,34 +147,34 @@ __sfr __at 0xFC _port_dma_clbp;
 
 /* DMA channel 1 address/word count — two consecutive port writes */
 #define hal_dma_ch1_addr(addr) do { \
-    _port_dma_ch1_addr = (uint8_t)(addr); \
-    _port_dma_ch1_addr = (uint8_t)((addr) >> 8); \
+    _port_dma_ch1_addr = (byte)(addr); \
+    _port_dma_ch1_addr = (byte)((addr) >> 8); \
 } while(0)
 #define hal_dma_ch1_wc(wc) do { \
-    _port_dma_ch1_wc = (uint8_t)(wc); \
-    _port_dma_ch1_wc = (uint8_t)((wc) >> 8); \
+    _port_dma_ch1_wc = (byte)(wc); \
+    _port_dma_ch1_wc = (byte)((wc) >> 8); \
 } while(0)
 #define hal_dma_ch2_addr(addr) do { \
-    _port_dma_ch2_addr = (uint8_t)(addr); \
-    _port_dma_ch2_addr = (uint8_t)((addr) >> 8); \
+    _port_dma_ch2_addr = (byte)(addr); \
+    _port_dma_ch2_addr = (byte)((addr) >> 8); \
 } while(0)
 #define hal_dma_ch2_wc(wc) do { \
-    _port_dma_ch2_wc = (uint8_t)(wc); \
-    _port_dma_ch2_wc = (uint8_t)((wc) >> 8); \
+    _port_dma_ch2_wc = (byte)(wc); \
+    _port_dma_ch2_wc = (byte)((wc) >> 8); \
 } while(0)
 #define hal_dma_ch3_addr(addr) do { \
-    _port_dma_ch3_addr = (uint8_t)(addr); \
-    _port_dma_ch3_addr = (uint8_t)((addr) >> 8); \
+    _port_dma_ch3_addr = (byte)(addr); \
+    _port_dma_ch3_addr = (byte)((addr) >> 8); \
 } while(0)
 #define hal_dma_ch3_wc(wc) do { \
-    _port_dma_ch3_wc = (uint8_t)(wc); \
-    _port_dma_ch3_wc = (uint8_t)((wc) >> 8); \
+    _port_dma_ch3_wc = (byte)(wc); \
+    _port_dma_ch3_wc = (byte)((wc) >> 8); \
 } while(0)
 
 /* C implementations in hal_z80.c — sdcc generates near-optimal code */
-void hal_fdc_wait_write(uint8_t data);
-uint8_t hal_fdc_wait_read(void);
-void hal_delay(uint8_t outer, uint8_t inner);
+void hal_fdc_wait_write(byte val);
+byte hal_fdc_wait_read(void);
+void hal_delay(byte outer, byte inner);
 
 #endif /* HOST_TEST */
 

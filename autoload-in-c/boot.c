@@ -17,8 +17,8 @@
  */
 #ifdef HOST_TEST
 boot_state_t g_state;
-uint8_t dspstr[2000];
-uint16_t scroll_offset;
+byte dspstr[2000];
+word scroll_offset;
 #endif
 
 /* Error/status message strings — non-static for assembly access */
@@ -31,15 +31,15 @@ const char msg_diskerr[] = "**DISKETTE ERROR** ";
 
 #ifdef HOST_TEST
 void clear_screen(void) {
-    uint8_t *p = dspstr;
-    uint16_t i = 80 * 25;
+    byte *p = dspstr;
+    word i = 80 * 25;
     while (i--) *p++ = 0x20;
 }
-void mcopy(uint8_t *dst, const uint8_t *src, uint8_t len) {
+void mcopy(byte *dst, const byte *src, byte len) {
     while (len--) *dst++ = *src++;
 }
 
-uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len) {
+byte mcmp(const byte *a, const byte *b, byte len) {
     while (len--) {
         if (*a++ != *b++) return 1;
     }
@@ -47,8 +47,8 @@ uint8_t mcmp(const uint8_t *a, const uint8_t *b, uint8_t len) {
 }
 
 /* HOST_TEST halt_msg — C fallback (null-terminated copy) */
-void halt_msg(const uint8_t *msg) {
-    uint8_t *dst = dspstr;
+void halt_msg(const byte *msg) {
+    byte *dst = dspstr;
     while (*msg) *dst++ = *msg++;
     halt_forever();
 }
@@ -57,8 +57,8 @@ void halt_msg(const uint8_t *msg) {
 
 /* b7_cmp6 — compare 6 bytes.  Pointer-increment style generates compact
  * sdcc output (17 bytes, no IX frame) vs indexed a[i] (35 bytes with IX). */
-uint8_t b7_cmp6(const uint8_t *a, const uint8_t *b) {
-    uint8_t i = 6;
+byte b7_cmp6(const byte *a, const byte *b) {
+    byte i = 6;
     do {
         if (*a++ != *b++) return 1;
     } while (--i);
@@ -67,8 +67,8 @@ uint8_t b7_cmp6(const uint8_t *a, const uint8_t *b) {
 
 /* b7_chksys — check dir entry name + attribute.  Pointer-increment for
  * the 4-byte name comparison, then direct offset for the attribute byte. */
-uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern) {
-    uint8_t i = 4;
+byte b7_chksys(const byte *dir, const byte *pattern) {
+    byte i = 4;
     dir++;  /* skip dir[0] */
     do {
         if (*dir++ != *pattern++) return 1;
@@ -80,21 +80,21 @@ uint8_t b7_chksys(const uint8_t *dir, const uint8_t *pattern) {
 
 #ifdef HOST_TEST
 void display_banner(void) {
-    const uint8_t *src = (const uint8_t *)msg_rc700;
-    uint8_t *dst = dspstr;
-    uint8_t i = 6;
+    const byte *src = (const byte *)msg_rc700;
+    byte *dst = dspstr;
+    byte i = 6;
     while (i--) *dst++ = *src++;
     scroll_offset = 0;
     hal_crt_command(0x23);  /* start display: burst space=0, 8 DMA cycles/burst */
 }
 #endif
 
-void errdsp(uint8_t code) {
+void errdsp(byte code) {
     ST->errsav = code;
     hal_ei();
     if (ST->dsktyp & 0x01) return;
     hal_beep();
-    halt_msg((const uint8_t *)msg_diskerr);
+    halt_msg((const byte *)msg_diskerr);
 }
 
 /*
@@ -126,52 +126,52 @@ void errdsp(uint8_t code) {
 static const char b7_sysm[] = "SYSM";
 static const char b7_sysc[] = "SYSC";
 
-static uint8_t *b7_dir;
+static byte *b7_dir;
 
 void boot7(void) {
-    if (b7_cmp6((const uint8_t *)RC700_SIG_OFF, (const uint8_t *)msg_rc700) == 0) {
-        b7_dir = (uint8_t *)BOOT_DIR_OFF;
-        while ((uint16_t)b7_dir < 0x0D00) {
+    if (b7_cmp6((const byte *)RC700_SIG_OFF, (const byte *)msg_rc700) == 0) {
+        b7_dir = (byte *)BOOT_DIR_OFF;
+        while ((word)b7_dir < 0x0D00) {
             if (*b7_dir == 0) {
                 b7_dir += 0x20;
                 continue;
             }
-            if (b7_chksys(b7_dir, (const uint8_t *)b7_sysm) != 0)
+            if (b7_chksys(b7_dir, (const byte *)b7_sysm) != 0)
                 goto nosys;
             b7_dir += 0x20;
             if (*b7_dir == 0)
                 goto nosys;
-            if (b7_chksys(b7_dir, (const uint8_t *)b7_sysc) != 0)
+            if (b7_chksys(b7_dir, (const byte *)b7_sysc) != 0)
                 goto nosys;
             return;
         }
         goto nosys;
     }
 
-    if (b7_cmp6((const uint8_t *)RC702_SIG_OFF, (const uint8_t *)msg_rc702) == 0) {
-        jump_to(*(uint16_t *)0x0000);
+    if (b7_cmp6((const byte *)RC702_SIG_OFF, (const byte *)msg_rc702) == 0) {
+        jump_to(*(word *)0x0000);
         return;
     }
 
-    halt_msg((const uint8_t *)msg_nocat);
+    halt_msg((const byte *)msg_nocat);
     return;
 
 nosys:
-    halt_msg((const uint8_t *)msg_nosys);
+    halt_msg((const byte *)msg_nosys);
 }
 
 void check_prom1(void) {
 #ifndef HOST_TEST
-    if (b7_cmp6((const uint8_t *)0x2002, (const uint8_t *)msg_rc702) == 0) {
-        jump_to(*(uint16_t *)0x2000);
+    if (b7_cmp6((const byte *)0x2002, (const byte *)msg_rc702) == 0) {
+        jump_to(*(word *)0x2000);
         return;
     }
 #endif
-    halt_msg((const uint8_t *)msg_nodisk);
+    halt_msg((const byte *)msg_nodisk);
 }
 
 static void nxthds(void) {
-    uint8_t max_head;
+    byte max_head;
     ST->currec = 1;
     max_head = (ST->diskbits >> 1) & 0x01;
     if (max_head == ST->curhed) {
@@ -188,7 +188,7 @@ static void calctx(void) {
     remaining = (int16_t)ST->trkovr - (int16_t)ST->trbyt;
     if (remaining > 0) {
         ST->morefl = 1;
-        ST->trkovr = (uint16_t)remaining;
+        ST->trkovr = (word)remaining;
     } else {
         ST->morefl = 0;
         ST->trbyt = ST->trkovr;
@@ -196,11 +196,11 @@ static void calctx(void) {
     }
 }
 
-static void rdtrk0(uint16_t trkovr_init) {
+static void rdtrk0(word trkovr_init) {
     ST->trkovr = trkovr_init;
 
     while (1) {
-        uint8_t r = flseek();
+        byte r = flseek();
         if (r == 1) { check_prom1(); return; }
         if (r != 0) { errdsp(0x06); return; }
 
@@ -218,7 +218,7 @@ static void rdtrk0(uint16_t trkovr_init) {
     }
 }
 
-uint8_t boot_detect(void) {
+byte boot_detect(void) {
     ST->curcyl = 0;
     ST->curhed = 1;
     ST->currec = 1;
@@ -244,7 +244,7 @@ void flboot(void) {
 }
 
 static void fldsk1(void) {
-    uint8_t status;
+    byte status;
 
     hal_delay(1, 0xFF);
 
@@ -279,8 +279,8 @@ static void fldsk1(void) {
 }
 
 static void preinit(void) {
-    uint8_t *p = (uint8_t *)ST;
-    uint8_t i = sizeof(boot_state_t);
+    byte *p = (byte *)ST;
+    byte i = sizeof(boot_state_t);
 
     /* Bulk zero entire struct */
     while (i--) *p++ = 0;
@@ -296,9 +296,9 @@ static void preinit(void) {
     fldsk1();
 }
 
-void syscall(uint16_t addr, uint16_t bc) {
-    uint8_t b = (uint8_t)(bc >> 8);
-    uint8_t c = (uint8_t)(bc & 0xFF);
+void syscall(word addr, word bc) {
+    byte b = (byte)(bc >> 8);
+    byte c = (byte)(bc & 0xFF);
 
     ST->memadr = addr;
     ST->currec = c & 0x7F;

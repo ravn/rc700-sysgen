@@ -17,18 +17,18 @@
 
 #include "hal.h"
 
-void hal_fdc_wait_write(uint8_t data) {
-    uint16_t t = 0;
+void hal_fdc_wait_write(byte val) {
+    word t = 0;
     do {
         if ((_port_fdc_status & 0xC0) == 0x80) {
-            _port_fdc_data = data;
+            _port_fdc_data = val;
             return;
         }
     } while (++t);
 }
 
-uint8_t hal_fdc_wait_read(void) {
-    uint16_t t = 0;
+byte hal_fdc_wait_read(void) {
+    word t = 0;
     do {
         if ((_port_fdc_status & 0xC0) == 0xC0) {
             return _port_fdc_data;
@@ -37,12 +37,12 @@ uint8_t hal_fdc_wait_read(void) {
     return 0xFF;
 }
 
-void hal_delay(uint8_t outer, uint8_t inner) {
+void hal_delay(byte outer, byte inner) {
     if (!outer) return;
     do {
-        uint8_t mid = inner;
+        byte mid = inner;
         do {
-            uint8_t k = 0;
+            byte k = 0;
             do { } while (--k);
         } while (--mid);
     } while (--outer);

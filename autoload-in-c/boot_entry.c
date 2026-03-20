@@ -17,8 +17,8 @@
 extern const char msg_rc700[];
 
 void clear_screen(void) {
-    uint8_t *p = dspstr;
-    uint16_t i = 80 * 25;
+    byte *p = dspstr;
+    word i = 80 * 25;
     while (i--) *p++ = 0x20;
 }
 
@@ -31,9 +31,9 @@ void init_fdc(void) {
 }
 
 void display_banner(void) {
-    const uint8_t *src = (const uint8_t *)msg_rc700;
-    uint8_t *dst = dspstr;
-    uint8_t i = 6;
+    const byte *src = (const byte *)msg_rc700;
+    byte *dst = dspstr;
+    byte i = 6;
     while (i--) *dst++ = *src++;
     scroll_offset = 0;
     hal_crt_command(0x23);  /* start display: burst space=0, 8 DMA cycles/burst */

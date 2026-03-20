@@ -28,7 +28,7 @@ void crt_refresh(void) {
     hal_dma_mask(3);            /* disable Ch3 during reprogramming */
     hal_dma_clear_bp();         /* reset DMA byte pointer flip-flop */
 
-    uint16_t so = scroll_offset;
+    word so = scroll_offset;
     hal_dma_ch2_addr(DSPSTR_ADDR + so);
     hal_dma_ch2_wc(80 * 25 - 1 - so);  /* remaining bytes from scroll point */
 

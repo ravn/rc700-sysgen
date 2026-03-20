@@ -8,14 +8,14 @@
 
 #define ST (&g_state)
 
-static const uint8_t maxifmt[4][4] = {
+static const byte maxifmt[4][4] = {
     { 0x1A, 0x07, 0x34, 0x07 },
     { 0x0F, 0x0E, 0x1A, 0x0E },
     { 0x08, 0x1B, 0x0F, 0x1B },
     { 0x00, 0x00, 0x08, 0x35 },
 };
 
-static const uint8_t minifmt[4][4] = {
+static const byte minifmt[4][4] = {
     { 0x10, 0x07, 0x20, 0x07 },
     { 0x09, 0x0E, 0x10, 0x0E },
     { 0x05, 0x1B, 0x09, 0x1B },
@@ -23,9 +23,9 @@ static const uint8_t minifmt[4][4] = {
 };
 
 void fmtlkp(void) {
-    const uint8_t *tbl;
-    uint8_t side_offset;
-    uint8_t n = ST->reclen & 0x03;
+    const byte *tbl;
+    byte side_offset;
+    byte n = ST->reclen & 0x03;
 
     if (ST->diskbits & 0x80) {
         tbl = minifmt[n];
@@ -43,9 +43,9 @@ void fmtlkp(void) {
 }
 
 void calctb(void) {
-    uint16_t secbytes;
-    uint8_t sectors;
-    uint8_t i;
+    word secbytes;
+    byte sectors;
+    byte i;
 
     secbytes = 0x80;
     for (i = 0; i < ST->reclen; i++) {
@@ -61,7 +61,7 @@ void calctb(void) {
 
     /* trbyt = sectors * (128 << N) = sectors << (7 + N) */
     {
-        uint16_t trbyt = (uint16_t)sectors;
+        word trbyt = (word)sectors;
         for (i = 7 + ST->reclen; i != 0; i--) trbyt <<= 1;
         ST->trbyt = trbyt;
     }
