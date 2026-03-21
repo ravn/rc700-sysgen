@@ -6,10 +6,11 @@
 local frame = 0
 local done = false
 local state = "wait_prompt"
+local state_frame = 0
 local RESULT_FILE = "/tmp/boot_test_result.txt"
 
--- Search multiple display addresses — COMAL may reprogram CRT DMA
-local DISPLAY_ADDRS = {0x7800, 0xF800, 0x0000, 0x4000, 0x8000, 0xB000}
+-- COMAL reprograms CRT DMA to use 0x0800 as display buffer
+local DISPLAY_ADDRS = {0x0800, 0x7800}
 
 local function screen_text(space, base)
     local lines = {}
@@ -68,7 +69,7 @@ local function finish(result, space)
 end
 
 local function type_string(str)
-    manager.machine:ioport():natkeyboard():post(str)
+    manager.machine.natkeyboard:post(str)
 end
 
 emu.register_frame_done(function()
@@ -84,17 +85,42 @@ emu.register_frame_done(function()
         -- Find COMAL prompt at any display address
         display_base = find_display(space, "* ")
         if display_base then
-            state = "type_program"
-            -- Small delay before typing
+            state = "type_line1"
+            state_frame = frame
         end
         if frame > 50 * 30 then
             finish("FAIL: COMAL prompt not found", space)
         end
 
-    elseif state == "type_program" then
-        -- Type a program that counts 1 to 10
-        type_string("10 FOR I:=1 TO 10\r20 PRINT I\r30 NEXT I\r40 END\rRUN\r")
-        state = "wait_output"
+    elseif state == "type_line1" then
+        if frame > state_frame + 200 then  -- 4s after prompt
+            type_string("10 FOR I:=1 TO 10\r")
+            state = "type_line2"
+            state_frame = frame
+        end
+    elseif state == "type_line2" then
+        if frame > state_frame + 100 then
+            type_string("20 PRINT I\r")
+            state = "type_line3"
+            state_frame = frame
+        end
+    elseif state == "type_line3" then
+        if frame > state_frame + 100 then
+            type_string("30 NEXT I\r")
+            state = "type_line4"
+            state_frame = frame
+        end
+    elseif state == "type_line4" then
+        if frame > state_frame + 100 then
+            type_string("40 END\r")
+            state = "type_run"
+            state_frame = frame
+        end
+    elseif state == "type_run" then
+        if frame > state_frame + 100 then
+            type_string("RUN\r")
+            state = "wait_output"
+        end
 
     elseif state == "wait_output" then
         -- Look for "END." which COMAL prints after program finishes
