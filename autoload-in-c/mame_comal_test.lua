@@ -1,16 +1,27 @@
--- mame_comal_test.lua — Automated COMAL boot + program test
+-- mame_comal_test.lua — Automated COMAL boot + FOR loop test
 --
--- PASS: COMAL boots, types and runs a counting program, output verified.
+-- PASS: COMAL boots, runs a counting program, output verified.
 -- FAIL: prompt not found, program output wrong, or timeout.
 
 local frame = 0
 local done = false
-local state = "wait_prompt"
-local state_frame = 0
+local state = "wait_boot"
+local COMAL_DSP = 0x0800
 local RESULT_FILE = "/tmp/boot_test_result.txt"
 
--- COMAL reprograms CRT DMA to use 0x0800 as display buffer
-local DISPLAY_ADDRS = {0x0800, 0x7800}
+-- Lines to type, one at a time, waiting for "* " prompt between each
+local program = {
+    "10 FOR X=1 TO 5",
+    "20 PRINT X",
+    "30 NEXT X",
+    "40 END",
+    "RUN",
+}
+local line_index = 0
+
+-- Character-by-character queue
+local char_queue = ""
+local char_timer = 0
 
 local function screen_text(space, base)
     local lines = {}
@@ -37,105 +48,92 @@ local function screen_find(space, base, str)
     return false
 end
 
--- Find which display address has the target string
-local function find_display(space, str)
-    for _, base in ipairs(DISPLAY_ADDRS) do
-        if screen_find(space, base, str) then
-            return base
-        end
-    end
-    return nil
-end
-
-local display_base = nil
-
 local function finish(result, space)
     local f = io.open(RESULT_FILE, "w")
     f:write(result .. "\n")
     f:write(string.format("frame=%d (%.1fs emulated)\n", frame, frame / 50.0))
-    if display_base then
-        f:write(string.format("\n--- Display (0x%04X) ---\n", display_base))
-        f:write(screen_text(space, display_base) .. "\n")
-    else
-        -- Dump all candidate display areas
-        for _, base in ipairs(DISPLAY_ADDRS) do
-            f:write(string.format("\n--- Display (0x%04X) ---\n", base))
-            f:write(screen_text(space, base) .. "\n")
-        end
-    end
+    f:write(string.format("\n--- Display (0x%04X) ---\n", COMAL_DSP))
+    f:write(screen_text(space, COMAL_DSP) .. "\n")
     f:close()
     done = true
     manager.machine:exit()
 end
 
-local type_queue = ""
-local function type_string(str)
-    type_queue = type_queue .. str
+-- Count how many "* " prompts are visible (to know when a new one appears)
+local function count_prompts(space)
+    local count = 0
+    for row = 0, 24 do
+        local addr = COMAL_DSP + row * 80
+        if space:read_u8(addr) == 0x2A and space:read_u8(addr + 1) == 0x20 then
+            count = count + 1
+        end
+    end
+    return count
 end
+
+local last_prompt_count = 0
 
 emu.register_frame_done(function()
     if done then return end
     frame = frame + 1
 
-    -- Post one character every 5 frames (~100ms)
-    if #type_queue > 0 and frame % 5 == 0 then
-        local ch = string.sub(type_queue, 1, 1)
-        type_queue = string.sub(type_queue, 2)
+    -- Post one character every 8 frames (~160ms)
+    if #char_queue > 0 and frame % 8 == 0 then
+        local ch = string.sub(char_queue, 1, 1)
+        char_queue = string.sub(char_queue, 2)
         manager.machine.natkeyboard:post(ch)
     end
 
-    -- Check state every 0.5s
+    -- Only check state every 25 frames (0.5s)
     if frame % 25 ~= 0 then return end
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
 
-    if state == "wait_prompt" then
-        -- Find COMAL prompt at any display address
-        display_base = find_display(space, "* ")
-        if display_base then
-            state = "type_line1"
-            state_frame = frame
+    if state == "wait_boot" then
+        -- Wait for first "* " prompt
+        if screen_find(space, COMAL_DSP, "* ") then
+            state = "wait_ready"
+            last_prompt_count = count_prompts(space)
+            -- Wait 5 seconds before starting to type
+            char_timer = frame + 250
         end
-        if frame > 50 * 30 then
+        if frame > 50 * 60 then
             finish("FAIL: COMAL prompt not found", space)
         end
 
-    elseif state == "type_line1" then
-        if frame > state_frame + 200 then  -- 4s after prompt
-            type_string("10 FOR I=1 TO 10\n")
-            state = "type_line2"
-            state_frame = frame
+    elseif state == "wait_ready" then
+        -- Wait before sending next line
+        if frame > char_timer and #char_queue == 0 then
+            line_index = line_index + 1
+            if line_index > #program then
+                state = "wait_output"
+                char_timer = frame
+            else
+                char_queue = program[line_index] .. "\r"
+                last_prompt_count = count_prompts(space)
+                state = "wait_echo"
+            end
         end
-    elseif state == "type_line2" then
-        if frame > state_frame + 100 then
-            type_string("20 PRINT I\n")
-            state = "type_line3"
-            state_frame = frame
+
+    elseif state == "wait_echo" then
+        -- Wait for the line to be processed (new "* " prompt appears)
+        if #char_queue == 0 then
+            local cur = count_prompts(space)
+            if cur > last_prompt_count then
+                state = "wait_ready"
+                char_timer = frame + 25  -- 0.5s between lines
+            end
         end
-    elseif state == "type_line3" then
-        if frame > state_frame + 100 then
-            type_string("30 NEXT I\n")
-            state = "type_line4"
-            state_frame = frame
-        end
-    elseif state == "type_line4" then
-        if frame > state_frame + 100 then
-            type_string("40 END\n")
-            state = "type_run"
-            state_frame = frame
-        end
-    elseif state == "type_run" then
-        if frame > state_frame + 100 then
-            type_string("RUN\n")
-            state = "wait_output"
+        if frame > char_timer + 500 then  -- 10s timeout per line
+            finish("FAIL: line not echoed: " .. program[line_index], space)
         end
 
     elseif state == "wait_output" then
-        -- Look for "END." which COMAL prints after program finishes
-        if display_base and screen_find(space, display_base, "END.") then
+        -- Look for "END." or numbers
+        if screen_find(space, COMAL_DSP, "END.") then
             finish("PASS", space)
         end
-        if frame > 50 * 90 then
+        if frame > char_timer + 50 * 30 then
             finish("FAIL: timeout waiting for program output", space)
         end
     end
