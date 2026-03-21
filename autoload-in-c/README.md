@@ -9,8 +9,38 @@ See `ZSDCC_NOTES.md` for sdcc/z88dk quirks and optimization techniques.
 
 ## Current status
 
-PROM size: 1882 bytes (BOOT 104 + CODE 1778) out of 4096 (debug mode).
+PROM size: 1843 bytes (BOOT 104 + CODE 1739) out of 4096 (debug mode).
 MAME boot test passes at 100% and 10% speed.
+CP/M and ID-COMAL boot verified.
+
+## PROM size history
+
+```
+Date        BOOT  CODE  Total  Change  Description
+----------  ----  ----  -----  ------  -----------
+2026-03-20    68  1987   2055          Starting point (pure C rewrite)
+2026-03-21    68  1972   2040    -15   Peephole rules + tail-call fall-through
+2026-03-21    68  1914   1982    -58   Remove dead vars, inline crt_refresh
+2026-03-21    68  1889   1957    -25   Manual inlining, remove DMA Ch3
+2026-03-21    68  1865   1933    -24   Remove fdc_busy + floppy_wait, structs
+2026-03-21   104  1800   1904    -29   NMI handler, move functions to BOOT
+2026-03-21   104  1785   1889    -15   Format table struct, rename labels
+2026-03-21   104  1778   1882     -7   Banner string in BOOT, timestamp
+2026-03-21   104  1761   1865    -17   Remove write-only fdc_busy + floppy_wait
+2026-03-21   104  1739   1843    -22   Split disk_bits, combined format table
+                                ----
+                         Total: -212 bytes (-10.3%)
+```
+
+Key optimization techniques:
+- **Dead variable removal** — variables set but never read (-58 bytes)
+- **DMA Ch3 removal** — boot ROM never scrolls, Ch3 unnecessary (-44 bytes)
+- **Manual inlining** — sdcc has no inlining; `static inline` leaves dead code (-25 bytes)
+- **BOOT section utilization** — fill 0xFF padding before NMI with code + data
+- **Peephole rules** — 22 rules from rcbios-in-c (dead code, branch inversion)
+- **Tail-call fall-through** — reorder functions so `jp` becomes no-op (-9 bytes)
+- **Split packed bitfields** — separate bytes cheaper than bit shifting (-22 bytes)
+- **Combined format table** — 3D array `[is_mini][N][side]` vs ternary select (-6 bytes)
 
 ## PROM image layout (prom0.ic66 → roa375.ic66)
 
