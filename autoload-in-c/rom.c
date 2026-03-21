@@ -518,51 +518,41 @@ void error_display_halt(byte code) {
 }
 
 /*
- * Verify Track 0 data and boot CP/M or return if ID-COMAL directory structure found.
+ * Verify Track 0 data and boot.
  *
  * Checks two signatures in Track 0:
- *   0x0002: " RC700" — ID-COMAL: search dir for SYSM/SYSC entries
+ *   0x0002: " RC700" — ID-COMAL: search dir for SYSM/SYSC, then floppy_boot
  *   0x0008: " RC702" — CP/M: jump via vector at 0x0000
+ *   neither: halt with error
  *
- * File-scope global (boot_dir) avoids IX frame pointer.
- * goto shares error path to avoid duplicate halt_msg calls.
- */
+ * File-scope global (boot_dir) avoids IX frame pointer. */
 static byte *boot_dir;
 
 void boot_floppy_or_prom(void) {
     if (compare_6bytes((const byte *) RC700_SIG_OFF, (const byte *) " RC700") == 0) {
-        /* Todo:  Change to walk an array of "katalog" file entries */
         boot_dir = (byte *) BOOT_DIR_OFF;
         while ((word) boot_dir < 0x0D00) {
             if (*boot_dir == 0) {
                 boot_dir += 0x20;
                 continue;
             }
-            if (check_sysfile(boot_dir, "SYSM") != 0) {
-                goto nosys;
+            if (check_sysfile(boot_dir, "SYSM") == 0) {
+                boot_dir += 0x20;
+                if (*boot_dir != 0 &&
+                    check_sysfile(boot_dir, "SYSC") == 0) {
+                    floppy_boot();
+                }
             }
-            boot_dir += 0x20;
-            if (*boot_dir == 0) {
-                goto nosys;
-            }
-            if (check_sysfile(boot_dir, "SYSC") != 0) {
-                goto nosys;
-            }
-            floppy_boot();
+            break;
         }
-        goto nosys;
+        halt_msg(" **NO SYSTEM FILES** ", 21);
     }
 
     if (compare_6bytes((const byte *) RC702_SIG_OFF, (const byte *) msg_rc702) == 0) {
-        jump_to(*(word *)0x0000);
-        return;
+        jump_to(*(word *) 0x0000);
     }
 
     halt_msg(" **NO KATALOG** ", 16);
-    return;
-
-nosys:
-    halt_msg(" **NO SYSTEM FILES** ", 21);
 }
 
 /* Check secondary PROM at 0x2000 for RC702 signature; jump or halt. */
