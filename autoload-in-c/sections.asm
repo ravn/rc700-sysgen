@@ -3,7 +3,7 @@
 ; All code and data are in C files.  This file declares section
 ; origins and subsection ordering for the z88dk linker.
 ;
-;   BOOT             0x0000  begin() + build timestamp (boot_entry.c)
+;   BOOT             0x0000  begin(), timestamp, init_fdc, clear_screen, NMI (boot_rom.c)
 ;   CODE             0x7000  Copied to RAM by begin():
 ;     (IVT data)               16 function pointers (intvec.c)
 ;     code_compiler            Compiled C code

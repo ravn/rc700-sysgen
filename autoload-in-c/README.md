@@ -1,11 +1,13 @@
-# RC702 Autoload PROM in C
+# RC702 ROA375 autoload PROM in C
 
-Rewrite of the ROA375 autoload PROM (boot ROM) in C using z88dk with
+Full rewire of the ROA375 autoload PROM (boot ROM) in C using z88dk with
 sdcc backend.  The ROM initializes hardware, auto-detects floppy disk
-format, reads Track 0, and boots CP/M.
+format, reads Track 0, and boots the system on disk - tested the most with CP/M.
 
-Only assembly remaining: `sections.asm` (21 lines of section ORG
-declarations — no code, no data, no symbols).  Everything else is C.
+* boot_rom
+Note: It is necessary to hint the linker to put the interrupt vector table on a page boundary.  This is done in `sections.asm`.
+
+
 
 ## PROM image layout (roa375.ic66)
 

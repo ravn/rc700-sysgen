@@ -8,8 +8,8 @@
 
 /* ISR declarations — defined in rom.c */
 extern void nothing_int(void);
-extern void crtint(void);
-extern void flpint(void);
+extern void refresh_crt_dma_50hz_interrupt(void);
+extern void floppy_completed_operation_interrupt(void);
 
 typedef void (*isr_t)(void);
 
@@ -24,8 +24,8 @@ const isr_t intvec[16] = {
     nothing_int,     /*  +6: Dummy */
     nothing_int,     /*  +8: CTC CH0 */
     nothing_int,     /* +10: CTC CH1 */
-    crtint,     /* +12: CTC CH2 — Display refresh */
-    flpint,     /* +14: CTC CH3 — Floppy completion */
+    refresh_crt_dma_50hz_interrupt,     /* +12: CTC CH2 — Display refresh */
+    floppy_completed_operation_interrupt,     /* +14: CTC CH3 — Floppy completion */
     nothing_int,     /* +16: Dummy */
     nothing_int,     /* +18: Dummy */
     nothing_int,     /* +20: Dummy */

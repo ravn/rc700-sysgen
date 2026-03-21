@@ -32,14 +32,23 @@ typedef uint16_t word;
  * Constants
  * ================================================================ */
 
-/* NEC uPD765 (Intel 8272) FDC command bytes */
-#define FDC_SENSE_DRIVE   0x04
-#define FDC_RECALIBRATE   0x07
-#define FDC_SENSE_INT     0x08
-#define FDC_SEEK          0x0F
-#define FDC_READ_DATA     0x06
-#define FDC_READ_ID       0x0A
-#define FDC_MFM           0x40  /* set bit 6 for MFM (double density) */
+/* NEC uPD765 (Intel 8272) FDC command bytes.
+ * Datasheet: http://bitsavers.org/components/nec/uPD765/uPD765_Floppy_Disk_Controller.pdf
+ * See also Intel 8272A datasheet (pin-compatible clone). */
+#define FDC_SENSE_DRIVE   0x04  /* returns ST3 (drive status) */
+#define FDC_RECALIBRATE   0x07  /* seek to track 0 */
+#define FDC_SENSE_INT     0x08  /* returns ST0 + PCN after seek/recalibrate */
+#define FDC_SEEK          0x0F  /* seek to specified cylinder */
+#define FDC_READ_DATA     0x06  /* read sector data via DMA */
+#define FDC_READ_ID       0x0A  /* read next sector ID (C/H/R/N) from current
+                                 * head position without transferring data.
+                                 * Used by disk_autodetect() to determine
+                                 * sector size (N) and density (FM vs MFM)
+                                 * without knowing the disk format in advance.
+                                 * Returns 7 result bytes: ST0, ST1, ST2,
+                                 * C, H, R, N — where N = sector size code
+                                 * (0=128, 1=256, 2=512, 3=1024 bytes). */
+#define FDC_MFM           0x40  /* OR with command for MFM (double density) */
 
 /* Stringification macros for inline asm constants */
 #define STR_(x) #x
@@ -205,8 +214,8 @@ static inline void intrinsic_im_2(void) {}
  * HAL functions (implemented in rom.c)
  * ================================================================ */
 
-void fdc_wait_write(byte val);
-byte fdc_wait_read(void);
+void fdc_write_when_ready(byte val);
+byte fdc_read_when_ready(void);
 void delay(byte outer, byte inner);
 
 /* ================================================================
@@ -219,63 +228,98 @@ void delay(byte outer, byte inner);
  * the PROM payload — copied to RAM by begin() as zeros.
  */
 
-extern byte fdc_result[7];   /* FDC result bytes (ST0-N) */
+/* FDC result bytes.  After Read Data / Read ID:
+ *   st0, st1, st2, cylinder, head, sector, size_code, dma_status
+ * After Sense Drive Status:
+ *   st3 (in st0 position)
+ * After Sense Interrupt Status:
+ *   st0, pcn (present cylinder, in st1 position)
+ * The dma_status byte is read from the DMA controller after transfer,
+ * not from the FDC itself.
+ *
+ * See uPD765 datasheet Table 3 for result phase byte definitions:
+ *   http://bitsavers.org/components/nec/uPD765/uPD765_Floppy_Disk_Controller.pdf */
+typedef struct {
+    byte st0;           /* ST0: IC(7-6), SE(5), EC(4), NR(3), HD(2), US(1-0) */
+    byte st1;           /* ST1: EN, DE, OR, ND, NW, MA — or PCN after Sense Int */
+    byte st2;           /* ST2: CM(6), DD, WC, SH, SN, BC, MD, MA */
+    byte cylinder;      /* C: cylinder number at end of operation */
+    byte head;          /* H: head number */
+    byte sector;        /* R: sector number */
+    byte size_code;     /* N: sector size code (0=128, 1=256, 2=512, 3=1024) */
+    byte dma_status;    /* DMA controller status (read after FDC result phase) */
+} fdc_result_block;
+
+extern fdc_result_block fdc_result;
 extern byte fdc_flag;      /* FDC busy flag */
 extern byte drive_select;      /* drive select */
 extern byte fdc_timeout;      /* FDC timeout counter (init=3) */
 extern byte fdc_wait;      /* FDC wait count (init=4) */
-/* FDC command parameter block — contiguous, sent by floppy_read_track() */
-extern byte current_cylinder;      /* current cylinder */
-extern byte current_head;      /* current head */
-extern byte current_sector;      /* current record/sector */
-extern byte sector_size_code;      /* record length (N value) */
-extern byte end_of_track;      /* end of track */
-extern byte gap3;        /* gap 3 length */
-extern byte data_length;         /* data length */
-extern byte floppy_flag;      /* floppy interrupt flag (0=idle, 2=done) */
+/* FDC command parameter block — 7 contiguous bytes sent by floppy_read_track().
+ * Fields map to uPD765 Read Data parameters: C, H, R, N, EOT, GPL, DTL. */
+typedef struct {
+    byte cylinder;
+    byte head;
+    byte sector;
+    byte size_shift;     /* N value: sector size = 128 << N */
+    byte eot;            /* end of track (last sector number) */
+    byte gap3;           /* gap 3 length */
+    byte dtl;            /* data length (0x80 when N > 0) */
+} fdc_command_block;
+
+extern fdc_command_block fdc_cmd;
+extern byte floppy_operation_completed_flag;      /* floppy interrupt flag (0=idle, 2=done) */
 extern byte floppy_wait;      /* floppy wait count (init=4) */
-extern byte disk_bits;    /* disk type bits */
+extern byte disk_bits;    /* disk format flags:
+                           *   bit 7:   0=maxi/8", 1=mini/5.25" (from SW1)
+                           *   bits 4-2: sector size code N (from Read ID)
+                           *   bit 1:   1=double-sided (side 1 detected)
+                           *   bit 0:   0=FM (single density), 1=MFM (double)
+                           * TODO: investigate splitting into separate variables
+                           *   (is_mini, is_mfm, is_double_sided) for clarity
+                           *   and possible code size reduction.
+                           */
 extern byte disk_type;      /* disk type flag */
 extern byte more_flag;      /* more data flag */
 extern byte retry_count;      /* retry count */
-extern word dma_addr;     /* DMA memory address */
-extern word transfer_bytes;      /* transfer byte count */
-extern word track_overflow;     /* track overflow */
+extern word dma_transfer_address;     /* DMA memory address */
+extern word dma_transfer_size;      /* transfer byte count */
+extern word bytes_left_to_read;     /* bytes remaining to read */
 extern byte error_saved;      /* saved error code */
 
 /* ================================================================
  * Function declarations
  * ================================================================ */
 
-/* init */
+/* init (init_peripherals in rom.c, init_fdc in boot_rom.c) */
 void init_peripherals(void);
 void init_fdc(void);
 
 /* fmt */
 void format_lookup(void);
-void calc_track_bytes(void);
+void calc_size_of_current_track(void);
 
 /* fdc */
 void fdc_sense_interrupt(void);
 void fdc_seek(byte dh, byte cyl);
 void fdc_read_result(void);
-byte floppy_seek(void);
-void floppy_read_track(byte cmd);
-byte wait_floppy_interrupt(byte timeout);
+byte fdc_select_drive_cylinder_head(void);
+void fdc_write_full_cmd(byte cmd);
+byte wait_fdc_ready(byte timeout);
 byte check_fdc_result(void);
-byte read_track(byte cmd, byte retries);
-byte disk_autodetect(void);
+byte fdc_get_result_bytes(byte cmd, byte retries);
+byte fdc_detect_sector_size_and_density(void);
 
-/* boot */
+/* boot (clear_screen in boot_rom.c, rest in rom.c) */
 void clear_screen(void);
 void display_banner_and_start_crt(void);
 void error_display_halt(byte code);
-void boot_sysmsysc_or_jp0_or_halt(void);
+void boot_floppy_or_prom(void);
 void floppy_boot(void);
-void check_prom1(void);
+void prom1_if_present(void);
 void halt_forever(void);
 byte compare_6bytes(const byte *a, const byte *b);
-byte check_sysfile(const byte *dir, const byte *pattern);
+byte check_sysfile(const byte *dir, const char *pattern);
 void syscall(word addr, word de);
 
 

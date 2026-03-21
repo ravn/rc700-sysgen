@@ -1,6 +1,6 @@
 # Makefile for RC702 autoload PROM rewrite
 #
-# Z80 build:   make rom      (requires z88dk)
+# Z80 build:   make rom_parts (requires z88dk)
 # PROM image:  make prom     (assembles 2048-byte prom0.ic66)
 # MAME launch: make mame     (builds, installs PROM, launches with debugger)
 # MAME syms:   make mamesym  (generates prom0_mame.sym for debugger)
@@ -35,12 +35,12 @@ ZLIB = -lz80
 
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
-all: clean rom
+all: clean rom_parts
 
-rom: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
+rom_parts: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
-	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' "  ROA375-gensmedet $$(date '+%Y-%m-%d %H.%M')  " > build_stamp.h && \
+	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' " ROA375 $$(date '+%Y-%m-%d %H.%M') " > build_stamp.h && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o boot_rom.o && \
 	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
 	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o rom.c boot_rom.o
@@ -73,7 +73,7 @@ MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
 RC700 = ../../rc700
 FLOPPY = $(HOME)/Downloads/SW1711-I8.imd
 
-prom: rom
+prom: rom_parts
 	@BOOT=$$(wc -c < prom0_BOOT.bin | tr -d ' '); \
 	 CODE=$$(wc -c < prom0_CODE.bin | tr -d ' '); \
 	 TOTAL=$$((BOOT + CODE)); \
@@ -126,4 +126,4 @@ clean:
 	rm -f *.o *.bin *.map *.sym *.lis zcc_opt.def *.rom
 	rm -f zcc_opt.def
 
-.PHONY: all rom prom mame mamesym rc700 clean
+.PHONY: all rom_parts prom mame mamesym rc700 clean

@@ -1,5 +1,102 @@
 # Changelog
 
+## 2026-03-21: Structs, binary constants, NMI handler, BOOT section functions
+
+### What was done
+1. **FDC command block struct** — replaced 7 contiguous globals
+   (current_cylinder..data_length) with `fdc_command_block` struct
+   (`fdc_cmd.cylinder`, `.head`, `.sector`, `.size_shift`, `.eot`,
+   `.gap3`, `.dtl`).  Send loop uses `((byte *)&fdc_cmd)[i]` with
+   `sizeof(fdc_cmd)`.
+
+2. **FDC result struct** — replaced `fdc_result[8]` array with
+   `fdc_result_block` struct (`.st0`, `.st1`, `.st2`, `.cylinder`,
+   `.head`, `.sector`, `.size_code`, `.dma_status`).  Eliminates
+   magic indices like `fdc_result[6]` → `fdc_result.size_code`.
+
+3. **Binary constants** — converted all hex bitmask constants to binary
+   (`0x80` → `0b10000000`, `0xC0` → `0b11000000`, etc.) for clarity
+   in bit operations and comparisons.
+
+4. **Combined if-statements** — merged two sequential ifs returning
+   the same value in `chk_seekres()` using `||` (-4 bytes).
+
+5. **Simplified calctx** — compare-first approach vs signed remainder.
+   Tested 3 variants: signed remainder (1890), unsigned compare (1900),
+   in-place subtract (1905).  Kept signed remainder as smallest.
+   Documented why the `remaining` local generates smaller code.
+
+6. **NMI handler at 0x0066** — added `RETN` at the Z80 NMI vector
+   address in `boot_rom.c`, with 0xFF padding from end of timestamp.
+   Uses `DEFS 0x0066 - ASMPC, 0xFF` for automatic padding.
+
+7. **Moved init_fdc and clear_screen to BOOT section** — these are
+   only used before `prom_disable()`, so they don't need to be in
+   the CODE payload that's copied to RAM.  They fit in the padding
+   between the timestamp and NMI handler.  CODE reduced by 42 bytes.
+
+8. **Java-style braces** — all single-line if bodies now have `{}`
+   braces with body and closing brace on separate lines.  Saved as
+   permanent coding style rule.
+
+9. **Renamed functions** (user edits in CLion):
+   - `floppy_read_track` → `fdc_write_full_cmd`
+   - `read_track` → `fdc_get_result_bytes`
+   - `disk_autodetect` → `fdc_detect_sector_size_and_density`
+   - `floppy_seek` → `fdc_select_drive_cylinder_head`
+   - `crtint` → `refresh_crt_dma_50hz_interrupt`
+   - `flpint` → `floppy_completed_operation_interrupt`
+   - `rdtrk0` → `fdc_read_data_from_current_location`
+   - `fldsk1` → `boot_from_floppy_or_jump_prom1`
+   - `preinit` → `get_floppy_ready`
+   - `check_prom1` → `prom1_if_present`
+   - `boot_sysmsysc_or_jp0_or_halt` → `boot_floppy_or_prom`
+   - `fdc_wait_write` → `fdc_write_when_ready`
+   - `fdc_wait_read` → `fdc_read_when_ready`
+   - `track_overflow` → `bytes_left_to_read`
+   - `transfer_bytes` → `dma_transfer_size`
+   - `dma_addr` → `dma_transfer_address`
+   - `sector_size_code` → `sector_size_shift`
+   - `floppy_flag` → `floppy_operation_completed_flag`
+   - `nothing_int` (was `dumint`)
+   - Makefile target `rom` → `rom_parts`
+
+10. **Inlined string constants** — `sysm_name`/`sysc_name` inlined
+    as `"SYSM"`/`"SYSC"` at call sites.  Changed `check_sysfile`
+    pattern parameter to `const char *` to avoid casts.
+
+11. **disk_bits documentation** — documented all bit fields in the
+    `disk_bits` variable (bit 7: mini/maxi, bits 4-2: N, bit 1:
+    double-sided, bit 0: FM/MFM).
+
+12. **FDC_READ_ID documentation** — added datasheet URL and explained
+    how Read ID is used for format auto-detection.
+
+13. **Updated all comments and documentation** — boot_rom.c file
+    header, rom.c section list, rom.h function locations, sections.asm
+    contents, CLAUDE.md file listing and PROM image layout.
+
+### User choices
+- Java-style braces on all if bodies (permanent rule)
+- Combine sequential ifs returning same value (permanent rule)
+- Binary constants for all bitmask operations
+- `fdc_result` as named struct instead of indexed array
+- `fdc_cmd` as struct instead of contiguous globals
+- init_fdc and clear_screen moved to BOOT section
+- NMI handler in boot_rom.c (not sections.asm)
+- Makefile target renamed to `rom_parts`
+- Extensive renaming done in CLion for descriptive function names
+- Fixed user's calctx refactoring bug (in-place subtraction gave
+  negative transfer size)
+
+### Verification
+- CODE: 1842 → 1800 bytes (-42 from BOOT section move)
+- BOOT: 104 bytes (includes NMI handler at 0x66)
+- Total PROM: 1904 bytes
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Manual inlining, DMA Ch3 removal, zsdcc documentation
 
 ### What was done
