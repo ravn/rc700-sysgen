@@ -277,7 +277,6 @@ void fdc_read_result(void) {
     byte i;
     byte *p = (byte *) &fdc_result;
 
-    fdc_busy = 7;
     for (i = 0; i < 7; i++) {
         p[i] = fdc_read_when_ready();
         delay(0, fdc_result_delay);
@@ -341,7 +340,6 @@ void fdc_write_full_cmd(byte cmd) {
     byte dh = (fdc_cmd.head << 2) | drive_select;
 
     di();
-    fdc_busy = 0xFF;
     fdc_write_when_ready(cmd + mfm_flag); /* command (+MFM if double density) */
     fdc_write_when_ready(dh); /* head/drive select */
 
@@ -448,13 +446,11 @@ byte fdc_detect_sector_size_and_density(void) {
  *
  * fdc_cmd is a 8-byte struct sent sequentially by floppy_read_track(). */
 fdc_result_block fdc_result = {0};
-byte fdc_busy = 0;
 byte drive_select = 0;
 byte fdc_isr_delay = 0;
 byte fdc_result_delay = 0;
 fdc_command_block fdc_cmd = {0};
 byte floppy_operation_completed_flag = 0;
-byte floppy_wait = 0;
 byte disk_bits = 0;
 byte disk_type = 0;
 byte more_tracks_to_read = 0;
@@ -651,7 +647,6 @@ int main(void) {
 static void get_floppy_ready(void) {
     fdc_isr_delay = 3;
     fdc_result_delay = 4;
-    floppy_wait = 4;
     disk_bits = read_sw1() & 0b10000000; /* bit 7: 0=maxi, 1=mini */
 
     ei();

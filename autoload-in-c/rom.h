@@ -252,7 +252,6 @@ typedef struct {
 } fdc_result_block;
 
 extern fdc_result_block fdc_result;
-extern byte fdc_busy;      /* FDC busy flag */
 extern byte drive_select;      /* drive select */
 extern byte fdc_isr_delay;      /* FDC timeout counter (init=3) */
 extern byte fdc_result_delay;      /* FDC wait count (init=4) */
@@ -270,7 +269,6 @@ typedef struct {
 
 extern fdc_command_block fdc_cmd;
 extern byte floppy_operation_completed_flag;      /* floppy interrupt flag (0=idle, 2=done) */
-extern byte floppy_wait;      /* floppy wait count (init=4) */
 extern byte disk_bits;    /* disk format flags:
                            *   bit 7:   0=maxi/8", 1=mini/5.25" (from SW1)
                            *   bits 4-2: sector size code N (from Read ID)
