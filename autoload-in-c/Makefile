@@ -1,28 +1,11 @@
 # Makefile for RC702 autoload PROM rewrite
 #
-# Host tests:  make test
-# Z80 build:   make rom      (requires z88dk)
-# PROM image:  make prom     (assembles 2048-byte roa375.ic66)
+# Z80 build:   make rom_parts (requires z88dk)
+# PROM image:  make prom     (assembles 2048-byte prom0.ic66)
 # MAME launch: make mame     (builds, installs PROM, launches with debugger)
-# MAME syms:   make mamesym  (generates roa375_mame.sym for debugger)
+# MAME syms:   make mamesym  (generates prom0_mame.sym for debugger)
 # RC700 emu:   make rc700    (builds PROM, compiles & runs rc700 emulator)
 # Clean:       make clean
-
-CC = cc
-CFLAGS = -Wall -Wextra -std=c99 -DHOST_TEST
-
-# Host test builds (uses mock HAL)
-HOST_COMMON = boot.c fdc.c fmt.c init.c isr.c hal_host.c
-
-test: test_boot test_fdc
-	./test_boot
-	./test_fdc
-
-test_boot: test_boot.c $(HOST_COMMON) hal.h boot.h
-	$(CC) $(CFLAGS) -o $@ test_boot.c $(HOST_COMMON)
-
-test_fdc: test_fdc.c $(HOST_COMMON) hal.h boot.h
-	$(CC) $(CFLAGS) -o $@ test_fdc.c $(HOST_COMMON)
 
 # Z80 ROM build (requires z88dk in ../z88dk)
 Z88DK = ../z88dk
@@ -30,9 +13,10 @@ ZCC = $(Z88DK)/bin/zcc
 ZCCCFG = $(Z88DK)/lib/config
 
 # sdcc compiler with sdcccall(1) register calling convention
-# C files: boot.c, fdc.c, fmt.c, isr.c (compiled by sdcc into CODE section)
-# boot_entry.c: compiled into BOOT section (runs from ROM before relocation)
-# Assembly: sections.asm (hand-written startup + utilities)
+# rom.c: single-file Z80 build (HAL, init, FDC, format, boot, ISR)
+# boot_rom.c: compiled into BOOT section (runs from ROM before relocation)
+# intvec.c: IVT, compiled separately and linked first for 0x7000 placement
+# sections.asm: linker section layout
 #
 # ZFLAGS: compile flags (used for -c steps and final link).
 # ZLFLAGS: link-only flags (appmake, library).
@@ -42,27 +26,28 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
          -Cs"--fomit-frame-pointer" \
          -Cs"--allow-unsafe-read" \
-         -Cs"--sdcccall 1" \
+         -Cs"--sdcccall 1" -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000
 
-# z88dk library: provides intrinsic_di/ei/im_2, etc.
-# Only referenced symbols are linked — zero overhead if unused.
-ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
+ZLIB = -lz80
 
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
-rom: sections.asm code.c boot_entry.c intvec.c boot.c fdc.c fmt.c isr.c peephole.def
+all: clean rom_parts
+
+rom_parts: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
-	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' "  ROA375-gensmedet $$(date '+%Y-%m-%d %H.%M')  " > build_stamp.h && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_entry.c -o boot_entry.o && \
+	STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) " && \
+	printf '#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n' "$$STAMP" "$$STAMP" > build_stamp.h && \
+	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o boot_rom.o && \
 	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o roa375 sections.asm intvec.o code.c boot_entry.o
-	@ls -la roa375_BOOT.bin roa375_CODE.bin 2>/dev/null
-	@BOOT=$$(wc -c < roa375_BOOT.bin); \
-	 CODE=$$(wc -c < roa375_CODE.bin); \
+	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o rom.c boot_rom.o
+	@ls -la prom0_BOOT.bin prom0_CODE.bin 2>/dev/null
+	@BOOT=$$(wc -c < prom0_BOOT.bin); \
+	 CODE=$$(wc -c < prom0_CODE.bin); \
 	 PROM=$$((BOOT + CODE)); \
 	 echo "BOOT: $$BOOT bytes, CODE: $$CODE bytes"; \
 	 echo "PROM image: $$PROM bytes (BOOT + INTVEC+CODE)"; \
@@ -71,13 +56,13 @@ rom: sections.asm code.c boot_entry.c intvec.c boot.c fdc.c fmt.c isr.c peephole
 	 else \
 	   echo "OK: $$((4096 - PROM)) bytes under 4096-byte limit (debug 4KB mode)"; \
 	 fi
-	@if grep -q 'ix[+-]\|iy[+-]' code.c.lis 2>/dev/null; then \
+	@if grep -q 'ix[+-]\|iy[+-]' rom.c.lis 2>/dev/null; then \
 		echo "WARNING: IX/IY-relative addressing found (check if locals can be static):"; \
-		grep 'ix[+-]\|iy[+-]' code.c.lis; \
+		grep 'ix[+-]\|iy[+-]' rom.c.lis; \
 	fi
-	@if grep -qE '__div[us]|__mod[us]|__mul[us]' roa375.map 2>/dev/null; then \
+	@if grep -qE '__div[us]|__mod[us]|__mul[us]' prom0.map 2>/dev/null; then \
 		echo "ERROR: sdcccall(0) library functions linked with sdcccall(1) code!"; \
-		grep -E '__div[us]|__mod[us]|__mul[us]' roa375.map; \
+		grep -E '__div[us]|__mod[us]|__mul[us]' prom0.map; \
 		exit 1; \
 	fi
 
@@ -89,20 +74,20 @@ MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
 RC700 = ../../rc700
 FLOPPY = $(HOME)/Downloads/SW1711-I8.imd
 
-prom: rom
-	@BOOT=$$(wc -c < roa375_BOOT.bin | tr -d ' '); \
-	 CODE=$$(wc -c < roa375_CODE.bin | tr -d ' '); \
+prom: rom_parts
+	@BOOT=$$(wc -c < prom0_BOOT.bin | tr -d ' '); \
+	 CODE=$$(wc -c < prom0_CODE.bin | tr -d ' '); \
 	 TOTAL=$$((BOOT + CODE)); \
-	 { cat roa375_BOOT.bin; \
-	   cat roa375_CODE.bin; \
+	 { cat prom0_BOOT.bin; \
+	   cat prom0_CODE.bin; \
 	   perl -e "print \"\\xff\" x (4096 - $$TOTAL)"; \
-	 } > roa375.ic66; \
-	 echo "roa375.ic66: $$(wc -c < roa375.ic66 | tr -d ' ') bytes"
-	cp roa375.ic66 $(MAME_ROM)
-	cp roa375.ic66 $(RC700)/roa375.rom
+	 } > prom0.ic66; \
+	 echo "prom0.ic66: $$(wc -c < prom0.ic66 | tr -d ' ') bytes"
+	cp prom0.ic66 $(MAME_ROM)
+	cp prom0.ic66 $(RC700)/roa375.rom
 
 mame: prom mamesym
-	@awk '{printf "comadd %s,%s\n", $$1, $$2}' roa375_mame.sym > roa375_debug.cmd
+	@awk '{printf "comadd %s,%s\n", $$1, $$2}' prom0_mame.sym > prom0_debug.cmd
 	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 		-nothrottle -window -skip_gameinfo \
 		-seconds_to_run 60 \
@@ -112,6 +97,7 @@ mame: prom mamesym
 	@grep -q '^PASS' /tmp/boot_test_result.txt
 
 # Build and run the RC700 emulator with SDL2
+CC = cc
 RC700_SRC = cpu0.c cpu1.c cpu2.c cpu3.c cpu4.c cpu5.c cpu6.c cpu7.c \
             rom.c charrom.c charram.c pio.c sio.c ctc.c dma.c crt.c \
             fdc.c wdc.c ftp.c disk.c fifo.c monitor.c disasm.c
@@ -126,22 +112,19 @@ rc700: prom
 	$(RC700)/rc700-sdl2 "$(FLOPPY)"
 
 # Convert z88dk map file to MAME debugger symbol definitions.
-# Usage in MAME debugger console: copy-paste lines, or source via Lua.
-# Filters to addr entries only, strips C underscore prefix, skips
-# compiler-generated labels (l_*), sorts by address.
-mamesym: roa375.map
+mamesym: prom0.map
 	@awk '/= \$$[0-9A-Fa-f]+ ; addr,/ { \
 		name = $$1; addr = $$3; \
 		if (name ~ /^l_/) next; \
 		sub(/^\$$/, "0x", addr); \
 		sub(/^_/, "", name); \
 		printf "%s %s\n", addr, name; \
-	}' roa375.map | sort > roa375_mame.sym
-	@echo "wrote roa375_mame.sym ($$(wc -l < roa375_mame.sym) symbols)"
+	}' prom0.map | sort > prom0_mame.sym
+	@echo "wrote prom0_mame.sym ($$(wc -l < prom0_mame.sym) symbols)"
 
 clean:
-	rm -f test_boot test_fdc roa375 roa375_*.bin roa375_mame.sym roa375_debug.cmd roa375.ic66
+	rm -f prom0 prom0_*.bin prom0_mame.sym prom0_debug.cmd prom0.ic66
 	rm -f *.o *.bin *.map *.sym *.lis zcc_opt.def *.rom
 	rm -f zcc_opt.def
 
-.PHONY: test rom prom mame mamesym rc700 clean
+.PHONY: all rom_parts prom mame mamesym rc700 clean

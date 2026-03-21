@@ -5,6 +5,10 @@ zout
 .idea/
 .vscode/
 
+# z88dk build artifacts
+autoload-in-c/prom0
+autoload-in-c/cmake-build-*/
+
 # MAME runtime files
 snap/
 cfg/

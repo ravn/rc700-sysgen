@@ -30,38 +30,32 @@ Contains the RC702 autoload PROM:
 
 ### autoload-in-c/
 C rewrite of the ROA375 autoload PROM using z88dk with sdcc backend:
-- `crt0.asm` - Assembly startup, interrupt handlers, HAL functions
-- `boot_entry.c` - Self-relocation loop (compiled into BOOT section)
-- `boot.c` - Boot logic, directory validation, error handling
-- `fdc.c` - FDC driver (seek, read, sense, result handling)
-- `fmt.c` - Disk format tables and track geometry
-- `isr.c` - Floppy interrupt body
-- `init.c` - Hardware initialization (PIO, CTC, DMA, CRT)
-- `rom_all.c` - Unity build (includes all C files for cross-function optimization)
-- `hal.h` / `boot.h` - Headers
-- `hal_host.c` - Mock HAL for host testing
-- `test_boot.c` / `test_fdc.c` - Host test suites
+- `rom.h` - Single header (types, constants, port I/O macros, declarations)
+- `rom.c` - CODE-section C source (HAL, init, FDC, format, boot, ISR)
+- `boot_rom.c` - BOOT section (entry point, timestamp, init_fdc, clear_screen, NMI handler)
+- `intvec.c` - Z80 IM2 interrupt vector table (compiled separately, linked first)
+- `sections.asm` - Linker section layout (BOOT at 0x0000, CODE at 0x7000)
 
-#### PROM Image Layout (2048 bytes max)
+#### PROM Image Layout
 ```
 Address   Section  Contents
 --------  -------  ----------------------------------------
-0x0000    BOOT     Entry point (asm): DI, SP, CALL relocate, JP 0x7000
-0x000A             clear_screen (asm, runs from ROM)
-0x0018             init_fdc (asm, runs from ROM)
-0x0034             display_banner (asm, frees 30 bytes in CODE for C)
-...                relocate (C, boot_entry.c --codeseg BOOT)
-...                [gap — available for more BOOT C code]
-0x0066    NMI      RETN (Z80 hardware NMI vector, fixed address)
-0x0068    CODE     Payload start in ROM, copied to RAM at 0x7000:
-                     Interrupt handlers, HAL functions (asm)
-                     Interrupt vector table at 0x7100 (256-byte aligned)
-                     Boot logic, FDC driver, format tables (C)
+0x0000    BOOT     begin(): DI, SP, memcpy CODE to RAM, JP 0x7000
+                   build_stamp(): raw timestamp bytes
+                   init_fdc(): FDC Specify command (pre-boot only)
+                   clear_screen(): memset display (pre-boot only)
+                   0xFF padding to 0x0066
+0x0066             RETN: Z80 NMI handler (hardwired vector, unused)
+0x0068    CODE     Payload in ROM, copied to RAM at 0x7000 by begin():
+                     IVT: 16 interrupt vector pointers (intvec.c)
+                     HAL, init, FDC driver, format tables (rom.c)
+                     Boot logic, ISRs, sentinel (rom.c)
                      Read-only data: message strings, format tables
+                     BSS: uninitialized variables (zeroed by copy)
 ```
-BOOT and NMI sections are in ROM, accessible until `hal_prom_disable()`.
-CODE payload is copied to RAM at 0x7000 by `relocate()` using linker
-symbols `__NMI_tail` (source), `__CODE_head`/`__tail` (length).
+BOOT section is in ROM, accessible until `prom_disable()`.
+CODE payload is copied to RAM at 0x7000 by `begin()` using linker
+symbols `__BOOT_tail` (source), `_intvec`/`_code_end` (length).
 
 ### rcbios/
 CP/M BIOS source reconstruction and tools:
