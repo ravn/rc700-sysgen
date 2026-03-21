@@ -1,52 +1,50 @@
 # RC702 ROA375 autoload PROM in C
 
-Full rewire of the ROA375 autoload PROM (boot ROM) in C using z88dk with
+Full rewrite of the ROA375 autoload PROM (boot ROM) in C using z88dk with
 sdcc backend.  The ROM initializes hardware, auto-detects floppy disk
-format, reads Track 0, and boots the system on disk - tested the most with CP/M.
+format, reads Track 0, and boots the system — tested with CP/M.
 
-* boot_rom
-Note: It is necessary to hint the linker to put the interrupt vector table on a page boundary.  This is done in `sections.asm`.
+See `BOOT_SEQUENCE.md` for the full invocation order from power-on to `A>`.
+See `ZSDCC_NOTES.md` for sdcc/z88dk quirks and optimization techniques.
 
+## Current status
 
+PROM size: 1882 bytes (BOOT 104 + CODE 1778) out of 4096 (debug mode).
+MAME boot test passes at 100% and 10% speed.
 
-## PROM image layout (roa375.ic66)
+## PROM image layout (prom0.ic66 → roa375.ic66)
 
 ```
-Offset  Size  Section  Source          Contents
-------  ----  -------  ------------   ----------------------------------------
-0x0000    31  BOOT     boot_entry.c   begin(): DI, SP, memcpy relocation, JP
-0x001F    37  BOOT     boot_entry.c   Build timestamp (ASCII, never executed)
-0x0044  1987  CODE     intvec.c       IVT: 16 function pointers (32 bytes)
-                       code.c         All C code: boot, FDC, init, ISRs, fmt
-                                      Read-only data: messages, format tables
-                                      BSS: individual variables (zeroed by copy)
-                       code.c         code_end sentinel (1 byte)
-0x0807   pad                          0xFF fill to image size
+Offset  Size  Section  Source         Contents
+------  ----  -------  ------------- ----------------------------------------
+0x0000    31  BOOT     boot_rom.c    begin(): DI, SP, memcpy CODE to RAM, JP
+0x001F    27  BOOT     boot_rom.c    init_fdc(): FDC Specify command
+0x003A    41  BOOT     boot_rom.c    banner_string: " RC700 ROA375 date/user"
+0x0063     3  BOOT     boot_rom.c    0xFF padding + RETN (NMI handler at 0x66)
+0x0068  1778  CODE     intvec.c      IVT: 16 function pointers (32 bytes)
+                       rom.c         All C code: boot, FDC, init, ISRs, fmt
+                                     Read-only data: messages, format tables
+                                     BSS: variables (zeroed by ROM copy)
+                       rom.c         code_end sentinel (1 byte)
+0x0802   pad                         0xFF fill to 4096 bytes
 ```
 
-Image size: 4096 bytes (2732 EPROM, debug mode).
-Used: ~2055 / 4096 bytes.
+## Runtime memory map (after self-relocation)
 
-TODO: Revert to 2048 bytes (2716 EPROM) for release.  Requires
-reverting Makefile pad size and MAME rc702.cpp ROM_LOAD size + PROMCFG
-default.  Should be tested on physical hardware before switching back.
-
-## Runtime memory map (after self-relocation to RAM)
-
-begin() copies the CODE section from ROM to RAM at 0x7000 via memcpy.
-BSS variables are inside CODE, so they start as zero after copy.
-After relocation, the PROM is disabled and Track 0 is loaded at 0x0000.
+begin() copies CODE from ROM to RAM at 0x7000.  BSS variables are
+inside CODE, so they start as zero.  After prom_disable(), Track 0
+is loaded at 0x0000 and ROM is no longer accessible.
 
 ```
 Address         Size   Contents
 --------------  -----  -----------------------------------------------
 0x0000-0x0CFF   3328   Track 0 data (loaded after PROM disabled)
 0x7000-0x701F     32   IVT: interrupt vector table (I=0x70, Z80 IM2)
-0x7020-0x77xx  ~1700   C code: boot logic, FDC driver, ISRs, init
+0x7020-0x76xx  ~1740   C code: boot logic, FDC driver, ISRs, init
                         Read-only data: messages, format tables
-                        BSS: boot state variables (zeroed by ROM copy)
+                        BSS: boot state variables
                         code_end sentinel
-0x7800-0x7BCF   1488   Display memory (80×24, Intel 8275 CRT DMA)
+0x7800-0x7F97   1960   Display memory (80×25, Intel 8275 CRT via DMA)
 0xBFFF                 Stack top (grows down)
 ```
 
@@ -54,64 +52,65 @@ Address         Size   Contents
 
 | File | Section | Description |
 |------|---------|-------------|
-| sections.asm | — | Section ORGs and ordering (linker scaffolding only) |
-| boot_entry.c | BOOT | begin(): memcpy self-relocation + build timestamp |
-| intvec.c | CODE | IVT: const function-pointer array (#pragma constseg CODE) |
-| code.c | CODE | Unity build of all C code (cross-function optimization) |
-| boot.c | CODE | Boot logic: signature check, directory scan, disk read |
-| fdc.c | CODE | FDC driver: seek, read, sense, result handling |
-| fmt.c | CODE | Disk format tables and track geometry |
-| init.c | CODE | Peripheral init (PIO, CTC, DMA, CRT, FDC) + clear_screen, display_banner |
-| isr.c | CODE | ISR bodies: CRT refresh, floppy interrupt, dummy |
-| hal.h | — | Hardware abstraction: __sfr ports, intrinsic_di/ei |
-| boot.h | — | Boot state variables, constants, function declarations |
-| hal_z80.c | CODE | C implementations of HAL functions (hal_delay, FDC wait) |
-| hal_host.c | — | Mock HAL for host-native testing |
-| test_boot.c | — | Host tests for boot logic |
-| test_fdc.c | — | Host tests for FDC driver |
+| `sections.asm` | — | Section ORGs and ordering (linker scaffolding) |
+| `boot_rom.c` | BOOT | begin(), init_fdc(), banner_string, NMI handler |
+| `intvec.c` | CODE | IVT: const function-pointer array (`#pragma constseg CODE`) |
+| `rom.c` | CODE | All CODE-section C: HAL, init, FDC, format, boot, ISRs |
+| `rom.h` | — | Types, constants, port I/O macros, struct defs, declarations |
+| `peephole.def` | — | 22 custom sdcc peephole optimization rules |
+| `CMakeLists.txt` | — | CLion project (indexing only, build via Makefile) |
 
 ## Key design decisions
 
-- **intvec.c compiled separately**: `#pragma constseg CODE` is file-global.
-  In the unity build, sdcc emits code before const data, pushing the IVT
-  past the 0x7000 page boundary.  Separate compilation + link order
-  (intvec.o first) guarantees the IVT is at 0x7000.
+- **Unity build**: `rom.c` is the single CODE translation unit, enabling
+  cross-function optimization, tail-call fall-through, and dead code
+  elimination.  `intvec.c` is compiled separately — `#pragma constseg`
+  is file-global, and IVT must be linked first for 0x7000 placement.
 
-- **BSS inside CODE**: Boot state variables are in bss_compiler, which is
-  a subsection of CODE (declared after rodata_compiler in sections.asm).
-  The PROM contains zeros at these positions.  begin() copies the entire
-  CODE section to RAM, so variables start at zero — no explicit zeroing
-  needed.  preinit() only sets non-zero initial values (fdctmo, fdcwai, etc).
+- **BOOT section padding**: Functions only used before `prom_disable()`
+  (`init_fdc`) and the banner string are placed in BOOT to fill the
+  gap between `begin()` and the NMI handler at 0x66.  Saves total PROM
+  size by using space that would otherwise be 0xFF padding.
 
-- **Individual globals, not a struct**: g_state struct was dissolved into
-  individual variables.  sdcc generates direct absolute addressing
-  (`ld a, (_varname)`) instead of base+offset, producing smaller code.
-  No recursion in the call graph (verified: 45 functions, pure DAG), so
-  file-scope globals are safe.
+- **FDC command block struct**: `fdc_command_block` ensures the 7 bytes
+  (C, H, R, N, EOT, GPL, DTL) are contiguous.  `fdc_write_full_cmd()`
+  sends them via `((byte *)&fdc_cmd)[i]` with `sizeof(fdc_cmd)`.
 
-- **FDC command block contiguity**: curcyl through dtl (7 bytes) must be
-  contiguous — flrtrk() sends them sequentially to the FDC.  They are
-  defined consecutively in boot.c.  Do not reorder or insert between them.
+- **FDC result struct**: `fdc_result_block` with named fields (`.st0`,
+  `.st1`, `.st2`, `.cylinder`, `.head`, `.sector`, `.size_code`,
+  `.dma_status`) replaces magic array indices.
 
-- **readtk_cmd as global**: The `cmd` parameter in `readtk()` is stored in
-  a file-scope global to avoid IX frame pointer usage.
+- **BSS inside CODE**: Variables are in `bss_compiler` subsection of
+  CODE.  The PROM contains zeros at these positions.  `begin()` copies
+  everything to RAM, so variables start zeroed — no explicit init needed.
+  `get_floppy_ready()` only sets non-zero values.
 
-- **waitfl timing**: `hal_delay(1,4)` per iteration, 255 iterations max.
-  Compile-time static assert verifies total timeout >= 400ms (two FM
-  revolutions at 360 RPM).  The original assembly DELAY used a 16-bit HL
-  loop; hal_delay uses DJNZ — parameters adjusted to match within 8%.
+- **No recursion**: All 30+ functions form a pure DAG.  File-scope
+  globals are safe.  No stack frames needed (`--fomit-frame-pointer`).
 
-- **Payload size at runtime**: `&code_end - &intvec + 1` is computed at
-  runtime in begin() (8 extra bytes).  No way found to make the linker
-  compute it without assembly code (DEFC).
+- **Tail-call fall-through**: Functions placed in source order so sdcc's
+  `jp _target` becomes a no-op when target immediately follows.  Chains:
+  `fdc_select_drive_cylinder_head` → `verify_seek_result`,
+  `main` → `get_floppy_ready` → `boot_from_floppy_or_jump_prom1`.
+
+- **Manual inlining**: sdcc's `static inline` leaves dead standalone
+  copies (no `--gc-sections`).  Single-call functions are manually
+  inlined for size.  See `ZSDCC_NOTES.md`.
+
+- **Binary constants**: All bitmask operations use `0b` notation for
+  clarity.  Port initialization values stay hex.
+
+- **Payload size at runtime**: `&code_end - &intvec + 1` computed at
+  runtime (8 extra bytes).  DEFC could compute it at link time — noted
+  as future optimization.
 
 ## Building
 
 ```bash
-make test    # host-native tests (18 tests)
-make rom     # build Z80 binary (requires z88dk in ../z88dk)
-make prom    # assemble PROM image (roa375.ic66) + install
-make mame    # build, install, boot test in MAME (auto-exit PASS/FAIL)
-make rc700   # build and launch rc700 emulator
-make clean   # remove build artifacts
+make              # clean + build (default target)
+make rom_parts    # build Z80 binary (requires z88dk in ../z88dk)
+make prom         # assemble PROM image + install to emulators
+make mame         # build, install, boot test in MAME (auto PASS/FAIL)
+make rc700        # build and launch rc700 emulator
+make clean        # remove build artifacts
 ```
