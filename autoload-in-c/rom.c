@@ -14,7 +14,7 @@
  *   7. Sentinel (code_end marker)
  *
  * Separately compiled units (different link order or codeseg):
- *   - boot_rom.c  — BOOT section at 0x0000 (entry, init_fdc, clear_screen, NMI)
+ *   - boot_rom.c  — BOOT section at 0x0000 (entry, init_fdc, banner string, NMI)
  *   - intvec.c    — IVT at 0x7000, linked first
  *   - sections.asm — linker section layout
  */
@@ -142,13 +142,19 @@ void init_peripherals(void) {
     crt_command(0xE0); /* preset counters */
 }
 
-/* init_fdc() and clear_screen() are in boot_rom.c (BOOT section) —
- * only used before prom_disable(), no need to keep in RAM. */
+/* init_fdc() is in boot_rom.c (BOOT section).
+ * banner_string is raw bytes in BOOT, referenced here via extern. */
 
-/* Copy " RC700" to display and start CRT controller. */
+
+/* Banner string lives in BOOT section (boot_rom.c) to fill padding.
+ * The length must match: " RC700 gensmedet" (16) + BUILD_STAMP (26) = 42 */
+#define BANNER_LENGTH 42
+extern void banner_string(void);  /* address of raw bytes in BOOT */
+
+/* Copy banner from BOOT ROM to display and start CRT controller. */
 void display_banner_and_start_crt(void) {
-    memcpy(dspstr, " RC700 gensmedet", 16);
-    crt_command(0x23); /* start display: burst=0, 8 DMA cycles */
+    memcpy(dspstr, (const byte *)&banner_string, BANNER_LENGTH);
+    crt_command(0x23);               /* start display: burst=0, 8 DMA cycles */
 }
 
 /* ================================================================
@@ -467,7 +473,7 @@ void halt_forever(void) { for (;;); }
 /* Copy 'len' bytes to display buffer, then halt forever.
  * Macro so 'len' is compile-time constant — sdcc inlines as LDIR.
  * 'len' must NOT include NUL terminator. */
-#define halt_msg(msg, len) do { memcpy(dspstr, (msg), (len)); halt_forever(); } while(0)
+#define halt_msg(msg, len) do { memcpy(dspstr + 160, (msg), (len)); halt_forever(); } while(0)
 
 /* Compare 6 bytes.  Pointer-increment generates compact sdcc output
  * (17 bytes, no IX frame) vs memcmp library call (24 bytes more). */
@@ -635,7 +641,7 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
  * Placed before preinit for tail-call fall-through (saves 3 bytes). */
 int main(void) {
     init_fdc();
-    clear_screen();
+    memset(dspstr, ' ', 80 * 25);   /* clear screen */
     display_banner_and_start_crt();
     get_floppy_ready();
 }

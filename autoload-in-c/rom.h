@@ -292,7 +292,7 @@ extern byte error_saved;      /* saved error code */
  * Function declarations
  * ================================================================ */
 
-/* init (init_peripherals in rom.c, init_fdc in boot_rom.c) */
+/* init */
 void init_peripherals(void);
 void init_fdc(void);
 
@@ -311,8 +311,7 @@ byte check_fdc_result(void);
 byte fdc_get_result_bytes(byte cmd, byte retries);
 byte fdc_detect_sector_size_and_density(void);
 
-/* boot (clear_screen in boot_rom.c, rest in rom.c) */
-void clear_screen(void);
+/* boot */
 void display_banner_and_start_crt(void);
 void error_display_halt(byte code);
 void boot_floppy_or_prom(void);

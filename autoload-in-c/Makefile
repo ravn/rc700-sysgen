@@ -40,7 +40,8 @@ all: clean rom_parts
 rom_parts: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
-	printf '#define BUILD_STAMP_STR "\\"%s\\""\n' " ROA375 $$(date '+%Y-%m-%d %H.%M') " > build_stamp.h && \
+	STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) " && \
+	printf '#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n' "$$STAMP" "$$STAMP" > build_stamp.h && \
 	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o boot_rom.o && \
 	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
 	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o rom.c boot_rom.o

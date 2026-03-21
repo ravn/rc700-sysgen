@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-03-21: Banner string in BOOT, timestamp on screen, error on line 3
+
+### What was done
+1. **Timestamp in boot banner** — build timestamp (date/time/username)
+   now displayed on screen instead of hidden in ROM hex dump. Makefile
+   generates `BUILD_STAMP` (C string) and `BUILD_STAMP_STR` (asm string).
+   Format: ` RC700 ROA375 2026-03-21 12.56/ravn`.
+
+2. **Banner string in BOOT section** — the banner text is defined as
+   raw bytes via `__naked` + `DEFM` in boot_rom.c. `display_banner_and_
+   start_crt()` in CODE references it via extern and memcpy. This puts
+   the 42-byte string in BOOT padding (free space before NMI) instead
+   of CODE rodata.
+
+3. **Optimal BOOT padding utilization** — tried all combinations of
+   pre-prom_disable functions. Best fit: init_fdc (27 bytes) +
+   banner_string (41 bytes) = 68/71 bytes used, 2 bytes padding.
+   `display_banner_and_start_crt` failed from BOOT (null banner —
+   string address broken after relocation). clear_screen inlined
+   into main() as `memset(dspstr, ' ', 80*25)`.
+
+4. **Error messages on line 3** — `halt_msg` writes to `dspstr + 160`
+   (row 3) instead of `dspstr` (row 1), keeping the banner visible
+   when errors like `**NO DISKETTE NOR LINEPROG**` are displayed.
+
+5. **Username in build stamp** — `$(whoami)` appended after HH.MM
+   as `/ravn`. User shortened banner from `" RC700 Gensmedet"` to
+   `" RC700 "` to make room.
+
+### User choices
+- Timestamp on screen (visible) instead of hidden ROM bytes
+- `/ravn` (username) after timestamp, user shortened banner to fit
+- Error messages on line 3 to preserve banner visibility
+- Banner string as `__naked DEFM` in BOOT (user's idea)
+- Total PROM size is the metric, not CODE size alone
+
+### Verification
+- Total PROM: 1882 bytes (was 1889 before this session's changes)
+- MAME boot test passes at 100% and 10% speed
+- Error display verified without floppy: banner + error both visible
+
+---
+
 ## 2026-03-21: Rename remaining cryptic labels, format table struct, datasheet URL
 
 ### What was done
