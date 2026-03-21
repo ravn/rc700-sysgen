@@ -192,11 +192,11 @@ static const format_entry mini_format_table[4][2] = {
 
 /* Look up format parameters from disk type and sector size code. */
 void lookup_sectors_and_gap3_for_current_track(void) {
-    const format_entry (*table)[2] = (disk_bits & 0b10000000)
+    const format_entry (*table)[2] = is_mini
         ? mini_format_table
         : maxi_format_table;
 
-    const format_entry *fmt = &table[fdc_cmd.size_shift][disk_bits & 0b00000001];
+    const format_entry *fmt = &table[fdc_cmd.size_shift][is_mfm];
 
     fdc_cmd.eot = fmt->eot;
     fdc_cmd.gap3 = fmt->gap3;
@@ -336,7 +336,7 @@ static byte verify_seek_result(byte expected_pcn) {
 /* Issue FDC read command with parameter block.
  * For Read Data, sends 7-byte block: C, H, R, N, EOT, GPL, DTL. */
 void fdc_write_full_cmd(byte cmd) {
-    byte mfm_flag = (disk_bits & 0b00000001) ? FDC_MFM : 0;
+    byte mfm_flag = is_mfm ? FDC_MFM : 0;
     byte dh = (fdc_cmd.head << 2) | drive_select;
 
     di();
@@ -412,7 +412,7 @@ byte fdc_get_result_bytes(byte cmd, byte retries) {
 /* Auto-detect disk format by reading sector ID.
  * Tries FM first, then MFM.  Returns 0=ok, 1=error. */
 byte fdc_detect_sector_size_and_density(void) {
-    disk_bits &= ~0b00000001;
+    is_mfm = 0;
 
     while (1) {
         if (fdc_select_drive_cylinder_head() != 0) {
@@ -423,15 +423,12 @@ byte fdc_detect_sector_size_and_density(void) {
         if (fdc_get_result_bytes(FDC_READ_ID, 1) == 0) {
             break;
         }
-        if (disk_bits & 0b00000001) {
+        if (is_mfm) {
             return 1;
         }
-        disk_bits |= 0b00000001; /* switch to MFM and retry */
+        is_mfm = 1; /* switch to MFM and retry */
     }
 
-    /* N (sector size code) from Read ID result, 0=128, 1=256, 2=512 - rest is not used */
-    disk_bits = (disk_bits & 0b11100011) | (fdc_result.size_code << 2);
-    /* fdc_cmd.size_shift = (disk_bits >> 2) & 0b00000111; */
     fdc_cmd.size_shift = fdc_result.size_code & 0b00000111;
     lookup_sectors_and_gap3_for_current_track();
     calc_size_of_current_track();
@@ -451,7 +448,9 @@ byte fdc_isr_delay = 0;
 byte fdc_result_delay = 0;
 fdc_command_block fdc_cmd = {0};
 byte floppy_operation_completed_flag = 0;
-byte disk_bits = 0;
+byte is_mini = 0;
+byte is_mfm = 0;
+byte is_double_sided = 0;
 byte disk_type = 0;
 byte more_tracks_to_read = 0;
 byte retry_count = 0;
@@ -618,7 +617,7 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
         {
             byte max_head;
             fdc_cmd.sector = 1;
-            max_head = (disk_bits >> 1) & 0b00000001;
+            max_head = is_double_sided;
             if (max_head == fdc_cmd.head) {
                 fdc_cmd.head = 0;
                 fdc_cmd.cylinder++;
@@ -647,7 +646,7 @@ int main(void) {
 static void get_floppy_ready(void) {
     fdc_isr_delay = 3;
     fdc_result_delay = 4;
-    disk_bits = read_sw1() & 0b10000000; /* bit 7: 0=maxi, 1=mini */
+    is_mini = read_sw1() & 0b10000000; /* bit 7: 0=maxi, 1=mini */
 
     ei();
     motor(1); /* turn on floppy motor */
@@ -683,7 +682,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
     fdc_cmd.head = 1;
     fdc_cmd.sector = 1;
     if (fdc_detect_sector_size_and_density() == 0) {
-        disk_bits |= 0b00000010; /* side 1 present */
+        is_double_sided = 1; /* side 1 present */
     }
     fdc_cmd.head = 0;
     if (fdc_detect_sector_size_and_density() != 0) {
@@ -710,7 +709,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
  * 0x0000 to just below the IVT.  The original ROM passes HL=INTVEC to
  * RDTRK0 as the byte count. */
 void floppy_boot(void) {
-    disk_type = (disk_bits & 0b10000000) | disk_type;
+    disk_type = (is_mini ? 0b10000000 : 0) | disk_type;
     disk_type--;
     fdc_detect_sector_size_and_density();
     dma_transfer_address = FLOPPYDATA;
