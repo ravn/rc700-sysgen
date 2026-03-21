@@ -174,8 +174,8 @@ typedef struct {
     byte gap3;
 } format_entry;
 
-/* format_table[is_mini][N][side] — indexed by disk type, sector size, density */
-static const format_entry format_table[2][4][2] = {
+/* eot_gap3_table[is_mini][N][side] — indexed by disk type, sector size, density */
+static const format_entry eot_gap3_table[2][4][2] = {
     /* maxi (8") */
     {   /*    side 0          side 1          N               */
         {{0x1A, 0x07}, {0x34, 0x07}}, /* 0: 128B  26/52 sectors */
@@ -194,7 +194,7 @@ static const format_entry format_table[2][4][2] = {
 
 /* Look up format parameters from disk type and sector size code. */
 void lookup_sectors_and_gap3_for_current_track(void) {
-    const format_entry *fmt = &format_table[is_mini][fdc_cmd.size_shift][is_mfm];
+    const format_entry *fmt = &eot_gap3_table[is_mini][fdc_cmd.size_shift][is_mfm];
 
     fdc_cmd.eot = fmt->eot;
     fdc_cmd.gap3 = fmt->gap3;
@@ -375,20 +375,20 @@ byte fdc_get_result_bytes(byte cmd, byte retries) {
 
     while (1) {
         /* clear floppy interrupt flag */
-        di();
+        intrinsic_di();
         floppy_operation_completed_flag = 0;
-        ei();
+        intrinsic_ei();
 
         if ((saved_fdc_command & 0b00001111) != FDC_READ_ID) {
             /* program DMA channel 1 for fdc transfer */
-            di();
+            intrinsic_di();
             dma_mask(1); /* disable Ch1 during programming */
             dma_mode(0x45); /* Ch1: demand, incr, write I/O->mem */
             dma_clear_bp(); /* reset byte pointer flip-flop */
             dma_ch1_addr(dma_transfer_address); /* transfer destination address */
             dma_ch1_wc(dma_transfer_size - 1); /* word count (N-1) */
             dma_unmask(1); /* enable Ch1 */
-            ei();
+            intrinsic_ei();
         }
 
         fdc_write_full_cmd(saved_fdc_command);
@@ -468,9 +468,15 @@ void halt_forever(void) { for (;;); }
  * 'len' must NOT include NUL terminator. */
 #define halt_msg(msg, len) do { memcpy(dspstr + 160, (msg), (len)); halt_forever(); } while(0)
 
-/* Compare 6 bytes.  Pointer-increment generates compact sdcc output
+/* Compare 6 bytes.  A __naked DJNZ version would save only 1 byte
+ * (sdcc uses DEC C/JR NZ = 3 bytes vs DJNZ = 2 bytes, but setup is same).
+ * sdcccall(1) passes HL=a, DE=b which is ideal for DJNZ loop, but
+ * not worth the readability cost for 1 byte.
+ *
+ * Pointer-increment generates compact sdcc output
  * (17 bytes, no IX frame) vs memcmp library call (24 bytes more). */
 byte compare_6bytes(const byte *a, const byte *b) {
+
     byte i = 6;
     do {
         if (*a++ != *b++) {
@@ -482,13 +488,15 @@ byte compare_6bytes(const byte *a, const byte *b) {
 
 /* Check directory entry: 4-byte name match + attribute byte check. */
 byte check_sysfile(const byte *dir, const char *pattern) {
+    dir++; /* skip initial bye´te (dir[0]) */
+
     byte i = 4;
-    dir++; /* skip user number (dir[0]) */
     do {
         if (*dir++ != *pattern++) {
             return 1;
         }
     } while (--i);
+
     /* dir now at dir[5], check attribute at dir[8] */
     if ((dir[3] & 0b00111111) != 0x13) {
         return 1;
@@ -499,7 +507,7 @@ byte check_sysfile(const byte *dir, const char *pattern) {
 /* Display error and halt (unless disk_type indicates retry). */
 void error_display_halt(byte code) {
     error_saved = code;
-    ei();
+    intrinsic_ei();
     if (disk_type & 0b00000001) {
         return;
     }
@@ -688,7 +696,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
         return;
     }
 
-    prom_disable(); /* disable ROM overlay */
+    prom_disable(); /* disable ROM overlay -- now all ram accessible */
 
     while (1) {
         fdc_read_data_from_current_location(dma_transfer_size);
@@ -778,8 +786,7 @@ void refresh_crt_dma_50hz_interrupt(void) __critical __interrupt(1) {
 void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
     floppy_operation_completed_flag = 2; /* Only non-zero value */
     delay(0, fdc_isr_delay);
-    if (fdc_status() & 0b00010000) {
-        /* CB=1: result phase ready */
+    if (fdc_status() & 0b00010000) {    /* CB=1: result phase ready */
         fdc_read_result();
     } else {
         fdc_sense_interrupt();

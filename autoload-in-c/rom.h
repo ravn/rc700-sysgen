@@ -169,8 +169,6 @@ extern volatile unsigned char _port_dma_mode, _port_dma_clbp;
 #define ei()  intrinsic_ei()
 #define di()  intrinsic_di()
 #else
-static inline void ei(void) {}
-static inline void di(void) {}
 static inline void intrinsic_di(void) {}
 static inline void intrinsic_ei(void) {}
 static inline void intrinsic_im_2(void) {}
@@ -211,7 +209,7 @@ static inline void intrinsic_im_2(void) {}
 } while(0)
 
 /* ================================================================
- * HAL functions (implemented in rom.c)
+ * Stuff in boot.c
  * ================================================================ */
 
 void fdc_write_when_ready(byte val);
