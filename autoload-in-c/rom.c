@@ -85,6 +85,8 @@ static void set_i_reg(byte page) {
     __asm__("ld i, a\n");
 }
 
+int main(void);
+
 /* Post-relocation entry point.  Called from begin() after LDIR copy.
  * Sets SP, I register, IM2, then calls init_peripherals() + main().
  * __naked because we set SP mid-function. */
@@ -174,29 +176,27 @@ typedef struct {
     byte gap3;
 } format_entry;
 
-static const format_entry maxi_format_table[4][2] = {
-    /*        side 0          side 1          N               */
-    {{0x1A, 0x07}, {0x34, 0x07}}, /* 0: 128B  26/52 sectors */
-    {{0x0F, 0x0E}, {0x1A, 0x0E}}, /* 1: 256B  15/26 sectors */
-    {{0x08, 0x1B}, {0x0F, 0x1B}}, /* 2: 512B   8/15 sectors */
-    {{0x00, 0x00}, {0x08, 0x35}}, /* 3: 1024B  0/8  sectors */
-};
-
-static const format_entry mini_format_table[4][2] = {
-    /*        side 0          side 1          N               */
-    {{0x10, 0x07}, {0x20, 0x07}}, /* 0: 128B  16/32 sectors */
-    {{0x09, 0x0E}, {0x10, 0x0E}}, /* 1: 256B   9/16 sectors */
-    {{0x05, 0x1B}, {0x09, 0x1B}}, /* 2: 512B   5/9  sectors */
-    {{0x00, 0x00}, {0x05, 0x35}}, /* 3: 1024B  0/5  sectors */
+/* eot_gap3_table[is_mini][N][side] — indexed by disk type, sector size, density */
+static const format_entry eot_gap3_table[2][4][2] = {
+    /* maxi (8") */
+    {   /*    side 0          side 1          N               */
+        {{0x1A, 0x07}, {0x34, 0x07}}, /* 0: 128B  26/52 sectors */
+        {{0x0F, 0x0E}, {0x1A, 0x0E}}, /* 1: 256B  15/26 sectors */
+        {{0x08, 0x1B}, {0x0F, 0x1B}}, /* 2: 512B   8/15 sectors */
+        {{0x00, 0x00}, {0x08, 0x35}}, /* 3: 1024B  0/8  sectors */
+    },
+    /* mini (5.25") */
+    {   /*    side 0          side 1          N               */
+        {{0x10, 0x07}, {0x20, 0x07}}, /* 0: 128B  16/32 sectors */
+        {{0x09, 0x0E}, {0x10, 0x0E}}, /* 1: 256B   9/16 sectors */
+        {{0x05, 0x1B}, {0x09, 0x1B}}, /* 2: 512B   5/9  sectors */
+        {{0x00, 0x00}, {0x05, 0x35}}, /* 3: 1024B  0/5  sectors */
+    },
 };
 
 /* Look up format parameters from disk type and sector size code. */
 void lookup_sectors_and_gap3_for_current_track(void) {
-    const format_entry (*table)[2] = (disk_bits & 0b10000000)
-        ? mini_format_table
-        : maxi_format_table;
-
-    const format_entry *fmt = &table[fdc_cmd.size_shift][disk_bits & 0b00000001];
+    const format_entry *fmt = &eot_gap3_table[is_mini][fdc_cmd.size_shift][is_mfm];
 
     fdc_cmd.eot = fmt->eot;
     fdc_cmd.gap3 = fmt->gap3;
@@ -296,9 +296,9 @@ byte wait_fdc_ready(byte timeout) {
     while (--timeout) {
         delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
         if (floppy_operation_completed_flag) {
-            di();
+            intrinsic_di();
             floppy_operation_completed_flag = 0;
-            ei();
+            intrinsic_ei();
             return 0;
         }
     }
@@ -336,10 +336,10 @@ static byte verify_seek_result(byte expected_pcn) {
 /* Issue FDC read command with parameter block.
  * For Read Data, sends 7-byte block: C, H, R, N, EOT, GPL, DTL. */
 void fdc_write_full_cmd(byte cmd) {
-    byte mfm_flag = (disk_bits & 0b00000001) ? FDC_MFM : 0;
+    byte mfm_flag = is_mfm ? FDC_MFM : 0;
     byte dh = (fdc_cmd.head << 2) | drive_select;
 
-    di();
+    intrinsic_di();
     fdc_write_when_ready(cmd + mfm_flag); /* command (+MFM if double density) */
     fdc_write_when_ready(dh); /* head/drive select */
 
@@ -350,7 +350,7 @@ void fdc_write_full_cmd(byte cmd) {
             fdc_write_when_ready(((byte *) &fdc_cmd)[i]);
         }
     }
-    ei();
+    intrinsic_ei();
 }
 
 /* Check FDC result status.  Returns 0=ok, 1=retry, 2=give up. */
@@ -377,20 +377,20 @@ byte fdc_get_result_bytes(byte cmd, byte retries) {
 
     while (1) {
         /* clear floppy interrupt flag */
-        di();
+        intrinsic_di();
         floppy_operation_completed_flag = 0;
-        ei();
+        intrinsic_ei();
 
         if ((saved_fdc_command & 0b00001111) != FDC_READ_ID) {
             /* program DMA channel 1 for fdc transfer */
-            di();
+            intrinsic_di();
             dma_mask(1); /* disable Ch1 during programming */
             dma_mode(0x45); /* Ch1: demand, incr, write I/O->mem */
             dma_clear_bp(); /* reset byte pointer flip-flop */
             dma_ch1_addr(dma_transfer_address); /* transfer destination address */
             dma_ch1_wc(dma_transfer_size - 1); /* word count (N-1) */
             dma_unmask(1); /* enable Ch1 */
-            ei();
+            intrinsic_ei();
         }
 
         fdc_write_full_cmd(saved_fdc_command);
@@ -412,7 +412,7 @@ byte fdc_get_result_bytes(byte cmd, byte retries) {
 /* Auto-detect disk format by reading sector ID.
  * Tries FM first, then MFM.  Returns 0=ok, 1=error. */
 byte fdc_detect_sector_size_and_density(void) {
-    disk_bits &= ~0b00000001;
+    is_mfm = 0;
 
     while (1) {
         if (fdc_select_drive_cylinder_head() != 0) {
@@ -423,15 +423,12 @@ byte fdc_detect_sector_size_and_density(void) {
         if (fdc_get_result_bytes(FDC_READ_ID, 1) == 0) {
             break;
         }
-        if (disk_bits & 0b00000001) {
+        if (is_mfm) {
             return 1;
         }
-        disk_bits |= 0b00000001; /* switch to MFM and retry */
+        is_mfm = 1; /* switch to MFM and retry */
     }
 
-    /* N (sector size code) from Read ID result, 0=128, 1=256, 2=512 - rest is not used */
-    disk_bits = (disk_bits & 0b11100011) | (fdc_result.size_code << 2);
-    /* fdc_cmd.size_shift = (disk_bits >> 2) & 0b00000111; */
     fdc_cmd.size_shift = fdc_result.size_code & 0b00000111;
     lookup_sectors_and_gap3_for_current_track();
     calc_size_of_current_track();
@@ -451,7 +448,9 @@ byte fdc_isr_delay = 0;
 byte fdc_result_delay = 0;
 fdc_command_block fdc_cmd = {0};
 byte floppy_operation_completed_flag = 0;
-byte disk_bits = 0;
+byte is_mini = 0;
+byte is_mfm = 0;
+byte is_double_sided = 0;
 byte disk_type = 0;
 byte more_tracks_to_read = 0;
 byte retry_count = 0;
@@ -471,9 +470,15 @@ void halt_forever(void) { for (;;); }
  * 'len' must NOT include NUL terminator. */
 #define halt_msg(msg, len) do { memcpy(dspstr + 160, (msg), (len)); halt_forever(); } while(0)
 
-/* Compare 6 bytes.  Pointer-increment generates compact sdcc output
+/* Compare 6 bytes.  A __naked DJNZ version would save only 1 byte
+ * (sdcc uses DEC C/JR NZ = 3 bytes vs DJNZ = 2 bytes, but setup is same).
+ * sdcccall(1) passes HL=a, DE=b which is ideal for DJNZ loop, but
+ * not worth the readability cost for 1 byte.
+ *
+ * Pointer-increment generates compact sdcc output
  * (17 bytes, no IX frame) vs memcmp library call (24 bytes more). */
 byte compare_6bytes(const byte *a, const byte *b) {
+
     byte i = 6;
     do {
         if (*a++ != *b++) {
@@ -485,13 +490,15 @@ byte compare_6bytes(const byte *a, const byte *b) {
 
 /* Check directory entry: 4-byte name match + attribute byte check. */
 byte check_sysfile(const byte *dir, const char *pattern) {
+    dir++; /* skip initial bye´te (dir[0]) */
+
     byte i = 4;
-    dir++; /* skip user number (dir[0]) */
     do {
         if (*dir++ != *pattern++) {
             return 1;
         }
     } while (--i);
+
     /* dir now at dir[5], check attribute at dir[8] */
     if ((dir[3] & 0b00111111) != 0x13) {
         return 1;
@@ -502,7 +509,7 @@ byte check_sysfile(const byte *dir, const char *pattern) {
 /* Display error and halt (unless disk_type indicates retry). */
 void error_display_halt(byte code) {
     error_saved = code;
-    ei();
+    intrinsic_ei();
     if (disk_type & 0b00000001) {
         return;
     }
@@ -618,7 +625,7 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
         {
             byte max_head;
             fdc_cmd.sector = 1;
-            max_head = (disk_bits >> 1) & 0b00000001;
+            max_head = is_double_sided;
             if (max_head == fdc_cmd.head) {
                 fdc_cmd.head = 0;
                 fdc_cmd.cylinder++;
@@ -647,9 +654,9 @@ int main(void) {
 static void get_floppy_ready(void) {
     fdc_isr_delay = 3;
     fdc_result_delay = 4;
-    disk_bits = read_sw1() & 0b10000000; /* bit 7: 0=maxi, 1=mini */
+    is_mini = (read_sw1() >> 7) & 1; /* SW1 bit 7: 0=maxi, 1=mini */
 
-    ei();
+    intrinsic_ei();
     motor(1); /* turn on floppy motor */
     retry_count = 5;
     boot_from_floppy_or_jump_prom1();
@@ -683,7 +690,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
     fdc_cmd.head = 1;
     fdc_cmd.sector = 1;
     if (fdc_detect_sector_size_and_density() == 0) {
-        disk_bits |= 0b00000010; /* side 1 present */
+        is_double_sided = 1; /* side 1 present */
     }
     fdc_cmd.head = 0;
     if (fdc_detect_sector_size_and_density() != 0) {
@@ -691,7 +698,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
         return;
     }
 
-    prom_disable(); /* disable ROM overlay */
+    prom_disable(); /* disable ROM overlay -- now all ram accessible */
 
     while (1) {
         fdc_read_data_from_current_location(dma_transfer_size);
@@ -710,7 +717,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
  * 0x0000 to just below the IVT.  The original ROM passes HL=INTVEC to
  * RDTRK0 as the byte count. */
 void floppy_boot(void) {
-    disk_type = (disk_bits & 0b10000000) | disk_type;
+    disk_type = (is_mini << 7) | disk_type;
     disk_type--;
     fdc_detect_sector_size_and_density();
     dma_transfer_address = FLOPPYDATA;
@@ -781,8 +788,7 @@ void refresh_crt_dma_50hz_interrupt(void) __critical __interrupt(1) {
 void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
     floppy_operation_completed_flag = 2; /* Only non-zero value */
     delay(0, fdc_isr_delay);
-    if (fdc_status() & 0b00010000) {
-        /* CB=1: result phase ready */
+    if (fdc_status() & 0b00010000) {    /* CB=1: result phase ready */
         fdc_read_result();
     } else {
         fdc_sense_interrupt();

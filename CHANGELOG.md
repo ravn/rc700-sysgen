@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-03-21: Split disk_bits, combined format table, DJNZ analysis
+
+### What was done
+1. **Split `disk_bits` into separate variables** — replaced packed bitfield
+   with `is_mini` (0/1), `is_mfm` (0/1), `is_double_sided` (0/1).
+   Eliminates bit shifting/masking. Removed dead bits 4-2 (size_code
+   stored in disk_bits but never read back). Saves 16 bytes.
+
+2. **Combined maxi/mini format tables** into single 3D array
+   `eot_gap3_table[is_mini][N][side]`. Eliminates ternary table
+   selection. `is_mini` normalized to 0/1 via `>> 7` for use as
+   array index. Saves 6 bytes.
+
+3. **Renamed `format_table` → `eot_gap3_table`** (user choice).
+
+4. **DJNZ block compare analysis** — investigated replacing the
+   pointer-increment comparison loops with Z80 DJNZ idiom.
+   sdcccall(1) passes HL/DE which is ideal, but savings are only
+   1 byte per function (DEC C/JR NZ = 3 bytes vs DJNZ = 2 bytes,
+   setup identical). Not worth the readability cost. Documented
+   in code comment.
+
+### User choices
+- `is_mini` normalized to 0/1 (not 0/0x80) — enables direct array indexing
+- Combined table preferred over separate maxi/mini tables
+- `eot_gap3_table` name chosen by user
+- DJNZ optimization declined — 1 byte not worth readability cost
+
+### Verification
+- Total PROM: 1865 → 1843 bytes (-22)
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Banner string in BOOT, timestamp on screen, error on line 3
 
 ### What was done

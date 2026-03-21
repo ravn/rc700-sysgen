@@ -169,8 +169,6 @@ extern volatile unsigned char _port_dma_mode, _port_dma_clbp;
 #define ei()  intrinsic_ei()
 #define di()  intrinsic_di()
 #else
-static inline void ei(void) {}
-static inline void di(void) {}
 static inline void intrinsic_di(void) {}
 static inline void intrinsic_ei(void) {}
 static inline void intrinsic_im_2(void) {}
@@ -211,7 +209,7 @@ static inline void intrinsic_im_2(void) {}
 } while(0)
 
 /* ================================================================
- * HAL functions (implemented in rom.c)
+ * Stuff in boot.c
  * ================================================================ */
 
 void fdc_write_when_ready(byte val);
@@ -269,15 +267,9 @@ typedef struct {
 
 extern fdc_command_block fdc_cmd;
 extern byte floppy_operation_completed_flag;      /* floppy interrupt flag (0=idle, 2=done) */
-extern byte disk_bits;    /* disk format flags:
-                           *   bit 7:   0=maxi/8", 1=mini/5.25" (from SW1)
-                           *   bits 4-2: sector size code N (from Read ID)
-                           *   bit 1:   1=double-sided (side 1 detected)
-                           *   bit 0:   0=FM (single density), 1=MFM (double)
-                           * TODO: investigate splitting into separate variables
-                           *   (is_mini, is_mfm, is_double_sided) for clarity
-                           *   and possible code size reduction.
-                           */
+extern byte is_mini;              /* 1=mini/5.25", 0=maxi/8" (from SW1 bit 7) */
+extern byte is_mfm;              /* 1=MFM (double density), 0=FM (single) */
+extern byte is_double_sided;     /* 1=side 1 present */
 extern byte disk_type;      /* disk type flag */
 extern byte more_tracks_to_read;      /* more data flag */
 extern byte retry_count;      /* retry count */
