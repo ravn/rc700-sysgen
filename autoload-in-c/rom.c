@@ -793,6 +793,6 @@ void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
 
 /* ================================================================
  * 7. Sentinel — must be last.
- * &code_end - &intvec = payload size to relocate from ROM to RAM.
+ * payload_size (DEFC in sections.asm) = code_end - intvec + 1.
  * ================================================================ */
 const byte code_end = 0xFF;

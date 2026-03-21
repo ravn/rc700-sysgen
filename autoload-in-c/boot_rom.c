@@ -18,18 +18,16 @@
 /* Linker symbols for self-relocation.
  * C adds _ prefix; linker sees __X for extern byte _X.
  * Taking &_X gives the linker-assigned address as a pointer. */
-extern byte _BOOT_tail; /* end of BOOT section = ROM source of CODE payload */
-extern const byte intvec; /* IVT at 0x7000: start of CODE payload */
-extern const byte code_end; /* sentinel at end of CODE payload */
+extern byte _BOOT_tail;       /* end of BOOT section = ROM source of CODE payload */
+extern const byte intvec;     /* IVT at 0x7000: start of CODE payload */
+extern const byte code_end;   /* sentinel at end of CODE payload */
 
 /* Post-relocation init (in rom.c, relocated to RAM) */
 extern void init_relocated(void);
 
 /* ROM entry point — must be first function in BOOT section.
  * Copies CODE payload from ROM to RAM at 0x7000, then jumps there.
- * Note: &code_end - &intvec + 1 is computed at runtime (8 extra bytes
- * vs a linker-resolved constant).  No way found yet to make the linker
- * compute it without assembly code (DEFC). */
+ * Payload size computed at runtime — z80asm can't DEFC across subsections. */
 void begin(void) {
     intrinsic_di();
     __asm__("ld sp, #" STR(ROM_STACK) "\n");
