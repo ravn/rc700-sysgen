@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-03-21: Dead variable removal and ISR inlining
+
+### What was done
+1. **Remove dead variable `track_size`** — always set to same value as
+   `end_of_track`, never read. Saves 13 bytes.
+
+2. **Remove dead variables `sectors_per_track` and `sector_bytes`** — both
+   set but never read. Removing `sector_bytes` also eliminated the
+   `128 << sector_size_code` computation. Saves 37 bytes.
+
+3. **Inline `crt_refresh()` into `crtint()` ISR** — `crt_refresh` was only
+   called from `crtint`. Inlining eliminates CALL+RET overhead. Saves 4 bytes.
+   Moved the circular-buffer DMA scrolling documentation into the `crtint`
+   comment block.
+
+4. **Attempted removal of `fdc_flag` and `floppy_wait`** — both appear
+   write-only in C code. Removal caused MAME boot failure. Restored.
+   These variables are needed for correct FDC timing/state even though
+   the C code never explicitly reads them.
+
+5. **Documented circular-buffer scrolling** — explained why two DMA channels
+   (Ch2+Ch3) are needed: Ch2 transfers from scroll_offset to end of buffer,
+   Ch3 wraps around from buffer start. The boot ROM never scrolls
+   (scroll_offset stays 0) but sets up the mechanism for the BIOS.
+
+### User choices
+- User confirmed BIOS reprograms everything after the boot jump, so
+  ROM routines don't need to be preserved for BIOS use. This enabled
+  inlining `crt_refresh` and removing its `rom.h` declaration.
+- User noted `floppy_wait` may be a state/debugging variable — kept it.
+- Investigated loop optimizations — all 14 loops are already optimal.
+
+### Verification
+- CODE: 1922 -> 1914 bytes (-8)
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Peephole rules and tail-call fall-through optimization
 
 ### What was done

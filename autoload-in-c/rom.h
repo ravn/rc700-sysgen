@@ -220,9 +220,7 @@ void delay(byte outer, byte inner);
  */
 
 extern byte fdc_result[7];   /* FDC result bytes (ST0-N) */
-extern byte fdc_flag;      /* FDC flag */
-extern byte sectors_per_track;        /* end-of-track for seek */
-extern byte track_size;       /* track size */
+extern byte fdc_flag;      /* FDC busy flag */
 extern byte drive_select;      /* drive select */
 extern byte fdc_timeout;      /* FDC timeout counter (init=3) */
 extern byte fdc_wait;      /* FDC wait count (init=4) */
@@ -234,7 +232,6 @@ extern byte sector_size_code;      /* record length (N value) */
 extern byte end_of_track;      /* end of track */
 extern byte gap3;        /* gap 3 length */
 extern byte data_length;         /* data length */
-extern word sector_bytes;     /* sector byte count */
 extern byte floppy_flag;      /* floppy interrupt flag (0=idle, 2=done) */
 extern byte floppy_wait;      /* floppy wait count (init=4) */
 extern byte disk_bits;    /* disk type bits */
@@ -284,9 +281,7 @@ void check_prom1(void);
 void halt_forever(void);
 byte compare_6bytes(const byte *a, const byte *b);
 byte check_sysfile(const byte *dir, const byte *pattern);
-void syscall(word addr, word bc);
+void syscall(word addr, word de);
 
-/* isr */
-void crt_refresh(void);
 
 #endif /* ROM_H */

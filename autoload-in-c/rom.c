@@ -192,15 +192,12 @@ void format_lookup(void) {
 
     if (disk_bits & 0x80) {
         tbl = minifmt[n];
-        sectors_per_track = 0x23;    /* 35 sectors (5.25" mini) */
     } else {
         tbl = maxifmt[n];
-        sectors_per_track = 0x4C;    /* 76 sectors (8" maxi) */
     }
 
     side_offset = (disk_bits & 0x01) ? 2 : 0;
     end_of_track = tbl[side_offset];
-    track_size = tbl[side_offset];
     gap3 = tbl[side_offset + 1];
     data_length = 0x80;
 }
@@ -209,8 +206,6 @@ void format_lookup(void) {
 void calc_track_bytes(void) {
     byte sectors;
     byte i;
-
-    sector_bytes = 128 << sector_size_code;
 
     sectors = end_of_track - current_sector + 1;
 
@@ -370,7 +365,6 @@ void floppy_read_track(byte cmd) {
 
     di();
     fdc_flag = 0xFF;
-
     fdc_wait_write(cmd + mfm_flag);          /* command (+MFM if double density) */
     fdc_wait_write(dh);                      /* head/drive select */
 
@@ -465,8 +459,6 @@ byte disk_autodetect(void) {
  * Do not reorder or insert variables between them. */
 byte fdc_result[7] = {0};
 byte fdc_flag = 0;
-byte sectors_per_track = 0;
-byte track_size = 0;
 byte drive_select = 0;
 byte fdc_timeout = 0;
 byte fdc_wait = 0;
@@ -477,7 +469,6 @@ byte sector_size_code = 0;
 byte end_of_track = 0;
 byte gap3 = 0;
 byte data_length = 0;               /* --- FDC command block end --- */
-word sector_bytes = 0;
 byte floppy_flag = 0;
 byte floppy_wait = 0;
 byte disk_bits = 0;
@@ -728,46 +719,57 @@ void floppy_boot(void) {
 
 /* BIOS syscall: read sectors from disk.
  * addr = DMA destination, bc = packed cylinder/head/sector. */
-void syscall(word addr, word bc) {
-    byte b = (byte)(bc >> 8);
-    byte c = (byte)(bc & 0xFF);
+void syscall(word addr, word de) {
+    byte d = (byte)(de >> 8);
+    byte e = (byte)(de & 0xFF);
 
     dma_addr = addr;
-    current_sector = c & 0x7F;
-    current_cylinder = b & 0x7F;
+    current_sector = e & 0x7F;
+    current_cylinder = d & 0x7F;
 
     if (current_cylinder == 0) {
         disk_autodetect();
     }
 
-    current_head = (b & 0x80) ? 1 : 0;
+    current_head = (d & 0x80) ? 1 : 0;
     rdtrk0(0);
 
-    if ((b & 0x7F) == 0) {
+    if ((d & 0x7F) == 0) {
         current_cylinder = 1;
         disk_autodetect();
     }
 }
 
 /* Entry point — called by init_relocated() after peripheral init. */
-int main(void) {
+void main(void) {
     init_fdc();
     clear_screen();
     display_banner_and_start_crt();
     preinit();
-    return 0;
 }
 
 /* ================================================================
  * 6. Interrupt service routines
  * ================================================================ */
 
-/* CRT vertical retrace handler.
+/* Dummy ISR for unused interrupt vectors (generates EI + RETI). */
+void nothing_int(void) __interrupt(0) {
+}
+
+/* CRT vertical retrace ISR (CTC Ch2).
  *
  * Reprograms DMA Ch2/Ch3 for circular-buffer display scrolling.
- * Ch2: from DSPSTR+scroll_offset to end of buffer.
- * Ch3: from DSPSTR for the full 2000-byte screen. */
-void crt_refresh(void) {
+ * Ch2: from DSPSTR+scroll_offset to end of buffer (visible top->bottom).
+ * Ch3: from DSPSTR for full 2000 bytes (wraps around to supply the rest).
+ * Ch2 runs first (higher priority), Ch3 continues after Ch2 exhausts.
+ *
+ * This avoids a 1920-byte memcpy on every scroll — the BIOS just
+ * increments scroll_offset by 80 and the DMA hardware handles the wrap.
+ * The boot ROM itself never scrolls (scroll_offset stays 0).
+ *
+ * __critical keeps interrupts disabled (protects DMA programming).
+ * __interrupt(N) generates register save/restore + EI + RETI. */
+void crtint(void) __critical __interrupt(1) {
     (void)crt_status();                      /* acknowledge CRT interrupt */
 
     dma_mask(2);                             /* disable Ch2 during programming */
@@ -786,17 +788,6 @@ void crt_refresh(void) {
 
     ctc2_write(0xD7);                        /* rearm CTC Ch2: counter, interrupt */
     ctc2_write(0x01);                        /* time constant = 1 (every retrace) */
-}
-
-/* Dummy ISR for unused interrupt vectors (generates EI + RETI). */
-void nothing_int(void) __interrupt(0) {
-}
-
-/* CRT vertical retrace ISR (CTC Ch2).
- * __critical keeps interrupts disabled (protects DMA programming).
- * __interrupt(N) generates register save/restore + EI + RETI. */
-void crtint(void) __critical __interrupt(1) {
-    crt_refresh();
 }
 
 /* Floppy disk ISR (CTC Ch3).
