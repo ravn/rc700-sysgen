@@ -85,6 +85,8 @@ static void set_i_reg(byte page) {
     __asm__("ld i, a\n");
 }
 
+int main(void);
+
 /* Post-relocation entry point.  Called from begin() after LDIR copy.
  * Sets SP, I register, IM2, then calls init_peripherals() + main().
  * __naked because we set SP mid-function. */
@@ -294,9 +296,9 @@ byte wait_fdc_ready(byte timeout) {
     while (--timeout) {
         delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
         if (floppy_operation_completed_flag) {
-            di();
+            intrinsic_di();
             floppy_operation_completed_flag = 0;
-            ei();
+            intrinsic_ei();
             return 0;
         }
     }
@@ -337,7 +339,7 @@ void fdc_write_full_cmd(byte cmd) {
     byte mfm_flag = is_mfm ? FDC_MFM : 0;
     byte dh = (fdc_cmd.head << 2) | drive_select;
 
-    di();
+    intrinsic_di();
     fdc_write_when_ready(cmd + mfm_flag); /* command (+MFM if double density) */
     fdc_write_when_ready(dh); /* head/drive select */
 
@@ -348,7 +350,7 @@ void fdc_write_full_cmd(byte cmd) {
             fdc_write_when_ready(((byte *) &fdc_cmd)[i]);
         }
     }
-    ei();
+    intrinsic_ei();
 }
 
 /* Check FDC result status.  Returns 0=ok, 1=retry, 2=give up. */
@@ -654,7 +656,7 @@ static void get_floppy_ready(void) {
     fdc_result_delay = 4;
     is_mini = (read_sw1() >> 7) & 1; /* SW1 bit 7: 0=maxi, 1=mini */
 
-    ei();
+    intrinsic_ei();
     motor(1); /* turn on floppy motor */
     retry_count = 5;
     boot_from_floppy_or_jump_prom1();
