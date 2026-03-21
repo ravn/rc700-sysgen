@@ -256,25 +256,20 @@ void format_lookup(void);
 void calc_track_bytes(void);
 
 /* fdc */
-void sense_drive(void);
-void fdc_recalibrate(void);
 void fdc_sense_interrupt(void);
 void fdc_seek(byte dh, byte cyl);
 void fdc_read_result(void);
-byte recalibrate_verify(void);
 byte floppy_seek(void);
 void floppy_read_track(byte cmd);
 byte wait_floppy_interrupt(byte timeout);
 byte check_fdc_result(void);
 byte read_track(byte cmd, byte retries);
 byte disk_autodetect(void);
-void setup_dma(void);
 
 /* boot */
 void clear_screen(void);
 void display_banner_and_start_crt(void);
 void error_display_halt(byte code);
-byte detect_floppy_format(void);
 void boot_sysmsysc_or_jp0_or_halt(void);
 void floppy_boot(void);
 void check_prom1(void);

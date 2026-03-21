@@ -259,19 +259,6 @@ void calc_track_bytes(void) {
 #define WAITFL_MS        (255L * WAITFL_PER_ITER / (Z80_MHZ * 1000))
 typedef char _wait_floppy_interrupt_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
 
-/* Send Sense Drive Status; result in fdc_result[0] (ST3). */
-void sense_drive(void) {
-    fdc_wait_write(FDC_SENSE_DRIVE);
-    fdc_wait_write(drive_select);
-    fdc_result[0] = fdc_wait_read();
-}
-
-/* Send Recalibrate (seek to track 0). */
-void fdc_recalibrate(void) {
-    fdc_wait_write(FDC_RECALIBRATE);
-    fdc_wait_write(drive_select);
-}
-
 /* Send Sense Interrupt Status; ST0 in [0], PCN in [1]. */
 void fdc_sense_interrupt(void) {
     fdc_wait_write(FDC_SENSE_INT);
@@ -324,12 +311,6 @@ byte wait_floppy_interrupt(byte timeout) {
 static byte chk_seekres(byte expected_pcn);
 static void fldsk1(void);
 
-/* Recalibrate and verify head is at cylinder 0. */
-byte recalibrate_verify(void) {
-    fdc_recalibrate();
-    return chk_seekres(0);
-}
-
 /* Seek to current_cylinder and verify.
  * Placed before chk_seekres for tail-call fall-through (saves 3 bytes). */
 byte floppy_seek(void) {
@@ -343,18 +324,6 @@ static byte chk_seekres(byte expected_pcn) {
     if ((drive_select + 0x20) != fdc_result[0]) { return 2; }  /* SE+drive */
     if (expected_pcn != fdc_result[1]) { return 2; }           /* verify PCN */
     return 0;
-}
-
-/* Program DMA channel 1 for floppy disk transfer. */
-void setup_dma(void) {
-    di();
-    dma_mask(1);                             /* disable Ch1 during programming */
-    dma_mode(0x45);                          /* Ch1: demand, incr, write I/O->mem */
-    dma_clear_bp();                          /* reset byte pointer flip-flop */
-    dma_ch1_addr(dma_addr);                  /* transfer destination address */
-    dma_ch1_wc(transfer_bytes - 1);          /* word count (N-1) */
-    dma_unmask(1);                           /* enable Ch1 */
-    ei();
 }
 
 /* Issue FDC read command with parameter block.
@@ -407,7 +376,15 @@ byte read_track(byte cmd, byte retries) {
         ei();
 
         if ((read_track_cmd & 0x0F) != FDC_READ_ID) {
-            setup_dma();
+            /* program DMA channel 1 for floppy transfer */
+            di();
+            dma_mask(1);                     /* disable Ch1 during programming */
+            dma_mode(0x45);                  /* Ch1: demand, incr, write I/O->mem */
+            dma_clear_bp();                  /* reset byte pointer flip-flop */
+            dma_ch1_addr(dma_addr);          /* transfer destination address */
+            dma_ch1_wc(transfer_bytes - 1);  /* word count (N-1) */
+            dma_unmask(1);                   /* enable Ch1 */
+            ei();
         }
 
         floppy_read_track(read_track_cmd);
@@ -587,34 +564,6 @@ void check_prom1(void) {
     halt_msg(" **NO DISKETTE NOR LINEPROG** ", 30);
 }
 
-/* Advance to next head/side, or next cylinder if both sides done. */
-static void nxthds(void) {
-    byte max_head;
-    current_sector = 1;
-    max_head = (disk_bits >> 1) & 0x01;
-    if (max_head == current_head) {
-        current_head = 0;
-        current_cylinder++;
-    } else {
-        current_head++;
-    }
-}
-
-/* Calculate transfer size, update track_overflow and more_flag. */
-static void calctx(void) {
-    int16_t remaining;
-    calc_track_bytes();
-    remaining = (int16_t)track_overflow - (int16_t)transfer_bytes;
-    if (remaining > 0) {
-        more_flag = 1;
-        track_overflow = (word)remaining;
-    } else {
-        more_flag = 0;
-        transfer_bytes = track_overflow;
-        track_overflow = 0;
-    }
-}
-
 /* Read Track 0 data across multiple sides/cylinders. */
 static void rdtrk0(word track_overflow_init) {
     track_overflow = track_overflow_init;
@@ -630,8 +579,20 @@ static void rdtrk0(word track_overflow_init) {
             return;
         }
 
-
-        calctx();
+        /* calculate transfer size (inlined calctx) */
+        {
+            int16_t remaining;
+            calc_track_bytes();
+            remaining = (int16_t)track_overflow - (int16_t)transfer_bytes;
+            if (remaining > 0) {
+                more_flag = 1;
+                track_overflow = (word)remaining;
+            } else {
+                more_flag = 0;
+                transfer_bytes = track_overflow;
+                track_overflow = 0;
+            }
+        }
 
         if (read_track(FDC_READ_DATA, 5) != 0) {
             error_display_halt(0x28);
@@ -640,25 +601,24 @@ static void rdtrk0(word track_overflow_init) {
 
         dma_addr += transfer_bytes;
         transfer_bytes = 0;
-        nxthds();
+
+        /* advance to next head/side or cylinder (inlined nxthds) */
+        {
+            byte max_head;
+            current_sector = 1;
+            max_head = (disk_bits >> 1) & 0x01;
+            if (max_head == current_head) {
+                current_head = 0;
+                current_cylinder++;
+            } else {
+                current_head++;
+            }
+        }
+
         if (!more_flag) {
             return;
         }
     }
-}
-
-/* Detect disk format on both sides.  Returns 0=ok, 1=error. */
-byte detect_floppy_format(void) {
-    current_cylinder = 0;
-    current_head = 1;
-    current_sector = 1;
-
-    if (disk_autodetect() == 0) {
-        disk_bits |= 0x02;                  /* side 1 present */
-    }
-
-    current_head = 0;
-    return disk_autodetect();
 }
 
 /* Initialize boot state and start floppy boot.
@@ -682,11 +642,31 @@ static void fldsk1(void) {
 
     delay(1, 0xFF);
 
-    sense_drive();
+    /* sense drive status (inlined sense_drive) */
+    fdc_wait_write(FDC_SENSE_DRIVE);
+    fdc_wait_write(drive_select);
+    fdc_result[0] = fdc_wait_read();
     status = fdc_result[0] & 0x23;           /* ST3: RDY + HD + US */
+
+    /* recalibrate (inlined fdc_recalibrate + recalibrate_verify) */
+    fdc_wait_write(FDC_RECALIBRATE);
+    fdc_wait_write(drive_select);
+
     if (status != (drive_select + 0x20) ||   /* expect RDY + matching drive */
-        recalibrate_verify() != 0 ||
-        detect_floppy_format() != 0) {
+        chk_seekres(0) != 0) {
+        check_prom1();
+        return;
+    }
+
+    /* detect disk format on both sides (inlined detect_floppy_format) */
+    current_cylinder = 0;
+    current_head = 1;
+    current_sector = 1;
+    if (disk_autodetect() == 0) {
+        disk_bits |= 0x02;                  /* side 1 present */
+    }
+    current_head = 0;
+    if (disk_autodetect() != 0) {
         check_prom1();
         return;
     }

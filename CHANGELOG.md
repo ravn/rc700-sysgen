@@ -1,5 +1,60 @@
 # Changelog
 
+## 2026-03-21: Manual inlining, DMA Ch3 removal, zsdcc documentation
+
+### What was done
+1. **Remove unused DMA Ch3 and scroll_offset** — the boot ROM never scrolls
+   (scroll_offset stays 0), so DMA Ch2 alone transfers the full 2000-byte
+   screen.  The BIOS replaces the CRT ISR entirely after boot.  Removed
+   Ch3 programming from `crtint`, Ch3 mode setup from `init_peripherals`,
+   and `scroll_offset = 0` from `display_banner_and_start_crt`.  Saves 44 bytes.
+
+2. **Manual inlining of 7 single-call functions** — sdcc has no automatic
+   inlining, and `static inline` leaves dead standalone copies (see below).
+   Manually inlined into their sole callers:
+   - `sense_drive` (13 bytes) into `fldsk1`
+   - `fdc_recalibrate` (8 bytes) into `fldsk1`
+   - `recalibrate_verify` (6 bytes) into `fldsk1`
+   - `setup_dma` (41 bytes) into `read_track`
+   - `nxthds` (24 bytes) into `rdtrk0`
+   - `calctx` (46 bytes) into `rdtrk0`
+   - `detect_floppy_format` (24 bytes) into `fldsk1`
+   Saves ~25 bytes (7 x CALL+RET minus sdcc codegen differences).
+
+3. **Investigated `static inline`** — zsdcc 4.5.0 supports `static inline`
+   and genuinely inlines at call sites.  However, it unconditionally emits
+   the standalone function body as dead code.  The z88dk linker has no
+   `--gc-sections` to strip it.  Result: `static inline` INCREASES total
+   code size.  Manual inlining is the only option for size-constrained ROMs.
+   Tested and documented.
+
+4. **Investigated z80asm linker features** — found DEFC (link-time constant
+   expressions), automatic `__section_head/tail/size` symbols, DEFVARS,
+   ALIGN, `-split-bin`, library support.  Key finding: DEFC could compute
+   `&code_end - &intvec + 1` at link time instead of runtime in `boot_rom.c`,
+   saving ~8 bytes.  Not yet applied (noted as future optimization).
+
+5. **Created ZSDCC_NOTES.md** — documents `static inline` dead code issue,
+   `--fomit-frame-pointer`, `--sdcccall 1` register convention, `memcpy`/
+   `memset` inlining, variable-count shift library calls, peephole rules,
+   tail-call fall-through, ISR `__interrupt(N)` requirements, and unity
+   build benefits.
+
+### User choices
+- User confirmed BIOS reprograms everything after boot jump — enabled
+  DMA Ch3 removal and `crt_refresh` inlining (previous commit).
+- User asked to investigate `static inline` — after finding it leaves
+  dead code, chose manual inlining for size.
+- User asked to document zsdcc findings in the project.
+- User asked about linker features — DEFC noted for future use.
+
+### Verification
+- CODE: 1914 -> 1889 bytes (-25 from inlining, -44 from DMA Ch3 = -69 total)
+  Note: some size differences from user's CLion edits to rom.c between commits.
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Dead variable removal and ISR inlining
 
 ### What was done
