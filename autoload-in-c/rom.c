@@ -705,13 +705,16 @@ static void boot_from_floppy_or_jump_prom1(void) {
     boot_floppy_or_prom();
 }
 
-/* Boot from floppy: read COMAL boot area and jump to 0x1000. NOTE:  Untested for now - reads more from floppy */
+/* Boot from floppy: read COMAL boot area to 0x0000 and jump to 0x1000.
+ * Reads up to INTVEC_ADDR (0x7000) bytes — enough to fill memory from
+ * 0x0000 to just below the IVT.  The original ROM passes HL=INTVEC to
+ * RDTRK0 as the byte count. */
 void floppy_boot(void) {
     disk_type = (disk_bits & 0b10000000) | disk_type;
     disk_type--;
     fdc_detect_sector_size_and_density();
     dma_transfer_address = FLOPPYDATA;
-    fdc_read_data_from_current_location(0x7300 - 0x7000);
+    fdc_read_data_from_current_location(INTVEC_ADDR);
     disk_type = 1;
     jump_to(COMALBOOT);
 }
