@@ -4,7 +4,7 @@
  * Single translation unit for the Z80 ROM build, enabling cross-function
  * inlining, dead code elimination, and better register allocation.
  *
- * Section order within the file:
+ * Section order:
  *   1. HAL functions (FDC wait loops, delay)
  *   2. Initialization (post-relocation entry, peripherals, FDC, CRT)
  *   3. Format tables and geometry
@@ -14,8 +14,8 @@
  *   7. Sentinel (code_end marker)
  *
  * Separately compiled units (different link order or codeseg):
- *   - intvec.c  — IVT at 0x7000, linked first
- *   - boot_entry.c — BOOT section at 0x0000
+ *   - intvec.c    — IVT at 0x7000, linked first
+ *   - boot_rom.c  — BOOT section at 0x0000
  *   - sections.asm — linker section layout
  */
 
@@ -28,19 +28,18 @@
 /* ================================================================
  * 1. HAL functions
  *
- * These were originally hand-written assembly.  sdcc
- * generates nearly identical code from C.
+ * Originally hand-written assembly; sdcc generates nearly identical
+ * code from C.
  *
- * delay timing note:
- *   The assembly version used dec a/jr nz (16 T-states/iteration) for the
- *   innermost loop.  sdcc generates djnz (13 T-states/iteration), making
- *   the delay ~19% shorter for the same parameters.  Callers that need to
- *   match the original timing must adjust their outer/inner values.
- *   See init_fdc for the compensated call (2, 157) that matches
- *   the original (1, 0xFF) assembly timing within 0.3%.
- *   If delay is ever reverted to assembly, restore init_fdc to (1, 0xFF).
+ * delay() timing note:
+ *   Assembly used dec a / jr nz (16 T-states/iter).  sdcc generates
+ *   djnz (13 T-states), making delay ~19% shorter for same params.
+ *   See init_fdc() for compensated call (2, 157) matching the
+ *   original (1, 0xFF) within 0.3%.
  * ================================================================ */
 
+/* Wait for FDC ready-to-write, then write val to data register.
+ * Polls MSR until RQM=1 and DIO=0 (CPU->FDC direction). */
 void fdc_wait_write(byte val) {
     word t = 0;
     do {
@@ -51,6 +50,8 @@ void fdc_wait_write(byte val) {
     } while (++t);
 }
 
+/* Wait for FDC ready-to-read, then read from data register.
+ * Polls MSR until RQM=1 and DIO=1 (FDC->CPU direction). */
 byte fdc_wait_read(void) {
     word t = 0;
     do {
@@ -61,8 +62,9 @@ byte fdc_wait_read(void) {
     return 0xFF;
 }
 
+/* Software delay loop: outer x inner x 256 iterations of DJNZ. */
 void delay(byte outer, byte inner) {
-    if (!outer) return;
+    if (!outer) { return; }
     do {
         byte mid = inner;
         do {
@@ -84,8 +86,8 @@ static void set_i_reg(byte page)
     __asm__("ld i, a\n");
 }
 
-/* Post-relocation entry point.  Called from BEGIN after LDIR.
- * Sets SP, I register, IM2, then calls init_peripherals + main.
+/* Post-relocation entry point.  Called from begin() after LDIR copy.
+ * Sets SP, I register, IM2, then calls init_peripherals() + main().
  * __naked because we set SP mid-function. */
 void init_relocated(void) __naked
 {
@@ -94,82 +96,80 @@ void init_relocated(void) __naked
     intrinsic_im_2();
     init_peripherals();
     main();
-    /* halt_forever — should never reach here */
     for (;;)
         ;
 }
 
-/*
- * init_peripherals — combined PIO/CTC/DMA/CRT initialization.
- * Uses hal macros which expand to direct __sfr port writes on Z80.
- */
+/* Combined PIO/CTC/DMA/CRT initialization.
+ * Macros expand to direct __sfr port writes on Z80. */
 void init_peripherals(void) {
-    /* PIO setup */
-    pio_write_a_ctrl(0x02);
-    pio_write_b_ctrl(0x04);
-    pio_write_a_ctrl(0x4F);
-    pio_write_b_ctrl(0x0F);
-    pio_write_a_ctrl(0x83);
-    pio_write_b_ctrl(0x83);
+    /* PIO — Z80 PIO, Port A = keyboard input, Port B = parallel output */
+    pio_write_a_ctrl(0x02);          /* Port A: interrupt vector = 0x02 */
+    pio_write_b_ctrl(0x04);          /* Port B: interrupt vector = 0x04 */
+    pio_write_a_ctrl(0x4F);          /* Port A: mode 1 (input) */
+    pio_write_b_ctrl(0x0F);          /* Port B: mode 0 (output) */
+    pio_write_a_ctrl(0x83);          /* Port A: interrupt — enable, AND, active high */
+    pio_write_b_ctrl(0x83);          /* Port B: interrupt — enable, AND, active high */
 
-    /* CTC setup */
-    ctc0_write(0x08);    /* interrupt vector base (D0=0: vector word) */
-    ctc0_write(0x47);    /* counter mode, falling edge, TC follows, reset */
-    ctc0_write(0x20);    /* time constant = 32 */
-    ctc1_write(0x47);    /* same config as Ch0 */
-    ctc1_write(0x20);
-    ctc2_write(0xD7);
-    ctc2_write(0x01);
-    ctc3_write(0xD7);
-    ctc3_write(0x01);
+    /* CTC — Z80 CTC, 4 channels */
+    ctc0_write(0x08);                /* Ch0: interrupt vector base = 0x08 */
+    ctc0_write(0x47);                /* Ch0: counter, falling edge, TC follows, reset */
+    ctc0_write(0x20);                /* Ch0: time constant = 32 */
+    ctc1_write(0x47);                /* Ch1: counter, falling edge, TC follows, reset */
+    ctc1_write(0x20);                /* Ch1: time constant = 32 */
+    ctc2_write(0xD7);                /* Ch2 (display): counter, interrupt, TC follows */
+    ctc2_write(0x01);                /* Ch2: time constant = 1 (every retrace) */
+    ctc3_write(0xD7);                /* Ch3 (floppy): counter, interrupt, TC follows */
+    ctc3_write(0x01);                /* Ch3: time constant = 1 (every interrupt) */
 
-    /* DMA setup */
-    dma_command(0x20);
-    dma_mode(0xC0);
-    dma_unmask(0);
-    dma_mode(0x4A);
-    dma_mode(0x4B);
+    /* DMA — AMD Am9517A / Intel 8237 */
+    dma_command(0x20);               /* master clear + standard configuration */
+    dma_mode(0xC0);                  /* Ch0: cascade mode (WD1000 hard disk) */
+    dma_unmask(0);                   /* Ch0: enable */
+    dma_mode(0x4A);                  /* Ch2: single xfer, write mem->I/O (display) */
+    dma_mode(0x4B);                  /* Ch3: single xfer, write mem->I/O (scroll) */
 
-    /* CRT setup — Intel 8275 commands (bits 7-5 = command code) */
-    crt_command(0x00);  /* reset (expect 4 param bytes) */
-    crt_param(0x4F);    /*   S=0, H=79: 80 chars/row */
-    crt_param(0x98);    /*   V=2 vretrace, R=24: 25 rows */
-    crt_param(0x9A);    /*   L=9 underline pos, U=10 lines/char */
-    crt_param(0x5D);    /*   F=0, M=1 transparent, C=01 blink underline cursor, Z=28 hretrace */
-    crt_command(0x80);  /* load cursor (expect 2 param bytes) */
-    crt_param(0x00);    /*   column = 0 */
-    crt_param(0x00);    /*   row = 0 */
-    crt_command(0xE0);  /* preset counters */
+    /* CRT — Intel 8275 (bits 7-5 = command code) */
+    crt_command(0x00);               /* reset (expect 4 param bytes) */
+    crt_param(0x4F);                 /*   S=0, H=79: 80 chars/row */
+    crt_param(0x98);                 /*   V=2 vretrace, R=24: 25 rows */
+    crt_param(0x9A);                 /*   L=9 underline, U=10 lines/char */
+    crt_param(0x5D);                 /*   F=0, M=1 transparent, C=01 blink, Z=28 */
+    crt_command(0x80);               /* load cursor (expect 2 param bytes) */
+    crt_param(0x00);                 /*   column = 0 */
+    crt_param(0x00);                 /*   row = 0 */
+    crt_command(0xE0);               /* preset counters */
 }
 
+/* Fill display memory with spaces. */
 void clear_screen(void) {
-    byte *p = dspstr;
-    word i = 80 * 25;
-    while (i--) *p++ = 0x20;
+    memset(dspstr, ' ', 80 * 25);
 }
 
+/* Initialize FDC with Specify command. */
 void init_fdc(void) {
-    delay(2, 157);
-    while (fdc_status() & 0x1F) ;
-    fdc_wait_write(0x03);
-    fdc_wait_write(0x4F);
-    fdc_wait_write(0x20);
+    delay(2, 157);                   /* wait for FDC to become ready */
+    while (fdc_status() & 0x1F) {
+        ;
+    };  /* wait until no drives are busy */
+    fdc_wait_write(0x03);            /* Specify command */
+    fdc_wait_write(0x4F);            /*   SRT=4 (8ms step), HUT=F (240ms unload) */
+    fdc_wait_write(0x20);            /*   HLT=10 (32ms load), ND=0 (DMA mode) */
 }
 
-void display_banner(void) {
-    extern const char msg_rc700[];
-    const byte *src = (const byte *)msg_rc700;
-    byte *dst = dspstr;
-    byte i = 6;
-    while (i--) *dst++ = *src++;
+/* Copy " RC700" to display and start CRT controller. */
+void display_banner_and_start_crt(void) {
+    memcpy(dspstr, " RC700 gensmedet", 16);
     scroll_offset = 0;
-    crt_command(0x23);
+    crt_command(0x23);               /* start display: burst=0, 8 DMA cycles */
 }
 
 /* ================================================================
  * 3. Format tables and geometry
  * ================================================================ */
 
+/* Format parameters indexed by sector size code N (0-3).
+ * Each row: { side0_eot, side0_gap3, side1_eot, side1_gap3 } */
 static const byte maxifmt[4][4] = {
     { 0x1A, 0x07, 0x34, 0x07 },
     { 0x0F, 0x0E, 0x1A, 0x0E },
@@ -184,145 +184,140 @@ static const byte minifmt[4][4] = {
     { 0x00, 0x00, 0x05, 0x35 },
 };
 
-void fmtlkp(void) {
+/* Look up format parameters from disk type and sector size code. */
+void format_lookup(void) {
     const byte *tbl;
     byte side_offset;
-    byte n = reclen & 0x03;
+    byte n = sector_size_code & 0x03;
 
-    if (diskbits & 0x80) {
+    if (disk_bits & 0x80) {
         tbl = minifmt[n];
-        epts = 0x23;
+        sectors_per_track = 0x23;    /* 35 sectors (5.25" mini) */
     } else {
         tbl = maxifmt[n];
-        epts = 0x4C;
+        sectors_per_track = 0x4C;    /* 76 sectors (8" maxi) */
     }
 
-    side_offset = (diskbits & 0x01) ? 2 : 0;
-    cureot = tbl[side_offset];
-    trksz = tbl[side_offset];
+    side_offset = (disk_bits & 0x01) ? 2 : 0;
+    end_of_track = tbl[side_offset];
+    track_size = tbl[side_offset];
     gap3 = tbl[side_offset + 1];
-    dtl = 0x80;
+    data_length = 0x80;
 }
 
-void calctb(void) {
-    word secbytes;
+/* Calculate transfer byte count for current track geometry. */
+void calc_track_bytes(void) {
     byte sectors;
     byte i;
 
-    secbytes = 0x80;
-    for (i = 0; i < reclen; i++) {
-        secbytes <<= 1;
-    }
-    secbyt = secbytes;
+    sector_bytes = 128 << sector_size_code;
 
-    sectors = cureot - currec + 1;
+    sectors = end_of_track - current_sector + 1;
 
-    if ((dsktyp & 0x80) && curhed == 1) {
+    if ((disk_type & 0x80) && current_head == 1) {
         sectors = 0x0A;
     }
 
-    /* trbyt = sectors * (128 << N) = sectors << (7 + N) */
+    /* transfer_bytes = sectors * (128 << N) = sectors << (7 + N) */
     {
         word tb = (word)sectors;
-        for (i = 7 + reclen; i != 0; i--) tb <<= 1;
-        trbyt = tb;
+        for (i = 7 + sector_size_code; i != 0; i--) tb <<= 1;
+        transfer_bytes = tb;
     }
 }
 
 /* ================================================================
- * 4. FDC driver
- *
- * NEC uPD765 (Intel 8272) commands and result handling.
+ * 4. FDC driver — NEC uPD765 (Intel 8272)
  *
  * Main Status Register (fdc_status(), port 0x04):
- *   bit 7: RQM — ready for CPU data transfer
- *   bit 6: DIO — direction (0=CPU->FDC write, 1=FDC->CPU read)
- *   bit 5: EXM — in execution phase
- *   bit 4: CB  — command busy (FDC has a command in progress)
- *   bits 3-0:   drive busy flags (per-drive seek in progress)
+ *   bit 7:   RQM  — ready for CPU data transfer
+ *   bit 6:   DIO  — direction (0=CPU->FDC, 1=FDC->CPU)
+ *   bit 5:   EXM  — in execution phase
+ *   bit 4:   CB   — command busy
+ *   bits 3-0:       drive busy flags
  *
- * Result registers (fdcres[], read via fdc_wait_read()):
- *   ST0 [0]: bit 7-6 = IC (interrupt code: 00=normal, 01=abnormal,
- *            10=invalid cmd, 11=not ready); bit 5 = SE (seek end);
- *            bit 2 = HD (head); bits 1-0 = US (unit/drive select)
+ * Result registers (fdc_result[], via fdc_wait_read()):
+ *   ST0 [0]: IC (7-6), SE (5), HD (2), US (1-0)
  *   ST1 [1]: error flags (EN, DE, OR, ND, NW, MA)
- *   ST2 [2]: error flags; bit 6 = CM (control mark, benign)
- *   ST3 [0]: from Sense Drive Status — bit 5 = RDY; bits 2-0 = HD+US
- *   [3]-[6]: C, H, R, N (cylinder, head, record, sector size code)
+ *   ST2 [2]: error flags; bit 6 = CM (benign)
+ *   ST3 [0]: from Sense Drive — RDY (5), HD+US (2-0)
+ *   [3]-[6]: C, H, R, N
  * ================================================================ */
 
 /*
- * waitfl timing model — must be long enough for worst-case FM track read.
+ * wait_floppy_interrupt() timing model.
  *
- * delay(outer, inner) compiles to:
- *   outer x inner x 256 DJNZ iterations x 13 T-states = total T-states
+ * Must cover worst-case FM track read: 8" at 360 RPM = 166ms/rev.
+ * Wait for sector 1 (~1 rev) + read 26 sectors (~1 rev) = 332ms.
+ * Require >= 400ms.
  *
- * waitfl calls delay once per iteration, with 255 iterations max.
- * Total timeout = 255 x delay T-states.
- *
- * Worst case: 8" FM track at 360 RPM = 166ms/revolution.
- * Head may need to wait for sector 1 (~1 revolution) then read all
- * 26 sectors (~1 revolution) = 332ms.  Add margin -> require >=400ms.
- *
- * Assembly DELAY(B=1,C=1) used a 16-bit HL loop: 511x24T = 12,264T.
- * delay(1,4) = 4x256x13 = 13,312T — matches within 8%.
+ * delay(1,4) = 4 x 256 x 13T = 13,312T per iteration.
+ * 255 iterations = 851,200T = 213ms at 4MHz.
+ * Matches original assembly (511 x 24T = 12,264T) within 8%.
  */
 #define WAITFL_DELAY_OUTER  1
 #define WAITFL_DELAY_INNER  4
 
-/* Compile-time timeout check */
-#define Z80_MHZ           4  /* RC702: Z80-A at 4 MHz */
+/* Compile-time check: timeout >= 400ms */
+#define Z80_MHZ           4
 #define WAITFL_PER_ITER  ((long)(WAITFL_DELAY_OUTER) * (WAITFL_DELAY_INNER) * 256 * 13)
 #define WAITFL_MS        (255L * WAITFL_PER_ITER / (Z80_MHZ * 1000))
-typedef char _waitfl_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
+typedef char _wait_floppy_interrupt_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
 
-void snsdrv(void) {
+/* Send Sense Drive Status; result in fdc_result[0] (ST3). */
+void sense_drive(void) {
     fdc_wait_write(FDC_SENSE_DRIVE);
-    fdc_wait_write(drvsel);
-    fdcres[0] = fdc_wait_read(); /* ST3: drive status */
+    fdc_wait_write(drive_select);
+    fdc_result[0] = fdc_wait_read();
 }
 
-void flo4(void) {
+/* Send Recalibrate (seek to track 0). */
+void fdc_recalibrate(void) {
     fdc_wait_write(FDC_RECALIBRATE);
-    fdc_wait_write(drvsel);
+    fdc_wait_write(drive_select);
 }
 
-void flo6(void) {
+/* Send Sense Interrupt Status; ST0 in [0], PCN in [1]. */
+void fdc_sense_interrupt(void) {
     fdc_wait_write(FDC_SENSE_INT);
-    fdcres[0] = fdc_wait_read();   /* ST0 */
-    if ((fdcres[0] & 0xC0) != 0x80) {  /* IC != 10 (not "invalid cmd") */
-        fdcres[1] = fdc_wait_read(); /* PCN (present cylinder) */
+    fdc_result[0] = fdc_wait_read();         /* ST0 */
+    if ((fdc_result[0] & 0xC0) != 0x80) {    /* IC != 10 (not invalid cmd) */
+        fdc_result[1] = fdc_wait_read();     /* PCN (present cylinder) */
     }
 }
 
-void flo7(byte dh, byte cyl) {
+/* Send Seek command to head/drive dh, cylinder cyl. */
+void fdc_seek(byte dh, byte cyl) {
     fdc_wait_write(FDC_SEEK);
-    fdc_wait_write(dh & 0x07);  /* HD + US1/US0 (head + drive) */
-    fdc_wait_write(cyl);        /* NCN (new cylinder number) */
+    fdc_wait_write(dh & 0x07);               /* HD + US (head + drive) */
+    fdc_wait_write(cyl);                     /* NCN (new cylinder number) */
 }
 
-void rsult(void) {
+/* Read FDC result phase (up to 7 bytes into fdc_result[]). */
+void fdc_read_result(void) {
     byte i;
 
-    fdcflg = 7;
+    fdc_flag = 7;
     for (i = 0; i < 7; i++) {
-        fdcres[i] = fdc_wait_read();
-        delay(0, fdcwai);
-        if (!(fdc_status() & 0x10)) {  /* CB=0: no more result bytes */
-            fdcres[i + 1] = dma_status();
+        fdc_result[i] = fdc_wait_read();
+        delay(0, fdc_wait);
+        if (!(fdc_status() & 0x10)) {        /* CB=0: no more result bytes */
+            fdc_result[i + 1] = dma_status();
             return;
         }
     }
-    errsav = 0xFE;
-    errdsp(0xFE);
+    error_saved = 0xFE;
+    error_display_halt(0xFE);
 }
 
-byte waitfl(byte timeout) {
+/* Wait for floppy interrupt (floppy_flag set by ISR).
+ * Returns 0=ok, 1=timeout. */
+byte wait_floppy_interrupt(byte timeout) {
     while (--timeout) {
         delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
-        if (flpflg & 0x02) {
+        if (floppy_flag & 0x02) {
             di();
-            flpflg = 0;
+            floppy_flag = 0;
             ei();
             return 0;
         }
@@ -330,47 +325,53 @@ byte waitfl(byte timeout) {
     return 1;
 }
 
-/* Shared helper: check seek/recalibrate result */
+/* Wait for seek/recalibrate interrupt, verify ST0 and PCN. */
 static byte chk_seekres(byte expected_pcn) {
-    if (waitfl(0xFF)) return 1;
-    if ((drvsel + 0x20) != fdcres[0]) return 2; /* expect SE+drive in ST0 */
-    if (expected_pcn != fdcres[1]) return 2;       /* verify cylinder (PCN) */
+    if (wait_floppy_interrupt(0xFF)) { return 1; }
+    if ((drive_select + 0x20) != fdc_result[0]) { return 2; }  /* SE+drive */
+    if (expected_pcn != fdc_result[1]) { return 2; }           /* verify PCN */
     return 0;
 }
 
-byte recalv(void) {
-    flo4();
+/* Recalibrate and verify head is at cylinder 0. */
+byte recalibrate_verify(void) {
+    fdc_recalibrate();
     return chk_seekres(0);
 }
 
-byte flseek(void) {
-    flo7((curhed << 2) | drvsel, curcyl);
-    return chk_seekres(curcyl);
+/* Seek to current_cylinder and verify. */
+byte floppy_seek(void) {
+    fdc_seek((current_head << 2) | drive_select, current_cylinder);
+    return chk_seekres(current_cylinder);
 }
 
-void stpdma(void) {
+/* Program DMA channel 1 for floppy disk transfer. */
+void setup_dma(void) {
     di();
-    dma_mask(1);
-    dma_mode(0x45);  /* demand mode, addr increment, read, channel 1 */
-    dma_clear_bp();
-    dma_ch1_addr(memadr);
-    dma_ch1_wc(trbyt - 1);
-    dma_unmask(1);
+    dma_mask(1);                             /* disable Ch1 during programming */
+    dma_mode(0x45);                          /* Ch1: demand, incr, write I/O->mem */
+    dma_clear_bp();                          /* reset byte pointer flip-flop */
+    dma_ch1_addr(dma_addr);                  /* transfer destination address */
+    dma_ch1_wc(transfer_bytes - 1);          /* word count (N-1) */
+    dma_unmask(1);                           /* enable Ch1 */
     ei();
 }
 
-void flrtrk(byte cmd) {
-    byte mfm_flag = (diskbits & 0x01) ? FDC_MFM : 0;
-    byte dh = (curhed << 2) | drvsel;
+/* Issue FDC read command with parameter block.
+ * For Read Data, sends 7-byte block: C, H, R, N, EOT, GPL, DTL. */
+void floppy_read_track(byte cmd) {
+    byte mfm_flag = (disk_bits & 0x01) ? FDC_MFM : 0;
+    byte dh = (current_head << 2) | drive_select;
 
     di();
-    fdcflg = 0xFF;
+    fdc_flag = 0xFF;
 
-    fdc_wait_write(cmd + mfm_flag);
-    fdc_wait_write(dh);
+    fdc_wait_write(cmd + mfm_flag);          /* command (+MFM if double density) */
+    fdc_wait_write(dh);                      /* head/drive select */
 
     if ((cmd & 0x0F) == FDC_READ_DATA) {
-        byte *p = &curcyl;
+        /* 7-byte parameter block: C, H, R, N, EOT, GPL, DTL */
+        byte *p = &current_cylinder;
         byte i;
         for (i = 0; i < 7; i++) {
             fdc_wait_write(p[i]);
@@ -379,64 +380,72 @@ void flrtrk(byte cmd) {
     ei();
 }
 
-byte chkres(void) {
-    if ((fdcres[0] & 0xC3) == drvsel &&  /* ST0: IC=00 + drive match */
-        fdcres[1] == 0 &&                     /* ST1: no errors */
-        (fdcres[2] & 0xBF) == 0) {            /* ST2: ignore CM (bit 6) */
+/* Check FDC result status.  Returns 0=ok, 1=retry, 2=give up. */
+byte check_fdc_result(void) {
+    if ((fdc_result[0] & 0xC3) == drive_select &&  /* ST0: IC=00 + drive */
+        fdc_result[1] == 0 &&                       /* ST1: no errors */
+        (fdc_result[2] & 0xBF) == 0) {              /* ST2: ignore CM */
         return 0;
     } else {
-        reptim--;
-        return (reptim == 0) ? 2 : 1;
+        retry_count--;
+        return (retry_count == 0) ? 2 : 1;
     }
 }
 
-/* File-scope global to avoid IX frame pointer in readtk's retry loop.
- * Safe: no recursion in the call graph (verified). */
-static byte readtk_cmd;
+/* File-scope global to avoid IX frame pointer in retry loop. */
+static byte read_track_cmd;
 
-byte readtk(byte cmd, byte retries) {
+/* Read track with retries.  Returns 0=ok, 1=error. */
+byte read_track(byte cmd, byte retries) {
     byte r;
-    readtk_cmd = cmd;
-    reptim = retries;
+    read_track_cmd = cmd;
+    retry_count = retries;
 
     while (1) {
-        /* inline clrflf */
+        /* clear floppy interrupt flag */
         di();
-        flpflg = 0;
+        floppy_flag = 0;
         ei();
 
-        if ((readtk_cmd & 0x0F) != FDC_READ_ID) {
-            stpdma();
+        if ((read_track_cmd & 0x0F) != FDC_READ_ID) {
+            setup_dma();
         }
 
-        flrtrk(readtk_cmd);
+        floppy_read_track(read_track_cmd);
 
-        if (waitfl(0xFF)) return 1;
+        if (wait_floppy_interrupt(0xFF)) {
+            return 1;
+        }
 
-        r = chkres();
-        if (r == 0) return 0;
-        if (r == 2) return 1;
+        r = check_fdc_result();
+        if (r == 0) {
+            return 0;
+        }
+        if (r == 2) {
+            return 1;
+        }
     }
 }
 
-byte dskauto(void) {
-    diskbits &= ~0x01;
+/* Auto-detect disk format by reading sector ID.
+ * Tries FM first, then MFM.  Returns 0=ok, 1=error. */
+byte disk_autodetect(void) {
+    disk_bits &= ~0x01;
 
     while (1) {
-        if (flseek() != 0) return 1;
+        if (floppy_seek() != 0) { return 1; }
 
-        trbyt = 4;
-        if (readtk(FDC_READ_ID, 1) == 0) break;
-        if (diskbits & 0x01) return 1;
-        diskbits |= 0x01;
+        transfer_bytes = 4;
+        if (read_track(FDC_READ_ID, 1) == 0) { break; }
+        if (disk_bits & 0x01) { return 1; }
+        disk_bits |= 0x01;                  /* switch to MFM and retry */
     }
 
-    /* fdcres[6] = N (sector size code) from Read ID result */
-    diskbits = (diskbits & 0xE3) | (fdcres[6] << 2); /* store N in bits 4-2 */
-    /* inline setfmt */
-    reclen = (diskbits >> 2) & 0x07; /* extract N back from diskbits */
-    fmtlkp();
-    calctb();
+    /* N (sector size code) from Read ID result */
+    disk_bits = (disk_bits & 0xE3) | (fdc_result[6] << 2);
+    sector_size_code = (disk_bits >> 2) & 0x07;
+    format_lookup();
+    calc_track_bytes();
     return 0;
 }
 
@@ -444,297 +453,300 @@ byte dskauto(void) {
  * 5. Boot logic
  * ================================================================ */
 
-/* Boot state variables — initialized to zero; preinit() sets non-zero values. */
-byte fdcres[7] = {0};
-byte fdcflg = 0;
-byte epts = 0;
-byte trksz = 0;
-byte drvsel = 0;
-byte fdctmo = 0;
-byte fdcwai = 0;
-byte curcyl = 0;
-byte curhed = 0;
-byte currec = 0;
-byte reclen = 0;
-byte cureot = 0;
+/* Boot state variables — initialized to zero; preinit() sets non-zero.
+ *
+ * FDC command block (current_cylinder..data_length) must be contiguous.
+ * floppy_read_track() sends 7 bytes starting at &current_cylinder.
+ * Do not reorder or insert variables between them. */
+byte fdc_result[7] = {0};
+byte fdc_flag = 0;
+byte sectors_per_track = 0;
+byte track_size = 0;
+byte drive_select = 0;
+byte fdc_timeout = 0;
+byte fdc_wait = 0;
+byte current_cylinder = 0;          /* --- FDC command block start --- */
+byte current_head = 0;
+byte current_sector = 0;
+byte sector_size_code = 0;
+byte end_of_track = 0;
 byte gap3 = 0;
-byte dtl = 0;
-word secbyt = 0;
-byte flpflg = 0;
-byte flpwai = 0;
-byte diskbits = 0;
-byte dsktyp = 0;
-byte morefl = 0;
-byte reptim = 0;
-word memadr = 0;
-word trbyt = 0;
-word trkovr = 0;
-byte errsav = 0;
+byte data_length = 0;               /* --- FDC command block end --- */
+word sector_bytes = 0;
+byte floppy_flag = 0;
+byte floppy_wait = 0;
+byte disk_bits = 0;
+byte disk_type = 0;
+byte more_flag = 0;
+byte retry_count = 0;
+word dma_addr = 0;
+word transfer_bytes = 0;
+word track_overflow = 0;
+byte error_saved = 0;
 
-/* NOTE: FDC command block (curcyl..dtl) must be contiguous in memory.
- * flrtrk() sends 7 bytes starting at &curcyl.  The variables are
- * defined consecutively above — do not reorder or insert between them. */
-
-/* Error/status message strings — non-static for assembly access */
-const char msg_rc700[]   = " RC700";
+/* Error/status message strings (non-static for assembly access) */
 const char msg_rc702[]   = " RC702";
-const char msg_nosys[]   = " **NO SYSTEM FILES** ";
-const char msg_nocat[]   = " **NO KATALOG** ";
-const char msg_nodisk[]  = " **NO DISKETTE NOR LINEPROG** ";
-const char msg_diskerr[] = "**DISKETTE ERROR** ";
 
-/* halt_forever — infinite loop (never returns) */
+/* Infinite loop — never returns. */
 void halt_forever(void) { for (;;); }
 
-/* halt_msg — copy 'len' bytes to display buffer, then halt forever.
- *
- * Implemented as a macro so 'len' is a compile-time constant at
- * each call site — sdcc inlines memcpy as LDIR for constant lengths.
- * If halt_msg were a function, sdcc would emit a library call to
- * _memcpy instead of inlining, costing ~20 extra bytes.
- *
- * IMPORTANT: 'len' must NOT include the NUL terminator. */
+/* Copy 'len' bytes to display buffer, then halt forever.
+ * Macro so 'len' is compile-time constant — sdcc inlines as LDIR.
+ * 'len' must NOT include NUL terminator. */
 #define halt_msg(msg, len) do { memcpy(dspstr, (msg), (len)); halt_forever(); } while(0)
 
-/* b7_cmp6 — compare 6 bytes.  Pointer-increment style generates compact
- * sdcc output (17 bytes, no IX frame) vs indexed a[i] (35 bytes with IX). */
-byte b7_cmp6(const byte *a, const byte *b) {
+/* Compare 6 bytes.  Pointer-increment generates compact sdcc output
+ * (17 bytes, no IX frame) vs memcmp library call (24 bytes more). */
+byte compare_6bytes(const byte *a, const byte *b) {
     byte i = 6;
     do {
-        if (*a++ != *b++) return 1;
+        if (*a++ != *b++) {
+            return 1;
+        }
     } while (--i);
     return 0;
 }
 
-/* b7_chksys — check dir entry name + attribute.  Pointer-increment for
- * the 4-byte name comparison, then direct offset for the attribute byte. */
-byte b7_chksys(const byte *dir, const byte *pattern) {
+/* Check directory entry: 4-byte name match + attribute byte check. */
+byte check_sysfile(const byte *dir, const byte *pattern) {
     byte i = 4;
-    dir++;  /* skip dir[0] */
+    dir++;                                   /* skip user number (dir[0]) */
     do {
-        if (*dir++ != *pattern++) return 1;
+        if (*dir++ != *pattern++) {
+            return 1;
+        }
     } while (--i);
-    /* dir now at dir[5], need dir[8] */
-    if ((dir[3] & 0x3F) != 0x13) return 1;
+    /* dir now at dir[5], check attribute at dir[8] */
+    if ((dir[3] & 0x3F) != 0x13) {
+        return 1;
+    }
     return 0;
 }
 
-void errdsp(byte code) {
-    errsav = code;
+/* Display error and halt (unless disk_type indicates retry). */
+void error_display_halt(byte code) {
+    error_saved = code;
     ei();
-    if (dsktyp & 0x01) return;
+    if (disk_type & 0x01) { return; }
     beep();
-    halt_msg((const byte *)msg_diskerr, 19);
+    halt_msg("**DISKETTE ERROR** ", 19);
 }
 
 /*
- * boot7 — Verify Track 0 data and boot CP/M or ID-COMAL.
+ * Verify Track 0 data and boot CP/M or ID-COMAL.
  *
- * After reading Track 0 into RAM at 0x0000, the boot ROM checks for
- * two disk format signatures to determine boot mode:
+ * Checks two signatures in Track 0:
+ *   0x0002: " RC700" — ID-COMAL: search dir for SYSM/SYSC entries
+ *   0x0008: " RC702" — CP/M: jump via vector at 0x0000
  *
- *   Offset 0x0002: " RC700" — ID-COMAL boot (old format)
- *     Bytes 0x0000-0x0001 are a 2-byte jump vector.  The signature
- *     immediately follows at 0x0002.  If found, search the directory
- *     area (0x0B80-0x0D00) for SYSM/SYSC file entries (BOOT8 path).
- *
- *   Offset 0x0008: " RC702" — CP/M + COMAL80 boot (new format)
- *     Bytes 0x0000-0x0001 are a 2-byte jump vector.  Bytes 0x0002-0x0007
- *     contain configuration data.  The signature is at 0x0008.  If found,
- *     jump via the 16-bit vector at 0x0000 (BOOT9 path).
- *
- * Uses one file-scope global (b7_dir) to avoid IX frame pointer.
- * Uses goto for shared error paths to avoid duplicate halt_msg calls.
+ * File-scope global (boot_dir) avoids IX frame pointer.
+ * goto shares error path to avoid duplicate halt_msg calls.
  */
-static const char b7_sysm[] = "SYSM";
-static const char b7_sysc[] = "SYSC";
+static const char sysm_name[] = "SYSM";
+static const char sysc_name[] = "SYSC";
 
-static byte *b7_dir;
+static byte *boot_dir;
 
-void boot7(void) {
-    if (b7_cmp6((const byte *)RC700_SIG_OFF, (const byte *)msg_rc700) == 0) {
-        b7_dir = (byte *)BOOT_DIR_OFF;
-        while ((word)b7_dir < 0x0D00) {
-            if (*b7_dir == 0) {
-                b7_dir += 0x20;
+void boot_sysmsysc_or_jp0_or_halt(void) {
+    if (compare_6bytes((const byte *)RC700_SIG_OFF, (const byte *)" RC700") == 0) {
+        boot_dir = (byte *)BOOT_DIR_OFF;
+        while ((word)boot_dir < 0x0D00) {
+            if (*boot_dir == 0) {
+                boot_dir += 0x20;
                 continue;
             }
-            if (b7_chksys(b7_dir, (const byte *)b7_sysm) != 0)
+            if (check_sysfile(boot_dir, (const byte *)sysm_name) != 0) {
                 goto nosys;
-            b7_dir += 0x20;
-            if (*b7_dir == 0)
+            }
+            boot_dir += 0x20;
+            if (*boot_dir == 0) {
                 goto nosys;
-            if (b7_chksys(b7_dir, (const byte *)b7_sysc) != 0)
+            }
+            if (check_sysfile(boot_dir, (const byte *)sysc_name) != 0) {
                 goto nosys;
+            }
             return;
         }
         goto nosys;
     }
 
-    if (b7_cmp6((const byte *)RC702_SIG_OFF, (const byte *)msg_rc702) == 0) {
+    if (compare_6bytes((const byte *)RC702_SIG_OFF, (const byte *)msg_rc702) == 0) {
         jump_to(*(word *)0x0000);
         return;
     }
 
-    halt_msg((const byte *)msg_nocat, 16);
+    halt_msg(" **NO KATALOG** ", 16);
     return;
 
 nosys:
-    halt_msg((const byte *)msg_nosys, 21);
+    halt_msg(" **NO SYSTEM FILES** ", 21);
 }
 
+/* Check secondary PROM at 0x2000 for RC702 signature; jump or halt. */
 void check_prom1(void) {
-    if (b7_cmp6((const byte *)0x2002, (const byte *)msg_rc702) == 0) {
+    if (compare_6bytes((const byte *)0x2002, (const byte *)msg_rc702) == 0) {
         jump_to(*(word *)0x2000);
         return;
     }
-    halt_msg((const byte *)msg_nodisk, 30);
+    halt_msg(" **NO DISKETTE NOR LINEPROG** ", 30);
 }
 
+/* Advance to next head/side, or next cylinder if both sides done. */
 static void nxthds(void) {
     byte max_head;
-    currec = 1;
-    max_head = (diskbits >> 1) & 0x01;
-    if (max_head == curhed) {
-        curhed = 0;
-        curcyl++;
+    current_sector = 1;
+    max_head = (disk_bits >> 1) & 0x01;
+    if (max_head == current_head) {
+        current_head = 0;
+        current_cylinder++;
     } else {
-        curhed++;
+        current_head++;
     }
 }
 
+/* Calculate transfer size, update track_overflow and more_flag. */
 static void calctx(void) {
     int16_t remaining;
-    calctb();
-    remaining = (int16_t)trkovr - (int16_t)trbyt;
+    calc_track_bytes();
+    remaining = (int16_t)track_overflow - (int16_t)transfer_bytes;
     if (remaining > 0) {
-        morefl = 1;
-        trkovr = (word)remaining;
+        more_flag = 1;
+        track_overflow = (word)remaining;
     } else {
-        morefl = 0;
-        trbyt = trkovr;
-        trkovr = 0;
+        more_flag = 0;
+        transfer_bytes = track_overflow;
+        track_overflow = 0;
     }
 }
 
-static void rdtrk0(word trkovr_init) {
-    trkovr = trkovr_init;
+/* Read Track 0 data across multiple sides/cylinders. */
+static void rdtrk0(word track_overflow_init) {
+    track_overflow = track_overflow_init;
 
     while (1) {
-        byte r = flseek();
-        if (r == 1) { check_prom1(); return; }
-        if (r != 0) { errdsp(0x06); return; }
-
-        calctx();
-
-        if (readtk(FDC_READ_DATA, 5) != 0) {
-            errdsp(0x28);
+        byte r = floppy_seek();
+        if (r == 1) {
+            check_prom1();
+            return;
+        }
+        if (r != 0) {
+            error_display_halt(0x06);
             return;
         }
 
-        memadr += trbyt;
-        trbyt = 0;
+
+        calctx();
+
+        if (read_track(FDC_READ_DATA, 5) != 0) {
+            error_display_halt(0x28);
+            return;
+        }
+
+        dma_addr += transfer_bytes;
+        transfer_bytes = 0;
         nxthds();
-        if (!morefl) return;
+        if (!more_flag) {
+            return;
+        }
     }
 }
 
-byte boot_detect(void) {
-    curcyl = 0;
-    curhed = 1;
-    currec = 1;
+/* Detect disk format on both sides.  Returns 0=ok, 1=error. */
+byte detect_floppy_format(void) {
+    current_cylinder = 0;
+    current_head = 1;
+    current_sector = 1;
 
-    if (dskauto() == 0) {
-        diskbits |= 0x02;
+    if (disk_autodetect() == 0) {
+        disk_bits |= 0x02;                  /* side 1 present */
     }
 
-    curhed = 0;
-    return dskauto();
+    current_head = 0;
+    return disk_autodetect();
 }
 
-void flboot(void) {
-    dsktyp = (diskbits & 0x80) | dsktyp;
-    dsktyp--;
-    dskauto();
-    memadr = FLOPPYDATA;
+/* Boot from floppy: read COMAL boot area and jump to 0x1000. */
+void floppy_boot(void) {
+    disk_type = (disk_bits & 0x80) | disk_type;
+    disk_type--;
+    disk_autodetect();
+    dma_addr = FLOPPYDATA;
     rdtrk0(0x7300 - 0x7000);
-    dsktyp = 1;
+    disk_type = 1;
     jump_to(COMALBOOT);
 }
 
+/* Floppy boot sequence: sense, recalibrate, detect, read, boot. */
 static void fldsk1(void) {
     byte status;
 
     delay(1, 0xFF);
 
-    snsdrv();
-    status = fdcres[0] & 0x23;        /* ST3: RDY + HD + US (bits 5,1,0) */
-    if (status != (drvsel + 0x20)) {  /* expect RDY set + matching drive */
+    sense_drive();
+    status = fdc_result[0] & 0x23;           /* ST3: RDY + HD + US */
+    if (status != (drive_select + 0x20) ||   /* expect RDY + matching drive */
+        recalibrate_verify() != 0 ||
+        detect_floppy_format() != 0) {
         check_prom1();
         return;
     }
 
-    if (recalv() != 0) {
-        check_prom1();
-        return;
-    }
-
-    if (boot_detect() != 0) {
-        check_prom1();
-        return;
-    }
-
-    prom_disable();
+    prom_disable();                          /* disable ROM overlay */
 
     while (1) {
-        rdtrk0(trbyt);
-        if (curcyl != 0) break;
-        dskauto();
+        rdtrk0(transfer_bytes);
+        if (current_cylinder != 0) {
+            break;
+        }
+        disk_autodetect();
     }
 
-    dsktyp = 1;
-    boot7();
-    flboot();
+    disk_type = 1;
+    boot_sysmsysc_or_jp0_or_halt();
+    floppy_boot();
 }
 
+/* Initialize boot state and start floppy boot. */
 static void preinit(void) {
-    /* Variables start at zero (copied from ROM by begin).
-     * Only set non-zero initial values here. */
-    fdctmo = 3;
-    fdcwai = 4;
-    flpwai = 4;
-    diskbits = read_sw1() & 0x80;
+    fdc_timeout = 3;
+    fdc_wait = 4;
+    floppy_wait = 4;
+    disk_bits = read_sw1() & 0x80;           /* bit 7: 0=maxi, 1=mini */
 
     ei();
-    motor(1);
-    reptim = 5;
+    motor(1);                                /* turn on floppy motor */
+    retry_count = 5;
     fldsk1();
 }
 
+/* BIOS syscall: read sectors from disk.
+ * addr = DMA destination, bc = packed cylinder/head/sector. */
 void syscall(word addr, word bc) {
     byte b = (byte)(bc >> 8);
     byte c = (byte)(bc & 0xFF);
 
-    memadr = addr;
-    currec = c & 0x7F;
-    curcyl = b & 0x7F;
+    dma_addr = addr;
+    current_sector = c & 0x7F;
+    current_cylinder = b & 0x7F;
 
-    if (curcyl == 0) dskauto();
+    if (current_cylinder == 0) {
+        disk_autodetect();
+    }
 
-    curhed = (b & 0x80) ? 1 : 0;
+    current_head = (b & 0x80) ? 1 : 0;
     rdtrk0(0);
 
     if ((b & 0x7F) == 0) {
-        curcyl = 1;
-        dskauto();
+        current_cylinder = 1;
+        disk_autodetect();
     }
 }
 
+/* Entry point — called by init_relocated() after peripheral init. */
 int main(void) {
-    /* PIO, CTC, DMA, CRT are initialized by init_relocated() before _main */
     init_fdc();
     clear_screen();
-    display_banner();
+    display_banner_and_start_crt();
     preinit();
     return 0;
 }
@@ -743,61 +755,52 @@ int main(void) {
  * 6. Interrupt service routines
  * ================================================================ */
 
-/*
- * crt_refresh — CRT vertical retrace handler
+/* CRT vertical retrace handler.
  *
- * Reprograms DMA channels 2 and 3 to implement hardware-assisted
- * circular-buffer scrolling of the 80x25 display at DSPSTR (0x7800).
- *
- * DMA Ch2 transfers from DSPSTR+scroll_offset to end of buffer.
- * DMA Ch3 transfers from DSPSTR for the full 2000-byte screen.
- * Together they present a scrolled view without copying memory.
- *
- * Called from CRTINT (CTC Ch2 interrupt) with interrupts disabled.
- */
+ * Reprograms DMA Ch2/Ch3 for circular-buffer display scrolling.
+ * Ch2: from DSPSTR+scroll_offset to end of buffer.
+ * Ch3: from DSPSTR for the full 2000-byte screen. */
 void crt_refresh(void) {
-    (void)crt_status();     /* acknowledge CRT interrupt */
+    (void)crt_status();                      /* acknowledge CRT interrupt */
 
-    dma_mask(2);            /* disable Ch2 during reprogramming */
-    dma_mask(3);            /* disable Ch3 during reprogramming */
-    dma_clear_bp();         /* reset DMA byte pointer flip-flop */
+    dma_mask(2);                             /* disable Ch2 during programming */
+    dma_mask(3);                             /* disable Ch3 during programming */
+    dma_clear_bp();                          /* reset byte pointer flip-flop */
 
     word so = scroll_offset;
-    dma_ch2_addr(DSPSTR_ADDR + so);
-    dma_ch2_wc(80 * 25 - 1 - so);  /* remaining bytes from scroll point */
+    dma_ch2_addr(DSPSTR_ADDR + so);          /* Ch2: start at scroll offset */
+    dma_ch2_wc(80 * 25 - 1 - so);           /* Ch2: remaining bytes */
 
-    dma_ch3_addr(DSPSTR_ADDR);
-    dma_ch3_wc(80 * 25 - 1);       /* full screen buffer */
+    dma_ch3_addr(DSPSTR_ADDR);               /* Ch3: buffer base */
+    dma_ch3_wc(80 * 25 - 1);                /* Ch3: full screen */
 
-    dma_unmask(2);          /* re-enable Ch2 */
-    dma_unmask(3);          /* re-enable Ch3 */
+    dma_unmask(2);                           /* re-enable Ch2 */
+    dma_unmask(3);                           /* re-enable Ch3 */
 
-    /* Rearm CTC Ch2: counter mode, interrupt, falling edge, TC follows */
-    ctc2_write(0xD7);
-    ctc2_write(0x01);    /* time constant = 1 (every retrace) */
+    ctc2_write(0xD7);                        /* rearm CTC Ch2: counter, interrupt */
+    ctc2_write(0x01);                        /* time constant = 1 (every retrace) */
 }
 
-/* dumint — dummy handler for unused interrupt vectors (generates EI; RETI) */
-void dumint(void) __interrupt(0) {
+/* Dummy ISR for unused interrupt vectors (generates EI + RETI). */
+void nothing_int(void) __interrupt(0) {
 }
 
-/* crtint — CRT vertical retrace ISR (CTC Ch2).
- * __critical: keeps interrupts disabled throughout (protects DMA programming).
- * __interrupt(1): generates push/pop for all registers + EI + RETI.
- * The (N) number is mandatory — without it sdcc generates RETN not RETI. */
+/* CRT vertical retrace ISR (CTC Ch2).
+ * __critical keeps interrupts disabled (protects DMA programming).
+ * __interrupt(N) generates register save/restore + EI + RETI. */
 void crtint(void) __critical __interrupt(1) {
     crt_refresh();
 }
 
-/* flpint — Floppy disk ISR (CTC Ch3).
- * Body inlined (sdcc doesn't inline single-use static functions). */
+/* Floppy disk ISR (CTC Ch3).
+ * Sets floppy_flag, then reads result or senses interrupt. */
 void flpint(void) __critical __interrupt(2) {
-    flpflg = 2;
-    delay(0, fdctmo);
-    if (fdc_status() & 0x10) {  /* CB=1: result phase ready */
-        rsult();
+    floppy_flag = 2;
+    delay(0, fdc_timeout);
+    if (fdc_status() & 0x10) {               /* CB=1: result phase ready */
+        fdc_read_result();
     } else {
-        flo6();
+        fdc_sense_interrupt();
     }
 }
 

@@ -219,32 +219,32 @@ void delay(byte outer, byte inner);
  * the PROM payload — copied to RAM by begin() as zeros.
  */
 
-extern byte fdcres[7];   /* FDC result bytes (ST0-N) */
-extern byte fdcflg;      /* FDC flag */
-extern byte epts;        /* end-of-track for seek */
-extern byte trksz;       /* track size */
-extern byte drvsel;      /* drive select */
-extern byte fdctmo;      /* FDC timeout counter (init=3) */
-extern byte fdcwai;      /* FDC wait count (init=4) */
-/* FDC command parameter block — contiguous, sent by flrtrk() */
-extern byte curcyl;      /* current cylinder */
-extern byte curhed;      /* current head */
-extern byte currec;      /* current record/sector */
-extern byte reclen;      /* record length (N value) */
-extern byte cureot;      /* end of track */
+extern byte fdc_result[7];   /* FDC result bytes (ST0-N) */
+extern byte fdc_flag;      /* FDC flag */
+extern byte sectors_per_track;        /* end-of-track for seek */
+extern byte track_size;       /* track size */
+extern byte drive_select;      /* drive select */
+extern byte fdc_timeout;      /* FDC timeout counter (init=3) */
+extern byte fdc_wait;      /* FDC wait count (init=4) */
+/* FDC command parameter block — contiguous, sent by floppy_read_track() */
+extern byte current_cylinder;      /* current cylinder */
+extern byte current_head;      /* current head */
+extern byte current_sector;      /* current record/sector */
+extern byte sector_size_code;      /* record length (N value) */
+extern byte end_of_track;      /* end of track */
 extern byte gap3;        /* gap 3 length */
-extern byte dtl;         /* data length */
-extern word secbyt;     /* sector byte count */
-extern byte flpflg;      /* floppy interrupt flag (0=idle, 2=done) */
-extern byte flpwai;      /* floppy wait count (init=4) */
-extern byte diskbits;    /* disk type bits */
-extern byte dsktyp;      /* disk type flag */
-extern byte morefl;      /* more data flag */
-extern byte reptim;      /* retry count */
-extern word memadr;     /* DMA memory address */
-extern word trbyt;      /* transfer byte count */
-extern word trkovr;     /* track overflow */
-extern byte errsav;      /* saved error code */
+extern byte data_length;         /* data length */
+extern word sector_bytes;     /* sector byte count */
+extern byte floppy_flag;      /* floppy interrupt flag (0=idle, 2=done) */
+extern byte floppy_wait;      /* floppy wait count (init=4) */
+extern byte disk_bits;    /* disk type bits */
+extern byte disk_type;      /* disk type flag */
+extern byte more_flag;      /* more data flag */
+extern byte retry_count;      /* retry count */
+extern word dma_addr;     /* DMA memory address */
+extern word transfer_bytes;      /* transfer byte count */
+extern word track_overflow;     /* track overflow */
+extern byte error_saved;      /* saved error code */
 
 /* ================================================================
  * Function declarations
@@ -255,35 +255,35 @@ void init_peripherals(void);
 void init_fdc(void);
 
 /* fmt */
-void fmtlkp(void);
-void calctb(void);
+void format_lookup(void);
+void calc_track_bytes(void);
 
 /* fdc */
-void snsdrv(void);
-void flo4(void);
-void flo6(void);
-void flo7(byte dh, byte cyl);
-void rsult(void);
-byte recalv(void);
-byte flseek(void);
-void flrtrk(byte cmd);
-byte waitfl(byte timeout);
-byte chkres(void);
-byte readtk(byte cmd, byte retries);
-byte dskauto(void);
-void stpdma(void);
+void sense_drive(void);
+void fdc_recalibrate(void);
+void fdc_sense_interrupt(void);
+void fdc_seek(byte dh, byte cyl);
+void fdc_read_result(void);
+byte recalibrate_verify(void);
+byte floppy_seek(void);
+void floppy_read_track(byte cmd);
+byte wait_floppy_interrupt(byte timeout);
+byte check_fdc_result(void);
+byte read_track(byte cmd, byte retries);
+byte disk_autodetect(void);
+void setup_dma(void);
 
 /* boot */
 void clear_screen(void);
-void display_banner(void);
-void errdsp(byte code);
-byte boot_detect(void);
-void boot7(void);
-void flboot(void);
+void display_banner_and_start_crt(void);
+void error_display_halt(byte code);
+byte detect_floppy_format(void);
+void boot_sysmsysc_or_jp0_or_halt(void);
+void floppy_boot(void);
 void check_prom1(void);
 void halt_forever(void);
-byte b7_cmp6(const byte *a, const byte *b);
-byte b7_chksys(const byte *dir, const byte *pattern);
+byte compare_6bytes(const byte *a, const byte *b);
+byte check_sysfile(const byte *dir, const byte *pattern);
 void syscall(word addr, word bc);
 
 /* isr */

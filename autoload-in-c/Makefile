@@ -31,9 +31,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -pragma-define:CRT_ORG_CODE=0x0000 \
          -pragma-define:CRT_ORG_BSS=0x8000
 
-# z88dk library: provides intrinsic_di/ei/im_2, etc.
-# Only referenced symbols are linked — zero overhead if unused.
-ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
+ZLIB = -lz80
 
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 

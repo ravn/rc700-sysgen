@@ -1,5 +1,77 @@
 # Changelog
 
+## 2026-03-21: Readability overhaul
+
+### What was done
+1. **Rename 24 global variables** from cryptic abbreviations to readable
+   names (e.g. `fdcres` -> `fdc_result`, `curcyl` -> `current_cylinder`,
+   `drvsel` -> `drive_select`, `memadr` -> `dma_addr`, `reptim` -> `retry_count`).
+   User specified `current_` prefix instead of `cur_`, and `sectors_per_track`
+   for `epts`.
+
+2. **Rename 20 functions** from assembly-era abbreviations to descriptive
+   names (e.g. `snsdrv` -> `sense_drive`, `flo4` -> `fdc_recalibrate`,
+   `flrtrk` -> `floppy_read_track`, `stpdma` -> `setup_dma`,
+   `errdsp` -> `error_display_halt`, `boot7` -> `boot_sysmsysc_or_jp0_or_halt`).
+   User specified `wait_floppy_interrupt`, `check_fdc_result`,
+   `error_display_halt`, and the full `boot_sysmsysc_or_jp0_or_halt` name.
+
+3. **Documentary comments on all port writes** — PIO control words, CTC
+   channel configuration, DMA mode registers, CRT commands, FDC Specify
+   parameters all now have inline comments explaining the register values.
+
+4. **Consistent comment formatting** — all inline comments aligned at
+   column 42, every function has a block comment above it, consistent
+   `/* description */` style throughout, renamed `b7_dir` -> `boot_dir`,
+   `sysm`/`sysc` -> `sysm_name`/`sysc_name`, added FDC command block
+   start/end markers on variable definitions.
+
+5. **Inline single-use strings** — `msg_nosys`, `msg_nocat`, `msg_nodisk`,
+   `msg_diskerr`, `msg_rc700` inlined as string literals at call sites.
+   `msg_rc700` in `display_banner_and_start_crt()` replaced with `memcpy`.
+
+6. **memset for clear_screen** — manual loop replaced with
+   `memset(dspstr, ' ', 80 * 25)`, saving 2 bytes.
+
+7. **Combined three if/check_prom1 blocks** into one `||` short-circuit
+   expression in `fldsk1()`, saving 8 bytes.
+
+8. **Braces on all if bodies** — all single-line if-statement bodies now
+   have `{}` braces with the body on a separate line. Saved as a permanent
+   coding style rule.
+
+9. **`sector_bytes = 128 << sector_size_code`** — replaced manual shift
+   loop with direct expression (+2 bytes but clearer).
+
+10. **Banner text** changed to `" RC700 gensmedet"` (16 chars).
+
+11. **Renamed `dumint` -> `nothing_int`**, `display_banner` ->
+    `display_banner_and_start_crt`, `boot_detect` -> `detect_floppy_format`
+    (user edits in CLion).
+
+12. **Removed `-L` path** from `-lz80` — z88dk resolves it via `-clib=sdcc_iy`.
+
+13. **TODO_CLION_Z88DK.md** — investigate CLion custom compiler support for z88dk.
+
+### User choices
+- `current_` prefix (not `cur_`) for cylinder/head/sector
+- `sectors_per_track` for `epts` (confirmed as sector count, not seek limit)
+- `wait_floppy_interrupt` (not `wait_floppy`)
+- `check_fdc_result` (not `check_result`)
+- `error_display_halt` (not `error_display`)
+- `boot_sysmsysc_or_jp0_or_halt` — user-specified verbose name
+- Inline `msg_rc700` despite 7-byte duplication cost
+- Keep `128 << sector_size_code` despite +2 bytes — readability over size
+- Always use `{}` braces on if bodies (permanent rule)
+- Various renames done directly in CLion (`dumint`, `display_banner`,
+  `boot_detect`)
+
+### Verification
+- MAME boot test passes at 100% and 10% speed
+- CODE size: 1988 bytes (vs 1987 before — +1 from readability changes)
+
+---
+
 ## 2026-03-21: Build cleanup and CLion support
 
 ### What was done

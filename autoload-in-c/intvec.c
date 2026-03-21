@@ -7,7 +7,7 @@
  */
 
 /* ISR declarations — defined in rom.c */
-extern void dumint(void);
+extern void nothing_int(void);
 extern void crtint(void);
 extern void flpint(void);
 
@@ -18,20 +18,20 @@ typedef void (*isr_t)(void);
 #endif
 
 const isr_t intvec[16] = {
-    dumint,     /*  +0: Dummy */
-    dumint,     /*  +2: PIO Port A */
-    dumint,     /*  +4: PIO Port B */
-    dumint,     /*  +6: Dummy */
-    dumint,     /*  +8: CTC CH0 */
-    dumint,     /* +10: CTC CH1 */
+    nothing_int,     /*  +0: Dummy */
+    nothing_int,     /*  +2: PIO Port A */
+    nothing_int,     /*  +4: PIO Port B */
+    nothing_int,     /*  +6: Dummy */
+    nothing_int,     /*  +8: CTC CH0 */
+    nothing_int,     /* +10: CTC CH1 */
     crtint,     /* +12: CTC CH2 — Display refresh */
     flpint,     /* +14: CTC CH3 — Floppy completion */
-    dumint,     /* +16: Dummy */
-    dumint,     /* +18: Dummy */
-    dumint,     /* +20: Dummy */
-    dumint,     /* +22: Dummy */
-    dumint,     /* +24: Dummy */
-    dumint,     /* +26: Dummy */
-    dumint,     /* +28: Dummy */
-    dumint,     /* +30: Dummy */
+    nothing_int,     /* +16: Dummy */
+    nothing_int,     /* +18: Dummy */
+    nothing_int,     /* +20: Dummy */
+    nothing_int,     /* +22: Dummy */
+    nothing_int,     /* +24: Dummy */
+    nothing_int,     /* +26: Dummy */
+    nothing_int,     /* +28: Dummy */
+    nothing_int,     /* +30: Dummy */
 };
