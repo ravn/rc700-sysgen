@@ -33,7 +33,7 @@ typedef uint16_t word;
  * ================================================================ */
 
 /* NEC uPD765 (Intel 8272) FDC command bytes.
- * Datasheet: http://bitsavers.org/components/nec/uPD765/uPD765_Floppy_Disk_Controller.pdf
+ * Datasheet: https://www.cpcwiki.eu/imgs/f/f3/UPD765_Datasheet_OCRed.pdf
  * See also Intel 8272A datasheet (pin-compatible clone). */
 #define FDC_SENSE_DRIVE   0x04  /* returns ST3 (drive status) */
 #define FDC_RECALIBRATE   0x07  /* seek to track 0 */
@@ -238,7 +238,8 @@ void delay(byte outer, byte inner);
  * not from the FDC itself.
  *
  * See uPD765 datasheet Table 3 for result phase byte definitions:
- *   http://bitsavers.org/components/nec/uPD765/uPD765_Floppy_Disk_Controller.pdf */
+ *   https://www.cpcwiki.eu/imgs/f/f3/UPD765_Datasheet_OCRed.pdf */
+
 typedef struct {
     byte st0;           /* ST0: IC(7-6), SE(5), EC(4), NR(3), HD(2), US(1-0) */
     byte st1;           /* ST1: EN, DE, OR, ND, NW, MA — or PCN after Sense Int */
@@ -246,15 +247,15 @@ typedef struct {
     byte cylinder;      /* C: cylinder number at end of operation */
     byte head;          /* H: head number */
     byte sector;        /* R: sector number */
-    byte size_code;     /* N: sector size code (0=128, 1=256, 2=512, 3=1024) */
+    byte size_code;     /* N: sector size code (0=128, 1=256, 2=512, 3=1024, etc. we only use 128, 256 and 512) */
     byte dma_status;    /* DMA controller status (read after FDC result phase) */
 } fdc_result_block;
 
 extern fdc_result_block fdc_result;
-extern byte fdc_flag;      /* FDC busy flag */
+extern byte fdc_busy;      /* FDC busy flag */
 extern byte drive_select;      /* drive select */
-extern byte fdc_timeout;      /* FDC timeout counter (init=3) */
-extern byte fdc_wait;      /* FDC wait count (init=4) */
+extern byte fdc_isr_delay;      /* FDC timeout counter (init=3) */
+extern byte fdc_result_delay;      /* FDC wait count (init=4) */
 /* FDC command parameter block — 7 contiguous bytes sent by floppy_read_track().
  * Fields map to uPD765 Read Data parameters: C, H, R, N, EOT, GPL, DTL. */
 typedef struct {
@@ -280,7 +281,7 @@ extern byte disk_bits;    /* disk format flags:
                            *   and possible code size reduction.
                            */
 extern byte disk_type;      /* disk type flag */
-extern byte more_flag;      /* more data flag */
+extern byte more_tracks_to_read;      /* more data flag */
 extern byte retry_count;      /* retry count */
 extern word dma_transfer_address;     /* DMA memory address */
 extern word dma_transfer_size;      /* transfer byte count */
@@ -296,12 +297,12 @@ void init_peripherals(void);
 void init_fdc(void);
 
 /* fmt */
-void format_lookup(void);
+void lookup_sectors_and_gap3_for_current_track(void);
 void calc_size_of_current_track(void);
 
 /* fdc */
 void fdc_sense_interrupt(void);
-void fdc_seek(byte dh, byte cyl);
+void fdc_seek(byte head_and_drive, byte cylinder);
 void fdc_read_result(void);
 byte fdc_select_drive_cylinder_head(void);
 void fdc_write_full_cmd(byte cmd);

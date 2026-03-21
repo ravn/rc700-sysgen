@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-03-21: Rename remaining cryptic labels, format table struct, datasheet URL
+
+### What was done
+1. **Renamed remaining cryptic identifiers**:
+   - `chk_seekres` → `verify_seek_result`
+   - `maxifmt`/`minifmt` → `maxi_format_table`/`mini_format_table`
+   - `dh`, `cyl` → `head_and_drive`, `cylinder` (fdc_seek params)
+   - `fdc_flag` → `fdc_busy`
+   - `fdc_wait` → `fdc_result_delay`
+   - `fdc_timeout` → `fdc_isr_delay`
+   - `more_flag` → `more_tracks_to_read`
+   - `read_bytes_from_fdc_cmd` → `saved_fdc_command`
+   - `format_lookup` → `lookup_sectors_and_gap3_for_current_track` (user)
+   - `disk_type` kept — rename to `boot_pass` was wrong (reverted)
+
+2. **Format table as struct** — replaced `byte[4][4]` with
+   `format_entry[4][2]` where `format_entry = { eot, gap3 }`.
+   Single table pointer lookup `table[n][side]` replaces if/else
+   with two separate lookups (-7 bytes).
+
+3. **Documented format tables** — explained N values, sector counts
+   per side, FM/MFM density difference.
+
+4. **Fixed datasheet URL** — replaced dead bitsavers.org link with
+   working CPC Wiki hosted OCR'd uPD765 datasheet.
+
+5. **Documented FDC_READ_ID** — explained Read ID command role in
+   format auto-detection, added datasheet reference.
+
+6. **Fixed user's table-pointer syntax** — `const format_entry (*table)[2]`
+   is the correct type for pointer to rows of `format_entry[2]`.
+   User's attempt with `(*table)[4][2]` dereferenced incorrectly.
+
+### User choices
+- `disk_type` kept as-is after `boot_pass` rename proved wrong
+- Single table lookup syntax requested by user
+- `lookup_sectors_and_gap3_for_current_track` name chosen by user
+- Various other renames done in CLion
+
+### Verification
+- CODE: 1800 → 1785 bytes (-15)
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Structs, binary constants, NMI handler, BOOT section functions
 
 ### What was done
