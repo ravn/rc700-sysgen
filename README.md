@@ -3,12 +3,20 @@
 "Gensmedet" (Danish for "Reforged") is a project to recreate full sources
 for the Danish RC700 CP/M system from Regnecentralen .  (https://datamuseum.dk/wiki/RC700_Piccolo)
 
+Work in progress!  
 
 
+---
 
+2026-03-21:  AUTOLOAD and BIOS now in pure C with inline assembly and boots in MAME.  Initial support for working in CLion (non-commercial version).
 
-2026-03-20:  AUTOLOAD and BIOS now in pure C (with __asm) and boots in MAME.
+All reasonable optimizations and clarifications are now done!
 
+There is a bug when running ID-COMAL but CP/M boots fine on Maxi systems. (Minis have less space on the floppies so waiting with those).  
+
+----
+
+## Old text
 
 
 Recreating byte exact source for RC702 adapted SYSGEN.COM
