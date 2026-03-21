@@ -269,7 +269,7 @@ extern fdc_command_block fdc_cmd;
 extern byte floppy_operation_completed_flag;      /* floppy interrupt flag (0=idle, 2=done) */
 extern byte is_mini;              /* 1=mini/5.25", 0=maxi/8" (from SW1 bit 7) */
 extern byte is_mfm;              /* 1=MFM (double density), 0=FM (single) */
-extern byte is_double_sided;     /* 1=side 1 present */
+extern byte detected_max_head;     /* 1=side 1 present */
 extern byte disk_type;      /* disk type flag */
 extern byte more_tracks_to_read;      /* more data flag */
 extern byte retry_count;      /* retry count */
@@ -288,6 +288,7 @@ void init_fdc(void);
 
 /* fmt */
 void lookup_sectors_and_gap3_for_current_track(void);
+
 void calc_size_of_current_track(void);
 
 /* fdc */
@@ -304,7 +305,6 @@ byte fdc_detect_sector_size_and_density(void);
 /* boot */
 void display_banner_and_start_crt(void);
 void error_display_halt(byte code);
-void boot_floppy_or_prom(void);
 void floppy_boot(void);
 void prom1_if_present(void);
 void halt_forever(void);
