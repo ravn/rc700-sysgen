@@ -68,15 +68,23 @@ local function finish(result, space)
     manager.machine:exit()
 end
 
+local type_queue = ""
 local function type_string(str)
-    manager.machine.natkeyboard:post(str)
+    type_queue = type_queue .. str
 end
 
 emu.register_frame_done(function()
     if done then return end
     frame = frame + 1
 
-    -- Check every 0.5s
+    -- Post one character every 5 frames (~100ms)
+    if #type_queue > 0 and frame % 5 == 0 then
+        local ch = string.sub(type_queue, 1, 1)
+        type_queue = string.sub(type_queue, 2)
+        manager.machine.natkeyboard:post(ch)
+    end
+
+    -- Check state every 0.5s
     if frame % 25 ~= 0 then return end
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
@@ -94,31 +102,31 @@ emu.register_frame_done(function()
 
     elseif state == "type_line1" then
         if frame > state_frame + 200 then  -- 4s after prompt
-            type_string("10 FOR I:=1 TO 10\r")
+            type_string("10 FOR I=1 TO 10\n")
             state = "type_line2"
             state_frame = frame
         end
     elseif state == "type_line2" then
         if frame > state_frame + 100 then
-            type_string("20 PRINT I\r")
+            type_string("20 PRINT I\n")
             state = "type_line3"
             state_frame = frame
         end
     elseif state == "type_line3" then
         if frame > state_frame + 100 then
-            type_string("30 NEXT I\r")
+            type_string("30 NEXT I\n")
             state = "type_line4"
             state_frame = frame
         end
     elseif state == "type_line4" then
         if frame > state_frame + 100 then
-            type_string("40 END\r")
+            type_string("40 END\n")
             state = "type_run"
             state_frame = frame
         end
     elseif state == "type_run" then
         if frame > state_frame + 100 then
-            type_string("RUN\r")
+            type_string("RUN\n")
             state = "wait_output"
         end
 
