@@ -198,7 +198,22 @@ static word dskad;       /* DMA address for FDC */
 static byte  actra;       /* actual track */
 static byte  acsec;       /* actual sector (1-based) */
 static byte  repet;       /* retry counter */
-static volatile byte rstab[8];    /* FDC result table */
+/* FDC result bytes.  After Read Data / Read ID:
+ *   st0, st1, st2, cylinder, head, sector, size_code, (pad)
+ * After Sense Drive Status: st0 contains ST3.
+ * After Sense Interrupt: st0=ST0, st1=PCN. */
+typedef struct {
+    byte st0;
+    byte st1;
+    byte st2;
+    byte cylinder;
+    byte head;
+    byte sector;
+    byte size_code;
+    byte pad;
+} fdc_result_block;
+
+static volatile fdc_result_block rstab;    /* FDC result */
 static volatile byte fl_flg;      /* floppy completion flag */
 
 /* FSPA working copy (set by SELDSK) */
@@ -220,7 +235,7 @@ word dpbase[2 * 8];
 /* Motor control */
 static void fdstop(void)
 {
-    if (!(_port_sw1 & 0x80))    /* maxi: no motor control */
+    if (!(_port_sw1 & 0b10000000))    /* maxi: no motor control */
         return;
     _port_sw1 = 0x00;
 }
@@ -234,7 +249,7 @@ static void waitd(word ticks)
 
 static void fdstar(void)
 {
-    if (!(_port_sw1 & 0x80))    /* maxi: no motor control */
+    if (!(_port_sw1 & 0b10000000))    /* maxi: no motor control */
         return;
     hal_di();
     if (timer2 == 0) {
@@ -260,7 +275,7 @@ static void fdstar(void)
 /* Wait for FDC ready, then write command/parameter byte (RQM=1, DIO=0) */
 void fdc_write(byte val)
 {
-    while ((_port_fdc_status & 0xC0) != 0x80)  /* RQM+DIO mask */
+    while ((_port_fdc_status & 0b11000000) != 0b10000000)  /* RQM+DIO mask */
         ;
     _port_fdc_data = val;
 }
@@ -268,7 +283,7 @@ void fdc_write(byte val)
 /* Wait for FDC result byte available (RQM=1, DIO=1), return data */
 static byte fdc_read(void)
 {
-    while ((_port_fdc_status & 0xC0) != 0xC0)  /* RQM+DIO mask */
+    while ((_port_fdc_status & 0b11000000) != 0b11000000)  /* RQM+DIO mask */
         ;
     return _port_fdc_data;
 }
@@ -282,9 +297,9 @@ static void fdc_recalibrate(void)
 static void fdc_sense_int(void)
 {
     fdc_write(0x08);            /* SENSE INTERRUPT STATUS */
-    rstab[0] = fdc_read();
-    if ((rstab[0] & 0xC0) != 0x80)
-        rstab[1] = fdc_read();
+    rstab.st0 = fdc_read();
+    if ((rstab.st0 & 0b11000000) != 0b10000000)
+        rstab.st1 = fdc_read();
 }
 
 static void fdc_seek(void)
@@ -297,12 +312,13 @@ static void fdc_seek(void)
 static void fdc_result(void)
 {
     byte i;
+    byte *p = (byte *)&rstab;
     for (i = 0; i < 7; i++) {
         byte delay;
-        rstab[i] = fdc_read();
+        p[i] = fdc_read();
         for (delay = 4; delay; delay--)
             ;
-        if (!(_port_fdc_status & 0x10))  /* CB: more result bytes? */
+        if (!(_port_fdc_status & 0b00010000))  /* CB: more result bytes? */
             return;
     }
 }
@@ -401,7 +417,7 @@ static void chktrk(void)
     wfitr();
 
     /* check seek completion */
-    if (rstab[0] == ((dskno & 3) | 0x20))
+    if (rstab.st0 == ((dskno & 3) | 0b00100000))
         return;
 
     /* seek failed — recalibrate and retry */
@@ -456,10 +472,10 @@ static void sec_rw(byte cmd, byte dma_dir)
         fdc_general_cmd(s_cmd, (byte *)&form->mf);
         watir();
 
-        if (!(rstab[0] & 0xF8))
+        if (!(rstab.st0 & 0b11111000))
             return;                     /* success */
 
-        if (rstab[0] & 0x08)            /* write protected — no retry */
+        if (rstab.st0 & 0b00001000)            /* write protected — no retry */
             goto fail;
 
         if (--repet == 0)
@@ -641,7 +657,7 @@ static void wboot_c(void)
     bios_seldsk_c(0);
 
     /* Jump to CCP with current disk in register C */
-    jump_ccp(cdisk & 0x0F);
+    jump_ccp(cdisk & 0b00001111);
 #endif
 }
 
@@ -1010,7 +1026,7 @@ static void insert_line(void)
 /* XY cursor addressing — called for each byte after ctrl-F */
 static void xyadd(void)
 {
-    byte val = (usession & 0x7F) - 32;
+    byte val = (usession & 0b01111111) - 32;
     xflg--;
     if (xflg != 0) {
         adr0 = val;             /* save first coordinate */
@@ -1458,7 +1474,7 @@ word bios_sectran(word sector) __naked
 
 /* WFITR (DA4A): PROCEDURE WAIT_CLEAR_FD_INTERRUPT
  * Waits for FDC interrupt flag, then returns result status.
- * Returns: B=ST0 (rstab[0]), C=ST1 (rstab[1]).
+ * Returns: B=ST0 (rstab.st0), C=ST1 (rstab.st1).
  * Used by FORMAT.COM (RC700 FORMAT UTILITY VERS 1.2). */
 void bios_wfitr(void) __naked
 {
@@ -1533,7 +1549,7 @@ void bios_linsel(void) __naked
 static byte bios_linsel_body(void)
 {
     /* Wait for all-sent (RR1 bit 0) */
-    while (!(sio_rd1() & 0x01))
+    while (!(sio_rd1() & 0b00000001))
         ;
 
     waitd(2);
@@ -1553,7 +1569,7 @@ static byte bios_linsel_body(void)
         hal_di();
         sio_wr5(wr5val);
         hal_ei();
-        wr5val |= 0x80;                     /* add DTR */
+        wr5val |= 0b10000000;                     /* add DTR */
         hal_di();
         sio_wr5(wr5val);
         hal_ei();
@@ -1562,7 +1578,7 @@ static byte bios_linsel_body(void)
     waitd(2);
 
     /* Check CTS (RR0 bit 5) — cached by ISR */
-    if ((ls_port ? rr0_b : rr0_a) & 0x20)
+    if ((ls_port ? rr0_b : rr0_a) & 0b00100000)
         return 0xFF;
 
     /* No CTS — release line */
@@ -1798,7 +1814,7 @@ void isr_floppy(void) __naked
         fl_flg = 0xFF;
         for (delay = 5; delay; delay--)
             ;
-        if (_port_fdc_status & 0x10)     /* CB: in result phase */
+        if (_port_fdc_status & 0b00010000)     /* CB: in result phase */
             fdc_result();
         else
             fdc_sense_int();
