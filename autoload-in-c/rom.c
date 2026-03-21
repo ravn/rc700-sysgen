@@ -325,13 +325,9 @@ byte wait_floppy_interrupt(byte timeout) {
     return 1;
 }
 
-/* Wait for seek/recalibrate interrupt, verify ST0 and PCN. */
-static byte chk_seekres(byte expected_pcn) {
-    if (wait_floppy_interrupt(0xFF)) { return 1; }
-    if ((drive_select + 0x20) != fdc_result[0]) { return 2; }  /* SE+drive */
-    if (expected_pcn != fdc_result[1]) { return 2; }           /* verify PCN */
-    return 0;
-}
+/* Forward declarations for tail-call fall-through reordering */
+static byte chk_seekres(byte expected_pcn);
+static void fldsk1(void);
 
 /* Recalibrate and verify head is at cylinder 0. */
 byte recalibrate_verify(void) {
@@ -339,10 +335,19 @@ byte recalibrate_verify(void) {
     return chk_seekres(0);
 }
 
-/* Seek to current_cylinder and verify. */
+/* Seek to current_cylinder and verify.
+ * Placed before chk_seekres for tail-call fall-through (saves 3 bytes). */
 byte floppy_seek(void) {
     fdc_seek((current_head << 2) | drive_select, current_cylinder);
     return chk_seekres(current_cylinder);
+}
+
+/* Wait for seek/recalibrate interrupt, verify ST0 and PCN. */
+static byte chk_seekres(byte expected_pcn) {
+    if (wait_floppy_interrupt(0xFF)) { return 1; }
+    if ((drive_select + 0x20) != fdc_result[0]) { return 2; }  /* SE+drive */
+    if (expected_pcn != fdc_result[1]) { return 2; }           /* verify PCN */
+    return 0;
 }
 
 /* Program DMA channel 1 for floppy disk transfer. */
@@ -665,18 +670,22 @@ byte detect_floppy_format(void) {
     return disk_autodetect();
 }
 
-/* Boot from floppy: read COMAL boot area and jump to 0x1000. */
-void floppy_boot(void) {
-    disk_type = (disk_bits & 0x80) | disk_type;
-    disk_type--;
-    disk_autodetect();
-    dma_addr = FLOPPYDATA;
-    rdtrk0(0x7300 - 0x7000);
-    disk_type = 1;
-    jump_to(COMALBOOT);
+/* Initialize boot state and start floppy boot.
+ * Placed before fldsk1 for tail-call fall-through (saves 3 bytes). */
+static void preinit(void) {
+    fdc_timeout = 3;
+    fdc_wait = 4;
+    floppy_wait = 4;
+    disk_bits = read_sw1() & 0x80;           /* bit 7: 0=maxi, 1=mini */
+
+    ei();
+    motor(1);                                /* turn on floppy motor */
+    retry_count = 5;
+    fldsk1();
 }
 
-/* Floppy boot sequence: sense, recalibrate, detect, read, boot. */
+/* Floppy boot sequence: sense, recalibrate, detect, read, boot.
+ * Placed before floppy_boot for tail-call fall-through (saves 3 bytes). */
 static void fldsk1(void) {
     byte status;
 
@@ -706,17 +715,15 @@ static void fldsk1(void) {
     floppy_boot();
 }
 
-/* Initialize boot state and start floppy boot. */
-static void preinit(void) {
-    fdc_timeout = 3;
-    fdc_wait = 4;
-    floppy_wait = 4;
-    disk_bits = read_sw1() & 0x80;           /* bit 7: 0=maxi, 1=mini */
-
-    ei();
-    motor(1);                                /* turn on floppy motor */
-    retry_count = 5;
-    fldsk1();
+/* Boot from floppy: read COMAL boot area and jump to 0x1000. */
+void floppy_boot(void) {
+    disk_type = (disk_bits & 0x80) | disk_type;
+    disk_type--;
+    disk_autodetect();
+    dma_addr = FLOPPYDATA;
+    rdtrk0(0x7300 - 0x7000);
+    disk_type = 1;
+    jump_to(COMALBOOT);
 }
 
 /* BIOS syscall: read sectors from disk.

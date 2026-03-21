@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-03-21: Peephole rules and tail-call fall-through optimization
+
+### What was done
+Investigated rcbios-in-c optimization techniques (peephole rules, tail-call
+fall-through, IX/IY avoidance, sdcc pitfalls) and applied applicable ones
+to autoload-in-c.
+
+1. **Copy full peephole.def from rcbios-in-c** (3 rules -> 22 rules):
+   - Dead code elimination after unconditional jumps (jp/jr/ret + jp/jr)
+   - Redundant `xor a,a` after store to memory (4 variants for spacing)
+   - Redundant `xor a,a` after double store
+   - Branch inversion (`jr NZ + jp` -> `jp Z`, 4 variants)
+   - Tail-call fall-through (`jp label` where label follows, with 0-3 comments)
+   - Saves 10 bytes.
+
+2. **Function reordering for tail-call fall-through** (2 pairs):
+   - `floppy_seek()` placed before `chk_seekres()` — eliminates `jp _chk_seekres`
+   - `preinit()` placed before `fldsk1()` — eliminates `jp _fldsk1`
+   - Added forward declarations for reordered static functions.
+   - Saves 6 bytes.
+
+3. **Investigated but not applicable**:
+   - `fldsk1() -> floppy_boot()`: sdcc inserts error-path `ret` between
+     the `jp` and target label, blocking the peephole rule.
+   - `recalibrate_verify() -> chk_seekres()`: only one function can
+     fall into `chk_seekres`; `floppy_seek` chosen (called more often).
+
+### Verification
+- CODE: 1988 -> 1972 bytes (-16 bytes, -0.8%)
+- MAME boot test passes
+
+---
+
 ## 2026-03-21: Readability overhaul
 
 ### What was done
