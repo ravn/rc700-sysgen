@@ -174,29 +174,27 @@ typedef struct {
     byte gap3;
 } format_entry;
 
-static const format_entry maxi_format_table[4][2] = {
-    /*        side 0          side 1          N               */
-    {{0x1A, 0x07}, {0x34, 0x07}}, /* 0: 128B  26/52 sectors */
-    {{0x0F, 0x0E}, {0x1A, 0x0E}}, /* 1: 256B  15/26 sectors */
-    {{0x08, 0x1B}, {0x0F, 0x1B}}, /* 2: 512B   8/15 sectors */
-    {{0x00, 0x00}, {0x08, 0x35}}, /* 3: 1024B  0/8  sectors */
-};
-
-static const format_entry mini_format_table[4][2] = {
-    /*        side 0          side 1          N               */
-    {{0x10, 0x07}, {0x20, 0x07}}, /* 0: 128B  16/32 sectors */
-    {{0x09, 0x0E}, {0x10, 0x0E}}, /* 1: 256B   9/16 sectors */
-    {{0x05, 0x1B}, {0x09, 0x1B}}, /* 2: 512B   5/9  sectors */
-    {{0x00, 0x00}, {0x05, 0x35}}, /* 3: 1024B  0/5  sectors */
+/* format_table[is_mini][N][side] — indexed by disk type, sector size, density */
+static const format_entry format_table[2][4][2] = {
+    /* maxi (8") */
+    {   /*    side 0          side 1          N               */
+        {{0x1A, 0x07}, {0x34, 0x07}}, /* 0: 128B  26/52 sectors */
+        {{0x0F, 0x0E}, {0x1A, 0x0E}}, /* 1: 256B  15/26 sectors */
+        {{0x08, 0x1B}, {0x0F, 0x1B}}, /* 2: 512B   8/15 sectors */
+        {{0x00, 0x00}, {0x08, 0x35}}, /* 3: 1024B  0/8  sectors */
+    },
+    /* mini (5.25") */
+    {   /*    side 0          side 1          N               */
+        {{0x10, 0x07}, {0x20, 0x07}}, /* 0: 128B  16/32 sectors */
+        {{0x09, 0x0E}, {0x10, 0x0E}}, /* 1: 256B   9/16 sectors */
+        {{0x05, 0x1B}, {0x09, 0x1B}}, /* 2: 512B   5/9  sectors */
+        {{0x00, 0x00}, {0x05, 0x35}}, /* 3: 1024B  0/5  sectors */
+    },
 };
 
 /* Look up format parameters from disk type and sector size code. */
 void lookup_sectors_and_gap3_for_current_track(void) {
-    const format_entry (*table)[2] = is_mini
-        ? mini_format_table
-        : maxi_format_table;
-
-    const format_entry *fmt = &table[fdc_cmd.size_shift][is_mfm];
+    const format_entry *fmt = &format_table[is_mini][fdc_cmd.size_shift][is_mfm];
 
     fdc_cmd.eot = fmt->eot;
     fdc_cmd.gap3 = fmt->gap3;
@@ -646,7 +644,7 @@ int main(void) {
 static void get_floppy_ready(void) {
     fdc_isr_delay = 3;
     fdc_result_delay = 4;
-    is_mini = read_sw1() & 0b10000000; /* bit 7: 0=maxi, 1=mini */
+    is_mini = (read_sw1() >> 7) & 1; /* SW1 bit 7: 0=maxi, 1=mini */
 
     ei();
     motor(1); /* turn on floppy motor */
@@ -709,7 +707,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
  * 0x0000 to just below the IVT.  The original ROM passes HL=INTVEC to
  * RDTRK0 as the byte count. */
 void floppy_boot(void) {
-    disk_type = (is_mini ? 0b10000000 : 0) | disk_type;
+    disk_type = (is_mini << 7) | disk_type;
     disk_type--;
     fdc_detect_sector_size_and_density();
     dma_transfer_address = FLOPPYDATA;
