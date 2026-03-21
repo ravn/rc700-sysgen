@@ -1,0 +1,117 @@
+# RC702 Boot Sequence
+
+Order of invocation from power-on to CP/M `A>` prompt.
+
+## Phase 1: ROM self-relocation (BOOT section, 0x0000)
+
+```
+begin()                              boot_rom.c — ROM entry at 0x0000
+  intrinsic_di()                       disable interrupts
+  set SP = 0xBFFF                      initialize stack
+  memcpy(0x7000, BOOT_tail, size)      copy CODE payload from ROM to RAM
+  init_relocated()                     jump to RAM at 0x7000
+```
+
+## Phase 2: Hardware initialization (CODE section, 0x7000+)
+
+```
+init_relocated()                     rom.c — runs from RAM
+  set_i_reg(0x70)                      I register = IVT page
+  intrinsic_im_2()                     Z80 interrupt mode 2
+  init_peripherals()                   PIO, CTC, DMA, CRT port setup
+  main()                               fall-through (tail call)
+```
+
+## Phase 3: Pre-boot setup (main → get_floppy_ready)
+
+```
+main()                               rom.c — entry point after hw init
+  init_fdc()                           boot_rom.c — FDC Specify command (BOOT section)
+  clear_screen()                       boot_rom.c — memset display (BOOT section)
+  display_banner_and_start_crt()       rom.c — " RC700 gensmedet" + start CRT DMA
+  get_floppy_ready()                   fall-through (tail call)
+```
+
+## Phase 4: Floppy detection (get_floppy_ready → boot_from_floppy_or_jump_prom1)
+
+```
+get_floppy_ready()                   rom.c — set timeouts, read SW1
+  ei()                                 enable interrupts (ISRs now active)
+  motor(1)                             turn on floppy motor
+  boot_from_floppy_or_jump_prom1()     fall-through (tail call)
+```
+
+## Phase 5: Floppy boot (boot_from_floppy_or_jump_prom1)
+
+```
+boot_from_floppy_or_jump_prom1()     rom.c
+  delay(1, 0xFF)                       wait for motor spin-up
+  FDC Sense Drive Status               check drive ready (ST3)
+  FDC Recalibrate                      seek to track 0
+  chk_seekres(0)                       verify at cylinder 0
+    ── on failure: prom1_if_present() → jump 0x2000 or halt ──
+
+  fdc_detect_sector_size_and_density() detect side 1 format (head=1)
+    fdc_select_drive_cylinder_head()     seek to cylinder/head
+    fdc_get_result_bytes(READ_ID)        read sector ID (C/H/R/N)
+    format_lookup()                      set EOT, gap3, DTL from tables
+    calc_size_of_current_track()         compute transfer byte count
+
+  fdc_detect_sector_size_and_density() detect side 0 format (head=0)
+    ── on failure: prom1_if_present() → jump 0x2000 or halt ──
+
+  prom_disable()                       *** ROM no longer accessible ***
+
+  loop:                                read Track 0 data to RAM at 0x0000
+    fdc_read_data_from_current_location(dma_transfer_size)
+      fdc_select_drive_cylinder_head()   seek
+      calc_size_of_current_track()       compute this track's byte count
+      fdc_get_result_bytes(READ_DATA)    DMA transfer: disk → RAM
+      advance head/cylinder              next side or next track
+    if cylinder != 0: break            done when we leave track 0
+    fdc_detect_sector_size_and_density() re-detect for new track/side
+
+  boot_floppy_or_prom()                verify Track 0 and boot
+```
+
+## Phase 6: Signature check and jump (boot_floppy_or_prom)
+
+```
+boot_floppy_or_prom()                rom.c — check Track 0 signatures
+
+  Path A: " RC702" at offset 0x0008   CP/M format
+    jump_to(*(word *)0x0000)             jump via boot vector → CP/M cold boot
+
+  Path B: " RC700" at offset 0x0002   ID-COMAL format
+    check directory for SYSM + SYSC      verify system files present
+    floppy_boot()                        read COMAL boot area
+      fdc_read_data_from_current_location(0x300)
+      jump_to(0x1000)                    jump to COMAL entry point
+
+  Path C: no signature found
+    halt_msg(" **NO KATALOG** ")         display error, halt forever
+
+  Path D: floppy errors at any point
+    prom1_if_present()                   check PROM at 0x2000 for network boot
+      jump_to(*(word *)0x2000)           jump if " RC702" signature found
+      halt_msg("NO DISKETTE...")         otherwise halt forever
+```
+
+## Interrupt service routines (active from Phase 4 onward)
+
+```
+refresh_crt_dma_50hz_interrupt()     CTC Ch2 — programs DMA Ch2 for
+                                       display refresh every frame
+
+floppy_completed_operation_interrupt() CTC Ch3 — sets floppy_operation_completed_flag,
+                                       reads FDC result or senses interrupt
+```
+
+## Notes
+
+- **BOOT section functions** (`init_fdc`, `clear_screen`) run from ROM
+  and are inaccessible after `prom_disable()`.
+- **Tail-call fall-through** chains: `main` → `get_floppy_ready` →
+  `boot_from_floppy_or_jump_prom1` — no return addresses on stack.
+- The boot ROM never returns — all paths end in `jump_to()` or
+  `halt_forever()`.
