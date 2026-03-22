@@ -29,7 +29,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--sdcccall 1" -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
-         -pragma-define:CRT_ORG_BSS=0x8000
+         -pragma-define:CRT_ORG_BSS=0x8200
 
 ZLIB = -lz80
 

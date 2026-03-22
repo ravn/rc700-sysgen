@@ -45,7 +45,7 @@ end
 
 -- PROM uses DSPSTR=0x7800 for display; CP/M BIOS uses 0xF800.
 -- Check both areas.
-local PROM_DSP = 0x7800
+local PROM_DSP = 0x7A00
 
 local function screen_find_at(space, base, str)
     local bytes = {string.byte(str, 1, #str)}
@@ -76,7 +76,7 @@ local function finish_both(result, space)
     local f = io.open(RESULT_FILE, "w")
     f:write(result .. "\n")
     f:write(string.format("frame=%d (%.1fs emulated)\n", frame, frame / 50.0))
-    f:write("\n--- PROM display (0x7800) ---\n")
+    f:write("\n--- PROM display (0x7A00) ---\n")
     f:write(screen_text_at(space, PROM_DSP) .. "\n")
     f:write("\n--- BIOS display (0xF800) ---\n")
     f:write(screen_text_at(space, DSPSTR) .. "\n")

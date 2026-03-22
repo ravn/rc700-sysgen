@@ -55,15 +55,15 @@ typedef uint16_t word;
 #define STR(x)  STR_(x)
 
 /* Memory layout constants */
-#define INTVEC_ADDR 0x7000      /* IVT base (page-aligned for Z80 IM2) */
-#define INTVEC_PAGE (INTVEC_ADDR >> 8)  /* I register value (0x70) */
+#define INTVEC_ADDR 0x7300      /* IVT base — must match original ROM for COMAL */
+#define INTVEC_PAGE (INTVEC_ADDR >> 8)  /* I register value (0x73) */
 #define ROM_STACK   0xBFFF      /* Stack set by ROM entry / INIT_RELOCATED */
 #define FLOPPYDATA  0x0000      /* Track 0 loaded here by ROM */
 #define COMALBOOT   0x1000      /* COMAL-80 boot address */
 #define PROM1_ADDR  0x2000      /* Secondary PROM (network boot) */
 #define DIROFF      0x0B60      /* Directory start in Track 0 */
 #define DIREND_HI   0x0D        /* Directory end high byte */
-#define DSPSTR_ADDR 0x7800      /* Display refresh memory (80x24) */
+#define DSPSTR_ADDR 0x7A00      /* Display refresh memory (80x25) */
 #define DSP_CHARS   0x0780      /* Display buffer size (1920 bytes) */
 #define ATTOFF      7           /* Attribute byte offset in dir entry */
 #define SECSZ0      0x80        /* Sector size for Track 0 Side 0 (128B) */
@@ -74,8 +74,8 @@ typedef uint16_t word;
 #define BOOT_DIR_OFF   0x0B80   /* Directory area for RC702 format */
 
 /* Display buffer — mapped to CRT refresh memory */
-#define dspstr         ((byte *)0x7800)
-#define scroll_offset  (*(word *)0x7FF5)
+#define dspstr         ((byte *)DSPSTR_ADDR)
+#define scroll_offset  (*(word *)(DSPSTR_ADDR + 0x07F5))
 
 /* Transfer control to address — never returns.
  * Uses a function pointer call (CALL, not JP).  The dangling return

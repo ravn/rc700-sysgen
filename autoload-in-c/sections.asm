@@ -14,7 +14,7 @@
 	ORG	0x0000
 
 	SECTION	CODE
-	ORG	0x7000
+	ORG	0x7300
 	SECTION	code_compiler
 	SECTION	rodata_compiler
 	SECTION	bss_compiler
