@@ -246,32 +246,70 @@ Skipped llvm-cbe entirely. Used `ez80-clang --target=z80 -S` to compile
 rom.c directly to Z80 assembly. This avoids the IR→C→sdcc round-trip
 and its information loss.
 
-### DEFPORT macro — unified port I/O across all backends
+### DEFPORT macro — per-port inline functions (final design)
 
-Designed a single `DEFPORT(name, addr)` macro that generates the right
-port declaration per backend. All port declarations and hardware macros
-are shared — only the DEFPORT definition is `#ifdef`'d:
+`DEFPORT(name, addr)` generates per-port `static inline` functions.
+Access via `port_in(name)` / `port_out(name, val)` macros.
+All produce inline `IN A,(n)` / `OUT (n),A` — 2 bytes each.
 
 ```c
 #if defined(__clang__)
-#define DEFPORT(name, addr)  /* address_space(2) pointer + #define lvalue */
+#define DEFPORT(name, addr) \
+    static inline uint8_t port_in_##name(void) { \
+        return *(volatile __io uint8_t *)(uint8_t)(addr); \
+    } \
+    static inline void port_out_##name(uint8_t val) { \
+        *(volatile __io uint8_t *)(uint8_t)(addr) = val; \
+    }
 #elif defined(__SDCC)
-#define DEFPORT(name, addr)  __sfr __at addr _port_##name
+#define DEFPORT(name, addr) __sfr __at (addr) _sfr_##name;
+#define port_in(name)       (_sfr_##name)
+#define port_out(name, val) (_sfr_##name = (val))
 #else
-#define DEFPORT(name, addr)  extern volatile unsigned char _port_##name
+#define DEFPORT(name, addr) /* no-op stubs */
 #endif
 
-DEFPORT(fdc_status, 0x04);   // same for all backends
-_port_fdc_status = 0x42;     // same usage for all backends
+DEFPORT(fdc_status, 0x04)      // same for all backends
+uint8_t x = port_in(fdc_status);    // IN A,(04)
+port_out(fdc_data, 0x42);           // OUT (05),A
 ```
 
-clang requires 26 additional `#define _port_X (*_ioptr_X)` lines for
-lvalue aliasing — C preprocessor cannot emit `#define` from a macro.
+**Design evolution:**
+1. Tried `z80_inp()`/`z80_outp()` library calls — +21% code size, rejected.
+2. Tried three-way macro duplication (clang/sdcc/other versions of every
+   hardware macro) — too much duplication, rejected by user.
+3. Tried DEFPORT with `_port_X` lvalue aliases — required 26+ `#define`
+   lines for clang because C preprocessor cannot emit `#define` from macro.
+4. Tried `static inline` functions wrapping `static __sfr __at` in sdcc —
+   sdcc emits standalone copies of all static inline functions even when
+   unused, overflowing the tight BOOT section (+156 bytes of dead code).
+5. **Final:** clang uses inline functions (sdcc doesn't need them), sdcc
+   uses `__sfr __at` declarations (zero code). No lvalue aliases needed.
 
-**Results (MAME boot test PASS):**
-- sdcc: 1734 bytes CODE (identical to original `__sfr __at` build)
-- clang: 65 IN + 109 OUT inline instructions, zero library calls
-- rom.c unchanged — only rom.h declarations restructured
+**Why sdcc uses `__sfr __at` instead of inline functions:**
+sdcc always emits standalone function bodies for `static inline` functions,
+even when they are fully inlined at the call site and never called directly.
+With 26 ports × 2 functions × 3 bytes = 156 bytes of dead code, this
+overflows the autoload PROM's BOOT section (102 byte limit). `__sfr __at`
+declarations generate only `defc` equates (zero code bytes).
+
+### Both projects ported
+
+**Autoload PROM** (`autoload-in-c/rom.h`):
+- 26 DEFPORT declarations, port_in/port_out macros for all hardware access
+- rom.c: no direct `_port_X` references — all go through macros
+- sdcc: 1734 bytes CODE (unchanged). MAME boot test PASS.
+- clang: zero errors, zero warnings.
+
+**BIOS** (`rcbios-in-c/hal.h`):
+- 42 DEFPORT declarations, port_in/port_out for all hardware access
+- bios.c: 72 `_port_X` refs converted. bios_hw_init.c: 38 refs converted.
+- `__at(addr)` memory-mapped variables → `#define` pointer for clang
+- Inline asm scroll block → `#ifdef __SDCC` / `#else memmove+memset`
+- `__naked`, `__interrupt`, `__critical` → no-ops for clang
+- `#include <intrinsic.h>` guarded with `#ifdef __SDCC`
+- sdcc: 5542 bytes (unchanged). Cycle test PASS (ASM FILEX + TYPE).
+- clang: zero errors, zero warnings on bios.c and bios_hw_init.c.
 
 ### Remaining gaps for a full clang build
 
@@ -281,23 +319,6 @@ lvalue aliasing — C preprocessor cannot emit `#define` from a macro.
 - No linker script for BOOT/CODE section layout
 - boot_rom.c and intvec.c not yet compiled with clang
 
-### BIOS ported to clang (same branch)
-
-Applied the same DEFPORT approach to `rcbios-in-c/hal.h` (42 port
-declarations). Additional changes to `bios.c` and `bios.h`:
-
-- `#include <intrinsic.h>` guarded with `#ifdef __SDCC`
-- `__at(addr)` memory-mapped variables → `#define` pointer for clang
-- Inline asm scroll block → `#ifdef __SDCC` / `#else memmove+memset`
-- Forward declarations added for `bios_boot_c`, `bios_linsel_body`
-- sdcc keywords (`__naked`, `__interrupt`, `__critical`) → no-ops for clang
-- Duplicate `PORT_*` defines in bios.h removed (now in hal.h)
-
-**Results:**
-- sdcc: 5542 bytes (unchanged). Cycle test PASS (identical cycles).
-- clang: `ez80-clang --target=z80 -fsyntax-only` passes, 3 harmless warnings
-  (non-void return in `__naked` functions).
-
 ## User decisions
 
 - **IX/IY register usage**: Not considered a blocker. User plans to rework
@@ -306,25 +327,19 @@ declarations). Additional changes to `bios.c` and `bios.h`:
 - **Toolchain approach**: Exploring direct `ez80-clang -S` (skip llvm-cbe).
   Also built zllvm-cbe in Docker for the CBE path experiments.
 
-- **Port I/O**: User rejected z80_inp/z80_outp library calls (+21% size).
-  User rejected three-way macro duplication. User chose the DEFPORT
-  design: one `#ifdef` for declarations, identical `_port_X` usage
-  everywhere. Both sdcc and clang produce inline IN/OUT (2 bytes each).
-  C preprocessor cannot emit `#define` from a macro, so clang needs
-  26 lvalue-alias `#define` lines alongside the DEFPORT calls.
+- **Port I/O design**: User rejected z80_inp/z80_outp library calls (+21%
+  code size), rejected three-way macro duplication, and rejected lvalue
+  aliases. User requested a single DEFPORT macro that generates per-port
+  inline functions for clang and keeps `__sfr __at` for sdcc. The final
+  design has zero code overhead for sdcc and zero lvalue-alias `#define`
+  lines.
 
 - **BIOS clang compat**: User requested the BIOS also be compilable with
-  clang. Same DEFPORT approach applied. Code size is not a premium for
-  clang — being able to compile and run is the goal.
+  clang and tested with the full ASM FILEX cycle test. Code size is not
+  a premium for clang — being able to compile is the goal.
 
 - **Cycle testing**: Full ASM FILEX + TYPE FILEX.PRN cycle test run
-  after every change to verify no regression. Results appended to
-  CONOUT_BENCH.md.
-
-- **Investigation scope**: Thorough analysis of all LLVM→Z80 paths,
-  sdcc internals for `__sfr __at`, clang calling conventions, and
-  direct ez80-clang assembly generation.
-  Documented in project for future reference.
+  after every BIOS change to verify no regression.
 
 ## References
 
