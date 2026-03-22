@@ -74,24 +74,103 @@ rom.c compiles through the full pipeline with additional workarounds:
 The Clang output would NOT work on real hardware — port I/O uses
 memory loads/stores (LD) instead of I/O instructions (IN/OUT).
 
-## Key findings
+## Port I/O
+
+`__sfr __at` is supported by both sdcc and sccz80 (z88dk's own compiler),
+but NOT by clang. The clang frontend doesn't understand the keyword, so
+port variables become normal globals and the C→IR→C round-trip loses the
+port-access semantics.
+
+The portable alternative is `z80_inp(port)` / `z80_outp(port, data)` from
+`<z80.h>`. These are library functions using `IN L,(C)` / `OUT (C),L`.
+The sdcc backend optimizes them via macros to `__z88dk_fastcall` /
+`__z88dk_callee` variants, reducing call overhead. Cost: ~6 bytes per
+call site vs 2 bytes for `__sfr __at`.
+
+See `clang_port_test.c` for a working example.
+
+## Calling convention analysis
+
+### The pipeline loses register annotations
+
+The C→LLVM IR→C→sdcc round-trip cannot preserve register-based calling
+conventions. The LLVM Z80 backend (jacobly0/llvm-project) defines several
+register-passing conventions in
+[`Z80CallingConv.td`](https://github.com/jacobly0/llvm-project/blob/z80/llvm/lib/Target/Z80/Z80CallingConv.td):
+
+| Convention | ID | Registers |
+|------------|-----|-----------|
+| `CC_Z80_C` (default) | — | ALL on stack |
+| `CC_Z80_LC` | 103 | i8: L,C; i16: HL,BC,DE,IY |
+| `CC_Z80_LC_AB` | 104 | i8: A,B |
+| `CC_Z80_LC_AC` | 105 | i8: A,C |
+| `CC_Z80_LC_L` | 107 | i8: C,A,L,E; i16: BC,IY,HL,DE |
+
+However, these are only used for internal compiler library calls, not user
+functions. Standard `CC_Z80_C` (all params on stack) is used for all user
+code. The register conventions cannot be triggered from C:
+
+- clang rejects `__attribute__((regcall))` and `__attribute__((fastcall))`
+  with "not supported for this target"
+- llvm-cbe crashes on CC 103 — it cannot translate Z80-specific calling
+  conventions back to C
+- No Z80-specific CC attribute exists in the clang frontend
+
+There is only one Z80 LLVM backend: [jacobly0/llvm-project](https://github.com/jacobly0/llvm-project).
+All CE-Programming `ez80-clang` builds derive from it.
+
+### Clang vs sdcccall(1): parameter passing
+
+**Clang: ALL parameters on stack.** Every function begins with
+`call ___sdcc_enter_ix` to set up a frame pointer, then loads parameters
+via `(ix+N)`.
+
+**sdcccall(1): first parameters in registers.** First u8 in A, first u16
+in DE, first pointer in HL. Remaining parameters on stack.
+
+### Clang vs sdcccall(1): return values
+
+| Type | clang | sdcccall(1) |
+|------|-------|-------------|
+| `uint8_t` | L | A |
+| `uint16_t` | HL | DE |
+| `uint32_t` | DEHL | HLDE |
+| pointer | HL | DE |
+
+### Code size impact (from clang_calling_test.c)
+
+| Function | clang (bytes) | sdcc (bytes) | ratio |
+|----------|--------------|-------------|-------|
+| `pass1_u8(u8)` | 10 | 2 | 5× |
+| `pass2_u8(u8,u8)` | 13 | 2 | 6.5× |
+| `pass_ptr(ptr)` | 14 | 2 | 7× |
+| `read_ptr(ptr)` | 13 | 2 | 6.5× |
+| Total test binary | 660 | 414 | 1.6× |
+
+### Current limitation, not a permanent decision
+
+The z88dk developers have not ruled out register passing for the clang
+backend. The current `__stdc` convention is what works today. The
+[z88dk issue #2329](https://github.com/z88dk/z88dk/issues/2329) discusses
+parameter order challenges but does not make a statement about future
+register passing support. The architectural constraint is the llvm-cbe
+step which can only emit standard C — any solution would need to either
+bypass llvm-cbe or teach it to emit sdcc register annotations.
+
+## Key findings summary
 
 | Feature                | sdcc backend | Clang backend |
 |------------------------|-------------|---------------|
-| `__sfr __at` port I/O  | native      | NOT supported |
-| `__interrupt`          | native      | unknown       |
-| `__critical`           | native      | unknown       |
-| `__naked`              | native      | unknown       |
-| `sdcccall(1)`          | native      | `__stdc` only |
-| `__z88dk_fastcall`     | supported   | NOT supported |
-| IX/IY register usage   | configurable| uses both     |
-| Code size              | smaller     | ~40% larger   |
+| `__sfr __at` port I/O  | native      | NOT supported (use z80_inp/z80_outp) |
+| `sdcccall(1)` registers| native      | `__stdc` only (all on stack) |
+| `__z88dk_fastcall`     | supported   | not currently supported |
+| `__z88dk_callee`       | supported   | not currently supported |
+| `__interrupt`          | native      | unknown |
+| `__critical`           | native      | unknown |
+| `__naked`              | native      | unknown |
+| IX/IY register usage   | configurable| uses both |
+| Code size              | smaller     | ~40-60% larger |
 | Register allocation    | basic       | reportedly better |
-
-The `__sfr __at` incompatibility is the core blocker for bare-metal code.
-Clang doesn't understand this sdcc extension, so port variables become
-normal globals. The C→IR→C round-trip loses the port-access semantics
-and sdcc generates LD (memory) instead of IN/OUT (I/O).
 
 ## User decisions
 
@@ -104,27 +183,26 @@ and sdcc generates LD (memory) instead of IN/OUT (I/O).
   only zllvm-cbe in Docker and use the existing macOS z88dk binary
   distribution for everything else.
 
-- **Port I/O incompatibility**: Accepted as a known limitation for now.
-  The goal was to get the pipeline compiling to assess code size and
-  feasibility, not to produce working hardware code.
+- **Port I/O**: Accepted as a known limitation. Portable alternative is
+  `z80_inp()` / `z80_outp()` from `<z80.h>`.
 
-## Conclusion
+## TODO
 
-The z88dk Clang backend is **not viable for bare-metal Z80 ROM code**
-that uses `__sfr __at` for port I/O. The pipeline works for pure
-computational C code but the C→IR→C round-trip loses hardware I/O
-semantics and produces ~40% larger code.
-
-For the RC702 autoload PROM, sdcc with manual optimizations (static
-locals, peephole rules, `--fomit-frame-pointer`) remains the right choice.
-
-The Clang backend could be useful for projects that:
-- Don't need direct port I/O (application-level CP/M code)
-- Can use z88dk's CRT and standard library
-- Benefit from better register allocation on compute-heavy code
+- Consider rewriting port variables from `__sfr __at` to `z80_inp()` /
+  `z80_outp()` to make the C source portable across all z88dk backends
+  (sdcc, sccz80, clang). Cost: ~6 bytes per call site vs 2 bytes for
+  `__sfr __at`.
 
 ## References
 
 - [z88dk Clang support wiki](https://github.com/z88dk/z88dk/wiki/Clang-support)
 - [CEdev toolchain releases](https://github.com/CE-Programming/toolchain/releases)
 - [JuliaHubOSS/llvm-cbe](https://github.com/JuliaHubOSS/llvm-cbe)
+- [jacobly0/llvm-project (Z80 LLVM backend)](https://github.com/jacobly0/llvm-project)
+- [Z80CallingConv.td (register conventions)](https://github.com/jacobly0/llvm-project/blob/z80/llvm/lib/Target/Z80/Z80CallingConv.td)
+- [z88dk issue #2329: ez80-clang support](https://github.com/z88dk/z88dk/issues/2329)
+- [z88dk CallingConventions wiki](https://github.com/z88dk/z88dk/wiki/CallingConventions)
+- [z88dk z80.h library (z80_inp, z80_outp)](https://www.z88dk.org/wiki/doku.php?id=libnew:z80)
+- [z88dk intrinsics](https://github.com/z88dk/z88dk/wiki/intrinsic)
+- [SDCC manual (§3.5.2: __sfr __at)](https://sdcc.sourceforge.net/doc/sdccman.pdf)
+- [z88dk issue #78: compiler intrinsics for port addressing](https://github.com/z88dk/z88dk/issues/78)
