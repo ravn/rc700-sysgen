@@ -161,7 +161,7 @@ bypass llvm-cbe or teach it to emit sdcc register annotations.
 
 | Feature                | sdcc backend | Clang backend |
 |------------------------|-------------|---------------|
-| `__sfr __at` port I/O  | native      | NOT supported (use z80_inp/z80_outp) |
+| Port I/O               | `__sfr __at` inline | `address_space(2)` inline (direct -S) |
 | `sdcccall(1)` registers| native      | `__stdc` only (all on stack) |
 | `__z88dk_fastcall`     | supported   | not currently supported |
 | `__z88dk_callee`       | supported   | not currently supported |
@@ -240,6 +240,47 @@ when translating LLVM IR back to C. All pointers become plain `void*`.
 
 No GCC Z80 backend exists. No viable Rust/Go/Zig path to Z80 exists.
 
+## Direct ez80-clang experiment (branch `ez80clang-direct`)
+
+Skipped llvm-cbe entirely. Used `ez80-clang --target=z80 -S` to compile
+rom.c directly to Z80 assembly. This avoids the IR→C→sdcc round-trip
+and its information loss.
+
+### DEFPORT macro — unified port I/O across all backends
+
+Designed a single `DEFPORT(name, addr)` macro that generates the right
+port declaration per backend. All port declarations and hardware macros
+are shared — only the DEFPORT definition is `#ifdef`'d:
+
+```c
+#if defined(__clang__)
+#define DEFPORT(name, addr)  /* address_space(2) pointer + #define lvalue */
+#elif defined(__SDCC)
+#define DEFPORT(name, addr)  __sfr __at addr _port_##name
+#else
+#define DEFPORT(name, addr)  extern volatile unsigned char _port_##name
+#endif
+
+DEFPORT(fdc_status, 0x04);   // same for all backends
+_port_fdc_status = 0x42;     // same usage for all backends
+```
+
+clang requires 26 additional `#define _port_X (*_ioptr_X)` lines for
+lvalue aliasing — C preprocessor cannot emit `#define` from a macro.
+
+**Results (MAME boot test PASS):**
+- sdcc: 1734 bytes CODE (identical to original `__sfr __at` build)
+- clang: 65 IN + 109 OUT inline instructions, zero library calls
+- rom.c unchanged — only rom.h declarations restructured
+
+### Remaining gaps for a full clang build
+
+- clang asm output uses ELF section syntax — z88dk-z80asm incompatible
+- Labels with dots (`_.str.6`) parsed as floats by z88dk assembler
+- External runtime: `__bshl`, `__bshru`, `__sshl`, `__sshru`, `__indcallhl`
+- No linker script for BOOT/CODE section layout
+- boot_rom.c and intvec.c not yet compiled with clang
+
 ## User decisions
 
 - **IX/IY register usage**: Not considered a blocker. User plans to rework
@@ -248,13 +289,15 @@ No GCC Z80 backend exists. No viable Rust/Go/Zig path to Z80 exists.
 - **Toolchain approach**: Build only zllvm-cbe in Docker, use existing
   macOS z88dk binary distribution for everything else.
 
-- **Port I/O**: Keep `__sfr __at` + macros (optimal for sdcc/sccz80).
-  Portable `z80_inp`/`z80_outp` costs +21% code size. The goal is
-  portable C that CLion can index (the `#else` stubs handle this) while
-  producing optimal IN/OUT via compiler-specific `__sfr __at`.
+- **Port I/O**: Unified DEFPORT macro produces inline IN/OUT on all
+  backends. No library calls, no code size penalty. clang uses
+  `address_space(2)`, sdcc uses `__sfr __at`, IDE stubs use `extern`.
+  User rejected the three-way macro duplication approach in favor of
+  the DEFPORT design where usage is identical everywhere.
 
 - **Investigation scope**: Thorough analysis of all LLVM→Z80 paths,
-  sdcc internals for `__sfr __at`, and clang calling conventions.
+  sdcc internals for `__sfr __at`, clang calling conventions, and
+  direct ez80-clang assembly generation.
   Documented in project for future reference.
 
 ## References
