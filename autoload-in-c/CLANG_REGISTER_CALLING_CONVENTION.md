@@ -150,6 +150,32 @@ stack.  sdcccall(1) is still more compact due to simpler prologue
    been updated since 2023-12-13.  No improvements to the calling
    convention are expected upstream.
 
+6. **`push a` / `pop a`**: CC 103 generates `push a` / `pop a` which are
+   eZ80 instructions, not valid Z80.  Must be post-processed to `push af` /
+   `pop af`.
+
+7. **`delay()` eliminated**: LLVM's optimizer recognizes empty delay loops
+   and removes them entirely (`ret` only).  Timing-critical delay functions
+   need `volatile` or inline asm to survive optimization.
+
+8. **Code size**: rom.c compiles to 4440 bytes with CC 103 (vs 1734 bytes
+   with sdcc).  The 2.5× increase comes from callee-save push/pop overhead,
+   less efficient register allocation for complex functions, and different
+   instruction selection.  Too large for the PROM (4096 byte limit) but
+   demonstrates the approach works.
+
+## Full rom.c compilation test
+
+Successfully compiled rom.c through the complete pipeline:
+
+```
+C → clang -emit-llvm → sed cc 103 → clang -cc1 -S → copt → z80asm
+```
+
+Result: 4440 bytes code, 130 bytes rodata, 34 bytes BSS.
+65 IN + 119 OUT inline port I/O instructions (address_space(2) works).
+Assembled with zero errors after `push a` → `push af` fixup.
+
 ## Why not patch the backend?
 
 Adding a `__attribute__((z80_regcall))` to the clang frontend that maps
