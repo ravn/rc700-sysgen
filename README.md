@@ -14,6 +14,8 @@ All reasonable optimizations and clarifications are now done!
 
 There is a bug when running ID-COMAL but CP/M boots fine on Maxi systems. (Minis have less space on the floppies so waiting with those).  
 
+2026-03-22:  Sources now compile with both experimental z88dk clang backend, and zsdcc.  Binary identical size with zsdcc. Switched to port_in/port_out to get clean C sources.  
+
 ----
 
 ## Old text
