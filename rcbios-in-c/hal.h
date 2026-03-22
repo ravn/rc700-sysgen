@@ -4,7 +4,7 @@
  * Port I/O compiles to inline IN/OUT on all Z80 backends:
  *   clang:       __attribute__((address_space(2)))
  *   sdcc/sccz80: __sfr __at
- *   HOST_TEST:   extern volatile stubs
+ *   HOST_TEST:   no-op stubs
  */
 
 #ifndef HAL_H
@@ -67,115 +67,83 @@
 #if defined(__clang__) && !defined(HOST_TEST)
 #define __io __attribute__((address_space(2)))
 #define DEFPORT(name, addr) \
-    static volatile __io uint8_t * const _ioptr_##name = (volatile __io uint8_t *)(addr)
-#define _port_crt_param    (*_ioptr_crt_param)
-#define _port_crt_cmd      (*_ioptr_crt_cmd)
-#define _port_fdc_status   (*_ioptr_fdc_status)
-#define _port_fdc_data     (*_ioptr_fdc_data)
-#define _port_sio_a_data   (*_ioptr_sio_a_data)
-#define _port_sio_b_data   (*_ioptr_sio_b_data)
-#define _port_sio_a_ctrl   (*_ioptr_sio_a_ctrl)
-#define _port_sio_b_ctrl   (*_ioptr_sio_b_ctrl)
-#define _port_ctc0         (*_ioptr_ctc0)
-#define _port_ctc1         (*_ioptr_ctc1)
-#define _port_ctc2         (*_ioptr_ctc2)
-#define _port_ctc3         (*_ioptr_ctc3)
-#define _port_pio_a_data   (*_ioptr_pio_a_data)
-#define _port_pio_b_data   (*_ioptr_pio_b_data)
-#define _port_pio_a_ctrl   (*_ioptr_pio_a_ctrl)
-#define _port_pio_b_ctrl   (*_ioptr_pio_b_ctrl)
-#define _port_sw1          (*_ioptr_sw1)
-#define _port_bell         (*_ioptr_bell)
-#define _port_ctc2_ch0     (*_ioptr_ctc2_ch0)
-#define _port_ctc2_ch1     (*_ioptr_ctc2_ch1)
-#define _port_ctc2_ch2     (*_ioptr_ctc2_ch2)
-#define _port_ctc2_ch3     (*_ioptr_ctc2_ch3)
-#define _port_dma_ch0_addr (*_ioptr_dma_ch0_addr)
-#define _port_dma_ch0_wc   (*_ioptr_dma_ch0_wc)
-#define _port_dma_ch1_addr (*_ioptr_dma_ch1_addr)
-#define _port_dma_ch1_wc   (*_ioptr_dma_ch1_wc)
-#define _port_dma_ch2_addr (*_ioptr_dma_ch2_addr)
-#define _port_dma_ch2_wc   (*_ioptr_dma_ch2_wc)
-#define _port_dma_ch3_addr (*_ioptr_dma_ch3_addr)
-#define _port_dma_ch3_wc   (*_ioptr_dma_ch3_wc)
-#define _port_dma_cmd      (*_ioptr_dma_cmd)
-#define _port_dma_req      (*_ioptr_dma_req)
-#define _port_dma_smsk     (*_ioptr_dma_smsk)
-#define _port_dma_mode     (*_ioptr_dma_mode)
-#define _port_dma_clbp     (*_ioptr_dma_clbp)
-#define _port_dma_tmp      (*_ioptr_dma_tmp)
-#define _port_dma_mask     (*_ioptr_dma_mask)
-#define _port_hd_data      (*_ioptr_hd_data)
-#define _port_hd_error     (*_ioptr_hd_error)
-#define _port_hd_secct     (*_ioptr_hd_secct)
-#define _port_hd_secno     (*_ioptr_hd_secno)
-#define _port_hd_cyllo     (*_ioptr_hd_cyllo)
-#define _port_hd_cylhi     (*_ioptr_hd_cylhi)
-#define _port_hd_sdh       (*_ioptr_hd_sdh)
-#define _port_hd_status    (*_ioptr_hd_status)
+    static inline uint8_t port_in_##name(void) { \
+        return *(volatile __io uint8_t *)(uint8_t)(addr); \
+    } \
+    static inline void port_out_##name(uint8_t val) { \
+        *(volatile __io uint8_t *)(uint8_t)(addr) = val; \
+    }
+#define port_in(name)       port_in_##name()
+#define port_out(name, val) port_out_##name(val)
 #elif defined(__SDCC) || defined(__SCCZ80)
-#define DEFPORT(name, addr) __sfr __at addr _port_##name
+#define DEFPORT(name, addr) __sfr __at (addr) _sfr_##name;
+#define port_in(name)       (_sfr_##name)
+#define port_out(name, val) (_sfr_##name = (val))
 #else
-#define DEFPORT(name, addr) extern volatile unsigned char _port_##name
+#define DEFPORT(name, addr) \
+    static inline uint8_t port_in_##name(void) { return 0; } \
+    static inline void port_out_##name(uint8_t val) { (void)val; }
+#define port_in(name)       port_in_##name()
+#define port_out(name, val) port_out_##name(val)
 #endif
 
-DEFPORT(crt_param,    PORT_CRT_PARAM);
-DEFPORT(crt_cmd,      PORT_CRT_CMD);
-DEFPORT(fdc_status,   PORT_FDC_STATUS);
-DEFPORT(fdc_data,     PORT_FDC_DATA);
-DEFPORT(sio_a_data,   PORT_SIO_A_DATA);
-DEFPORT(sio_b_data,   PORT_SIO_B_DATA);
-DEFPORT(sio_a_ctrl,   PORT_SIO_A_CTRL);
-DEFPORT(sio_b_ctrl,   PORT_SIO_B_CTRL);
-DEFPORT(ctc0,         PORT_CTC0);
-DEFPORT(ctc1,         PORT_CTC1);
-DEFPORT(ctc2,         PORT_CTC2);
-DEFPORT(ctc3,         PORT_CTC3);
-DEFPORT(pio_a_data,   PORT_PIO_A_DATA);
-DEFPORT(pio_b_data,   PORT_PIO_B_DATA);
-DEFPORT(pio_a_ctrl,   PORT_PIO_A_CTRL);
-DEFPORT(pio_b_ctrl,   PORT_PIO_B_CTRL);
-DEFPORT(sw1,          PORT_SW1);
-DEFPORT(bell,         PORT_BELL);
-DEFPORT(ctc2_ch0,     PORT_CTC2_CH0);
-DEFPORT(ctc2_ch1,     PORT_CTC2_CH1);
-DEFPORT(ctc2_ch2,     PORT_CTC2_CH2);
-DEFPORT(ctc2_ch3,     PORT_CTC2_CH3);
-DEFPORT(dma_ch0_addr, PORT_DMA_CH0_ADDR);
-DEFPORT(dma_ch0_wc,   PORT_DMA_CH0_WC);
-DEFPORT(dma_ch1_addr, PORT_DMA_CH1_ADDR);
-DEFPORT(dma_ch1_wc,   PORT_DMA_CH1_WC);
-DEFPORT(dma_ch2_addr, PORT_DMA_CH2_ADDR);
-DEFPORT(dma_ch2_wc,   PORT_DMA_CH2_WC);
-DEFPORT(dma_ch3_addr, PORT_DMA_CH3_ADDR);
-DEFPORT(dma_ch3_wc,   PORT_DMA_CH3_WC);
-DEFPORT(dma_cmd,      PORT_DMA_CMD);
-DEFPORT(dma_req,      PORT_DMA_REQ);
-DEFPORT(dma_smsk,     PORT_DMA_SMSK);
-DEFPORT(dma_mode,     PORT_DMA_MODE);
-DEFPORT(dma_clbp,     PORT_DMA_CLBP);
-DEFPORT(dma_tmp,      PORT_DMA_TMP);
-DEFPORT(dma_mask,     PORT_DMA_MASK);
-DEFPORT(hd_data,      PORT_HD_DATA);
-DEFPORT(hd_error,     PORT_HD_ERROR);
-DEFPORT(hd_secct,     PORT_HD_SECCT);
-DEFPORT(hd_secno,     PORT_HD_SECNO);
-DEFPORT(hd_cyllo,     PORT_HD_CYLLO);
-DEFPORT(hd_cylhi,     PORT_HD_CYLHI);
-DEFPORT(hd_sdh,       PORT_HD_SDH);
-DEFPORT(hd_status,    PORT_HD_STATUS);
+DEFPORT(crt_param,    PORT_CRT_PARAM)
+DEFPORT(crt_cmd,      PORT_CRT_CMD)
+DEFPORT(fdc_status,   PORT_FDC_STATUS)
+DEFPORT(fdc_data,     PORT_FDC_DATA)
+DEFPORT(sio_a_data,   PORT_SIO_A_DATA)
+DEFPORT(sio_b_data,   PORT_SIO_B_DATA)
+DEFPORT(sio_a_ctrl,   PORT_SIO_A_CTRL)
+DEFPORT(sio_b_ctrl,   PORT_SIO_B_CTRL)
+DEFPORT(ctc0,         PORT_CTC0)
+DEFPORT(ctc1,         PORT_CTC1)
+DEFPORT(ctc2,         PORT_CTC2)
+DEFPORT(ctc3,         PORT_CTC3)
+DEFPORT(pio_a_data,   PORT_PIO_A_DATA)
+DEFPORT(pio_b_data,   PORT_PIO_B_DATA)
+DEFPORT(pio_a_ctrl,   PORT_PIO_A_CTRL)
+DEFPORT(pio_b_ctrl,   PORT_PIO_B_CTRL)
+DEFPORT(sw1,          PORT_SW1)
+DEFPORT(bell,         PORT_BELL)
+DEFPORT(ctc2_ch0,     PORT_CTC2_CH0)
+DEFPORT(ctc2_ch1,     PORT_CTC2_CH1)
+DEFPORT(ctc2_ch2,     PORT_CTC2_CH2)
+DEFPORT(ctc2_ch3,     PORT_CTC2_CH3)
+DEFPORT(dma_ch0_addr, PORT_DMA_CH0_ADDR)
+DEFPORT(dma_ch0_wc,   PORT_DMA_CH0_WC)
+DEFPORT(dma_ch1_addr, PORT_DMA_CH1_ADDR)
+DEFPORT(dma_ch1_wc,   PORT_DMA_CH1_WC)
+DEFPORT(dma_ch2_addr, PORT_DMA_CH2_ADDR)
+DEFPORT(dma_ch2_wc,   PORT_DMA_CH2_WC)
+DEFPORT(dma_ch3_addr, PORT_DMA_CH3_ADDR)
+DEFPORT(dma_ch3_wc,   PORT_DMA_CH3_WC)
+DEFPORT(dma_cmd,      PORT_DMA_CMD)
+DEFPORT(dma_req,      PORT_DMA_REQ)
+DEFPORT(dma_smsk,     PORT_DMA_SMSK)
+DEFPORT(dma_mode,     PORT_DMA_MODE)
+DEFPORT(dma_clbp,     PORT_DMA_CLBP)
+DEFPORT(dma_tmp,      PORT_DMA_TMP)
+DEFPORT(dma_mask,     PORT_DMA_MASK)
+DEFPORT(hd_data,      PORT_HD_DATA)
+DEFPORT(hd_error,     PORT_HD_ERROR)
+DEFPORT(hd_secct,     PORT_HD_SECCT)
+DEFPORT(hd_secno,     PORT_HD_SECNO)
+DEFPORT(hd_cyllo,     PORT_HD_CYLLO)
+DEFPORT(hd_cylhi,     PORT_HD_CYLHI)
+DEFPORT(hd_sdh,       PORT_HD_SDH)
+DEFPORT(hd_status,    PORT_HD_STATUS)
 
 /* ================================================================
  * DMA channel helpers, CPU control, sdcc keyword compatibility
  * ================================================================ */
 
 /* DMA channel address/word count (two consecutive port writes) */
-#define hal_dma_ch1_addr(addr) do { _port_dma_ch1_addr=(uint8_t)(addr); _port_dma_ch1_addr=(uint8_t)((addr)>>8); } while(0)
-#define hal_dma_ch1_wc(wc)    do { _port_dma_ch1_wc=(uint8_t)(wc);     _port_dma_ch1_wc=(uint8_t)((wc)>>8);     } while(0)
-#define hal_dma_ch2_addr(addr) do { _port_dma_ch2_addr=(uint8_t)(addr); _port_dma_ch2_addr=(uint8_t)((addr)>>8); } while(0)
-#define hal_dma_ch2_wc(wc)    do { _port_dma_ch2_wc=(uint8_t)(wc);     _port_dma_ch2_wc=(uint8_t)((wc)>>8);     } while(0)
-#define hal_dma_ch3_addr(addr) do { _port_dma_ch3_addr=(uint8_t)(addr); _port_dma_ch3_addr=(uint8_t)((addr)>>8); } while(0)
-#define hal_dma_ch3_wc(wc)    do { _port_dma_ch3_wc=(uint8_t)(wc);     _port_dma_ch3_wc=(uint8_t)((wc)>>8);     } while(0)
+#define hal_dma_ch1_addr(addr) do { port_out(dma_ch1_addr,(uint8_t)(addr)); port_out(dma_ch1_addr,(uint8_t)((addr)>>8)); } while(0)
+#define hal_dma_ch1_wc(wc)    do { port_out(dma_ch1_wc,(uint8_t)(wc));     port_out(dma_ch1_wc,(uint8_t)((wc)>>8));     } while(0)
+#define hal_dma_ch2_addr(addr) do { port_out(dma_ch2_addr,(uint8_t)(addr)); port_out(dma_ch2_addr,(uint8_t)((addr)>>8)); } while(0)
+#define hal_dma_ch2_wc(wc)    do { port_out(dma_ch2_wc,(uint8_t)(wc));     port_out(dma_ch2_wc,(uint8_t)((wc)>>8));     } while(0)
+#define hal_dma_ch3_addr(addr) do { port_out(dma_ch3_addr,(uint8_t)(addr)); port_out(dma_ch3_addr,(uint8_t)((addr)>>8)); } while(0)
+#define hal_dma_ch3_wc(wc)    do { port_out(dma_ch3_wc,(uint8_t)(wc));     port_out(dma_ch3_wc,(uint8_t)((wc)>>8));     } while(0)
 
 #ifdef HOST_TEST
 /* Host testing stubs */
@@ -204,6 +172,7 @@ void hal_di(void);
 #define hal_ei()   ((void)0)
 #define hal_di()   ((void)0)
 #define hal_halt() ((void)0)
+static inline void intrinsic_im_2(void) {}
 #endif
 
 #endif /* HAL_H */

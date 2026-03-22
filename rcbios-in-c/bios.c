@@ -237,9 +237,9 @@ word dpbase[2 * 8];
 /* Motor control */
 static void fdstop(void)
 {
-    if (!(_port_sw1 & 0b10000000))    /* maxi: no motor control */
+    if (!(port_in(sw1) & 0b10000000))    /* maxi: no motor control */
         return;
-    _port_sw1 = 0x00;
+    port_out(sw1, 0x00);
 }
 
 static void waitd(word ticks)
@@ -251,14 +251,14 @@ static void waitd(word ticks)
 
 static void fdstar(void)
 {
-    if (!(_port_sw1 & 0b10000000))    /* maxi: no motor control */
+    if (!(port_in(sw1) & 0b10000000))    /* maxi: no motor control */
         return;
     hal_di();
     if (timer2 == 0) {
         /* motor was stopped — start and wait for spinup */
         timer2 = (word)fdtimo_var;
         hal_ei();
-        _port_sw1 = 0x01;
+        port_out(sw1, 0x01);
         waitd(50);              /* 50 * 20ms = 1 second */
     } else {
         timer2 = (word)fdtimo_var;
@@ -277,17 +277,17 @@ static void fdstar(void)
 /* Wait for FDC ready, then write command/parameter byte (RQM=1, DIO=0) */
 void fdc_write(byte val)
 {
-    while ((_port_fdc_status & 0b11000000) != 0b10000000)  /* RQM+DIO mask */
+    while ((port_in(fdc_status) & 0b11000000) != 0b10000000)  /* RQM+DIO mask */
         ;
-    _port_fdc_data = val;
+    port_out(fdc_data, val);
 }
 
 /* Wait for FDC result byte available (RQM=1, DIO=1), return data */
 static byte fdc_read(void)
 {
-    while ((_port_fdc_status & 0b11000000) != 0b11000000)  /* RQM+DIO mask */
+    while ((port_in(fdc_status) & 0b11000000) != 0b11000000)  /* RQM+DIO mask */
         ;
-    return _port_fdc_data;
+    return port_in(fdc_data);
 }
 
 static void fdc_recalibrate(void)
@@ -320,7 +320,7 @@ static void fdc_result(void)
         p[i] = fdc_read();
         for (delay = 4; delay; delay--)
             ;
-        if (!(_port_fdc_status & 0b00010000))  /* CB: more result bytes? */
+        if (!(port_in(fdc_status) & 0b00010000))  /* CB: more result bytes? */
             return;
     }
 }
@@ -355,14 +355,14 @@ static byte  dma_write;      /* parameter: 0=read(FDC→mem), 1=write(mem→FDC)
 static void flp_dma_setup(void)
 {
     hal_di();
-    _port_dma_smsk = 0x05;          /* mask ch1 */
-    _port_dma_mode = dma_write ? 0x49 : 0x45;
-    _port_dma_clbp = 0;
-    _port_dma_ch1_addr = (byte)dskad;
-    _port_dma_ch1_addr = (byte)(dskad >> 8);
-    _port_dma_ch1_wc = (byte)dma_count;
-    _port_dma_ch1_wc = (byte)(dma_count >> 8);
-    _port_dma_smsk = 0x01;          /* unmask ch1 */
+    port_out(dma_smsk, 0x05);          /* mask ch1 */
+    port_out(dma_mode, dma_write ? 0x49 : 0x45);
+    port_out(dma_clbp, 0);
+    port_out(dma_ch1_addr, (byte)dskad);
+    port_out(dma_ch1_addr, (byte)(dskad >> 8));
+    port_out(dma_ch1_wc, (byte)dma_count);
+    port_out(dma_ch1_wc, (byte)(dma_count >> 8));
+    port_out(dma_smsk, 0x01);          /* unmask ch1 */
     hal_ei();
 }
 
@@ -579,10 +579,10 @@ static void puts_p(const char *s)
 static void readi(void)
 {
     hal_di();
-    _port_sio_a_ctrl = 0x05;            /* select WR5 */
-    _port_sio_a_ctrl = wr5a + 0x8A;     /* DTR=1, TX enable, RTS=1 */
-    _port_sio_a_ctrl = 0x01;            /* select WR1 */
-    _port_sio_a_ctrl = 0x1B;            /* enable RX, TX, ext status ints */
+    port_out(sio_a_ctrl, 0x05);            /* select WR5 */
+    port_out(sio_a_ctrl, wr5a + 0x8A);     /* DTR=1, TX enable, RTS=1 */
+    port_out(sio_a_ctrl, 0x01);            /* select WR1 */
+    port_out(sio_a_ctrl, 0x1B);            /* enable RX, TX, ext status ints */
     hal_ei();
 }
 
@@ -1146,7 +1146,7 @@ static void specc(void)
     if (usession == 0x1F) { erase_to_eos(); return; }
     if (usession == 0x01) { insert_line(); return; }
     if (usession == 0x02) { delete_line(); return; }
-    if (usession == 0x07) { _port_bell = 0; return; }
+    if (usession == 0x07) { port_out(bell, 0); return; }
     /* Rare: fore/background */
     if (usession == 0x13) { bgflg = 2; memset(bgstar, 0, BGSTAR_SIZE); return; }
     if (usession == 0x14) { bgflg = 1; return; }
@@ -1195,11 +1195,11 @@ void bios_list_body(byte c)
         ;                       /* wait for TX ready */
     hal_di();
     prtflg = 0;                 /* mark busy */
-    _port_sio_b_ctrl = 0x05;    /* select WR5 */
-    _port_sio_b_ctrl = wr5b + 0x8A;  /* DTR=1, TX enable, RTS=1 */
-    _port_sio_b_ctrl = 0x01;    /* select WR1 */
-    _port_sio_b_ctrl = 0x07;    /* TX int, ext status, status affects vector */
-    _port_sio_b_data = c;
+    port_out(sio_b_ctrl, 0x05);    /* select WR5 */
+    port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
+    port_out(sio_b_ctrl, 0x01);    /* select WR1 */
+    port_out(sio_b_ctrl, 0x07);    /* TX int, ext status, status affects vector */
+    port_out(sio_b_data, c);
     hal_ei();
 }
 
@@ -1221,11 +1221,11 @@ void bios_punch_body(byte c)
         ;                       /* wait for TX ready */
     hal_di();
     ptpflg = 0;                 /* mark busy */
-    _port_sio_a_ctrl = 0x05;    /* select WR5 */
-    _port_sio_a_ctrl = wr5a + 0x8A;  /* DTR=1, TX enable, RTS=1 */
-    _port_sio_a_ctrl = 0x01;    /* select WR1 */
-    _port_sio_a_ctrl = 0x1B;    /* RX, TX, ext status ints */
-    _port_sio_a_data = c;
+    port_out(sio_a_ctrl, 0x05);    /* select WR5 */
+    port_out(sio_a_ctrl, wr5a + 0x8A);  /* DTR=1, TX enable, RTS=1 */
+    port_out(sio_a_ctrl, 0x01);    /* select WR1 */
+    port_out(sio_a_ctrl, 0x1B);    /* RX, TX, ext status ints */
+    port_out(sio_a_data, c);
     hal_ei();
 }
 
@@ -1257,8 +1257,8 @@ byte bios_reader_body(void)
     /* reassert RTS if buffer has drained below low watermark */
     used = (rxhead - new_tail) & RXMASK;
     if (used < RXTHLO) {
-        _port_sio_a_ctrl = 0x05;        /* select WR5 */
-        _port_sio_a_ctrl = wr5a + 0x8A; /* DTR=1, TX enable, RTS=1 */
+        port_out(sio_a_ctrl, 0x05);        /* select WR5 */
+        port_out(sio_a_ctrl, wr5a + 0x8A); /* DTR=1, TX enable, RTS=1 */
     }
 
     return ch;
@@ -1533,22 +1533,22 @@ static byte ls_port;    /* 0=SIO-A, 1=SIO-B */
 static void sio_wr5(byte val)
 {
     if (ls_port) {
-        _port_sio_b_ctrl = 5;
-        _port_sio_b_ctrl = val;
+        port_out(sio_b_ctrl, 5);
+        port_out(sio_b_ctrl, val);
     } else {
-        _port_sio_a_ctrl = 5;
-        _port_sio_a_ctrl = val;
+        port_out(sio_a_ctrl, 5);
+        port_out(sio_a_ctrl, val);
     }
 }
 
 static byte sio_rd1(void)
 {
     if (ls_port) {
-        _port_sio_b_ctrl = 1;
-        return _port_sio_b_ctrl;
+        port_out(sio_b_ctrl, 1);
+        return port_in(sio_b_ctrl);
     }
-    _port_sio_a_ctrl = 1;
-    return _port_sio_a_ctrl;
+    port_out(sio_a_ctrl, 1);
+    return port_in(sio_a_ctrl);
 }
 
 static byte ls_line;
@@ -1741,36 +1741,36 @@ void isr_crt(void) __naked
     isr_enter_full();
 
     /* Read CRT status register to acknowledge interrupt */
-    (void)_port_crt_cmd;
+    (void)port_in(crt_cmd);
 
     /* Program DMA for 8275 display refresh */
-    _port_dma_smsk = 6;         /* mask DMA ch2 */
-    _port_dma_smsk = 7;         /* mask DMA ch3 */
-    _port_dma_clbp = 0;         /* clear byte pointer flip-flop */
+    port_out(dma_smsk, 6);         /* mask DMA ch2 */
+    port_out(dma_smsk, 7);         /* mask DMA ch3 */
+    port_out(dma_clbp, 0);         /* clear byte pointer flip-flop */
 
     /* DMA ch2: display data transfer (2000 bytes from DSPSTR) */
     hal_dma_ch2_addr(DSPSTR);
     hal_dma_ch2_wc(SCRN_SIZE - 1);
 
     /* DMA ch3: attribute data (zero length) */
-    _port_dma_ch3_wc = 0;
-    _port_dma_ch3_wc = 0;
+    port_out(dma_ch3_wc, 0);
+    port_out(dma_ch3_wc, 0);
 
     /* Unmask DMA channels */
-    _port_dma_smsk = 2;         /* clear ch2 mask */
-    _port_dma_smsk = 3;         /* clear ch3 mask */
+    port_out(dma_smsk, 2);         /* clear ch2 mask */
+    port_out(dma_smsk, 3);         /* clear ch3 mask */
 
     /* Deferred cursor update — avoids 3 port writes per character */
     if (cur_dirty) {
         cur_dirty = 0;
-        _port_crt_cmd = 0x80;       /* load cursor position command */
-        _port_crt_param = curx;     /* X position */
-        _port_crt_param = cursy;    /* Y position */
+        port_out(crt_cmd, 0x80);       /* load cursor position command */
+        port_out(crt_param, curx);     /* X position */
+        port_out(crt_param, cursy);    /* Y position */
     }
 
     /* Reprogram CTC ch2 for next interrupt */
-    _port_ctc2 = 0xD7;          /* counter mode */
-    _port_ctc2 = 1;             /* count 1 */
+    port_out(ctc2, 0xD7);          /* counter mode */
+    port_out(ctc2, 1);             /* count 1 */
 
     /* Increment 32-bit real-time clock */
     rtc0++;
@@ -1809,7 +1809,7 @@ void isr_pio_kbd(void) __naked
     /* Read keystroke from PIO (clears interrupt even if buffer full) */
     {
         byte key, new_head;
-        key = _port_pio_a_data;
+        key = port_in(pio_a_data);
         new_head = (kbhead + 1) & KBMASK;
         if (new_head != kbtail) {
             kbbuf[kbhead] = key;
@@ -1833,7 +1833,7 @@ void isr_floppy(void) __naked
         fl_flg = 0xFF;
         for (delay = 5; delay; delay--)
             ;
-        if (_port_fdc_status & 0b00010000)     /* CB: in result phase */
+        if (port_in(fdc_status) & 0b00010000)     /* CB: in result phase */
             fdc_result();
         else
             fdc_sense_int();
@@ -1867,23 +1867,23 @@ void isr_hd(void) __interrupt(4) {}
 /* TXB: Ch.B transmit complete — reset TX int, mark printer ready */
 void isr_sio_b_tx(void) __critical __interrupt(8)
 {
-    _port_sio_b_ctrl = 0x28;   /* reset TX interrupt pending */
+    port_out(sio_b_ctrl, 0x28);   /* reset TX interrupt pending */
     prtflg = 0xFF;              /* printer ready */
 }
 
 /* EXTSTB: Ch.B external status change — read and acknowledge */
 void isr_sio_b_ext(void) __critical __interrupt(9)
 {
-    rr0_b = _port_sio_b_ctrl;  /* read RR0 */
-    _port_sio_b_ctrl = 0x10;   /* reset ext/status interrupts */
+    rr0_b = port_in(sio_b_ctrl);  /* read RR0 */
+    port_out(sio_b_ctrl, 0x10);   /* reset ext/status interrupts */
 }
 
 /* SPECB: Ch.B special receive condition — read error, reset */
 void isr_sio_b_spec(void) __critical __interrupt(11)
 {
-    _port_sio_b_ctrl = 0x01;   /* select RR1 */
-    rr1_b = _port_sio_b_ctrl;  /* read RR1 */
-    _port_sio_b_ctrl = 0x30;   /* error reset */
+    port_out(sio_b_ctrl, 0x01);   /* select RR1 */
+    rr1_b = port_in(sio_b_ctrl);  /* read RR1 */
+    port_out(sio_b_ctrl, 0x30);   /* error reset */
 }
 
 /*
@@ -1898,15 +1898,15 @@ void isr_sio_b_spec(void) __critical __interrupt(11)
 /* TXA: Ch.A transmit complete — reset TX int, mark punch ready */
 void isr_sio_a_tx(void) __critical __interrupt(12)
 {
-    _port_sio_a_ctrl = 0x28;   /* reset TX interrupt pending */
+    port_out(sio_a_ctrl, 0x28);   /* reset TX interrupt pending */
     ptpflg = 0xFF;              /* punch ready */
 }
 
 /* EXTSTA: Ch.A external status change — read and acknowledge */
 void isr_sio_a_ext(void) __critical __interrupt(13)
 {
-    rr0_a = _port_sio_a_ctrl;  /* read RR0 */
-    _port_sio_a_ctrl = 0x10;   /* reset ext/status interrupts */
+    rr0_a = port_in(sio_a_ctrl);  /* read RR0 */
+    port_out(sio_a_ctrl, 0x10);   /* reset ext/status interrupts */
 }
 
 /* RCA: Ch.A receive — store in ring buffer with RTS flow control */
@@ -1918,7 +1918,7 @@ void isr_sio_a_rx(void) __naked
     {
         byte ch, new_head, used;
 
-        ch = _port_sio_a_data;       /* read char (clears interrupt) */
+        ch = port_in(sio_a_data);       /* read char (clears interrupt) */
 
         new_head = (rxhead + 1) & RXMASK;
 
@@ -1935,8 +1935,8 @@ void isr_sio_a_rx(void) __naked
 
     rts_off:
         /* deassert RTS to pause sender */
-        _port_sio_a_ctrl = 0x05;         /* select WR5 */
-        _port_sio_a_ctrl = wr5a + 0x88;  /* DTR=1, TX enable, RTS=0 */
+        port_out(sio_a_ctrl, 0x05);         /* select WR5 */
+        port_out(sio_a_ctrl, wr5a + 0x88);  /* DTR=1, TX enable, RTS=0 */
     done: ;
     }
 
@@ -1947,9 +1947,9 @@ void isr_sio_a_rx(void) __naked
 /* SPECA: Ch.A special receive condition — error reset, flush buffer */
 void isr_sio_a_spec(void) __critical __interrupt(15)
 {
-    _port_sio_a_ctrl = 0x01;   /* select RR1 */
-    rr1_a = _port_sio_a_ctrl;  /* read RR1 */
-    _port_sio_a_ctrl = 0x30;   /* error reset */
+    port_out(sio_a_ctrl, 0x01);   /* select RR1 */
+    rr1_a = port_in(sio_a_ctrl);  /* read RR1 */
+    port_out(sio_a_ctrl, 0x30);   /* error reset */
     rxhead = 0;                 /* flush ring buffer */
     rxtail = 0;
 }

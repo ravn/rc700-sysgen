@@ -11,7 +11,9 @@
  */
 
 #include <string.h>
+#if defined(__SDCC) || defined(__SCCZ80)
 #include <intrinsic.h>
+#endif
 #include "hal.h"
 #include "bios.h"
 
@@ -104,49 +106,49 @@ void bios_hw_init(void)
     setup_ivt();
 
     /* PIO: set interrupt vectors and modes */
-    _port_pio_a_ctrl = 0x20;    /* PIO-A interrupt vector */
-    _port_pio_b_ctrl = 0x22;    /* PIO-B interrupt vector */
-    _port_pio_a_ctrl = 0x4F;    /* PIO-A input mode */
-    _port_pio_b_ctrl = 0x0F;    /* PIO-B output mode */
-    _port_pio_a_ctrl = 0x83;    /* PIO-A enable interrupt */
-    _port_pio_b_ctrl = 0x83;    /* PIO-B enable interrupt */
+    port_out(pio_a_ctrl, 0x20);    /* PIO-A interrupt vector */
+    port_out(pio_b_ctrl, 0x22);    /* PIO-B interrupt vector */
+    port_out(pio_a_ctrl, 0x4F);    /* PIO-A input mode */
+    port_out(pio_b_ctrl, 0x0F);    /* PIO-B output mode */
+    port_out(pio_a_ctrl, 0x83);    /* PIO-A enable interrupt */
+    port_out(pio_b_ctrl, 0x83);    /* PIO-B enable interrupt */
 
     /* CTC: set interrupt vector and program all channels */
-    _port_ctc0 = 0x00;         /* CTC interrupt vector */
-    _port_ctc0 = CFG.ctc_mode0;
-    _port_ctc0 = CFG.ctc_count0;
-    _port_ctc1 = CFG.ctc_mode1;
-    _port_ctc1 = CFG.ctc_count1;
-    _port_ctc2 = CFG.ctc_mode2;
-    _port_ctc2 = CFG.ctc_count2;
-    _port_ctc3 = CFG.ctc_mode3;
-    _port_ctc3 = CFG.ctc_count3;
+    port_out(ctc0, 0x00);         /* CTC interrupt vector */
+    port_out(ctc0, CFG.ctc_mode0);
+    port_out(ctc0, CFG.ctc_count0);
+    port_out(ctc1, CFG.ctc_mode1);
+    port_out(ctc1, CFG.ctc_count1);
+    port_out(ctc2, CFG.ctc_mode2);
+    port_out(ctc2, CFG.ctc_count2);
+    port_out(ctc3, CFG.ctc_mode3);
+    port_out(ctc3, CFG.ctc_count3);
 
     /* SIO: program channels A and B from CONFI init blocks */
     {
         byte i;
         for (i = 0; i < 9; i++)
-            _port_sio_a_ctrl = CFG.sioa[i];
+            port_out(sio_a_ctrl, CFG.sioa[i]);
         for (i = 0; i < 11; i++)
-            _port_sio_b_ctrl = CFG.siob[i];
+            port_out(sio_b_ctrl, CFG.siob[i]);
     }
 
     /* SIO: read initial status registers */
-    (void)_port_sio_a_ctrl;     /* read RR0-A */
-    _port_sio_a_ctrl = 1;       /* select RR1 */
-    (void)_port_sio_a_ctrl;     /* read RR1-A */
-    (void)_port_sio_b_ctrl;     /* read RR0-B */
-    _port_sio_b_ctrl = 1;       /* select RR1 */
-    (void)_port_sio_b_ctrl;     /* read RR1-B */
+    (void)port_in(sio_a_ctrl);     /* read RR0-A */
+    port_out(sio_a_ctrl, 1);       /* select RR1 */
+    (void)port_in(sio_a_ctrl);     /* read RR1-A */
+    (void)port_in(sio_b_ctrl);     /* read RR0-B */
+    port_out(sio_b_ctrl, 1);       /* select RR1 */
+    (void)port_in(sio_b_ctrl);     /* read RR1-B */
 
     /* DMA: enter command mode and set channel modes */
-    _port_dma_cmd = 0x20;       /* master clear */
-    _port_dma_mode = 0x48;      /* ch0 mode (HD) */
-    _port_dma_mode = 0x4A;      /* ch2 mode (display) */
-    _port_dma_mode = 0x4B;      /* ch3 mode (display) */
+    port_out(dma_cmd, 0x20);       /* master clear */
+    port_out(dma_mode, 0x48);      /* ch0 mode (HD) */
+    port_out(dma_mode, 0x4A);      /* ch2 mode (display) */
+    port_out(dma_mode, 0x4B);      /* ch3 mode (display) */
 
     /* FDC: send SPECIFY command */
-    while (_port_fdc_status & 0x1F)
+    while (port_in(fdc_status) & 0x1F)
         ;  /* wait for all drives not seeking and not busy */
     fdc_write(0x03);            /* SPECIFY command */
     fdc_write(0xDF);            /* step rate 3ms, head unload 240ms */
@@ -159,16 +161,16 @@ void bios_hw_init(void)
     memset((void *)(WORK_ADDR + 1), 0, 0xFFFF - WORK_ADDR);
 
     /* CRT 8275: reset and program */
-    _port_crt_cmd = 0x00;       /* reset */
-    _port_crt_param = CFG.par1;     /* chars/row */
-    _port_crt_param = CFG.par2;     /* rows/frame */
-    _port_crt_param = CFG.par3;     /* lines/char + underline */
-    _port_crt_param = CFG.par4;     /* cursor format */
-    _port_crt_cmd = 0x80;       /* load cursor position */
-    _port_crt_param = 0;        /* cursor X = 0 */
-    _port_crt_param = 0;        /* cursor Y = 0 */
-    _port_crt_cmd = 0xE0;       /* preset counters */
-    _port_crt_cmd = 0x23;       /* start display */
+    port_out(crt_cmd, 0x00);       /* reset */
+    port_out(crt_param, CFG.par1);     /* chars/row */
+    port_out(crt_param, CFG.par2);     /* rows/frame */
+    port_out(crt_param, CFG.par3);     /* lines/char + underline */
+    port_out(crt_param, CFG.par4);     /* cursor format */
+    port_out(crt_cmd, 0x80);       /* load cursor position */
+    port_out(crt_param, 0);        /* cursor X = 0 */
+    port_out(crt_param, 0);        /* cursor Y = 0 */
+    port_out(crt_cmd, 0xE0);       /* preset counters */
+    port_out(crt_cmd, 0x23);       /* start display */
 
     /* Initialize runtime variables */
     wr5a = CFG.sioa[6] & 0x60;  /* SIO-A bits/char from WR5 */
