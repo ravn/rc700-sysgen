@@ -281,19 +281,45 @@ lvalue aliasing — C preprocessor cannot emit `#define` from a macro.
 - No linker script for BOOT/CODE section layout
 - boot_rom.c and intvec.c not yet compiled with clang
 
+### BIOS ported to clang (same branch)
+
+Applied the same DEFPORT approach to `rcbios-in-c/hal.h` (42 port
+declarations). Additional changes to `bios.c` and `bios.h`:
+
+- `#include <intrinsic.h>` guarded with `#ifdef __SDCC`
+- `__at(addr)` memory-mapped variables → `#define` pointer for clang
+- Inline asm scroll block → `#ifdef __SDCC` / `#else memmove+memset`
+- Forward declarations added for `bios_boot_c`, `bios_linsel_body`
+- sdcc keywords (`__naked`, `__interrupt`, `__critical`) → no-ops for clang
+- Duplicate `PORT_*` defines in bios.h removed (now in hal.h)
+
+**Results:**
+- sdcc: 5542 bytes (unchanged). Cycle test PASS (identical cycles).
+- clang: `ez80-clang --target=z80 -fsyntax-only` passes, 3 harmless warnings
+  (non-void return in `__naked` functions).
+
 ## User decisions
 
 - **IX/IY register usage**: Not considered a blocker. User plans to rework
   register allocation separately.
 
-- **Toolchain approach**: Build only zllvm-cbe in Docker, use existing
-  macOS z88dk binary distribution for everything else.
+- **Toolchain approach**: Exploring direct `ez80-clang -S` (skip llvm-cbe).
+  Also built zllvm-cbe in Docker for the CBE path experiments.
 
-- **Port I/O**: Unified DEFPORT macro produces inline IN/OUT on all
-  backends. No library calls, no code size penalty. clang uses
-  `address_space(2)`, sdcc uses `__sfr __at`, IDE stubs use `extern`.
-  User rejected the three-way macro duplication approach in favor of
-  the DEFPORT design where usage is identical everywhere.
+- **Port I/O**: User rejected z80_inp/z80_outp library calls (+21% size).
+  User rejected three-way macro duplication. User chose the DEFPORT
+  design: one `#ifdef` for declarations, identical `_port_X` usage
+  everywhere. Both sdcc and clang produce inline IN/OUT (2 bytes each).
+  C preprocessor cannot emit `#define` from a macro, so clang needs
+  26 lvalue-alias `#define` lines alongside the DEFPORT calls.
+
+- **BIOS clang compat**: User requested the BIOS also be compilable with
+  clang. Same DEFPORT approach applied. Code size is not a premium for
+  clang — being able to compile and run is the goal.
+
+- **Cycle testing**: Full ASM FILEX + TYPE FILEX.PRN cycle test run
+  after every change to verify no regression. Results appended to
+  CONOUT_BENCH.md.
 
 - **Investigation scope**: Thorough analysis of all LLVM→Z80 paths,
   sdcc internals for `__sfr __at`, clang calling conventions, and
