@@ -23,7 +23,9 @@
  */
 
 #include <string.h>
+#if defined(__SDCC) || defined(__SCCZ80)
 #include <intrinsic.h>
+#endif
 #include "hal.h"
 #include "bios.h"
 #include "builddate.h"
@@ -586,6 +588,7 @@ static void readi(void)
 
 static void wboot_c(void);
 static void jump_ccp(byte drive) __naked;
+static void bios_boot_c(void);
 
 /* Cold boot entry — sets BIOS stack then calls bios_boot_c. */
 void bios_boot(void) __naked
@@ -594,7 +597,7 @@ void bios_boot(void) __naked
     bios_boot_c();
 }
 
-void bios_boot_c(void)
+static void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
@@ -663,7 +666,11 @@ static void wboot_c(void)
 
 /* CCP entry point — __at makes the linker resolve the address from
  * the CCP_BASE expression, avoiding a hardcoded hex literal in asm. */
+#if defined(__clang__)
+#define ccp_entry_point (*(volatile byte *)CCP_BASE)
+#else
 static volatile byte __at(CCP_BASE) ccp_entry_point;
+#endif
 
 /* Jump to CCP entry point — does not return.
  * drive (in A via sdcccall(1)) is moved to C for CP/M convention. */
@@ -779,15 +786,15 @@ static void bg_set_bit(word pos)
  * ====================================================================== */
 static void scroll(void)
 {
-    /* --- display memory: inline asm for speed --- */
+    /* --- display memory scroll --- */
+#if defined(__SDCC) || defined(__SCCZ80)
+    /* Inline asm: unrolled 16xLDI for speed (16T/byte vs 21T/byte LDIR) */
     __asm
-    ;; === UNROLLED 16×LDI SCROLL (16T/byte vs 21T/byte LDIR) ===
-    ;; Copy 1920 bytes: ROW1..ROW24 → ROW0..ROW23
     ld  hl, #0xF850         ; source = DSPSTR + 80
     ld  de, #0xF800         ; dest   = DSPSTR
-    ld  bc, #0x0780         ; count  = 1920 (120 × 16)
+    ld  bc, #0x0780         ; count  = 1920
 scroll_ldi:
-    ldi                     ; 16 × LDI = 16T each (vs 21T for LDIR)
+    ldi
     ldi
     ldi
     ldi
@@ -804,9 +811,6 @@ scroll_ldi:
     ldi
     ldi
     jp  PE, scroll_ldi      ; P/V set while BC > 0
-
-    ;; === LDIR FILL TRICK for ROW24 (spaces) ===
-    ;; Write first byte, then LDIR copies it forward 79 times
     ld  hl, #0xFF80         ; ROW24 = DSPSTR + 1920
     ld  (hl), #0x20         ; first byte = space
     ld  d, h
@@ -815,6 +819,11 @@ scroll_ldi:
     ld  bc, #79             ; remaining 79 bytes
     ldir
     __endasm;
+#else
+    /* Portable C fallback (slower but works with clang) */
+    memmove((void *)0xF800, (void *)0xF850, 1920);
+    memset((void *)0xFF80, 0x20, 80);
+#endif
 
     /* --- bgstar overlay: C code (not performance-critical) --- */
     if (bgflg) {
@@ -1537,6 +1546,7 @@ static byte ls_line;
 
 /* LINSEL entry: extract A=port, B=line from CP/M registers,
  * then call C body.  Returns result in A (0=no CTS, 0xFF=CTS). */
+static byte bios_linsel_body(void);
 void bios_linsel(void) __naked
 {
     __asm__("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */

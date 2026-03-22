@@ -101,36 +101,33 @@ extern volatile ConvTables _convtables;
 #define BIOS_BASE   (CPMB + CPML)           /* BIOS jump table */
 #define BUFF        0x0080                  /* default DMA buffer */
 #define CFG_ADDR    (CPMB + 0x1100)         /* CONFI block temp address (CCP area) */
-#ifdef HOST_TEST
-/* Stubs for fixed-address CP/M zero-page variables */
-static volatile byte wboot_jp, iobyte, cdisk, bdos_jp;
-static volatile word wboot_vec, bdos_vec;
-#else
+#if defined(__SDCC) || defined(__SCCZ80)
 static volatile byte __at(0x0000) wboot_jp;   /* JP opcode */
 static volatile word __at(0x0001) wboot_vec;  /* JP WBOOT address */
 static volatile byte __at(0x0003) iobyte;
 static volatile byte __at(0x0004) cdisk;
 static volatile byte __at(0x0005) bdos_jp;    /* JP opcode */
 static volatile word __at(0x0006) bdos_vec;   /* JP BDOS address */
+#elif defined(__clang__)
+#define wboot_jp   (*(volatile byte *)0x0000)
+#define wboot_vec  (*(volatile word *)0x0001)
+#define iobyte     (*(volatile byte *)0x0003)
+#define cdisk      (*(volatile byte *)0x0004)
+#define bdos_jp    (*(volatile byte *)0x0005)
+#define bdos_vec   (*(volatile word *)0x0006)
+#else
+/* Stubs for host testing */
+static volatile byte wboot_jp, iobyte, cdisk, bdos_jp;
+static volatile word wboot_vec, bdos_vec;
 #endif
 #define NSECTS      (CPML / 128)    /* CCP+BDOS length in 128-byte sectors */
 
-/* I/O port numbers (for reference; actual I/O via hal.h __sfr) */
-#define PORT_PIO_A_DATA 0x10
-#define PORT_PIO_A_CTRL 0x12
-#define PORT_PIO_B_CTRL 0x13
-#define PORT_CTC_CH0    0x0C
-#define PORT_SIO_A_CTRL 0x0A
-#define PORT_SIO_A_DATA 0x08
-#define PORT_SIO_B_CTRL 0x0B
-#define PORT_SIO_B_DATA 0x09
-#define PORT_FDC        0x04
-#define PORT_FDD        0x05
-#define PORT_CRT_CMD    0x01
-#define PORT_CRT_DATA   0x00
-#define PORT_SW1        0x14
-#define PORT_DMA_CMD    0xF8
-#define PORT_DMA_MODE   0xFB
+/* I/O port numbers now defined in hal.h.
+ * Legacy aliases for bios.c code that uses different names: */
+#define PORT_CTC_CH0    PORT_CTC0
+#define PORT_FDC        PORT_FDC_STATUS
+#define PORT_FDD        PORT_FDC_DATA
+#define PORT_CRT_DATA   PORT_CRT_PARAM
 
 /* Ring buffer parameters (REL30) */
 #define RXBUFSZ     256         /* SIO ring buffer size (page-aligned) */
