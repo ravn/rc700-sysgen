@@ -172,27 +172,81 @@ Successfully compiled rom.c through the complete pipeline:
 C → clang -emit-llvm → sed cc 103 → clang -cc1 -S → copt → z80asm
 ```
 
-Result: 4440 bytes code, 130 bytes rodata, 34 bytes BSS.
-65 IN + 119 OUT inline port I/O instructions (address_space(2) works).
+Result: 3972 bytes code, 130 bytes rodata, 35 bytes BSS.
+67 IN + 119 OUT inline port I/O instructions (address_space(2) works).
 Assembled with zero errors after `push a` → `push af` fixup.
 
-## Why not patch the backend?
+delay() preserved via `__asm__ volatile("")` barrier (clang) /
+`__asm__("")` (sdcc).  Inner loop timing differs between compilers
+(clang: add a,1; jr nc ~20T vs sdcc: djnz ~13T) — delay arguments
+need recalibration when switching compilers.
 
-Adding a `__attribute__((z80_regcall))` to the clang frontend that maps
-to CC 103 would be the proper fix.  This requires:
+## Stack-indexed local analysis (ix-N spills)
 
-1. Add a new `CC_Z80_RegCall` entry in `Z80CallingConv.td` (or reuse
-   `CC_Z80_LC`)
-2. Register the attribute in clang's `TargetInfo` for the Z80 target
-3. Map the attribute to the CC ID in `CodeGenTypes`
+Of 30 code functions, only 5 use IX/IY for stack-indexed locals:
 
-This is approximately 50-100 lines of C++ across 3-4 files.  However,
-with the backend stalled and no upstream maintainer responding to
-issues, a fork would be required.
+| Function | Spills | Cause |
+|----------|--------|-------|
+| `main` | 3 | LLVM inlined 4 functions, too many live values |
+| `fdc_select_drive_cylinder_head` | 2 | One value live across function call |
+| `fdc_detect_sector_size_and_density` | 6 | Genuinely complex, many live values |
+| `fdc_read_data_from_current_location` | 7+1 | Loop var + stack param |
+| `lookup_sectors_and_gap3_for_current_track` | 2 | Array indexing |
+
+Total: 26 spill accesses (~78 bytes overhead).  Two other functions
+(`floppy_boot`, `syscall`) use IY only as a scratch register for
+constants, not for stack indexing — this is fine.
+
+Note: `{...}` scoping of locals does NOT help reduce spills with LLVM.
+LLVM's SSA-based register allocator computes liveness from data flow,
+not lexical scope.  A variable is dead after its last use regardless
+of where the `}` is.
+
+## Missing Z80-specific optimizations
+
+The backend calls library functions for operations sdcc inlines:
+
+| Operation | clang | sdcc | Optimal |
+|-----------|-------|------|---------|
+| `x << 1` | `call __sshl` | `add hl,hl` | 1 byte |
+| `x << 2` | `call __sshl` | 2× `add hl,hl` | 2 bytes |
+| `x * 3` | `call __smulu` | `add hl,hl; add hl,bc` | 3 bytes |
+| `x * 5` | `call __smulu` | strength-reduce | 4 bytes |
+| `x >> 1` | `call __sshru` | `srl h; rr l` | 4 bytes |
+| `u8 * 3` | `call __bmulu` | `add a,a; add a,r` | 2 bytes |
+| `x * 256` | `ld d,l; ld e,0` | same | **optimal** |
+| `x / 256` | `ld e,h; ld d,0` | same | **optimal** |
+
+Root cause: the Z80 backend registers ALL shifts and multiplies as
+`RTLIB` library calls.  A DAG pattern for `(shl A16, (i8 1))` →
+`ADD16aa` EXISTS in Z80InstrInfo.td but GlobalISel doesn't reach it
+because the operation is lowered to a library call first.
+
+## Potential backend patches (~200-300 lines C++)
+
+1. **Shift by constant 1** → `add hl,hl` (~20 lines)
+   Pattern exists but GlobalISel bypasses it.  Need GISelLegalizer rule.
+
+2. **Shift by small constants 2-4** → N × `add hl,hl` (~30 lines)
+
+3. **Multiply by small constants** → strength-reduce (~50-100 lines)
+   ×2=shl, ×3=x+x+x, ×4=shl2, ×5=x*4+x, ×7=x*8-x, ×8=shl3, ×10=x*8+x*2
+
+4. **Right shift by constant 1** → `srl h; rr l` (~20 lines)
+
+5. **Remove CC 103 callee-save push/pop af** (~50 lines)
+   Saves 2 bytes per function (27 functions = ~54 bytes)
+
+6. **Add `__attribute__((z80_regcall))`** (~50-100 lines)
+   Expose CC 103 from C without the sed workaround.
+
+Estimated savings: ~500-800 bytes, bringing rom.c from 3972 to ~3200-3400.
+Backend is stalled (last commit 2023-12-13), requires fork to patch.
 
 ## Source references
 
 - [Z80CallingConv.td](https://github.com/jacobly0/llvm-project/blob/z80/llvm/lib/Target/Z80/Z80CallingConv.td) — CC definitions
-- [Z80ISelLowering.cpp](https://github.com/jacobly0/llvm-project/blob/z80/llvm/lib/Target/Z80/Z80ISelLowering.cpp) — CC selection
+- [Z80ISelLowering.cpp](https://github.com/jacobly0/llvm-project/blob/z80/llvm/lib/Target/Z80/Z80ISelLowering.cpp) — CC selection, libcall table
+- [Z80InstrInfo.td](https://github.com/jacobly0/llvm-project/blob/z80/llvm/lib/Target/Z80/Z80InstrInfo.td) — instruction patterns (line 1013: shl→add pattern)
 - [Issue #43](https://github.com/jacobly0/llvm-project/issues/43) — unanswered question about calling convention
 - Last commit on z80 branch: 2023-12-13
