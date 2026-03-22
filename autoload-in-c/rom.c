@@ -31,8 +31,8 @@
 void fdc_write_when_ready(byte val) {
     word t = 0;
     do {
-        if ((_port_fdc_status & 0b11000000) == 0b10000000) {
-            _port_fdc_data = val;
+        if ((fdc_status() & 0b11000000) == 0b10000000) {
+            fdc_data_write(val);
             return;
         }
     } while (++t);
@@ -45,8 +45,8 @@ void fdc_write_when_ready(byte val) {
 byte fdc_read_when_ready(void) {
     word t = 0;
     do {
-        if ((_port_fdc_status & 0b11000000) == 0b11000000) {
-            return _port_fdc_data;
+        if ((fdc_status() & 0b11000000) == 0b11000000) {
+            return fdc_data_read();
         }
     } while (++t);
     return 0xFF;
@@ -549,7 +549,7 @@ void boot_floppy_or_prom(void) {
     }
 
     if (compare_6bytes((const byte *) RC702_SIG_OFF, (const byte *) msg_rc702) == 0) {
-        jump_to(*(word *) 0x0000);
+        jump_to(*(volatile word *) 0x0000);
     }
 
     halt_msg(" **NO KATALOG** ", 16);

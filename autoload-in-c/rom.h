@@ -83,84 +83,87 @@ typedef uint16_t word;
 #define jump_to(addr) ((void (*)(void))(addr))()
 
 /* ================================================================
- * Z80 port I/O — inline via __sfr
+ * Z80 port I/O — portable via z80_inp / z80_outp
  * ================================================================ */
 
-/* Port declarations — sdcc __sfr __at maps a C variable to a Z80 I/O port.
- * Reading the variable compiles to IN A,(port), writing to OUT (port),A.
- * Each port access is just two bytes of Z80 code with no function call
- * overhead.  However, sdcc naively reloads A between consecutive writes
- * to different ports with the same value (e.g. two OUT instructions both
- * needing A=0x4F).  Custom peephole rules in peephole.def eliminate these
- * redundant loads, saving 2 bytes per occurrence in init sequences. */
-#ifdef __SDCC
-__sfr __at 0x14 _port_sw1;
-__sfr __at 0x18 _port_ramen;
-__sfr __at 0x1C _port_bib;
-__sfr __at 0x10 _port_pio_a_data;
-__sfr __at 0x11 _port_pio_b_data;
-__sfr __at 0x12 _port_pio_a_ctrl;
-__sfr __at 0x13 _port_pio_b_ctrl;
-__sfr __at 0x0C _port_ctc0;
-__sfr __at 0x0D _port_ctc1;
-__sfr __at 0x0E _port_ctc2;
-__sfr __at 0x0F _port_ctc3;
-__sfr __at 0x00 _port_crt_param;
-__sfr __at 0x01 _port_crt_cmd;
-__sfr __at 0x04 _port_fdc_status;
-__sfr __at 0x05 _port_fdc_data;
-__sfr __at 0xF2 _port_dma_ch1_addr;
-__sfr __at 0xF3 _port_dma_ch1_wc;
-__sfr __at 0xF4 _port_dma_ch2_addr;
-__sfr __at 0xF5 _port_dma_ch2_wc;
-__sfr __at 0xF6 _port_dma_ch3_addr;
-__sfr __at 0xF7 _port_dma_ch3_wc;
-__sfr __at 0xF8 _port_dma_cmd;
-__sfr __at 0xFA _port_dma_smsk;
-__sfr __at 0xFB _port_dma_mode;
-__sfr __at 0xFC _port_dma_clbp;
+/* RC702 I/O port addresses */
+#define PORT_CRT_PARAM    0x00
+#define PORT_CRT_CMD      0x01
+#define PORT_FDC_STATUS   0x04
+#define PORT_FDC_DATA     0x05
+#define PORT_CTC0         0x0C
+#define PORT_CTC1         0x0D
+#define PORT_CTC2         0x0E
+#define PORT_CTC3         0x0F
+#define PORT_PIO_A_DATA   0x10
+#define PORT_PIO_B_DATA   0x11
+#define PORT_PIO_A_CTRL   0x12
+#define PORT_PIO_B_CTRL   0x13
+#define PORT_SW1          0x14
+#define PORT_RAMEN        0x18
+#define PORT_BIB          0x1C
+#define PORT_DMA_CH1_ADDR 0xF2
+#define PORT_DMA_CH1_WC   0xF3
+#define PORT_DMA_CH2_ADDR 0xF4
+#define PORT_DMA_CH2_WC   0xF5
+#define PORT_DMA_CH3_ADDR 0xF6
+#define PORT_DMA_CH3_WC   0xF7
+#define PORT_DMA_CMD      0xF8
+#define PORT_DMA_SMSK     0xFA
+#define PORT_DMA_MODE     0xFB
+#define PORT_DMA_CLBP     0xFC
+
+/* Port I/O primitives.
+ * clang:  __attribute__((address_space(2))) — compiles to inline IN/OUT.
+ * sdcc:   z80_inp/z80_outp library calls (fastcall/callee variants).
+ * other:  stubs for IDE indexing. */
+#if defined(__clang__)
+#define __io __attribute__((address_space(2)))
+#define port_in(port)       (*(volatile __io uint8_t *)(uint8_t)(port))
+#define port_out(port, val) do { *(volatile __io uint8_t *)(uint8_t)(port) = (val); } while(0)
+#elif defined(__SDCC)
+extern uint8_t z80_inp(uint16_t port);
+extern uint8_t z80_inp_fastcall(uint16_t port) __z88dk_fastcall;
+#define z80_inp(a) z80_inp_fastcall(a)
+extern void z80_outp(uint16_t port, uint8_t data);
+extern void z80_outp_callee(uint16_t port, uint8_t data) __z88dk_callee;
+#define z80_outp(a,b) z80_outp_callee(a,b)
+#define port_in(port)       z80_inp(port)
+#define port_out(port, val) z80_outp(port, val)
 #else
-/* Stubs for non-sdcc compilers (CLion indexing, clangd, etc.) */
-extern volatile unsigned char _port_sw1, _port_ramen, _port_bib;
-extern volatile unsigned char _port_pio_a_data, _port_pio_b_data;
-extern volatile unsigned char _port_pio_a_ctrl, _port_pio_b_ctrl;
-extern volatile unsigned char _port_ctc0, _port_ctc1, _port_ctc2, _port_ctc3;
-extern volatile unsigned char _port_crt_param, _port_crt_cmd;
-extern volatile unsigned char _port_fdc_status, _port_fdc_data;
-extern volatile unsigned char _port_dma_ch1_addr, _port_dma_ch1_wc;
-extern volatile unsigned char _port_dma_ch2_addr, _port_dma_ch2_wc;
-extern volatile unsigned char _port_dma_ch3_addr, _port_dma_ch3_wc;
-extern volatile unsigned char _port_dma_cmd, _port_dma_smsk;
-extern volatile unsigned char _port_dma_mode, _port_dma_clbp;
+static inline uint8_t z80_inp(uint16_t port) { (void)port; return 0; }
+static inline void z80_outp(uint16_t port, uint8_t data) { (void)port; (void)data; }
+#define port_in(port)       z80_inp(port)
+#define port_out(port, val) z80_outp(port, val)
 #endif
 
-/* Simple port read/write — compile to single IN/OUT instructions */
-#define read_sw1()              (_port_sw1)
-#define diskette_size()         ((_port_sw1 >> 7) & 1)
-#define prom_disable()          (_port_ramen = 1)
-#define motor(on)               (_port_sw1 = (on) ? 1 : 0)
-#define beep()                  (_port_bib = 0)
+/* Hardware access macros */
+#define read_sw1()              port_in(PORT_SW1)
+#define diskette_size()         ((port_in(PORT_SW1) >> 7) & 1)
+#define prom_disable()          port_out(PORT_RAMEN, 1)
+#define motor(on)               port_out(PORT_SW1, (on) ? 1 : 0)
+#define beep()                  port_out(PORT_BIB, 0)
 
-#define fdc_command(cmd)        (_port_fdc_data = (cmd))
-#define fdc_status()            (_port_fdc_status)
-#define fdc_data_read()         (_port_fdc_data)
-#define fdc_data_write(d)       (_port_fdc_data = (d))
+#define fdc_command(cmd)        port_out(PORT_FDC_DATA, (cmd))
+#define fdc_status()            port_in(PORT_FDC_STATUS)
+#define fdc_data_read()         port_in(PORT_FDC_DATA)
+#define fdc_data_write(d)       port_out(PORT_FDC_DATA, (d))
 
-#define dma_command(cmd)        (_port_dma_cmd = (cmd))
-#define dma_mask(ch)            (_port_dma_smsk = (ch) | 0x04)
-#define dma_unmask(ch)          (_port_dma_smsk = (ch))
-#define dma_clear_bp()          (_port_dma_clbp = 0)
-#define dma_mode(m)             (_port_dma_mode = (m))
-#define dma_status()            (_port_dma_cmd)
+#define dma_command(cmd)        port_out(PORT_DMA_CMD, (cmd))
+#define dma_mask(ch)            port_out(PORT_DMA_SMSK, (ch) | 0x04)
+#define dma_unmask(ch)          port_out(PORT_DMA_SMSK, (ch))
+#define dma_clear_bp()          port_out(PORT_DMA_CLBP, 0)
+#define dma_mode(m)             port_out(PORT_DMA_MODE, (m))
+#define dma_status()            port_in(PORT_DMA_CMD)
 
-#define pio_write_a_data(d)     (_port_pio_a_data = (d))
-#define pio_write_a_ctrl(d)     (_port_pio_a_ctrl = (d))
-#define pio_write_b_data(d)     (_port_pio_b_data = (d))
-#define pio_write_b_ctrl(d)     (_port_pio_b_ctrl = (d))
+#define pio_write_a_data(d)     port_out(PORT_PIO_A_DATA, (d))
+#define pio_write_a_ctrl(d)     port_out(PORT_PIO_A_CTRL, (d))
+#define pio_write_b_data(d)     port_out(PORT_PIO_B_DATA, (d))
+#define pio_write_b_ctrl(d)     port_out(PORT_PIO_B_CTRL, (d))
 
-#define crt_param(d)            (_port_crt_param = (d))
-#define crt_command(d)          (_port_crt_cmd = (d))
-#define crt_status()            (_port_crt_cmd)
+#define crt_param(d)            port_out(PORT_CRT_PARAM, (d))
+#define crt_command(d)          port_out(PORT_CRT_CMD, (d))
+#define crt_status()            port_in(PORT_CRT_CMD)
 
 /* Use z88dk intrinsics for DI/EI — gives the compiler correct
  * register preservation information (__preserves_regs). */
@@ -174,38 +177,36 @@ static inline void intrinsic_ei(void) {}
 static inline void intrinsic_im_2(void) {}
 #endif
 
-/* CTC channel writes — direct port I/O, no switch overhead.
- * Separate macros per channel avoid unreachable-code warnings
- * from dead branches when the channel is a compile-time constant. */
-#define ctc0_write(d)           (_port_ctc0 = (d))
-#define ctc1_write(d)           (_port_ctc1 = (d))
-#define ctc2_write(d)           (_port_ctc2 = (d))
-#define ctc3_write(d)           (_port_ctc3 = (d))
+/* CTC channel writes */
+#define ctc0_write(d)           port_out(PORT_CTC0, (d))
+#define ctc1_write(d)           port_out(PORT_CTC1, (d))
+#define ctc2_write(d)           port_out(PORT_CTC2, (d))
+#define ctc3_write(d)           port_out(PORT_CTC3, (d))
 
 /* DMA channel address/word count — two consecutive port writes */
 #define dma_ch1_addr(addr) do { \
-    _port_dma_ch1_addr = (byte)(addr); \
-    _port_dma_ch1_addr = (byte)((addr) >> 8); \
+    port_out(PORT_DMA_CH1_ADDR, (byte)(addr)); \
+    port_out(PORT_DMA_CH1_ADDR, (byte)((addr) >> 8)); \
 } while(0)
 #define dma_ch1_wc(wc) do { \
-    _port_dma_ch1_wc = (byte)(wc); \
-    _port_dma_ch1_wc = (byte)((wc) >> 8); \
+    port_out(PORT_DMA_CH1_WC, (byte)(wc)); \
+    port_out(PORT_DMA_CH1_WC, (byte)((wc) >> 8)); \
 } while(0)
 #define dma_ch2_addr(addr) do { \
-    _port_dma_ch2_addr = (byte)(addr); \
-    _port_dma_ch2_addr = (byte)((addr) >> 8); \
+    port_out(PORT_DMA_CH2_ADDR, (byte)(addr)); \
+    port_out(PORT_DMA_CH2_ADDR, (byte)((addr) >> 8)); \
 } while(0)
 #define dma_ch2_wc(wc) do { \
-    _port_dma_ch2_wc = (byte)(wc); \
-    _port_dma_ch2_wc = (byte)((wc) >> 8); \
+    port_out(PORT_DMA_CH2_WC, (byte)(wc)); \
+    port_out(PORT_DMA_CH2_WC, (byte)((wc) >> 8)); \
 } while(0)
 #define dma_ch3_addr(addr) do { \
-    _port_dma_ch3_addr = (byte)(addr); \
-    _port_dma_ch3_addr = (byte)((addr) >> 8); \
+    port_out(PORT_DMA_CH3_ADDR, (byte)(addr)); \
+    port_out(PORT_DMA_CH3_ADDR, (byte)((addr) >> 8)); \
 } while(0)
 #define dma_ch3_wc(wc) do { \
-    _port_dma_ch3_wc = (byte)(wc); \
-    _port_dma_ch3_wc = (byte)((wc) >> 8); \
+    port_out(PORT_DMA_CH3_WC, (byte)(wc)); \
+    port_out(PORT_DMA_CH3_WC, (byte)((wc) >> 8)); \
 } while(0)
 
 /* ================================================================
