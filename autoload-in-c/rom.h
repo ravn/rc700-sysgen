@@ -113,57 +113,121 @@ typedef uint16_t word;
 #define PORT_DMA_MODE     0xFB
 #define PORT_DMA_CLBP     0xFC
 
-/* Port I/O primitives.
- * clang:  __attribute__((address_space(2))) — compiles to inline IN/OUT.
- * sdcc:   z80_inp/z80_outp library calls (fastcall/callee variants).
- * other:  stubs for IDE indexing. */
+/* Port I/O — produces inline IN A,(n) / OUT (n),A on all Z80 backends.
+ *
+ * clang:       __attribute__((address_space(2))) maps to Z80 I/O space.
+ * sdcc/sccz80: __sfr __at maps to Z80 I/O space (first-class feature).
+ * other:       stubs for IDE indexing (CLion, clangd).
+ *
+ * The high-level macros (fdc_status, crt_param, etc.) are the public API.
+ * Each macro expands to the appropriate backend-specific port access. */
+
 #if defined(__clang__)
+/* clang: address_space(2) = Z80 I/O port space → inline IN/OUT */
 #define __io __attribute__((address_space(2)))
-#define port_in(port)       (*(volatile __io uint8_t *)(uint8_t)(port))
-#define port_out(port, val) do { *(volatile __io uint8_t *)(uint8_t)(port) = (val); } while(0)
-#elif defined(__SDCC)
-extern uint8_t z80_inp(uint16_t port);
-extern uint8_t z80_inp_fastcall(uint16_t port) __z88dk_fastcall;
-#define z80_inp(a) z80_inp_fastcall(a)
-extern void z80_outp(uint16_t port, uint8_t data);
-extern void z80_outp_callee(uint16_t port, uint8_t data) __z88dk_callee;
-#define z80_outp(a,b) z80_outp_callee(a,b)
-#define port_in(port)       z80_inp(port)
-#define port_out(port, val) z80_outp(port, val)
-#else
-static inline uint8_t z80_inp(uint16_t port) { (void)port; return 0; }
-static inline void z80_outp(uint16_t port, uint8_t data) { (void)port; (void)data; }
-#define port_in(port)       z80_inp(port)
-#define port_out(port, val) z80_outp(port, val)
+#define _pin(port)        (*(volatile __io uint8_t *)(uint8_t)(port))
+#define _pout(port, val)  do { *(volatile __io uint8_t *)(uint8_t)(port) = (val); } while(0)
+#elif defined(__SDCC) || defined(__SCCZ80)
+/* sdcc/sccz80: __sfr __at → inline IN/OUT (2 bytes each) */
+__sfr __at PORT_CRT_PARAM    _sfr_crt_param;
+__sfr __at PORT_CRT_CMD      _sfr_crt_cmd;
+__sfr __at PORT_FDC_STATUS   _sfr_fdc_status;
+__sfr __at PORT_FDC_DATA     _sfr_fdc_data;
+__sfr __at PORT_CTC0         _sfr_ctc0;
+__sfr __at PORT_CTC1         _sfr_ctc1;
+__sfr __at PORT_CTC2         _sfr_ctc2;
+__sfr __at PORT_CTC3         _sfr_ctc3;
+__sfr __at PORT_PIO_A_DATA   _sfr_pio_a_data;
+__sfr __at PORT_PIO_B_DATA   _sfr_pio_b_data;
+__sfr __at PORT_PIO_A_CTRL   _sfr_pio_a_ctrl;
+__sfr __at PORT_PIO_B_CTRL   _sfr_pio_b_ctrl;
+__sfr __at PORT_SW1          _sfr_sw1;
+__sfr __at PORT_RAMEN        _sfr_ramen;
+__sfr __at PORT_BIB          _sfr_bib;
+__sfr __at PORT_DMA_CH1_ADDR _sfr_dma_ch1_addr;
+__sfr __at PORT_DMA_CH1_WC   _sfr_dma_ch1_wc;
+__sfr __at PORT_DMA_CH2_ADDR _sfr_dma_ch2_addr;
+__sfr __at PORT_DMA_CH2_WC   _sfr_dma_ch2_wc;
+__sfr __at PORT_DMA_CH3_ADDR _sfr_dma_ch3_addr;
+__sfr __at PORT_DMA_CH3_WC   _sfr_dma_ch3_wc;
+__sfr __at PORT_DMA_CMD      _sfr_dma_cmd;
+__sfr __at PORT_DMA_SMSK     _sfr_dma_smsk;
+__sfr __at PORT_DMA_MODE     _sfr_dma_mode;
+__sfr __at PORT_DMA_CLBP     _sfr_dma_clbp;
 #endif
 
-/* Hardware access macros */
-#define read_sw1()              port_in(PORT_SW1)
-#define diskette_size()         ((port_in(PORT_SW1) >> 7) & 1)
-#define prom_disable()          port_out(PORT_RAMEN, 1)
-#define motor(on)               port_out(PORT_SW1, (on) ? 1 : 0)
-#define beep()                  port_out(PORT_BIB, 0)
-
-#define fdc_command(cmd)        port_out(PORT_FDC_DATA, (cmd))
-#define fdc_status()            port_in(PORT_FDC_STATUS)
-#define fdc_data_read()         port_in(PORT_FDC_DATA)
-#define fdc_data_write(d)       port_out(PORT_FDC_DATA, (d))
-
-#define dma_command(cmd)        port_out(PORT_DMA_CMD, (cmd))
-#define dma_mask(ch)            port_out(PORT_DMA_SMSK, (ch) | 0x04)
-#define dma_unmask(ch)          port_out(PORT_DMA_SMSK, (ch))
-#define dma_clear_bp()          port_out(PORT_DMA_CLBP, 0)
-#define dma_mode(m)             port_out(PORT_DMA_MODE, (m))
-#define dma_status()            port_in(PORT_DMA_CMD)
-
-#define pio_write_a_data(d)     port_out(PORT_PIO_A_DATA, (d))
-#define pio_write_a_ctrl(d)     port_out(PORT_PIO_A_CTRL, (d))
-#define pio_write_b_data(d)     port_out(PORT_PIO_B_DATA, (d))
-#define pio_write_b_ctrl(d)     port_out(PORT_PIO_B_CTRL, (d))
-
-#define crt_param(d)            port_out(PORT_CRT_PARAM, (d))
-#define crt_command(d)          port_out(PORT_CRT_CMD, (d))
-#define crt_status()            port_in(PORT_CRT_CMD)
+/* Hardware access macros — the public API used by rom.c and boot_rom.c.
+ * Each macro maps to the backend-specific port access mechanism. */
+#if defined(__clang__)
+#define read_sw1()              _pin(PORT_SW1)
+#define diskette_size()         ((_pin(PORT_SW1) >> 7) & 1)
+#define prom_disable()          _pout(PORT_RAMEN, 1)
+#define motor(on)               _pout(PORT_SW1, (on) ? 1 : 0)
+#define beep()                  _pout(PORT_BIB, 0)
+#define fdc_command(cmd)        _pout(PORT_FDC_DATA, (cmd))
+#define fdc_status()            _pin(PORT_FDC_STATUS)
+#define fdc_data_read()         _pin(PORT_FDC_DATA)
+#define fdc_data_write(d)       _pout(PORT_FDC_DATA, (d))
+#define dma_command(cmd)        _pout(PORT_DMA_CMD, (cmd))
+#define dma_mask(ch)            _pout(PORT_DMA_SMSK, (ch) | 0x04)
+#define dma_unmask(ch)          _pout(PORT_DMA_SMSK, (ch))
+#define dma_clear_bp()          _pout(PORT_DMA_CLBP, 0)
+#define dma_mode(m)             _pout(PORT_DMA_MODE, (m))
+#define dma_status()            _pin(PORT_DMA_CMD)
+#define pio_write_a_data(d)     _pout(PORT_PIO_A_DATA, (d))
+#define pio_write_a_ctrl(d)     _pout(PORT_PIO_A_CTRL, (d))
+#define pio_write_b_data(d)     _pout(PORT_PIO_B_DATA, (d))
+#define pio_write_b_ctrl(d)     _pout(PORT_PIO_B_CTRL, (d))
+#define crt_param(d)            _pout(PORT_CRT_PARAM, (d))
+#define crt_command(d)          _pout(PORT_CRT_CMD, (d))
+#define crt_status()            _pin(PORT_CRT_CMD)
+#elif defined(__SDCC) || defined(__SCCZ80)
+#define read_sw1()              (_sfr_sw1)
+#define diskette_size()         ((_sfr_sw1 >> 7) & 1)
+#define prom_disable()          (_sfr_ramen = 1)
+#define motor(on)               (_sfr_sw1 = (on) ? 1 : 0)
+#define beep()                  (_sfr_bib = 0)
+#define fdc_command(cmd)        (_sfr_fdc_data = (cmd))
+#define fdc_status()            (_sfr_fdc_status)
+#define fdc_data_read()         (_sfr_fdc_data)
+#define fdc_data_write(d)       (_sfr_fdc_data = (d))
+#define dma_command(cmd)        (_sfr_dma_cmd = (cmd))
+#define dma_mask(ch)            (_sfr_dma_smsk = (ch) | 0x04)
+#define dma_unmask(ch)          (_sfr_dma_smsk = (ch))
+#define dma_clear_bp()          (_sfr_dma_clbp = 0)
+#define dma_mode(m)             (_sfr_dma_mode = (m))
+#define dma_status()            (_sfr_dma_cmd)
+#define pio_write_a_data(d)     (_sfr_pio_a_data = (d))
+#define pio_write_a_ctrl(d)     (_sfr_pio_a_ctrl = (d))
+#define pio_write_b_data(d)     (_sfr_pio_b_data = (d))
+#define pio_write_b_ctrl(d)     (_sfr_pio_b_ctrl = (d))
+#define crt_param(d)            (_sfr_crt_param = (d))
+#define crt_command(d)          (_sfr_crt_cmd = (d))
+#define crt_status()            (_sfr_crt_cmd)
+#else
+#define read_sw1()              0
+#define diskette_size()         0
+#define prom_disable()          ((void)0)
+#define motor(on)               ((void)0)
+#define beep()                  ((void)0)
+#define fdc_command(cmd)        ((void)0)
+#define fdc_status()            0
+#define fdc_data_read()         0
+#define fdc_data_write(d)       ((void)0)
+#define dma_command(cmd)        ((void)0)
+#define dma_mask(ch)            ((void)0)
+#define dma_unmask(ch)          ((void)0)
+#define dma_clear_bp()          ((void)0)
+#define dma_mode(m)             ((void)0)
+#define dma_status()            0
+#define pio_write_a_data(d)     ((void)0)
+#define pio_write_a_ctrl(d)     ((void)0)
+#define pio_write_b_data(d)     ((void)0)
+#define pio_write_b_ctrl(d)     ((void)0)
+#define crt_param(d)            ((void)0)
+#define crt_command(d)          ((void)0)
+#define crt_status()            0
+#endif
 
 /* Use z88dk intrinsics for DI/EI — gives the compiler correct
  * register preservation information (__preserves_regs). */
@@ -177,37 +241,42 @@ static inline void intrinsic_ei(void) {}
 static inline void intrinsic_im_2(void) {}
 #endif
 
-/* CTC channel writes */
-#define ctc0_write(d)           port_out(PORT_CTC0, (d))
-#define ctc1_write(d)           port_out(PORT_CTC1, (d))
-#define ctc2_write(d)           port_out(PORT_CTC2, (d))
-#define ctc3_write(d)           port_out(PORT_CTC3, (d))
-
-/* DMA channel address/word count — two consecutive port writes */
-#define dma_ch1_addr(addr) do { \
-    port_out(PORT_DMA_CH1_ADDR, (byte)(addr)); \
-    port_out(PORT_DMA_CH1_ADDR, (byte)((addr) >> 8)); \
-} while(0)
-#define dma_ch1_wc(wc) do { \
-    port_out(PORT_DMA_CH1_WC, (byte)(wc)); \
-    port_out(PORT_DMA_CH1_WC, (byte)((wc) >> 8)); \
-} while(0)
-#define dma_ch2_addr(addr) do { \
-    port_out(PORT_DMA_CH2_ADDR, (byte)(addr)); \
-    port_out(PORT_DMA_CH2_ADDR, (byte)((addr) >> 8)); \
-} while(0)
-#define dma_ch2_wc(wc) do { \
-    port_out(PORT_DMA_CH2_WC, (byte)(wc)); \
-    port_out(PORT_DMA_CH2_WC, (byte)((wc) >> 8)); \
-} while(0)
-#define dma_ch3_addr(addr) do { \
-    port_out(PORT_DMA_CH3_ADDR, (byte)(addr)); \
-    port_out(PORT_DMA_CH3_ADDR, (byte)((addr) >> 8)); \
-} while(0)
-#define dma_ch3_wc(wc) do { \
-    port_out(PORT_DMA_CH3_WC, (byte)(wc)); \
-    port_out(PORT_DMA_CH3_WC, (byte)((wc) >> 8)); \
-} while(0)
+/* CTC channel writes and DMA channel address/word count macros.
+ * DMA address/word count require two consecutive port writes (low, high). */
+#if defined(__clang__)
+#define ctc0_write(d)           _pout(PORT_CTC0, (d))
+#define ctc1_write(d)           _pout(PORT_CTC1, (d))
+#define ctc2_write(d)           _pout(PORT_CTC2, (d))
+#define ctc3_write(d)           _pout(PORT_CTC3, (d))
+#define dma_ch1_addr(a) do { _pout(PORT_DMA_CH1_ADDR,(byte)(a)); _pout(PORT_DMA_CH1_ADDR,(byte)((a)>>8)); } while(0)
+#define dma_ch1_wc(w)   do { _pout(PORT_DMA_CH1_WC,(byte)(w));   _pout(PORT_DMA_CH1_WC,(byte)((w)>>8));   } while(0)
+#define dma_ch2_addr(a) do { _pout(PORT_DMA_CH2_ADDR,(byte)(a)); _pout(PORT_DMA_CH2_ADDR,(byte)((a)>>8)); } while(0)
+#define dma_ch2_wc(w)   do { _pout(PORT_DMA_CH2_WC,(byte)(w));   _pout(PORT_DMA_CH2_WC,(byte)((w)>>8));   } while(0)
+#define dma_ch3_addr(a) do { _pout(PORT_DMA_CH3_ADDR,(byte)(a)); _pout(PORT_DMA_CH3_ADDR,(byte)((a)>>8)); } while(0)
+#define dma_ch3_wc(w)   do { _pout(PORT_DMA_CH3_WC,(byte)(w));   _pout(PORT_DMA_CH3_WC,(byte)((w)>>8));   } while(0)
+#elif defined(__SDCC) || defined(__SCCZ80)
+#define ctc0_write(d)           (_sfr_ctc0 = (d))
+#define ctc1_write(d)           (_sfr_ctc1 = (d))
+#define ctc2_write(d)           (_sfr_ctc2 = (d))
+#define ctc3_write(d)           (_sfr_ctc3 = (d))
+#define dma_ch1_addr(a) do { _sfr_dma_ch1_addr=(byte)(a); _sfr_dma_ch1_addr=(byte)((a)>>8); } while(0)
+#define dma_ch1_wc(w)   do { _sfr_dma_ch1_wc=(byte)(w);   _sfr_dma_ch1_wc=(byte)((w)>>8);   } while(0)
+#define dma_ch2_addr(a) do { _sfr_dma_ch2_addr=(byte)(a); _sfr_dma_ch2_addr=(byte)((a)>>8); } while(0)
+#define dma_ch2_wc(w)   do { _sfr_dma_ch2_wc=(byte)(w);   _sfr_dma_ch2_wc=(byte)((w)>>8);   } while(0)
+#define dma_ch3_addr(a) do { _sfr_dma_ch3_addr=(byte)(a); _sfr_dma_ch3_addr=(byte)((a)>>8); } while(0)
+#define dma_ch3_wc(w)   do { _sfr_dma_ch3_wc=(byte)(w);   _sfr_dma_ch3_wc=(byte)((w)>>8);   } while(0)
+#else
+#define ctc0_write(d)           ((void)0)
+#define ctc1_write(d)           ((void)0)
+#define ctc2_write(d)           ((void)0)
+#define ctc3_write(d)           ((void)0)
+#define dma_ch1_addr(a)         ((void)0)
+#define dma_ch1_wc(w)           ((void)0)
+#define dma_ch2_addr(a)         ((void)0)
+#define dma_ch2_wc(w)           ((void)0)
+#define dma_ch3_addr(a)         ((void)0)
+#define dma_ch3_wc(w)           ((void)0)
+#endif
 
 /* ================================================================
  * Stuff in boot.c
