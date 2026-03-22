@@ -68,7 +68,11 @@ void delay(byte outer, byte inner) {
         do {
             byte k = 0;
             do {
-                /* busy wait, must not be optimized away */
+#ifdef __clang__
+                __asm__ volatile("");  /* clang: volatile prevents elimination */
+#else
+                __asm__("");           /* sdcc: non-volatile suffices */
+#endif
             } while (--k);
         } while (--mid);
     } while (--outer);
