@@ -172,26 +172,90 @@ bypass llvm-cbe or teach it to emit sdcc register annotations.
 | Code size              | smaller     | ~40-60% larger |
 | Register allocation    | basic       | reportedly better |
 
+## Port I/O portability experiment (branch `portable-port-io`)
+
+Rewrote all `__sfr __at` port access in rom.h to use `z80_inp()` /
+`z80_outp()` library functions. All 48 port accesses go through macros,
+so only rom.h needed changes (no call sites modified).
+
+**Result: CODE section grew from 1734 to 2100 bytes (+366 bytes, +21%)**
+from library call overhead. Each `z80_outp_callee` call costs ~7 bytes
+(push value, inc sp, ld hl port, call) vs 2 bytes for `OUT (n),A`.
+
+Investigated whether sdcc can optimize these calls back to inline IN/OUT:
+- **sdcc has no LTO** — cannot inline across compilation units
+- **`z80_inp`/`z80_outp` are external asm functions** — not visible to sdcc
+- **sdcc CAN inline `static inline` C functions** and constant-folds
+  through them (verified: `add1(0x42)` → `ld a, 0x43`)
+- **sdcc perfectly inlines `static inline` wrappers around `__sfr __at`**
+  variables — the generated code is identical to direct `__sfr __at` access
+- **No compiler flag exists** to make sdcc inline library function calls
+
+Conclusion: the `__sfr __at` + macro approach in rom.h is already optimal.
+sdcc inlines through the macros and emits 2-byte IN/OUT instructions.
+The `z80_inp`/`z80_outp` library route cannot achieve the same code
+density without peephole rules to pattern-match and replace the calls.
+
+## `__sfr __at` is a first-class sdcc feature, not peephole
+
+Traced through sdcc source code (documented in `SDCC_SFR_MECHANISM.md`):
+1. **Parser** (`SDCC.y`): `__sfr` → `S_SFR` storage class
+2. **Memory allocator** (`SDCCmem.c`): `S_SFR` → `REGSP` (I/O address space)
+3. **Operand allocation** (`z80/gen.c`): `IN_REGSP` → `AOP_SFR` operand type
+4. **Code emission** (`z80/gen.c`): `AOP_SFR` → `in a,(N)` / `out (N),a`
+5. **Assembler**: `defc` symbol → 2-byte instruction
+
+The Z80 I/O port space is a distinct address space in sdcc, parallel to
+the memory address space. Every read/write of an `__sfr` variable emits
+IN/OUT at code generation time — not via peephole optimization.
+
+Supported by both sdcc AND sccz80 (both z88dk C backends).
+
+## LLVM already has Z80 I/O port address space support
+
+The jacobly0 Z80 LLVM backend defines `addrspace(2)` as 8-bit I/O ports
+in its data layout string (`-p2:8:8`). Using
+`__attribute__((address_space(2)))` in C produces correct `IN`/`OUT`
+instructions when compiling directly with `ez80-clang -S`.
+
+The bottleneck is llvm-cbe: it **discards all address space information**
+when translating LLVM IR back to C. All pointers become plain `void*`.
+
+| Approach to fix | Effort | Robustness |
+|----------------|--------|------------|
+| Patch llvm-cbe for addrspace(2) → `__sfr __at` | 2-4 days C++ | High |
+| Post-process .cbe.c in wrapper script | 1-2 days | Medium |
+| Skip llvm-cbe, use ez80-clang -S directly | 0 days | High, but loses sdcc |
+
+## All LLVM-to-Z80 paths
+
+| Project | Mechanism | Status | sdcccall | I/O ports |
+|---------|-----------|--------|----------|-----------|
+| [jacobly0/llvm-project](https://github.com/jacobly0/llvm-project) | Direct LLVM backend | Mature (eZ80 focus), active | No (custom) | addrspace(2) works |
+| [llvm-z80/llvm-z80](https://github.com/llvm-z80/llvm-z80) | Direct LLVM (GlobalISel) | Experimental, 3 weeks old, AI-generated | Yes (sdcccall 0/1) | No |
+| [JuliaHubOSS/llvm-cbe](https://github.com/JuliaHubOSS/llvm-cbe) + sdcc | IR → C → sdcc | Active, lossy round-trip | Yes (via sdcc) | Lost in llvm-cbe |
+| earl1k/llvm-z80 | Direct backend | Abandoned (2013) | — | — |
+| grapereader/llvm-z80 | Direct backend | Abandoned (2014) | — | — |
+| gt-retro-computing/llvm-z80 | Direct backend | Abandoned (2020) | — | — |
+
+No GCC Z80 backend exists. No viable Rust/Go/Zig path to Z80 exists.
+
 ## User decisions
 
 - **IX/IY register usage**: Not considered a blocker. User plans to rework
-  register allocation separately, so clib compatibility can be investigated
-  when the toolchain is fully operational.
+  register allocation separately.
 
-- **Toolchain approach**: Rather than building all of z88dk from source in
-  Docker (which hit submodule failures and would be heavyweight), we build
-  only zllvm-cbe in Docker and use the existing macOS z88dk binary
-  distribution for everything else.
+- **Toolchain approach**: Build only zllvm-cbe in Docker, use existing
+  macOS z88dk binary distribution for everything else.
 
-- **Port I/O**: Accepted as a known limitation. Portable alternative is
-  `z80_inp()` / `z80_outp()` from `<z80.h>`.
+- **Port I/O**: Keep `__sfr __at` + macros (optimal for sdcc/sccz80).
+  Portable `z80_inp`/`z80_outp` costs +21% code size. The goal is
+  portable C that CLion can index (the `#else` stubs handle this) while
+  producing optimal IN/OUT via compiler-specific `__sfr __at`.
 
-## TODO
-
-- Consider rewriting port variables from `__sfr __at` to `z80_inp()` /
-  `z80_outp()` to make the C source portable across all z88dk backends
-  (sdcc, sccz80, clang). Cost: ~6 bytes per call site vs 2 bytes for
-  `__sfr __at`.
+- **Investigation scope**: Thorough analysis of all LLVM→Z80 paths,
+  sdcc internals for `__sfr __at`, and clang calling conventions.
+  Documented in project for future reference.
 
 ## References
 
