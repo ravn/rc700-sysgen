@@ -1306,6 +1306,9 @@ word bios_seldsk(byte disk) __naked
             "call _bios_seldsk_c   \n"
             "ex de, hl             \n"
             "ret                   \n");
+#ifdef __clang__
+    return 0; /* unreachable — silences clang -Wreturn-type */
+#endif
 }
 
 static word bios_seldsk_c(byte drv)
@@ -1445,6 +1448,9 @@ byte bios_write(byte type) __naked
     (void)type;
     __asm__("ld a, c               \n"
             "jp _bios_write_c      \n"); /* explicit tail call */
+#ifdef __clang__
+    return 0; /* unreachable — silences clang -Wreturn-type */
+#endif
 }
 
 static byte bios_write_c(byte wt)
@@ -1463,6 +1469,9 @@ word bios_sectran(word sector) __naked
     __asm__("ld h, b                \n"  /* return BC in HL (no translation) */
             "ld l, c                \n"
             "ret                    \n");
+#ifdef __clang__
+    return 0; /* unreachable — silences clang -Wreturn-type */
+#endif
 }
 
 /* ================================================================
