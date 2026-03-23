@@ -54,8 +54,9 @@ _init_fdc:
 
 	.globl	_banner_string
 _banner_string:
-	.ascii	" RC700 ROA375 clang-z80 /ravn  "
-	; 31 bytes — pad to fill space before NMI
+	.ascii	" RC700 ROA375 clang-z80  /ravn       "
+	.byte	0, 0, 0, 0, 0
+	; 42 bytes total (BANNER_LENGTH) — pad with spaces and NULs
 
 	; Pad with 0xFF to NMI vector at 0x0066
 	; The assembler can't compute padding at assemble time,

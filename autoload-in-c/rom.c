@@ -58,7 +58,38 @@ byte fdc_read_when_ready(void) {
  *   djnz (13 T-states), making delay ~19% shorter for same params.
  *   See init_fdc() for compensated call (2, 157) matching the
  *   original (1, 0xFF) within 0.3%.
+ *
+ *   clang generates a very slow inner loop (~50 T-states) from the
+ *   C version, so use inline asm for a tight djnz loop instead.
  * ================================================================ */
+#ifdef __clang__
+void delay(byte outer, byte inner) {
+    /* sdcccall(1): outer in A, inner in L.
+     * Triple-nested loop matching SDCC's djnz timing (13 T/iter).
+     * SDCC generates: do { byte k=0; do { __asm__(""); } while(--k); }
+     * as djnz with 13 T per iteration.  We use the same instruction.
+     *
+     * Total time: outer × inner × 256 × 13 T-states.
+     * delay(2, 157) ≈ 2 × 157 × 256 × 13 / 4e6 ≈ 0.26 seconds. */
+    (void)inner;
+    __asm__ volatile(
+        "or a\n"
+        "ret z\n"
+        "ld c, a\n"        /* C = outer */
+        "1:\n"
+        "ld d, l\n"        /* D = inner (L holds 2nd sdcccall param) */
+        "2:\n"
+        "ld b, 0\n"        /* B = 256 (wraps from 0) */
+        "3:\n"
+        "djnz 3b\n"        /* 13 T × 256 = 3328 T per mid iter */
+        "dec d\n"
+        "jr nz, 2b\n"      /* mid loop */
+        "dec c\n"
+        "jr nz, 1b\n"      /* outer loop */
+        : : "a"(outer) : "b", "c", "d"
+    );
+}
+#else
 void delay(byte outer, byte inner) {
     if (!outer) {
         return;
@@ -68,15 +99,12 @@ void delay(byte outer, byte inner) {
         do {
             byte k = 0;
             do {
-#ifdef __clang__
-                __asm__ volatile("");  /* clang: volatile prevents elimination */
-#else
                 __asm__("");           /* sdcc: non-volatile suffices */
-#endif
             } while (--k);
         } while (--mid);
     } while (--outer);
 }
+#endif
 
 /* ================================================================
  * 2. Initialization
@@ -470,8 +498,16 @@ byte error_saved = 0;
 const char msg_rc702[] = " RC702";
 
 /* Infinite loop — never returns.
- * Enable interrupts so the CRT DMA ISR keeps refreshing the display. */
-void halt_forever(void) { intrinsic_ei(); for (;;); }
+ * Disable floppy interrupt (CTC ch3) to prevent the floppy ISR from
+ * blocking the CRT refresh ISR with its delay loop.
+ * Mask DMA ch1 (floppy) to stop stray DMA transfers.
+ * Then enable interrupts so the CRT DMA ISR keeps refreshing. */
+void halt_forever(void) {
+    ctc3_write(0x03);   /* disable CTC ch3 interrupt, reset */
+    dma_mask(1);
+    intrinsic_ei();
+    for (;;);
+}
 
 /* Copy 'len' bytes to display buffer, then halt forever.
  * Macro so 'len' is compile-time constant — sdcc inlines as LDIR.
