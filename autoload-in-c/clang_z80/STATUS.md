@@ -1,55 +1,37 @@
 # Clang Z80 PROM Build Status
 
-## Current State: Display Stable, Floppy Boot Fails
+## Current: Display Stable, FDC Interrupt Not Firing
 
-The clang-built PROM boots in MAME, displays banner with timestamp and
-error message stably. Floppy boot fails (disk not detected). CP/M does
-not load. The SDCC build boots to CP/M successfully with the same floppy.
+PROM: 2953/4096 bytes. Display stable at 0x7A00. Banner with timestamp.
+Floppy boot fails — `floppy_operation_completed_flag` never set by ISR.
 
 ## What Works
-- Full PROM builds: 2939/4096 bytes (72% full)
-- Self-relocation from ROM to RAM
-- All peripheral init (PIO, CTC, DMA, CRT) — correct port values verified
-- CRT display with DMA autoinitialize — stable, persistent
-- Banner with build timestamp: "RC700 ROA375 2026-03-23 HH.MM/user"
-- Error message: "**NO DISKETTE NOR LINEPROG**"
-- ISR: CRT DMA 50Hz refresh works, floppy completion ISR works
-- delay() via inline asm djnz matching SDCC timing (13 T/iter)
-- Port I/O via always_inline asm (workaround for compiler bugs)
-- `__attribute__((interrupt))` generates correct ISR save/restore + reti
+- CRT display stable (pre-programmed DMA + ISR refresh)
+- BSS zeroed correctly after self-relocation
+- delay() timing matches SDCC (djnz 13T/iter, L constraint for inner param)
+- Port I/O via always_inline asm
+- All init_peripherals port values verified correct
+- IVT verified correct (CTC ch2→CRT ISR, CTC ch3→floppy ISR)
 
-## Known Issues
+## Root Cause of Floppy Boot Failure
 
-### 1. Display shows in middle of screen (cosmetic)
-DMA autoinitialize restarts the transfer continuously without ISR
-resync, so the CRT frame boundary doesn't align with the display
-buffer start. The ISR resyncs on each vertical retrace, but during
-the floppy boot's di sections, the ISR can't fire and the DMA
-auto-restarts at an offset.
+The floppy ISR (CTC ch3) never fires. `floppy_operation_completed_flag`
+stays 0. The FDC sends a Sense Drive command and gets a response (the
+code reaches fdc_read_when_ready), then sends Recalibrate and waits for
+the interrupt — which never comes.
 
-### 2. Floppy boot fails
-The FDC polling and DMA transfer code runs but doesn't successfully
-read the disk. Likely caused by timing differences in the FDC
-driver — the clang code is larger and slower, and the di/ei windows
-differ from SDCC. Needs investigation with MAME debugger/gdbstub.
+Possible causes:
+1. The FDC command bytes aren't being sent correctly (fdc_write_when_ready
+   uses `xor 0x80; cp` instead of SDCC's `bit 7,a; bit 6,a` — logically
+   equivalent but check with debugger)
+2. The FDC completes but the interrupt signal doesn't reach CTC ch3
+   (DMA ch1 not configured yet? timing issue?)
+3. Something in the clang-compiled code corrupts CTC ch3 state
 
-### 3. LLVM-Z80 compiler bugs (workarounds applied)
-- Port_out functions lose `ret` when constant-propagated (ravn/llvm-z80#3 TODO)
-- Argument A not loaded for value 0 in non-inlined port_out calls
-- Both workarounded via `always_inline` on DEFPORT functions
-- `"hl"` inline asm constraint crashes IRTranslator (ravn/llvm-z80#2)
+## Next Steps
+- Use MAME gdbstub or debug build to trace FDC port writes
+- Compare exact FDC command/response sequence between SDCC and clang
+- Set breakpoint at fdc_write_when_ready to verify each byte sent
+- Check CTC ch3 state after init_peripherals
 
-## Build
-```bash
-make clang         # build PROM
-make clang_prom    # build + install to MAME/RC700
-make clang_clean   # clean
-```
-
-## Key Decisions
-- IVT at 0x6000 (I=0x60) — code at 0x6000 leaves room before display at 0x7A00
-- DMA ch2 autoinitialize (mode 0x5A) — keeps display stable during di sections
-- Pre-program DMA ch2 before CRT Start Display — first frame renders immediately
-- Inline asm port I/O with always_inline — avoids compiler constant propagation bugs
-- Inline asm delay with djnz — matches SDCC timing exactly
-- halt_forever disables CTC ch3 + masks DMA ch1 + enables interrupts
+## Build: `make clang` / `make clang_prom`
