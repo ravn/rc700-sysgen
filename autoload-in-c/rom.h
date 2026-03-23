@@ -113,22 +113,17 @@ typedef uint16_t word;
 
 #if defined(__clang__) && !defined(HOST_TEST)
 /* Inline asm port I/O — generates IN A,(n) / OUT (n),A at each call site.
- * address_space(2) has a code generation bug where constant-propagated
- * port_out functions lose their ret instruction (ravn/llvm-z80#3).
- *
- * DEFPORT generates static inline functions that use inline asm with
+ *  * DEFPORT generates static inline functions that use inline asm with
  * the "a" register constraint. The port address is baked into each
  * function via string literal concatenation. */
 #define _PS(x) #x
 #define _PX(x) _PS(x)
 #define DEFPORT(name, addr) \
-    __attribute__((always_inline)) \
     static inline uint8_t port_in_##name(void) { \
         uint8_t _v; \
         __asm__ volatile("in a, (" _PX(addr) ")" : "=a"(_v)); \
         return _v; \
     } \
-    __attribute__((always_inline)) \
     static inline void port_out_##name(uint8_t val) { \
         __asm__ volatile("out (" _PX(addr) "), a" : : "a"(val)); \
     }
