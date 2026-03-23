@@ -13,7 +13,7 @@ ENTRY(__start)
 
 MEMORY {
   ROM (rx)  : ORIGIN = 0x0000, LENGTH = 4096
-  RAM (rwx) : ORIGIN = 0x7300, LENGTH = 0x4D00
+  RAM (rwx) : ORIGIN = 0x6000, LENGTH = 0x6000
 }
 
 SECTIONS {
@@ -24,7 +24,7 @@ SECTIONS {
 
   /* CODE section — VMA in RAM at 0x7300, LMA in ROM after BOOT */
   __code_load = .;
-  .text 0x7300 : AT(__code_load) {
+  .text 0x6000 : AT(__code_load) {
     __code_start = .;
     *intvec.o(.rodata*)        /* IVT first (16 function pointers) */
     *intvec.o(.text*)

@@ -63,7 +63,11 @@ typedef uint16_t word;
 #define STR(x)  STR_(x)
 
 /* Memory layout constants */
+#if defined(__clang__) && !defined(HOST_TEST)
+#define INTVEC_ADDR 0x6000      /* IVT base — clang code is larger, needs room before 0x7A00 */
+#else
 #define INTVEC_ADDR 0x7300      /* IVT base — must match original ROM for COMAL */
+#endif
 #define INTVEC_PAGE (INTVEC_ADDR >> 8)  /* I register value (0x73) */
 #define ROM_STACK   0xBFFF      /* Stack set by ROM entry / INIT_RELOCATED */
 #define FLOPPYDATA  0x0000      /* Track 0 loaded here by ROM */
@@ -71,11 +75,7 @@ typedef uint16_t word;
 #define PROM1_ADDR  0x2000      /* Secondary PROM (network boot) */
 #define DIROFF      0x0B60      /* Directory start in Track 0 */
 #define DIREND_HI   0x0D        /* Directory end high byte */
-#if defined(__clang__) && !defined(HOST_TEST)
-#define DSPSTR_ADDR 0x8200      /* Display buffer — moved up for clang (larger code) */
-#else
-#define DSPSTR_ADDR 0x7A00      /* Display refresh memory (80x25) — SDCC fits before this */
-#endif
+#define DSPSTR_ADDR 0x7A00      /* Display refresh memory (80x25) */
 #define DSP_CHARS   0x0780      /* Display buffer size (1920 bytes) */
 #define ATTOFF      7           /* Attribute byte offset in dir entry */
 #define SECSZ0      0x80        /* Sector size for Track 0 Side 0 (128B) */
@@ -112,13 +112,23 @@ typedef uint16_t word;
  */
 
 #if defined(__clang__) && !defined(HOST_TEST)
-#define __io __attribute__((address_space(2)))
+/* Inline asm port I/O — generates IN A,(n) / OUT (n),A at each call site.
+ * address_space(2) has a code generation bug where constant-propagated
+ * port_out functions lose their ret instruction (ravn/llvm-z80#3).
+ *
+ * DEFPORT generates static inline functions that use inline asm with
+ * the "a" register constraint. The port address is baked into each
+ * function via string literal concatenation. */
+#define _PS(x) #x
+#define _PX(x) _PS(x)
 #define DEFPORT(name, addr) \
     static inline uint8_t port_in_##name(void) { \
-        return *(volatile __io uint8_t *)(uint8_t)(addr); \
+        uint8_t _v; \
+        __asm__ volatile("in a, (" _PX(addr) ")" : "=a"(_v)); \
+        return _v; \
     } \
     static inline void port_out_##name(uint8_t val) { \
-        *(volatile __io uint8_t *)(uint8_t)(addr) = val; \
+        __asm__ volatile("out (" _PX(addr) "), a" : : "a"(val)); \
     }
 #define port_in(name)       port_in_##name()
 #define port_out(name, val) port_out_##name(val)
