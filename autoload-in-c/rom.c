@@ -55,14 +55,22 @@ byte fdc_read_when_ready(void) {
 /* ================================================================
  * delay() — triple-nested timing loop.
  *
+ * WARNING: The FDC boot sequence is timing-sensitive.  If the PROM
+ * fails to boot (floppy not detected), check DELAY_T first.
+ *
  * Total time: outer × inner × 256 × DELAY_T T-states.
- * DELAY_T depends on the compiler's inner loop code generation:
+ * DELAY_T depends on the compiler's inner loop code generation
+ * and MUST be updated when changing compiler or optimization level:
  *   SDCC:  djnz             = 13 T-states/iter
  *   clang: complex dec/test = 76 T-states/iter
  *   asm:   dec a; jr nz     = 16 T-states/iter (original ROM)
  *
+ * To measure: disassemble delay(), count T-states in the innermost
+ * loop (the one that decrements k), and update DELAY_T.
+ *
  * All callers use DELAY_T to compute parameters at compile time
- * so timing is correct regardless of compiler.
+ * so timing is correct regardless of compiler.  The init_fdc delay
+ * in boot.s must be updated manually (see comment there).
  * ================================================================ */
 #ifdef __SDCC
 #define DELAY_T  13   /* sdcc: djnz */
