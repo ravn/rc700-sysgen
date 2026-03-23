@@ -27,7 +27,8 @@ __start:
 	jr	z, .Lcopy_done
 	ldir
 .Lcopy_done:
-	; Jump to init_relocated in RAM
+	; Zero BSS then jump to relocated code
+	call	.Lzero_bss
 	jp	_init_relocated
 
 	.globl	_init_fdc
@@ -67,3 +68,21 @@ _banner_string:
 	.globl	_nmi_handler
 _nmi_handler:
 	retn
+
+; BSS zero routine — called from _start after LDIR copy
+.Lzero_bss:
+	ld	hl, __bss_start
+	ld	bc, __bss_size
+	ld	a, b
+	or	c
+	ret	z
+	ld	(hl), 0
+	ld	d, h
+	ld	e, l
+	inc	de
+	dec	bc
+	ld	a, b
+	or	c
+	ret	z
+	ldir
+	ret

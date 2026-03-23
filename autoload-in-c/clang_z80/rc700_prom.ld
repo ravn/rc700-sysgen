@@ -43,6 +43,7 @@ SECTIONS {
     __bss_end = .;
   } > RAM
 
+  __bss_size = __bss_end - __bss_start;
   __code_end = .;
   __code_size = __code_end - __code_start;
 
