@@ -162,7 +162,11 @@ clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
 	   echo "OK: $$((4096 - PROM)) bytes free"; \
 	 fi
 
-clang_z80/boot.o: clang_z80/boot.s
+clang_z80/banner.bin:
+	@STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
+	 printf "%-42.42s" " RC700$$STAMP" > $@
+
+clang_z80/boot.o: clang_z80/boot.s clang_z80/banner.bin
 	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
 
 clang_z80/runtime.o: clang_z80/runtime.s

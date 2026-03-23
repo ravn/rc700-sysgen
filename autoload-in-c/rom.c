@@ -165,7 +165,7 @@ void init_peripherals(void) {
     dma_command(0x20); /* master clear + standard configuration */
     dma_mode(0xC0); /* Ch0: cascade mode (WD1000 hard disk) */
     dma_unmask(0); /* Ch0: enable */
-    dma_mode(0x4A); /* Ch2: single xfer, write mem->I/O (display) */
+    dma_mode(0x5A); /* Ch2: single xfer, autoinit, read mem->I/O (display) */
 
     /* CRT — Intel 8275 (bits 7-5 = command code) */
     crt_command(0x00); /* reset (expect 4 param bytes) */
@@ -184,13 +184,21 @@ void init_peripherals(void) {
 
 
 /* Banner string lives in BOOT section (boot_rom.c) to fill padding.
- * The length must match: " RC700 gensmedet" (16) + BUILD_STAMP (26) = 42 */
+ * The length must match: " RC700 ROA375" (13) + BUILD_STAMP (29) = 42 */
 #define BANNER_LENGTH 42
 extern void banner_string(void);  /* address of raw bytes in BOOT */
 
-/* Copy banner from BOOT ROM to display and start CRT controller. */
+/* Copy banner from BOOT ROM to display and start CRT controller.
+ * Programs DMA ch2 with display address before starting CRT so the
+ * first frame renders immediately without waiting for the ISR. */
 void display_banner_and_start_crt(void) {
     memcpy(dspstr, (const byte *)&banner_string, BANNER_LENGTH);
+    /* Pre-program DMA ch2 for first frame (ISR takes over for subsequent frames) */
+    dma_mask(2);                     /* disable ch2 during programming */
+    dma_clear_bp();                  /* reset byte pointer flip-flop */
+    dma_ch2_addr(DSPSTR_ADDR);      /* display buffer address */
+    dma_ch2_wc(80 * 25 - 1);        /* word count (N-1) */
+    dma_unmask(2);                   /* enable ch2 */
     crt_command(0x23);               /* start display: burst=0, 8 DMA cycles */
 }
 
