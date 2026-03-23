@@ -82,11 +82,14 @@ void delay(byte outer, byte inner) {
  * 2. Initialization
  * ================================================================ */
 
-/* Set Z80 I register.  sdcccall(1) passes byte in A; ld i,a uses it.
- * May NOT be inline for now — see rcbios-in-c documentation. */
+/* Set Z80 I register.  sdcccall(1) passes byte in A; ld i,a uses it. */
 static void set_i_reg(byte page) {
+#ifdef __clang__
+    __asm__ volatile("ld i, a" : : "a"(page));
+#else
     (void) page;
     __asm__("ld i, a\n");
+#endif
 }
 
 int main(void);

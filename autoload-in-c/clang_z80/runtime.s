@@ -5,15 +5,13 @@
 	.text
 
 ; void *memcpy(void *dest, const void *src, size_t n)
-; sdcccall(1): dest=HL, src=DE, n=stack
-; Returns dest in DE
+; sdcccall(1): dest=HL, src=DE, n=stack (2 bytes)
+; Callee cleanup: pop n before returning.
+; Returns dest in DE.
 	.globl	_memcpy
 _memcpy:
-	push	ix
-	ld	ix, 0
-	add	ix, sp
-	ld	c, (ix+4)
-	ld	b, (ix+5)
+	pop	iy		; save return address in IY
+	pop	bc		; n (callee-cleanup the stack arg)
 	; HL=dest, DE=src, BC=n
 	ex	de, hl		; DE=dest, HL=src
 	ld	a, b
@@ -22,19 +20,15 @@ _memcpy:
 	ldir
 .Lmemcpy_done:
 	; return dest in DE (already there)
-	pop	ix
-	ret
+	jp	(iy)		; return via IY (stack is clean)
 
 ; void *memset(void *s, int c, size_t n)
-; sdcccall(1): s=HL, c=E (truncated to byte), n=stack
-; Returns s in DE
+; sdcccall(1): s=HL, c=E (truncated to byte), n=stack (2 bytes)
+; Callee cleanup: pop n before returning.
 	.globl	_memset
 _memset:
-	push	ix
-	ld	ix, 0
-	add	ix, sp
-	ld	c, (ix+4)
-	ld	b, (ix+5)
+	pop	iy		; save return address in IY
+	pop	bc		; n (callee-cleanup the stack arg)
 	; HL=s, E=c (fill byte), BC=n
 	ld	a, b
 	or	c
@@ -49,8 +43,7 @@ _memset:
 	inc	de		; DE = s+1
 	ldir			; fill rest
 .Lmemset_done:
-	pop	ix
-	ret
+	jp	(iy)		; return via IY (stack is clean)
 
 ; __call_iy — indirect function call via IY register
 ; Used by the compiler for calls through function pointers.

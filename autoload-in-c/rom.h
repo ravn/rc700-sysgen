@@ -71,7 +71,11 @@ typedef uint16_t word;
 #define PROM1_ADDR  0x2000      /* Secondary PROM (network boot) */
 #define DIROFF      0x0B60      /* Directory start in Track 0 */
 #define DIREND_HI   0x0D        /* Directory end high byte */
-#define DSPSTR_ADDR 0x7A00      /* Display refresh memory (80x25) */
+#if defined(__clang__) && !defined(HOST_TEST)
+#define DSPSTR_ADDR 0x8200      /* Display buffer — moved up for clang (larger code) */
+#else
+#define DSPSTR_ADDR 0x7A00      /* Display refresh memory (80x25) — SDCC fits before this */
+#endif
 #define DSP_CHARS   0x0780      /* Display buffer size (1920 bytes) */
 #define ATTOFF      7           /* Attribute byte offset in dir entry */
 #define SECSZ0      0x80        /* Sector size for Track 0 Side 0 (128B) */
