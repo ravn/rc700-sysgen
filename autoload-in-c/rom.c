@@ -159,7 +159,7 @@ void init_peripherals(void) {
     dma_command(0x20); /* master clear + standard configuration */
     dma_mode(0xC0); /* Ch0: cascade mode (WD1000 hard disk) */
     dma_unmask(0); /* Ch0: enable */
-    dma_mode(0x5A); /* Ch2: single xfer, autoinit, read mem->I/O (display) */
+    dma_mode(0x4A); /* Ch2: single xfer, read mem->I/O (display) */
 
     /* CRT — Intel 8275 (bits 7-5 = command code) */
     crt_command(0x00); /* reset (expect 4 param bytes) */
