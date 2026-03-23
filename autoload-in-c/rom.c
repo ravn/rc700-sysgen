@@ -63,30 +63,24 @@ byte fdc_read_when_ready(void) {
  *   C version, so use inline asm for a tight djnz loop instead.
  * ================================================================ */
 #ifdef __clang__
+/* Inline asm delay matching SDCC's djnz timing (13 T/iter).
+ * Total time: outer × inner × 256 × 13 T-states. */
 void delay(byte outer, byte inner) {
-    /* sdcccall(1): outer in A, inner in L.
-     * Triple-nested loop matching SDCC's djnz timing (13 T/iter).
-     * SDCC generates: do { byte k=0; do { __asm__(""); } while(--k); }
-     * as djnz with 13 T per iteration.  We use the same instruction.
-     *
-     * Total time: outer × inner × 256 × 13 T-states.
-     * delay(2, 157) ≈ 2 × 157 × 256 × 13 / 4e6 ≈ 0.26 seconds. */
-    (void)inner;
     __asm__ volatile(
         "or a\n"
         "ret z\n"
         "ld c, a\n"        /* C = outer */
         "1:\n"
-        "ld d, l\n"        /* D = inner (L holds 2nd sdcccall param) */
+        "ld d, l\n"        /* D = inner (L from sdcccall param 2) */
         "2:\n"
         "ld b, 0\n"        /* B = 256 (wraps from 0) */
         "3:\n"
-        "djnz 3b\n"        /* 13 T × 256 = 3328 T per mid iter */
+        "djnz 3b\n"        /* 13 T × 256 per mid iter */
         "dec d\n"
-        "jr nz, 2b\n"      /* mid loop */
+        "jr nz, 2b\n"
         "dec c\n"
-        "jr nz, 1b\n"      /* outer loop */
-        : : "a"(outer) : "b", "c", "d"
+        "jr nz, 1b\n"
+        : : "a"(outer), "l"(inner) : "b", "c", "d"
     );
 }
 #else
