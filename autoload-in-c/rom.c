@@ -783,14 +783,8 @@ void syscall(word addr, word de) {
  * 6. Interrupt service routines
  * ================================================================ */
 
-/* Dummy ISR for unused interrupt vectors (generates EI + RETI).
- * SDCC's __interrupt(N) with N>0 generates EI before RETI.
- * Clang's __attribute__((interrupt)) only generates RETI, so we
- * need explicit EI to re-enable interrupts after the ISR. */
+/* Dummy ISR for unused interrupt vectors (generates EI + RETI). */
 void nothing_int(void) __interrupt(0) {
-#ifdef __clang__
-    intrinsic_ei();
-#endif
 }
 
 /* CRT vertical retrace ISR (CTC Ch2).
@@ -817,9 +811,6 @@ void refresh_crt_dma_50hz_interrupt(void) __critical __interrupt(1) {
 
     ctc2_write(0xD7); /* rearm CTC Ch2: counter, interrupt */
     ctc2_write(0x01); /* time constant = 1 (every retrace) */
-#ifdef __clang__
-    intrinsic_ei(); /* clang __attribute__((interrupt)) doesn't emit EI before RETI */
-#endif
 }
 
 /* Floppy disk ISR (CTC Ch3).
@@ -832,9 +823,6 @@ void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
     } else {
         fdc_sense_interrupt();
     }
-#ifdef __clang__
-    intrinsic_ei(); /* clang __attribute__((interrupt)) doesn't emit EI before RETI */
-#endif
 }
 
 /* ================================================================
