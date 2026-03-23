@@ -15,8 +15,16 @@
 
 #include <stdint.h>
 
-/* Stub sdcc keywords for non-sdcc compilers (CLion, clangd) */
-#ifndef __SDCC
+/* Map SDCC keywords for clang and non-SDCC compilers */
+#if defined(__clang__) && !defined(HOST_TEST)
+/* clang --target=z80: map SDCC keywords to clang equivalents */
+#define __sfr volatile unsigned char
+#define __at(x)
+#define __interrupt(n) __attribute__((interrupt))
+#define __critical
+#define __naked
+#elif !defined(__SDCC)
+/* IDE stubs (CLion, clangd) — no-op everything */
 #define __sfr
 #define __at(x)
 #define __interrupt(x)
@@ -181,10 +189,15 @@ DEFPORT(dma_clbp,     0xFC)
 #define crt_command(d)          port_out(crt_cmd, (d))
 #define crt_status()            port_in(crt_cmd)
 
-/* Use z88dk intrinsics for DI/EI — gives the compiler correct
- * register preservation information (__preserves_regs). */
+/* DI/EI/IM2 intrinsics */
 #ifdef __SDCC
 #include <intrinsic.h>
+#define ei()  intrinsic_ei()
+#define di()  intrinsic_di()
+#elif defined(__clang__) && !defined(HOST_TEST)
+static inline void intrinsic_di(void)   { __asm__ volatile("di"); }
+static inline void intrinsic_ei(void)   { __asm__ volatile("ei"); }
+static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
 #define ei()  intrinsic_ei()
 #define di()  intrinsic_di()
 #else

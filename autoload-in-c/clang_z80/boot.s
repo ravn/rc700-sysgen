@@ -1,0 +1,67 @@
+; boot.s — BOOT section for RC700 autoload PROM (clang/llvm-z80)
+;
+; Lives in ROM at 0x0000, accessible until prom_disable().
+; Contains:
+;   - _start        ROM entry point: set SP, copy CODE to RAM, jump
+;   - _init_fdc     FDC Specify command (called from main)
+;   - banner_string Raw banner text (42 bytes)
+;   - NMI handler   RETN at 0x0066
+
+	.text
+	.globl	__start
+
+; ROM entry point at address 0x0000
+__start:
+	di
+	ld	sp, 0xBFFF
+
+	; Copy CODE payload from ROM (after BOOT) to RAM at 0x7300
+	; Source: __code_load (LMA, right after BOOT in ROM)
+	; Dest:   __code_start (VMA = 0x7300)
+	; Length: __code_size
+	ld	hl, __code_load
+	ld	de, __code_start
+	ld	bc, __code_size
+	ld	a, b
+	or	c
+	jr	z, .Lcopy_done
+	ldir
+.Lcopy_done:
+	; Jump to init_relocated in RAM
+	jp	_init_relocated
+
+	.globl	_init_fdc
+_init_fdc:
+	; delay(2, 157) — wait for FDC ready
+	ld	a, 2
+	ld	l, 157
+	call	_delay
+
+	; Wait until no drives busy (MSR bits 0-4 = 0)
+.Lfdc_wait:
+	in	a, (0x04)
+	and	0x1F
+	jr	nz, .Lfdc_wait
+
+	; FDC Specify command: 0x03, 0x4F, 0x20
+	ld	a, 0x03
+	call	_fdc_write_when_ready
+	ld	a, 0x4F
+	call	_fdc_write_when_ready
+	ld	a, 0x20
+	call	_fdc_write_when_ready
+	ret
+
+	.globl	_banner_string
+_banner_string:
+	.ascii	" RC700 ROA375 clang-z80 /ravn  "
+	; 31 bytes — pad to fill space before NMI
+
+	; Pad with 0xFF to NMI vector at 0x0066
+	; The assembler can't compute padding at assemble time,
+	; so the linker script must ensure NMI lands at 0x0066.
+
+	.org	0x0066
+	.globl	_nmi_handler
+_nmi_handler:
+	retn
