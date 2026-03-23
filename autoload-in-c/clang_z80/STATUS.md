@@ -1,43 +1,70 @@
 # Clang Z80 PROM Build Status
 
-## Current: CP/M Boots Successfully
+## Current: CP/M Boots, 3014 bytes
 
-PROM: 3248/4096 bytes (79% full). CP/M boots in MAME in 5.5s emulated.
-Both SDCC and clang builds boot from the same rom.c/rom.h source.
+PROM: 3014/4096 bytes (74%). CP/M boots in 2.5s emulated.
+SDCC: 1872 bytes. Gap: 1142 bytes (61% larger).
 
-## What Works
-- Full CP/M boot: "RC700 56k CP/M vers.2.2 rel. 2.3 A>"
-- CRT display stable with ISR-driven DMA refresh at 50Hz
-- Floppy disk read: Sense Drive, Recalibrate, format detection, track read
-- All peripheral init: PIO, CTC, DMA, CRT — verified identical port values
-- Interrupt handlers: EI;RETI epilogue, callee-save registers
-- delay() via C with __asm__ volatile("") barrier
-- Port I/O via inline asm (inlined at all call sites by -Os)
-- BSS zeroed after self-relocation
-- Banner with build timestamp
+## Code Size Analysis
 
-## LLVM-Z80 Backend Fixes Made
+### Where the bytes go (clang vs SDCC)
 
-### Committed to ravn/llvm-z80 (main branch)
-1. **address_space(2) port I/O** (0ff2114) — G_LOAD/G_STORE from addrspace 2 → IN/OUT
-2. **Folded pointer constants** (0d71a91) — G_CONSTANT with type p2 for port address 0
-3. **Register pair asm constraints** (d32e77a) — bc/de/hl/af/ix/iy/sp in inline asm
-4. **EI before RETI** (4a07a09) — Z80 ISR epilogue emits EI immediately before RETI,
-   after all register restores; atomic via Z80 delayed EI semantics
+| Source | Extra bytes | Status |
+|--------|-----------|--------|
+| SP-relative stack access (5 bytes) vs IX-indexed (3 bytes) | ~300 | **Tradeoff**: frame pointer eliminated at -Os saves ISR overhead but costs more per stack access |
+| Register spills across function calls | ~200 | Pending: only 3 GP register pairs (BC/DE/HL) |
+| Signed comparison XOR pattern | ~50 | **Fixed**: precompute constant, RLCA for bit 7 |
+| Machine outliner extracting tiny functions | 0 | **Fixed**: outliner disabled |
+| Port I/O function calls vs inline | 0 | **Fixed**: address_space(2) inlined |
+| ISR saving all registers | 0 | **Fixed**: smart frame pointer, only save used regs |
 
-### Issues
-- [#1](https://github.com/ravn/llvm-z80/issues/1) address_space(2) crash — fixed
-- [#2](https://github.com/ravn/llvm-z80/issues/2) "hl" inline asm constraint crash — partial (constraint registered, IRTranslator limitation)
-- [#3](https://github.com/ravn/llvm-z80/issues/3) Missing EI before RETI — fixed
-- [#4](https://github.com/ravn/llvm-z80/issues/4) __critical equivalent — open
+### Register allocation observations
 
-### Port I/O approach
-The PROM uses inline asm for port I/O (`__asm__ volatile("out (N), a" : : "a"(val))`).
-This is preferred over `address_space(2)` because:
-- Always inlined at call sites (optimal 2-byte IN/OUT)
-- No `always_inline` attribute needed — `-Os` inlines the small functions
-- Avoids an address_space(2) code generation bug where IPSCCP corrupts
-  non-inlined port_out functions (removes `ret`, drops argument loads)
+**Leaf functions** (no calls): excellent. Locals stay in registers.
+```
+inc_twice: add a,2; ret           — 2 bytes (perfect)
+swap_add:  ld b,a; ld a,l; add a,b; ret  — 4 bytes (perfect)
+```
+
+**Functions with calls**: locals spill to stack. Each SP-relative
+access costs 5 bytes (ld hl,N; add hl,sp; ld/st) vs SDCC's IX-indexed
+3 bytes (ld (ix+d),r). This is the main remaining size gap.
+
+**Parameter passing**: sdcccall(1) working correctly.
+- 1st i8 in A, 1st i16 in HL
+- 2nd i8 in L, 2nd i16 in DE
+- 3rd+ on stack
+- Return i8 in A, i16 in DE
+
+## LLVM-Z80 Backend Optimizations Made
+
+| Commit | Change | Bytes saved |
+|--------|--------|------------|
+| 8995291 | Disable machine outliner | -268 |
+| 8995291 | Allow tiny function inlining (TTI) | (included above) |
+| 0d45307 | Signed comparison: precompute constant RHS | -12 |
+| 0d45307 | Sign bit test: RLCA into carry | (included above) |
+| 89d3ee6 | Smart frame pointer: skip IX for no-stack functions | -13 (ISRs) +46 (SP-relative) = +33 net, but 2x faster boot |
+
+### Open issues
+- [#2](https://github.com/ravn/llvm-z80/issues/2) "hl" constraint — fixed with {hl} brace syntax
+- [#4](https://github.com/ravn/llvm-z80/issues/4) __critical attribute — backend ready, clang plumbing needed
+
+### Remaining optimization opportunities
+
+1. **IX frame pointer for functions with stack vars** (task #5): SP-relative
+   costs 5 bytes/access vs IX-indexed 3 bytes. Need selective IX usage —
+   use IX when function has ≥3 stack accesses, omit for simpler functions.
+   Parked until register passing improvements reduce spills.
+
+2. **Register spills** (task #9): functions with calls spill all live
+   locals to stack because only 3 GP pairs (BC/DE/HL) and all are
+   caller-saved. Improving this requires either more registers (EXX
+   shadow set, task #4) or better spill heuristics.
+
+3. **Machine outliner cost model** (task #10): currently disabled entirely.
+   Should be re-enabled with Z80-aware costs (call=3, ret=1, only outline
+   sequences >4 bytes appearing ≥2 times).
 
 ## Build
 ```bash
