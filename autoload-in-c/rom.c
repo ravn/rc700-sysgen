@@ -62,9 +62,6 @@ byte fdc_read_when_ready(void) {
  *   clang generates a very slow inner loop (~50 T-states) from the
  *   C version, so use inline asm for a tight djnz loop instead.
  * ================================================================ */
-#ifdef __clang__
-/* Use same C delay as SDCC — the inline asm version somehow prevents
- * interrupts from firing in MAME (under investigation). */
 void delay(byte outer, byte inner) {
     if (!outer) return;
     do {
@@ -72,27 +69,15 @@ void delay(byte outer, byte inner) {
         do {
             byte k = 0;
             do {
-                __asm__ volatile("");
-            } while (--k);
-        } while (--mid);
-    } while (--outer);
-}
+#ifdef __SDCC
+                __asm__("");
 #else
-void delay(byte outer, byte inner) {
-    if (!outer) {
-        return;
-    }
-    do {
-        byte mid = inner;
-        do {
-            byte k = 0;
-            do {
-                __asm__("");           /* sdcc: non-volatile suffices */
+                __asm__ volatile("");  /* optimization barrier */
+#endif
             } while (--k);
         } while (--mid);
     } while (--outer);
 }
-#endif
 
 /* ================================================================
  * 2. Initialization
