@@ -73,3 +73,25 @@ make clang_prom    # build + install to MAME/RC700
 make clang_asm     # show assembly
 make clang_clean   # clean
 ```
+
+## Biggest remaining opportunity: static stack allocation
+
+The RC700 PROM code is non-reentrant (no recursion, no threading, ISRs
+are `__critical`). Local variables could be placed in static global
+memory instead of the stack:
+
+```
+; Current (SP-relative, 5 bytes per access):
+ld  hl, offset
+add hl, sp
+ld  a, (hl)
+
+; Static allocation (3 bytes per access):
+ld  a, (addr)
+```
+
+Plus eliminates frame setup/teardown (12 bytes per function).
+Estimated saving: ~500 bytes → PROM ~2500 bytes (vs SDCC 1872).
+
+The Z80 backend already has a `FeatureStaticStack` flag defined but
+not implemented. See [ravn/llvm-z80#6](https://github.com/ravn/llvm-z80/issues/6).
