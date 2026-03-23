@@ -177,6 +177,7 @@ clang_z80/intvec.o: intvec.c rom.h
 
 clang_z80/rom.o: rom.c rom.h
 	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c rom.c -o $@
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S rom.c -o clang_z80/rom.s
 
 clang_prom: clang
 	@{ cat clang_z80/prom.bin; \
