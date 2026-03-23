@@ -122,11 +122,13 @@ typedef uint16_t word;
 #define _PS(x) #x
 #define _PX(x) _PS(x)
 #define DEFPORT(name, addr) \
+    __attribute__((always_inline)) \
     static inline uint8_t port_in_##name(void) { \
         uint8_t _v; \
         __asm__ volatile("in a, (" _PX(addr) ")" : "=a"(_v)); \
         return _v; \
     } \
+    __attribute__((always_inline)) \
     static inline void port_out_##name(uint8_t val) { \
         __asm__ volatile("out (" _PX(addr) "), a" : : "a"(val)); \
     }

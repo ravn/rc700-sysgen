@@ -469,8 +469,9 @@ byte error_saved = 0;
 /* Error/status message strings (non-static for assembly access) */
 const char msg_rc702[] = " RC702";
 
-/* Infinite loop — never returns. */
-void halt_forever(void) { for (;;); }
+/* Infinite loop — never returns.
+ * Enable interrupts so the CRT DMA ISR keeps refreshing the display. */
+void halt_forever(void) { intrinsic_ei(); for (;;); }
 
 /* Copy 'len' bytes to display buffer, then halt forever.
  * Macro so 'len' is compile-time constant — sdcc inlines as LDIR.
