@@ -154,7 +154,7 @@ CLANG_OBJS = clang_z80/boot.o clang_z80/intvec.o clang_z80/rom.o clang_z80/runti
 clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
 	$(DOCKER) $(CLANG_LD) -T clang_z80/rc700_prom.ld $(CLANG_OBJS) -o clang_z80/prom.elf
 	$(DOCKER) $(CLANG_OBJCOPY) -O binary clang_z80/prom.elf clang_z80/prom.bin
-	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang_z80/prom.elf > clang_z80/prom.lis
+	$(DOCKER) $(CLANG_OBJDUMP) -S --triple=z80 clang_z80/prom.elf > clang_z80/prom.lis
 	@PROM=$$(wc -c < clang_z80/prom.bin | tr -d ' '); \
 	 echo "clang PROM: $$PROM / 4096 bytes"; \
 	 if [ $$PROM -gt 4096 ]; then \
@@ -177,7 +177,7 @@ clang_z80/intvec.o: intvec.c rom.h
 	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c intvec.c -o $@
 
 clang_z80/rom.o: rom.c rom.h
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c rom.c -o $@
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -g -c rom.c -o $@
 
 clang_prom: clang
 	@{ cat clang_z80/prom.bin; \
