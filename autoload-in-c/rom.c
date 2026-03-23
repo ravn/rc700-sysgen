@@ -63,25 +63,19 @@ byte fdc_read_when_ready(void) {
  *   C version, so use inline asm for a tight djnz loop instead.
  * ================================================================ */
 #ifdef __clang__
-/* Inline asm delay matching SDCC's djnz timing (13 T/iter).
- * Total time: outer × inner × 256 × 13 T-states. */
+/* Use same C delay as SDCC — the inline asm version somehow prevents
+ * interrupts from firing in MAME (under investigation). */
 void delay(byte outer, byte inner) {
-    __asm__ volatile(
-        "or a\n"
-        "ret z\n"
-        "ld c, a\n"        /* C = outer */
-        "1:\n"
-        "ld d, l\n"        /* D = inner (L from sdcccall param 2) */
-        "2:\n"
-        "ld b, 0\n"        /* B = 256 (wraps from 0) */
-        "3:\n"
-        "djnz 3b\n"        /* 13 T × 256 per mid iter */
-        "dec d\n"
-        "jr nz, 2b\n"
-        "dec c\n"
-        "jr nz, 1b\n"
-        : : "a"(outer), "l"(inner) : "b", "c", "d"
-    );
+    if (!outer) return;
+    do {
+        byte mid = inner;
+        do {
+            byte k = 0;
+            do {
+                __asm__ volatile("");
+            } while (--k);
+        } while (--mid);
+    } while (--outer);
 }
 #else
 void delay(byte outer, byte inner) {
@@ -789,8 +783,14 @@ void syscall(word addr, word de) {
  * 6. Interrupt service routines
  * ================================================================ */
 
-/* Dummy ISR for unused interrupt vectors (generates EI + RETI). */
+/* Dummy ISR for unused interrupt vectors (generates EI + RETI).
+ * SDCC's __interrupt(N) with N>0 generates EI before RETI.
+ * Clang's __attribute__((interrupt)) only generates RETI, so we
+ * need explicit EI to re-enable interrupts after the ISR. */
 void nothing_int(void) __interrupt(0) {
+#ifdef __clang__
+    intrinsic_ei();
+#endif
 }
 
 /* CRT vertical retrace ISR (CTC Ch2).
@@ -817,6 +817,9 @@ void refresh_crt_dma_50hz_interrupt(void) __critical __interrupt(1) {
 
     ctc2_write(0xD7); /* rearm CTC Ch2: counter, interrupt */
     ctc2_write(0x01); /* time constant = 1 (every retrace) */
+#ifdef __clang__
+    intrinsic_ei(); /* clang __attribute__((interrupt)) doesn't emit EI before RETI */
+#endif
 }
 
 /* Floppy disk ISR (CTC Ch3).
@@ -829,6 +832,9 @@ void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
     } else {
         fdc_sense_interrupt();
     }
+#ifdef __clang__
+    intrinsic_ei(); /* clang __attribute__((interrupt)) doesn't emit EI before RETI */
+#endif
 }
 
 /* ================================================================
