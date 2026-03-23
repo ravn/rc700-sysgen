@@ -33,9 +33,11 @@ __start:
 
 	.globl	_init_fdc
 _init_fdc:
-	; delay(2, 157) — wait for FDC ready
-	ld	a, 2
-	ld	l, 157
+	; delay(1, 53) — wait ~260ms for FDC ready
+	; clang inner loop = 76 T/iter: 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms
+	; (SDCC uses delay(2, 157): 2 × 157 × 256 × 13 = 1,045,504T ≈ 261ms)
+	ld	a, 1
+	ld	l, 53
 	call	_delay
 
 	; Wait until no drives busy (MSR bits 0-4 = 0)

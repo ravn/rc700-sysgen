@@ -53,15 +53,23 @@ byte fdc_read_when_ready(void) {
 }
 
 /* ================================================================
- * delay() timing note:
- *   Assembly used dec a / jr nz (16 T-states/iter).  sdcc generates
- *   djnz (13 T-states), making delay ~19% shorter for same params.
- *   See init_fdc() for compensated call (2, 157) matching the
- *   original (1, 0xFF) within 0.3%.
+ * delay() — triple-nested timing loop.
  *
- *   clang generates a very slow inner loop (~50 T-states) from the
- *   C version, so use inline asm for a tight djnz loop instead.
+ * Total time: outer × inner × 256 × DELAY_T T-states.
+ * DELAY_T depends on the compiler's inner loop code generation:
+ *   SDCC:  djnz             = 13 T-states/iter
+ *   clang: complex dec/test = 76 T-states/iter
+ *   asm:   dec a; jr nz     = 16 T-states/iter (original ROM)
+ *
+ * All callers use DELAY_T to compute parameters at compile time
+ * so timing is correct regardless of compiler.
  * ================================================================ */
+#ifdef __SDCC
+#define DELAY_T  13   /* sdcc: djnz */
+#else
+#define DELAY_T  76   /* clang: complex 8-bit decrement loop */
+#endif
+
 void delay(byte outer, byte inner) {
     if (!outer) return;
     do {
@@ -256,20 +264,32 @@ void calc_size_of_current_track(void) {
  *
  * Must cover worst-case FM track read: 8" at 360 RPM = 166ms/rev.
  * Wait for sector 1 (~1 rev) + read 26 sectors (~1 rev) = 332ms.
- * Require >= 400ms.
+ * Require >= 400ms total timeout across 255 iterations.
  *
- * delay(1,4) = 4 x 256 x 13T = 13,312T per iteration.
- * 255 iterations = 851,200T = 213ms at 4MHz.
- * Matches original assembly (511 x 24T = 12,264T) within 8%.
+ * Parameters are computed from DELAY_T so timing is correct
+ * regardless of compiler.  Target: ~13,000T per iteration.
  */
+#define Z80_MHZ           4
+#define WAITFL_TARGET_T   13000   /* T-states per poll iteration */
+#define WAITFL_DELAY_INNER  ((WAITFL_TARGET_T) / (256 * (DELAY_T)))
+#if WAITFL_DELAY_INNER < 1
+#undef WAITFL_DELAY_INNER
+#define WAITFL_DELAY_INNER 1
+#endif
 #define WAITFL_DELAY_OUTER  1
-#define WAITFL_DELAY_INNER  4
 
 /* Compile-time check: timeout >= 400ms */
-#define Z80_MHZ           4
-#define WAITFL_PER_ITER  ((long)(WAITFL_DELAY_OUTER) * (WAITFL_DELAY_INNER) * 256 * 13)
+#define WAITFL_PER_ITER  ((long)WAITFL_DELAY_OUTER * WAITFL_DELAY_INNER * 256 * DELAY_T)
 #define WAITFL_MS        (255L * WAITFL_PER_ITER / (Z80_MHZ * 1000))
 typedef char _wait_floppy_ready_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
+
+/* Motor spin-up delay: ~850,000 T-states ≈ 212ms at 4MHz.
+ * delay(SPINUP_OUTER, 0xFF): SPINUP_OUTER × 255 × 256 × DELAY_T T-states. */
+#if DELAY_T <= 16
+#define SPINUP_OUTER 1    /* asm/sdcc: 1 × 255 × 256 × 13 = 849,920T */
+#else
+#define SPINUP_OUTER 1    /* clang: 1 × 255 × 256 × 76 = 4,968,960T (longer but safe) */
+#endif
 
 /* Send Sense Interrupt Status; ST0 in [0], PCN in [1]. */
 void fdc_sense_interrupt(void) {
@@ -682,7 +702,7 @@ static void get_floppy_ready(void) {
 static void boot_from_floppy_or_jump_prom1(void) {
     byte status;
 
-    delay(1, 0xFF);
+    delay(SPINUP_OUTER, 0xFF);
 
     /* sense drive status (inlined sense_drive) */
     fdc_write_when_ready(FDC_SENSE_DRIVE);
