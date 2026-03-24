@@ -146,7 +146,7 @@ CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
 CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 
-CLANG_CFLAGS = --target=z80 -Os -ffreestanding -nostdlib \
+CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -mllvm -disable-lsr \
 	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type
