@@ -147,6 +147,7 @@ CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 
 CLANG_CFLAGS = --target=z80 -Os -nostdlib \
+	       -ffunction-sections -fdata-sections \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -mllvm -disable-lsr \
 	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type
@@ -154,7 +155,7 @@ CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 CLANG_OBJS = clang_z80/boot.o clang_z80/intvec.o clang_z80/rom.o clang_z80/runtime.o
 
 clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
-	$(DOCKER) $(CLANG_LD) -T clang_z80/rc700_prom.ld $(CLANG_OBJS) -o clang_z80/prom.elf
+	$(DOCKER) $(CLANG_LD) --gc-sections -T clang_z80/rc700_prom.ld $(CLANG_OBJS) -o clang_z80/prom.elf
 	$(DOCKER) $(CLANG_OBJCOPY) -O binary clang_z80/prom.elf clang_z80/prom.bin
 	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang_z80/prom.elf > clang_z80/prom.lis
 	@PROM=$$(wc -c < clang_z80/prom.bin | tr -d ' '); \

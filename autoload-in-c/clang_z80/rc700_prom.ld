@@ -17,19 +17,20 @@ MEMORY {
 }
 
 SECTIONS {
-  /* BOOT section — runs from ROM at 0x0000 */
+  /* BOOT section — runs from ROM at 0x0000, must not be GC'd */
   .boot : {
-    *boot.o(.text*)
+    KEEP(*boot.o(.text*))
   } > ROM
 
-  /* CODE section — VMA in RAM at 0x7300, LMA in ROM after BOOT */
+  /* CODE section — VMA in RAM at 0x6000, LMA in ROM after BOOT */
   __code_load = .;
   .text 0x6000 : AT(__code_load) {
     __code_start = .;
-    *intvec.o(.rodata*)        /* IVT first (16 function pointers) */
-    *intvec.o(.text*)
-    *rom.o(.text*)             /* All C code */
+    KEEP(*intvec.o(.rodata*))  /* IVT: function pointers to ISRs */
+    KEEP(*intvec.o(.text*))    /* IVT code */
+    *rom.o(.text*)             /* All C code (GC'd by reachability) */
     *rom.o(.rodata*)           /* Constants, strings */
+    *runtime.o(.text*)         /* Runtime stubs */
   } > RAM
 
   .data : AT(LOADADDR(.text) + SIZEOF(.text)) {
