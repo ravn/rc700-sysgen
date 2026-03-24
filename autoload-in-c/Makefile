@@ -149,6 +149,7 @@ CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 	       -ffunction-sections -fdata-sections \
 	       -Xclang -target-feature -Xclang +static-stack \
+	       -Xclang -target-feature -Xclang +shadow-regs \
 	       -mllvm -disable-lsr \
 	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type
 
