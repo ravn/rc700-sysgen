@@ -31,29 +31,7 @@ __start:
 	call	.Lzero_bss
 	jp	_init_relocated
 
-	.globl	_init_fdc
-_init_fdc:
-	; delay(1, 53) — wait ~260ms for FDC ready
-	; clang inner loop = 76 T/iter: 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms
-	; (SDCC uses delay(2, 157): 2 × 157 × 256 × 13 = 1,045,504T ≈ 261ms)
-	ld	a, 1
-	ld	l, 53
-	call	_delay
-
-	; Wait until no drives busy (MSR bits 0-4 = 0)
-.Lfdc_wait:
-	in	a, (0x04)
-	and	0x1F
-	jr	nz, .Lfdc_wait
-
-	; FDC Specify command: 0x03, 0x4F, 0x20
-	ld	a, 0x03
-	call	_fdc_write_when_ready
-	ld	a, 0x4F
-	call	_fdc_write_when_ready
-	ld	a, 0x20
-	call	_fdc_write_when_ready
-	ret
+	; init_fdc is now in rom.c (C code, runs after relocation)
 
 	; banner_string is defined in the Makefile via -DBUILD_STAMP
 	; and assembled from a generated .s file. See Makefile clang target.

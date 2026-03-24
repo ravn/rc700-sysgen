@@ -302,7 +302,7 @@ extern byte error_saved;      /* saved error code */
 
 /* init */
 void init_peripherals(void);
-void init_fdc(void);
+/* init_fdc is now static in rom.c (was in boot.s) */
 
 /* fmt */
 void lookup_sectors_and_gap3_for_current_track(void);

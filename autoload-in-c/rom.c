@@ -168,8 +168,7 @@ void init_peripherals(void) {
     crt_command(0xE0); /* preset counters */
 }
 
-/* init_fdc() is in boot_rom.c (BOOT section).
- * banner_string is raw bytes in BOOT, referenced here via extern. */
+/* banner_string is raw bytes in BOOT, referenced here via extern. */
 
 
 /* Banner string lives in BOOT section (boot_rom.c) to fill padding.
@@ -683,8 +682,26 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
     }
 }
 
-/* Entry point — called by init_relocated() after peripheral init.
- * Placed before preinit for tail-call fall-through (saves 3 bytes). */
+/* Initialize FDC: wait for ready, then send Specify command.
+ * Was in boot.s; now in C since it runs after relocation. */
+/* FDC power-on delay: ~260ms = 1,040,000 T-states.
+ * Total = outer × inner × 256 × DELAY_T.
+ * At DELAY_T=76: 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms. */
+#define FDC_INIT_DELAY_INNER (1040000L / (256 * DELAY_T))
+#if FDC_INIT_DELAY_INNER > 255
+#error "FDC_INIT_DELAY_INNER overflow — increase outer count"
+#endif
+
+static void init_fdc(void) {
+    delay(1, FDC_INIT_DELAY_INNER);
+    while (port_in(fdc_status) & 0x1F)
+        ;
+    fdc_write_when_ready(0x03);  /* Specify command */
+    fdc_write_when_ready(0x4F);  /* step rate 3ms, head unload 240ms */
+    fdc_write_when_ready(0x20);  /* DMA mode */
+}
+
+/* Entry point — called by init_relocated() after peripheral init. */
 int main(void) {
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
