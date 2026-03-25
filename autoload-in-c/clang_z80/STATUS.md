@@ -29,32 +29,78 @@ make clang_clean   # clean
 | `-disable-lsr` | Disable loop strength reduction (saves ~90 bytes) |
 | `-fno-freestanding` | Enable memcpy→LDIR inlining |
 
-## Known code quality issues
+## Code size gap analysis (clang vs SDCC)
+
+Top 5 functions by size gap (241 of 581 bytes):
+
+| Clang | SDCC | +Diff | Function |
+|------:|-----:|------:|----------|
+| 91 | 32 | +59 | `check_sysfile` |
+| 100 | 45 | +55 | `lookup_sectors_and_gap3_for_current_track` |
+| 139 | 93 | +46 | `fdc_get_result_bytes` |
+| 58 | 17 | +41 | `compare_6bytes` |
+| 105 | 65 | +40 | `fdc_write_full_cmd` |
+
+Three backend root causes explain the gap:
+
+### 1. No DJNZ for counted byte loops (~30 bytes)
+
+`compare_6bytes` and `check_sysfile` use `do { ... } while (--i)`
+loops.  SDCC generates `DJNZ` (2 bytes), clang generates
+`dec a; or a; jr nz` (4 bytes) plus IX-based counter management.
+
+```
+; SDCC (17 bytes total for compare_6bytes):
+    ld b, 6
+.loop:  ld a, (de)
+    cp (hl)
+    jr nz, .fail
+    inc de
+    inc hl
+    djnz .loop
+    xor a / ret / ld a,1 / ret
+
+; Clang (58 bytes): IX frame, BSS spills, add hl,bc per iteration
+```
+
+### 2. BSS pointer spills for struct field access (~100 bytes)
+
+With `+static-stack`, the compiler stores computed struct field
+pointers in BSS, then reloads them to access the field.  Each
+spill/reload pair costs 6 bytes (`ld (nn),hl` + `ld hl,(nn)`).
+
+`lookup_sectors_and_gap3` computes `&fdc_cmd.eot`, `&fdc_cmd.gap3`,
+`&fdc_cmd.dtl` as pointers, stores each in BSS, then loads them
+back to write the field.  SDCC accesses fields directly via
+`ld hl, base+offset`.
+
+`fdc_get_result_bytes` loads `dma_transfer_address` from BSS twice
+(for low and high byte port writes) instead of keeping it in a
+register pair.
+
+### 3. 8-bit values promoted to 16-bit (~50 bytes)
+
+Byte comparisons go through 16-bit arithmetic.  In `check_sysfile`,
+comparing `*dir++ != *pattern++` generates sign-extension
+(`rlca; sbc a,a`) and 16-bit XOR/OR instead of a simple `cp (hl)`.
+
+### 4. IX frame overhead (~60 bytes across all functions)
+
+Every function with locals gets `push ix` / `pop ix` (4 bytes) +
+`ld ix, $addr` (4 bytes) for BSS frame setup.  SDCC's IX-indexed
+stack access is 3 bytes per access; clang's static stack with IX
+pointer is also 3 bytes per access but pays the 8-byte setup even
+for functions with only 1-2 locals.
+
+## Other known issues
 
 ### IX used to hold constant across LDIR (boot_main)
 
 The compiler loads BSS size into IX before the first LDIR, then
-transfers it to BC via `dec ix; push ix; pop bc` (6 bytes, 33T).
-Optimal would be `ld bc, imm` (3 bytes, 10T) after the first LDIR.
+transfers to BC via `dec ix; push ix; pop bc` (6 bytes).
+Optimal: `ld bc, imm` (3 bytes) after the first LDIR.
 
-```asm
-; Current (6 bytes):
-    dd 2b        dec  ix
-    dd e5        push ix
-    c1           pop  bc
-    ed b0        ldir
+### See also
 
-; Optimal (5 bytes):
-    01 5c 00     ld   bc, $5c
-    ed b0        ldir
-```
-
-Root cause: register allocator puts the BSS size in IX because
-BC/DE/HL are all occupied by the first LDIR.  A peephole or
-post-RA optimization in the backend could fix this.
-
-### Other known issues
-
-See [BUGS.md](BUGS.md) for backend bugs found during development.
-See [llvm-z80 issues](https://github.com/ravn/llvm-z80/issues) for
-filed backend issues.
+- [BUGS.md](BUGS.md) — backend bugs found during development
+- [llvm-z80 issues](https://github.com/ravn/llvm-z80/issues)
