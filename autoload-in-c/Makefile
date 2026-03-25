@@ -169,7 +169,7 @@ clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
 	 fi
 
 clang_z80/banner.bin:
-	@STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
+	@STAMP=" CLANG $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
 	 printf "%-42.42s" " RC700$$STAMP" > $@
 
 clang_z80/boot.o: boot_rom.c rom.h clang_z80/banner.bin $(CLANG_COMPILER)
