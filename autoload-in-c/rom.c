@@ -69,8 +69,7 @@ byte fdc_read_when_ready(void) {
  * loop (the one that decrements k), and update DELAY_T.
  *
  * All callers use DELAY_T to compute parameters at compile time
- * so timing is correct regardless of compiler.  The init_fdc delay
- * in boot.s must be updated manually (see comment there).
+ * so timing is correct regardless of compiler.
  * ================================================================ */
 #ifdef __SDCC
 #define DELAY_T  13   /* sdcc: djnz */
@@ -682,9 +681,12 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
     }
 }
 
-/* Initialize FDC: wait for ready, then send Specify command.
- * Was in boot.s; now in C since it runs after relocation. */
-/* FDC power-on delay: ~260ms = 1,040,000 T-states.
+#ifdef __SDCC
+/* SDCC: init_fdc lives in boot_rom.c (BOOT section, called before prom_disable) */
+extern void init_fdc(void);
+#else
+/* clang: init_fdc is here in rom.c (CODE section, runs after relocation).
+ * FDC power-on delay: ~260ms = 1,040,000 T-states.
  * Total = outer × inner × 256 × DELAY_T.
  * At DELAY_T=76: 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms. */
 #define FDC_INIT_DELAY_INNER (1040000L / (256 * DELAY_T))
@@ -700,6 +702,7 @@ static void init_fdc(void) {
     fdc_write_when_ready(0x4F);  /* step rate 3ms, head unload 240ms */
     fdc_write_when_ready(0x20);  /* DMA mode */
 }
+#endif
 
 /* Entry point — called by init_relocated() after peripheral init. */
 int main(void) {

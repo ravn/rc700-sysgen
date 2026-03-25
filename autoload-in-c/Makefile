@@ -127,9 +127,9 @@ mamesym: prom0.map
 # ================================================================
 # LLVM-Z80 clang build (requires Docker + ~/git/llvm-z80/build/)
 # ================================================================
-# Same rom.c and rom.h — dual-compiler compatible via #ifdef __clang__.
-# boot_rom.c is replaced by clang_z80/boot.s (SDCC asm directives
-# like DEFM/DEFS/ASMPC are not supported by the LLVM assembler).
+# Same rom.c, rom.h, and boot_rom.c — dual-compiler compatible via
+# #ifdef __clang__.  boot_rom.c uses file-scope __asm__ with GNU as
+# directives for clang, SDCC asm directives for z88dk.
 
 LLVM_Z80 = $(HOME)/git/llvm-z80
 CLANG_BUILD = /src/build/bin
@@ -172,8 +172,8 @@ clang_z80/banner.bin:
 	@STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
 	 printf "%-42.42s" " RC700$$STAMP" > $@
 
-clang_z80/boot.o: clang_z80/boot.s clang_z80/banner.bin $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
+clang_z80/boot.o: boot_rom.c rom.h clang_z80/banner.bin $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) --target=z80 -Os -nostdlib -I. -Wno-gcc-compat -c $< -o $@
 
 clang_z80/runtime.o: clang_z80/runtime.s $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
