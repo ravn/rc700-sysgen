@@ -168,11 +168,12 @@ clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
 	   echo "OK: $$((4096 - PROM)) bytes free"; \
 	 fi
 
-clang_z80/banner.bin:
-	@STAMP=" CLANG $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
-	 printf "%-42.42s" " RC700$$STAMP" > $@
+clang_z80/banner.h:
+	@STAMP=" CL $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
+	 BANNER=$$(printf "%-42.42s" " RC700$$STAMP"); \
+	 echo "#define CLANG_BANNER \"$$BANNER\"" > $@
 
-clang_z80/boot.o: boot_rom.c rom.h clang_z80/banner.bin $(CLANG_COMPILER)
+clang_z80/boot.o: boot_rom.c rom.h clang_z80/banner.h $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) --target=z80 -Os -nostdlib -I. -Wno-gcc-compat -c $< -o $@
 
 clang_z80/runtime.o: clang_z80/runtime.s $(CLANG_COMPILER)
@@ -214,7 +215,7 @@ clean:
 	rm -f prom0 prom0_*.bin prom0_mame.sym prom0_debug.cmd prom0.ic66
 	rm -f *.o *.bin *.map *.sym *.lis zcc_opt.def *.rom
 	rm -f zcc_opt.def
-	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin
+	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin clang_z80/banner.h
 
 .PHONY: all rom_parts prom mame mamesym rc700 clean \
 	clang clang_prom clang_asm clang_disasm clang_symbols clang_mamesym clang_clean
