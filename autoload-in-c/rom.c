@@ -53,22 +53,42 @@ byte fdc_read_when_ready(void) {
 }
 
 /* ================================================================
- * delay() timing note:
- *   Assembly used dec a / jr nz (16 T-states/iter).  sdcc generates
- *   djnz (13 T-states), making delay ~19% shorter for same params.
- *   See init_fdc() for compensated call (2, 157) matching the
- *   original (1, 0xFF) within 0.3%.
+ * delay() — triple-nested timing loop.
+ *
+ * WARNING: The FDC boot sequence is timing-sensitive.  If the PROM
+ * fails to boot (floppy not detected), check DELAY_T first.
+ *
+ * Total time: outer × inner × 256 × DELAY_T T-states.
+ * DELAY_T depends on the compiler's inner loop code generation
+ * and MUST be updated when changing compiler or optimization level:
+ *   SDCC:  djnz             = 13 T-states/iter
+ *   clang: complex dec/test = 76 T-states/iter
+ *   asm:   dec a; jr nz     = 16 T-states/iter (original ROM)
+ *
+ * To measure: disassemble delay(), count T-states in the innermost
+ * loop (the one that decrements k), and update DELAY_T.
+ *
+ * All callers use DELAY_T to compute parameters at compile time
+ * so timing is correct regardless of compiler.
  * ================================================================ */
+#ifdef __SDCC
+#define DELAY_T  13   /* sdcc: djnz */
+#else
+#define DELAY_T  76   /* clang: complex 8-bit decrement loop */
+#endif
+
 void delay(byte outer, byte inner) {
-    if (!outer) {
-        return;
-    }
+    if (!outer) return;
     do {
         byte mid = inner;
         do {
             byte k = 0;
             do {
-                /* busy wait, must not be optimized away */
+#ifdef __SDCC
+                __asm__("");
+#else
+                __asm__ volatile("");  /* optimization barrier */
+#endif
             } while (--k);
         } while (--mid);
     } while (--outer);
@@ -78,11 +98,14 @@ void delay(byte outer, byte inner) {
  * 2. Initialization
  * ================================================================ */
 
-/* Set Z80 I register.  sdcccall(1) passes byte in A; ld i,a uses it.
- * May NOT be inline for now — see rcbios-in-c documentation. */
+/* Set Z80 I register. */
 static void set_i_reg(byte page) {
-    (void) page;
+#ifdef __clang__
+    __asm__ volatile("ld i, a" : : "{a}"(page));
+#else
+    (void) page;  /* sdcccall(1) passes byte in A */
     __asm__("ld i, a\n");
+#endif
 }
 
 int main(void);
@@ -130,7 +153,7 @@ void init_peripherals(void) {
     dma_command(0x20); /* master clear + standard configuration */
     dma_mode(0xC0); /* Ch0: cascade mode (WD1000 hard disk) */
     dma_unmask(0); /* Ch0: enable */
-    dma_mode(0x4A); /* Ch2: single xfer, write mem->I/O (display) */
+    dma_mode(0x4A); /* Ch2: single xfer, read mem->I/O (display) */
 
     /* CRT — Intel 8275 (bits 7-5 = command code) */
     crt_command(0x00); /* reset (expect 4 param bytes) */
@@ -144,18 +167,25 @@ void init_peripherals(void) {
     crt_command(0xE0); /* preset counters */
 }
 
-/* init_fdc() is in boot_rom.c (BOOT section).
- * banner_string is raw bytes in BOOT, referenced here via extern. */
+/* banner_string is raw bytes in BOOT, referenced here via extern. */
 
 
 /* Banner string lives in BOOT section (boot_rom.c) to fill padding.
- * The length must match: " RC700 gensmedet" (16) + BUILD_STAMP (26) = 42 */
+ * The length must match: " RC700 ROA375" (13) + BUILD_STAMP (29) = 42 */
 #define BANNER_LENGTH 42
 extern void banner_string(void);  /* address of raw bytes in BOOT */
 
-/* Copy banner from BOOT ROM to display and start CRT controller. */
+/* Copy banner from BOOT ROM to display and start CRT controller.
+ * Programs DMA ch2 with display address before starting CRT so the
+ * first frame renders immediately without waiting for the ISR. */
 void display_banner_and_start_crt(void) {
     memcpy(dspstr, (const byte *)&banner_string, BANNER_LENGTH);
+    /* Pre-program DMA ch2 for first frame (ISR takes over for subsequent frames) */
+    dma_mask(2);                     /* disable ch2 during programming */
+    dma_clear_bp();                  /* reset byte pointer flip-flop */
+    dma_ch2_addr(DSPSTR_ADDR);      /* display buffer address */
+    dma_ch2_wc(80 * 25 - 1);        /* word count (N-1) */
+    dma_unmask(2);                   /* enable ch2 */
     crt_command(0x23);               /* start display: burst=0, 8 DMA cycles */
 }
 
@@ -240,20 +270,32 @@ void calc_size_of_current_track(void) {
  *
  * Must cover worst-case FM track read: 8" at 360 RPM = 166ms/rev.
  * Wait for sector 1 (~1 rev) + read 26 sectors (~1 rev) = 332ms.
- * Require >= 400ms.
+ * Require >= 400ms total timeout across 255 iterations.
  *
- * delay(1,4) = 4 x 256 x 13T = 13,312T per iteration.
- * 255 iterations = 851,200T = 213ms at 4MHz.
- * Matches original assembly (511 x 24T = 12,264T) within 8%.
+ * Parameters are computed from DELAY_T so timing is correct
+ * regardless of compiler.  Target: ~13,000T per iteration.
  */
+#define Z80_MHZ           4
+#define WAITFL_TARGET_T   13000   /* T-states per poll iteration */
+#define WAITFL_DELAY_INNER  ((WAITFL_TARGET_T) / (256 * (DELAY_T)))
+#if WAITFL_DELAY_INNER < 1
+#undef WAITFL_DELAY_INNER
+#define WAITFL_DELAY_INNER 1
+#endif
 #define WAITFL_DELAY_OUTER  1
-#define WAITFL_DELAY_INNER  4
 
 /* Compile-time check: timeout >= 400ms */
-#define Z80_MHZ           4
-#define WAITFL_PER_ITER  ((long)(WAITFL_DELAY_OUTER) * (WAITFL_DELAY_INNER) * 256 * 13)
+#define WAITFL_PER_ITER  ((long)WAITFL_DELAY_OUTER * WAITFL_DELAY_INNER * 256 * DELAY_T)
 #define WAITFL_MS        (255L * WAITFL_PER_ITER / (Z80_MHZ * 1000))
 typedef char _wait_floppy_ready_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
+
+/* Motor spin-up delay: ~850,000 T-states ≈ 212ms at 4MHz.
+ * delay(SPINUP_OUTER, 0xFF): SPINUP_OUTER × 255 × 256 × DELAY_T T-states. */
+#if DELAY_T <= 16
+#define SPINUP_OUTER 1    /* asm/sdcc: 1 × 255 × 256 × 13 = 849,920T */
+#else
+#define SPINUP_OUTER 1    /* clang: 1 × 255 × 256 × 76 = 4,968,960T (longer but safe) */
+#endif
 
 /* Send Sense Interrupt Status; ST0 in [0], PCN in [1]. */
 void fdc_sense_interrupt(void) {
@@ -462,8 +504,17 @@ byte error_saved = 0;
 /* Error/status message strings (non-static for assembly access) */
 const char msg_rc702[] = " RC702";
 
-/* Infinite loop — never returns. */
-void halt_forever(void) { for (;;); }
+/* Infinite loop — never returns.
+ * Disable floppy interrupt (CTC ch3) to prevent the floppy ISR from
+ * blocking the CRT refresh ISR with its delay loop.
+ * Mask DMA ch1 (floppy) to stop stray DMA transfers.
+ * Then enable interrupts so the CRT DMA ISR keeps refreshing. */
+void halt_forever(void) {
+    ctc3_write(0x03);   /* disable CTC ch3 interrupt, reset */
+    dma_mask(1);
+    intrinsic_ei();
+    for (;;);
+}
 
 /* Copy 'len' bytes to display buffer, then halt forever.
  * Macro so 'len' is compile-time constant — sdcc inlines as LDIR.
@@ -630,8 +681,30 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
     }
 }
 
-/* Entry point — called by init_relocated() after peripheral init.
- * Placed before preinit for tail-call fall-through (saves 3 bytes). */
+#ifdef __SDCC
+/* SDCC: init_fdc lives in boot_rom.c (BOOT section, called before prom_disable) */
+extern void init_fdc(void);
+#else
+/* clang: init_fdc is here in rom.c (CODE section, runs after relocation).
+ * FDC power-on delay: ~260ms = 1,040,000 T-states.
+ * Total = outer × inner × 256 × DELAY_T.
+ * At DELAY_T=76: 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms. */
+#define FDC_INIT_DELAY_INNER (1040000L / (256 * DELAY_T))
+#if FDC_INIT_DELAY_INNER > 255
+#error "FDC_INIT_DELAY_INNER overflow — increase outer count"
+#endif
+
+static void init_fdc(void) {
+    delay(1, FDC_INIT_DELAY_INNER);
+    while (port_in(fdc_status) & 0x1F)
+        ;
+    fdc_write_when_ready(0x03);  /* Specify command */
+    fdc_write_when_ready(0x4F);  /* step rate 3ms, head unload 240ms */
+    fdc_write_when_ready(0x20);  /* DMA mode */
+}
+#endif
+
+/* Entry point — called by init_relocated() after peripheral init. */
 int main(void) {
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
@@ -657,7 +730,7 @@ static void get_floppy_ready(void) {
 static void boot_from_floppy_or_jump_prom1(void) {
     byte status;
 
-    delay(1, 0xFF);
+    delay(SPINUP_OUTER, 0xFF);
 
     /* sense drive status (inlined sense_drive) */
     fdc_write_when_ready(FDC_SENSE_DRIVE);

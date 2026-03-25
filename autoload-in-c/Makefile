@@ -1,10 +1,12 @@
 # Makefile for RC702 autoload PROM rewrite
 #
-# Z80 build:   make rom_parts (requires z88dk)
-# PROM image:  make prom     (assembles 2048-byte prom0.ic66)
-# MAME launch: make mame     (builds, installs PROM, launches with debugger)
-# MAME syms:   make mamesym  (generates prom0_mame.sym for debugger)
-# RC700 emu:   make rc700    (builds PROM, compiles & runs rc700 emulator)
+# SDCC build:  make rom_parts (requires z88dk — default)
+# Clang build: make clang     (requires docker + ~/git/llvm-z80/build/)
+# PROM image:  make prom      (assembles 4096-byte prom0.ic66 from SDCC build)
+# Clang PROM:  make clang_prom (assembles 4096-byte prom0.ic66 from clang build)
+# MAME launch: make mame      (builds, installs PROM, launches with debugger)
+# MAME syms:   make mamesym   (generates prom0_mame.sym for debugger)
+# RC700 emu:   make rc700     (builds PROM, compiles & runs rc700 emulator)
 # Clean:       make clean
 
 # Z80 ROM build (requires z88dk in ../z88dk)
@@ -122,9 +124,97 @@ mamesym: prom0.map
 	}' prom0.map | sort > prom0_mame.sym
 	@echo "wrote prom0_mame.sym ($$(wc -l < prom0_mame.sym) symbols)"
 
+# ================================================================
+# LLVM-Z80 clang build (requires Docker + ~/git/llvm-z80/build/)
+# ================================================================
+# Same rom.c, rom.h, and boot_rom.c — dual-compiler compatible via
+# #ifdef __clang__.  boot_rom.c uses file-scope __asm__ with GNU as
+# directives for clang, SDCC asm directives for z88dk.
+
+LLVM_Z80 = $(HOME)/git/llvm-z80
+CLANG_BUILD = /src/build/bin
+
+DOCKER = docker run --rm \
+	-v $(LLVM_Z80):/src \
+	-v $(CURDIR):/rom \
+	-w /rom \
+	ubuntu:24.04
+
+CLANG_CC      = $(CLANG_BUILD)/clang
+CLANG_LD      = $(CLANG_BUILD)/ld.lld
+CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
+CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
+CLANG_NM      = $(CLANG_BUILD)/llvm-nm
+
+CLANG_CFLAGS = --target=z80 -Os -nostdlib \
+	       -ffunction-sections -fdata-sections \
+	       -Xclang -target-feature -Xclang +static-stack \
+	       -Xclang -target-feature -Xclang +shadow-regs \
+	       -mllvm -disable-lsr \
+	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type
+
+CLANG_OBJS = clang_z80/boot.o clang_z80/intvec.o clang_z80/rom.o clang_z80/runtime.o
+CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
+
+clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
+	$(DOCKER) $(CLANG_LD) --gc-sections -T clang_z80/rc700_prom.ld $(CLANG_OBJS) -o clang_z80/prom.elf
+	$(DOCKER) $(CLANG_OBJCOPY) -O binary clang_z80/prom.elf clang_z80/prom.bin
+	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang_z80/prom.elf > clang_z80/prom.lis
+	@PROM=$$(wc -c < clang_z80/prom.bin | tr -d ' '); \
+	 echo "clang PROM: $$PROM / 4096 bytes"; \
+	 if [ $$PROM -gt 4096 ]; then \
+	   echo "WARNING: exceeds 4096-byte limit by $$((PROM - 4096)) bytes"; \
+	 else \
+	   echo "OK: $$((4096 - PROM)) bytes free"; \
+	 fi
+
+clang_z80/banner.bin:
+	@STAMP=" CLANG $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
+	 printf "%-42.42s" " RC700$$STAMP" > $@
+
+clang_z80/boot.o: boot_rom.c rom.h clang_z80/banner.bin $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) --target=z80 -Os -nostdlib -I. -Wno-gcc-compat -c $< -o $@
+
+clang_z80/runtime.o: clang_z80/runtime.s $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
+
+clang_z80/intvec.o: intvec.c rom.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c intvec.c -o $@
+
+clang_z80/rom.o: rom.c rom.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c rom.c -o $@
+
+clang_prom: clang
+	@{ cat clang_z80/prom.bin; \
+	   perl -e "print \"\\xff\" x (4096 - $$(wc -c < clang_z80/prom.bin | tr -d ' '))"; \
+	 } > prom0.ic66
+	@echo "prom0.ic66: $$(wc -c < prom0.ic66 | tr -d ' ') bytes (clang build)"
+	cp prom0.ic66 $(MAME_ROM)
+	cp prom0.ic66 $(RC700)/roa375.rom
+
+clang_asm: rom.c rom.h
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S rom.c -o /dev/stdout
+
+clang_disasm: clang
+	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang_z80/prom.elf
+
+clang_symbols: clang
+	$(DOCKER) $(CLANG_NM) --numeric-sort clang_z80/prom.elf
+
+clang_mamesym: clang
+	@$(DOCKER) $(CLANG_NM) --numeric-sort clang_z80/prom.elf | \
+		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
+		> prom0_mame.sym
+	@echo "wrote prom0_mame.sym ($$(wc -l < prom0_mame.sym) symbols)"
+
+clang_clean:
+	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin
+
 clean:
 	rm -f prom0 prom0_*.bin prom0_mame.sym prom0_debug.cmd prom0.ic66
 	rm -f *.o *.bin *.map *.sym *.lis zcc_opt.def *.rom
 	rm -f zcc_opt.def
+	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin
 
-.PHONY: all rom_parts prom mame mamesym rc700 clean
+.PHONY: all rom_parts prom mame mamesym rc700 clean \
+	clang clang_prom clang_asm clang_disasm clang_symbols clang_mamesym clang_clean
