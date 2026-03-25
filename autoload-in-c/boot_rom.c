@@ -35,9 +35,8 @@ extern void init_relocated(void);
  * File-scope asm: DI must be the very first instruction (Z80 reset vector).
  * Copies CODE from ROM to RAM, zeroes BSS, jumps to init_relocated.
  * Cannot call C library functions — they live in CODE which hasn't been copied yet. */
-/* Entry code — must match boot.s layout exactly:
- * __start, banner_string, NMI handler, zero_bss subroutine.
- * zero_bss is placed AFTER NMI (.org 0x0066) to match boot.s ordering. */
+/* Layout must be: __start, banner, NMI@0x0066, zero_bss.
+ * Rearranging breaks boot in MAME (reason unknown). */
 __asm__(
     ".globl __start\n"
     "__start:\n"
@@ -65,7 +64,7 @@ __asm__(
 
 /* Pad to 0x0066 for Z80 NMI vector (hardwired, unused on RC702).
  * RETN restores IFF1 from IFF2 and returns.
- * zero_bss placed after NMI to match boot.s layout. */
+ * zero_bss placed after NMI (see layout comment above). */
 __asm__(
     ".org 0x0066\n"
     ".globl _nmi_handler\n"
