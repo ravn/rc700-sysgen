@@ -154,6 +154,7 @@ CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type
 
 CLANG_OBJS = clang_z80/boot.o clang_z80/intvec.o clang_z80/rom.o clang_z80/runtime.o
+CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
 
 clang: $(CLANG_OBJS) clang_z80/rc700_prom.ld
 	$(DOCKER) $(CLANG_LD) --gc-sections -T clang_z80/rc700_prom.ld $(CLANG_OBJS) -o clang_z80/prom.elf
@@ -171,16 +172,16 @@ clang_z80/banner.bin:
 	@STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
 	 printf "%-42.42s" " RC700$$STAMP" > $@
 
-clang_z80/boot.o: clang_z80/boot.s clang_z80/banner.bin
+clang_z80/boot.o: clang_z80/boot.s clang_z80/banner.bin $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
 
-clang_z80/runtime.o: clang_z80/runtime.s
+clang_z80/runtime.o: clang_z80/runtime.s $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
 
-clang_z80/intvec.o: intvec.c rom.h
+clang_z80/intvec.o: intvec.c rom.h $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c intvec.c -o $@
 
-clang_z80/rom.o: rom.c rom.h
+clang_z80/rom.o: rom.c rom.h $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c rom.c -o $@
 
 clang_prom: clang
