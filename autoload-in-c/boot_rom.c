@@ -32,7 +32,9 @@ extern char _bss_start[], _bss_size[];
 
 /* Banner string — 42 bytes, referenced by display_banner in CODE. */
 #include "clang_z80/banner.h"
+#ifdef __ELF__
 __attribute__((section(".text"), used))
+#endif
 const char banner_string[42] = CLANG_BANNER;
 
 /* NMI handler — placed at 0x0066 by linker script (.nmi section). */
