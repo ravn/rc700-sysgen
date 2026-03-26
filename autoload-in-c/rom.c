@@ -113,7 +113,7 @@ int main(void);
 /* Post-relocation entry point.  Called from start() after LDIR copy.
  * Sets SP, I register, IM2, then calls init_peripherals() + main().
  * __naked because we set SP mid-function. */
-void init_relocated(void) __naked
+void main_relocated(void) __naked
 {
     __asm__("ld sp, #" STR(ROM_STACK) "\n");
     set_i_reg(INTVEC_PAGE);
@@ -708,7 +708,7 @@ static void init_fdc(void) {
     fdc_write_when_ready(0x20);  /* DMA mode */
 }
 
-/* Entry point — called by init_relocated() after peripheral init. */
+/* Entry point — called by main_relocated() after peripheral init. */
 int main(void) {
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */

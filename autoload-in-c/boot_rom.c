@@ -4,7 +4,7 @@
  * Lives in ROM at ORG 0x0000, accessible until prom_disable().
  *
  * start() is the shared entry point: DI, set SP, copy CODE to RAM,
- * zero BSS, jump to init_relocated.  Clang inlines memcpy/memset
+ * zero BSS, jump to main_relocated.  Clang inlines memcpy/memset
  * as LDIR; SDCC links against its standard library.
  *
  * Compiler-specific parts: linker symbols, banner string, and
@@ -19,7 +19,7 @@
 #endif
 #include "rom.h"
 
-extern void init_relocated(void);
+extern void main_relocated(void);
 
 /* ================================================================
  * Compiler-specific: linker symbols, banner, NMI
@@ -90,7 +90,7 @@ void start(void) {
     memcpy(RELOC_DST, RELOC_SRC, RELOC_SIZE);
     if (BSS_SIZE)
         memset(BSS_DST, 0, BSS_SIZE);
-    init_relocated();
+    main_relocated();
 }
 
 /* ================================================================
