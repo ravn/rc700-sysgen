@@ -21,7 +21,8 @@ SECTIONS {
    * start() at 0x0000 (DI is the first instruction).
    * NMI handler at Z80 hardwired vector 0x0066. */
   .boot : {
-    KEEP(*boot.o(.pagezero*))
+    KEEP(*boot.o(.pagezero.text))
+    KEEP(*boot.o(.pagezero.data))
   } > ROM
   .nmi 0x0066 : {
     KEEP(*boot.o(.nmi*))
