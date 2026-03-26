@@ -100,8 +100,8 @@ void delay(byte outer, byte inner) {
 
 /* Set Z80 I register. */
 static void set_i_reg(byte page) {
-#ifdef __clang__
-    __asm__ volatile("ld i, a" : : "{a}"(page));
+#ifdef __z80__
+    __asm__ volatile("ld i, a" : : "a"(page));
 #else
     (void) page;  /* sdcccall(1) passes byte in A */
     __asm__("ld i, a\n");
