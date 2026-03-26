@@ -4,12 +4,13 @@
 ; origins and subsection ordering for the z88dk linker.
 ;
 ;   BOOT             0x0000  start(), banner_string, NMI (boot_rom.c)
-;   CODE             0x7300  Copied to RAM by start():
+;   CODE             0x7200  Copied to RAM by start():
 ;     (IVT data)               16 function pointers (intvec.c)
 ;     code_compiler            Compiled C code
-;     rodata_compiler          Const strings, tables, code_end sentinel
+;     rodata_compiler          Const strings, tables
 ;     data_compiler            Initialized data (fdc_cmd, fdc_result, etc.)
-;     bss_compiler             Uninitialized variables (zeroed by copy)
+;     bss_compiler             Uninitialized variables
+;     code_sentinel            code_end marker (must be last)
 
 	SECTION	BOOT
 	ORG	0x0000

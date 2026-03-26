@@ -67,6 +67,11 @@ rom_parts: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
 		grep -E '__div[us]|__mod[us]|__mul[us]' prom0.map; \
 		exit 1; \
 	fi
+	@SENTINEL=$$(grep '__code_sentinel_tail' prom0.map | awk '{print $$3}' | tr -d '$$'); \
+	if [ -n "$$SENTINEL" ] && [ $$((16#$$SENTINEL)) -gt $$((0x7A00)) ]; then \
+		echo "FATAL: CODE overlaps display memory at 0x7A00 (sentinel at 0x$$SENTINEL)"; \
+		exit 1; \
+	fi
 
 # Assemble PROM image: BOOT + INTVEC+CODE + 0xFF pad to 4096
 # (temporarily using 4KB/2732 for debug; revert to 2048/2716 for release)
