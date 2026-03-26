@@ -59,6 +59,16 @@ extern const byte code_end;
 #define RELOC_DST   ((void *)&intvec)
 #define RELOC_SRC   ((const void *)&_BOOT_tail)
 #define RELOC_SIZE  ((unsigned)(&code_end - &intvec + 1))
+#define BSS_DST     ((void *)0)
+#define BSS_SIZE    ((unsigned)0)
+
+#else
+/* IDE fallback — stubs so CLion can parse boot_main */
+#define RELOC_DST   ((void *)0)
+#define RELOC_SRC   ((const void *)0)
+#define RELOC_SIZE  ((unsigned)0)
+#define BSS_DST     ((void *)0)
+#define BSS_SIZE    ((unsigned)0)
 
 #endif
 
@@ -66,19 +76,14 @@ extern const byte code_end;
  * Shared: boot_main — disable interrupts, set stack, relocate, start
  * ================================================================ */
 
-#if defined(__z80__) || defined(__SDCC)
-
 void boot_main(void) {
     intrinsic_di();
     SET_SP(ROM_STACK);
     memcpy(RELOC_DST, RELOC_SRC, RELOC_SIZE);
-#if defined(__z80__)
-    memset(BSS_DST, 0, BSS_SIZE);
-#endif
+    if (BSS_SIZE)
+        memset(BSS_DST, 0, BSS_SIZE);
     init_relocated();
 }
-
-#endif
 
 /* ================================================================
  * SDCC-only: entry point (must be first function) and padding
