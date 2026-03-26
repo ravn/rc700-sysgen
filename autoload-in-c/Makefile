@@ -174,7 +174,7 @@ clang_z80/banner.h:
 	 echo "#define CLANG_BANNER \"$$BANNER\"" > $@
 
 clang_z80/boot.o: boot_rom.c rom.h clang_z80/banner.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) --target=z80 -Os -nostdlib -I. -Wno-gcc-compat -c $< -o $@
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
 
 clang_z80/runtime.o: clang_z80/runtime.s $(CLANG_COMPILER)
 	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@

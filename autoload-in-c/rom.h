@@ -198,18 +198,26 @@ DEFPORT(dma_clbp,     0xFC)
 /* DI/EI/IM2 intrinsics */
 #ifdef __SDCC
 #include <intrinsic.h>
-#define ei()  intrinsic_ei()
-#define di()  intrinsic_di()
 #elif defined(__clang__) && !defined(HOST_TEST)
-static inline void intrinsic_di(void)   { __asm__ volatile("di"); }
-static inline void intrinsic_ei(void)   { __asm__ volatile("ei"); }
+#include "clang_z80/intrinsic.h"
 static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
-#define ei()  intrinsic_ei()
-#define di()  intrinsic_di()
 #else
 static inline void intrinsic_di(void) {}
 static inline void intrinsic_ei(void) {}
 static inline void intrinsic_im_2(void) {}
+#endif
+#define ei()  intrinsic_ei()
+#define di()  intrinsic_di()
+
+/* Set stack pointer — must be first operation in entry point.
+ * SDCC: inline asm with # prefix for immediates.
+ * Clang: inline asm without # prefix. */
+#ifdef __SDCC
+#define SET_SP(addr) __asm__("ld sp, #" STR(addr) "\n")
+#elif defined(__clang__) && !defined(HOST_TEST)
+#define SET_SP(addr) __asm__ volatile("ld sp, " STR(addr))
+#else
+#define SET_SP(addr) ((void)0)
 #endif
 
 /* CTC channel writes */
