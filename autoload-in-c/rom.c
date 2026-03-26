@@ -159,13 +159,6 @@ static void init_crt(void) {
     crt_command(0xE0); /* preset counters */
 }
 
-void init_peripherals(void) {
-    init_pio();
-    init_ctc();
-    init_dma();
-    init_crt();
-}
-
 /* banner_string is raw bytes in BOOT, referenced here via extern. */
 
 
@@ -861,7 +854,10 @@ void main_relocated(void) __naked
     SET_SP(ROM_STACK);
     set_i_reg(INTVEC_PAGE);
     intrinsic_im_2();
-    init_peripherals();
+    init_pio();
+    init_ctc();
+    init_dma();
+    init_crt();
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
     display_banner_and_start_crt();
