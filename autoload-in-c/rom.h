@@ -310,9 +310,7 @@ extern byte error_saved;      /* saved error code */
  * Function declarations
  * ================================================================ */
 
-/* init */
-void init_peripherals(void);
-/* init_fdc is static in rom.c (clang) or in boot_rom.c (SDCC) */
+/* init — init_pio/ctc/dma/crt/fdc are all static in rom.c */
 
 /* fmt */
 void lookup_sectors_and_gap3_for_current_track(void);
