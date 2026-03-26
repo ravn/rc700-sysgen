@@ -23,9 +23,10 @@ target_include_directories(rom_sources PRIVATE
     ${Z88DK_INCLUDE}
 )
 
-# No extra defines needed — rom.h uses __z80__ (defined by the Z80
-# cross-compiler) for hardware-specific code. CLion's host clang
-# doesn't define __z80__, so it gets the IDE stubs automatically.
+# Define __z80__ so CLion shows the Z80/Clang code paths.
+target_compile_definitions(rom_sources PRIVATE
+    __z80__=1
+)
 
 # Custom targets that invoke the real Makefile
 add_custom_target(rom
