@@ -9,7 +9,7 @@
  *   0xBFFF  Stack (grows downward)
  */
 
-ENTRY(_boot_main)
+ENTRY(_start)
 
 MEMORY {
   ROM (rx)  : ORIGIN = 0x0000, LENGTH = 4096
@@ -18,7 +18,7 @@ MEMORY {
 
 SECTIONS {
   /* BOOT section — runs from ROM at 0x0000.
-   * boot_main starts at 0x0000 (DI is the first instruction).
+   * start() at 0x0000 (DI is the first instruction).
    * NMI handler at Z80 hardwired vector 0x0066. */
   .boot : {
     KEEP(*boot.o(.text*))

@@ -110,7 +110,7 @@ static void set_i_reg(byte page) {
 
 int main(void);
 
-/* Post-relocation entry point.  Called from begin() after LDIR copy.
+/* Post-relocation entry point.  Called from start() after LDIR copy.
  * Sets SP, I register, IM2, then calls init_peripherals() + main().
  * __naked because we set SP mid-function. */
 void init_relocated(void) __naked

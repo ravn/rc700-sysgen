@@ -3,12 +3,12 @@
  *
  * Lives in ROM at ORG 0x0000, accessible until prom_disable().
  *
- * boot_main() is shared plain C: DI, set SP, copy CODE to RAM,
+ * start() is the shared entry point: DI, set SP, copy CODE to RAM,
  * zero BSS, jump to init_relocated.  Clang inlines memcpy/memset
  * as LDIR; SDCC links against its standard library.
  *
- * Compiler-specific parts: entry point placement (address 0x0000),
- * linker symbols, banner string, and NMI handler (address 0x0066).
+ * Compiler-specific parts: linker symbols, banner string, and
+ * NMI handler (address 0x0066).
  */
 
 #ifdef __SDCC
@@ -22,7 +22,7 @@
 extern void init_relocated(void);
 
 /* ================================================================
- * Compiler-specific: linker symbols, entry point, banner, NMI
+ * Compiler-specific: linker symbols, banner, NMI
  * ================================================================ */
 
 #if defined(__z80__)
@@ -63,7 +63,7 @@ extern const byte code_end;
 #define BSS_SIZE    ((unsigned)0)
 
 #else
-/* IDE fallback — stubs so CLion can parse boot_main */
+/* IDE fallback — stubs so CLion can parse start() */
 #define RELOC_DST   ((void *)0)
 #define RELOC_SRC   ((const void *)0)
 #define RELOC_SIZE  ((unsigned)0)
@@ -73,10 +73,13 @@ extern const byte code_end;
 #endif
 
 /* ================================================================
- * Shared: boot_main — disable interrupts, set stack, relocate, start
+ * Shared entry point: DI, set SP, relocate CODE, zero BSS, start
+ *
+ * For Clang: placed at 0x0000 by linker script (ENTRY(_start)).
+ * For SDCC: must be the first function in the BOOT section.
  * ================================================================ */
 
-void boot_main(void) {
+void start(void) {
     intrinsic_di();
     SET_SP(ROM_STACK);
     memcpy(RELOC_DST, RELOC_SRC, RELOC_SIZE);
@@ -86,15 +89,10 @@ void boot_main(void) {
 }
 
 /* ================================================================
- * SDCC-only: entry point (must be first function) and padding
+ * SDCC-only: banner and NMI padding
  * ================================================================ */
 
 #ifdef __SDCC
-
-/* ROM entry point — first function in BOOT section = address 0x0000. */
-void begin(void) {
-    boot_main();
-}
 
 /* Banner string */
 #include "build_stamp.h"

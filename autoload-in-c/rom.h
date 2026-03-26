@@ -251,7 +251,7 @@ void delay(byte outer, byte inner);
 /*
  * Individual globals, initialized to zero.
  * Z80: BSS is inside CODE (no separate ORG), so variables are part of
- * the PROM payload — copied to RAM by begin() as zeros.
+ * the PROM payload — copied to RAM by start() as zeros.
  */
 
 /* FDC result bytes.  After Read Data / Read ID:
