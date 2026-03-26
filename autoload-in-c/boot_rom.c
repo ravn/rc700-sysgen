@@ -33,7 +33,7 @@ extern char _bss_start[], _bss_size[];
 /* Banner string — 42 bytes, referenced by display_banner in CODE. */
 #include "clang_z80/banner.h"
 #ifdef __ELF__
-__attribute__((section(".text"), used))
+__attribute__((section(".pagezero"), used))
 #endif
 const char banner_string[42] = CLANG_BANNER;
 
