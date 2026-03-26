@@ -91,17 +91,6 @@ void begin(void) {
     boot_main();
 }
 
-/* Initialize FDC with Specify command. */
-void init_fdc(void) {
-    delay(2, 157);
-    while (fdc_status() & 0b00011111) {
-        ;
-    }
-    fdc_write_when_ready(0x03);      /* Specify command */
-    fdc_write_when_ready(0x4F);      /*   SRT=4 (8ms step), HUT=F (240ms unload) */
-    fdc_write_when_ready(0x20);      /*   HLT=10 (32ms load), ND=0 (DMA mode) */
-}
-
 /* Banner string */
 #include "build_stamp.h"
 void banner_string(void) __naked {
