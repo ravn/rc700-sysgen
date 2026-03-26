@@ -68,7 +68,7 @@ typedef uint16_t word;
 #if defined(__z80__)
 #define INTVEC_ADDR 0x6000      /* IVT base — clang code is larger, needs room before 0x7A00 */
 #else
-#define INTVEC_ADDR 0x7300      /* IVT base — must match original ROM for COMAL */
+#define INTVEC_ADDR 0x7200      /* IVT base — page-aligned, room for CODE before 0x7A00 */
 #endif
 #define INTVEC_PAGE (INTVEC_ADDR >> 8)  /* I register value (0x73) */
 #define ROM_STACK   0xBFFF      /* Stack set by ROM entry / INIT_RELOCATED */

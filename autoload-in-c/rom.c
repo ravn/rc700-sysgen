@@ -111,16 +111,18 @@ static void set_i_reg(byte page) {
 
 /* Combined PIO/CTC/DMA/CRT initialization.
  * Macros expand to direct __sfr port writes on Z80. */
-static void init_pio_ctc_dma_crt(void) {
-    /* PIO — Z80 PIO, Port A = keyboard input, Port B = parallel output */
+static void init_pio(void) {
+    /* Z80 PIO — Port A = keyboard input, Port B = parallel output */
     pio_write_a_ctrl(0x02); /* Port A: interrupt vector = 0x02 */
     pio_write_b_ctrl(0x04); /* Port B: interrupt vector = 0x04 */
     pio_write_a_ctrl(0x4F); /* Port A: mode 1 (input) */
     pio_write_b_ctrl(0x0F); /* Port B: mode 0 (output) */
     pio_write_a_ctrl(0x83); /* Port A: interrupt — enable, AND, active high */
     pio_write_b_ctrl(0x83); /* Port B: interrupt — enable, AND, active high */
+}
 
-    /* CTC — Z80 CTC, 4 channels */
+static void init_ctc(void) {
+    /* Z80 CTC — 4 channels */
     ctc0_write(0x08); /* Ch0: interrupt vector base = 0x08 */
     ctc0_write(0x47); /* Ch0: counter, falling edge, TC follows, reset */
     ctc0_write(0x20); /* Ch0: time constant = 32 */
@@ -130,14 +132,18 @@ static void init_pio_ctc_dma_crt(void) {
     ctc2_write(0x01); /* Ch2: time constant = 1 (every retrace) */
     ctc3_write(0xD7); /* Ch3 (floppy): counter, interrupt, TC follows */
     ctc3_write(0x01); /* Ch3: time constant = 1 (every interrupt) */
+}
 
-    /* DMA — AMD Am9517A / Intel 8237 */
+static void init_dma(void) {
+    /* AMD Am9517A / Intel 8237 DMA controller */
     dma_command(0x20); /* master clear + standard configuration */
     dma_mode(0xC0); /* Ch0: cascade mode (WD1000 hard disk) */
     dma_unmask(0); /* Ch0: enable */
     dma_mode(0x4A); /* Ch2: single xfer, read mem->I/O (display) */
+}
 
-    /* CRT — Intel 8275 (bits 7-5 = command code) */
+static void init_crt(void) {
+    /* Intel 8275 CRT controller (bits 7-5 = command code) */
     crt_command(0x00); /* reset (expect 4 param bytes) */
     crt_param(0x4F); /*   S=0, H=79: 80 chars/row */
     crt_param(0x98); /*   V=2 vretrace, R=24: 25 rows */
@@ -844,7 +850,10 @@ void main_relocated(void) __naked
     SET_SP(ROM_STACK);
     set_i_reg(INTVEC_PAGE);
     intrinsic_im_2();
-    init_pio_ctc_dma_crt();
+    init_pio();
+    init_ctc();
+    init_dma();
+    init_crt();
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
     display_banner_and_start_crt();
