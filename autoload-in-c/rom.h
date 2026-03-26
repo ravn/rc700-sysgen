@@ -15,22 +15,24 @@
 
 #include <stdint.h>
 
-/* Map SDCC keywords for clang and non-SDCC compilers */
-#if defined(__clang__) && !defined(HOST_TEST)
-/* clang --target=z80: map SDCC keywords to clang equivalents */
+/* Map SDCC keywords for other compilers.
+ * __z80__: defined by llvm-z80 cross-compiler (clang --target=z80).
+ * __SDCC: defined by SDCC.
+ * Neither: host compiler / IDE (CLion, clangd) — stub everything. */
+#if defined(__z80__)
+/* llvm-z80: map SDCC keywords to clang equivalents */
 #define __sfr volatile unsigned char
 #define __at(x)
 #define __interrupt(n) __attribute__((interrupt))
 #define __critical
 #define __naked
 #elif !defined(__SDCC)
-/* IDE stubs (CLion, clangd) — no-op everything */
-#define __sfr
+/* Host compiler / IDE — no-op SDCC keywords */
+#define __sfr volatile unsigned char
 #define __at(x)
 #define __interrupt(x)
 #define __critical
 #define __naked
-#define __asm__(x)
 #endif
 
 typedef uint8_t  byte;
@@ -63,7 +65,7 @@ typedef uint16_t word;
 #define STR(x)  STR_(x)
 
 /* Memory layout constants */
-#if defined(__clang__) && !defined(HOST_TEST)
+#if defined(__z80__)
 #define INTVEC_ADDR 0x6000      /* IVT base — clang code is larger, needs room before 0x7A00 */
 #else
 #define INTVEC_ADDR 0x7300      /* IVT base — must match original ROM for COMAL */
@@ -111,7 +113,7 @@ typedef uint16_t word;
  *         port_out(fdc_data, 0x42)   — writes 0x42 to FDC data register
  */
 
-#if defined(__clang__) && !defined(HOST_TEST)
+#if defined(__z80__)
 /* Port I/O via address_space(2) — the compiler lowers pointer dereferences
  * in address space 2 to Z80 IN A,(n) / OUT (n),A instructions. */
 #define __io __attribute__((address_space(2)))
@@ -198,7 +200,7 @@ DEFPORT(dma_clbp,     0xFC)
 /* DI/EI/IM2 intrinsics */
 #ifdef __SDCC
 #include <intrinsic.h>
-#elif defined(__clang__) && !defined(HOST_TEST)
+#elif defined(__z80__)
 #include "clang_z80/intrinsic.h"
 static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
 #else
@@ -214,7 +216,7 @@ static inline void intrinsic_im_2(void) {}
  * Clang: inline asm without # prefix. */
 #ifdef __SDCC
 #define SET_SP(addr) __asm__("ld sp, #" STR(addr) "\n")
-#elif defined(__clang__) && !defined(HOST_TEST)
+#elif defined(__z80__)
 #define SET_SP(addr) __asm__ volatile("ld sp, " STR(addr))
 #else
 #define SET_SP(addr) ((void)0)

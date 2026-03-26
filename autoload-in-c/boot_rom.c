@@ -25,7 +25,7 @@ extern void init_relocated(void);
  * Compiler-specific: linker symbols, entry point, banner, NMI
  * ================================================================ */
 
-#if defined(__clang__) && !defined(HOST_TEST)
+#if defined(__z80__)
 
 extern char _code_load[], _code_start[], _code_size[];
 extern char _bss_start[], _bss_size[];
@@ -66,13 +66,13 @@ extern const byte code_end;
  * Shared: boot_main — disable interrupts, set stack, relocate, start
  * ================================================================ */
 
-#if !defined(HOST_TEST)
+#if defined(__z80__) || defined(__SDCC)
 
 void boot_main(void) {
     intrinsic_di();
     SET_SP(ROM_STACK);
     memcpy(RELOC_DST, RELOC_SRC, RELOC_SIZE);
-#if defined(__clang__)
+#if defined(__z80__)
     memset(BSS_DST, 0, BSS_SIZE);
 #endif
     init_relocated();

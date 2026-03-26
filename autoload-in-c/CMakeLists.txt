@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 project(autoload-in-c C)
 
 # This CMakeLists.txt exists for CLion indexing and navigation only.
-# The actual build uses z88dk/sdcc via the Makefile.
-# sdcc keywords are stubbed in rom.h (#ifndef __SDCC).
+# The actual build uses z88dk/sdcc or llvm-z80/clang via the Makefile.
+# Configured to show clang code paths (not HOST_TEST, not SDCC).
 
 # z88dk headers (stdint.h, etc.) — from parent or standalone open
 if(NOT DEFINED Z88DK_INCLUDE)
@@ -19,8 +19,13 @@ add_library(rom_sources OBJECT
 
 target_include_directories(rom_sources PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/clang_z80
     ${Z88DK_INCLUDE}
 )
+
+# No extra defines needed — rom.h uses __z80__ (defined by the Z80
+# cross-compiler) for hardware-specific code. CLion's host clang
+# doesn't define __z80__, so it gets the IDE stubs automatically.
 
 # Custom targets that invoke the real Makefile
 add_custom_target(rom
