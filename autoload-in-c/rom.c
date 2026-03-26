@@ -683,14 +683,24 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
 
 /* FDC power-on delay: ~260ms = 1,040,000 T-states.
  * Total = outer × inner × 256 × DELAY_T.
- * At DELAY_T=76: 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms. */
-#define FDC_INIT_DELAY_INNER (1040000L / (256 * DELAY_T))
+ * Outer/inner chosen so inner fits in 8 bits (≤255). */
+#define FDC_INIT_TARGET_T  1040000L
+#if DELAY_T <= 16
+/* SDCC (DELAY_T=13): need outer=2 to keep inner ≤ 255.
+ * 2 × 157 × 256 × 13 = 1,045,504T ≈ 261ms. */
+#define FDC_INIT_DELAY_OUTER 2
+#else
+/* Clang (DELAY_T=76): outer=1 suffices.
+ * 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms. */
+#define FDC_INIT_DELAY_OUTER 1
+#endif
+#define FDC_INIT_DELAY_INNER (FDC_INIT_TARGET_T / (FDC_INIT_DELAY_OUTER * 256 * DELAY_T))
 #if FDC_INIT_DELAY_INNER > 255
-#error "FDC_INIT_DELAY_INNER overflow — increase outer count"
+#error "FDC_INIT_DELAY_INNER overflow — adjust FDC_INIT_DELAY_OUTER"
 #endif
 
 static void init_fdc(void) {
-    delay(1, FDC_INIT_DELAY_INNER);
+    delay(FDC_INIT_DELAY_OUTER, FDC_INIT_DELAY_INNER);
     while (port_in(fdc_status) & 0x1F)
         ;
     fdc_write_when_ready(0x03);  /* Specify command */
