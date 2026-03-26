@@ -115,7 +115,7 @@ int main(void);
  * __naked because we set SP mid-function. */
 void main_relocated(void) __naked
 {
-    __asm__("ld sp, #" STR(ROM_STACK) "\n");
+    SET_SP(ROM_STACK);
     set_i_reg(INTVEC_PAGE);
     intrinsic_im_2();
     init_peripherals();
