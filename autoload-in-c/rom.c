@@ -345,7 +345,7 @@ static void boot_from_floppy_or_jump_prom1(void);
 /* Seek to fdc_cmd.cylinder and verify.
  * Placed before verify_seek_result for tail-call fall-through (saves 3 bytes). */
 byte fdc_select_drive_cylinder_head(void) {
-    fdc_seek((fdc_cmd.head << 2) | drive_select, fdc_cmd.cylinder);
+    fdc_seek((byte)((fdc_cmd.head << 2) | drive_select), fdc_cmd.cylinder);
     return verify_seek_result(fdc_cmd.cylinder);
 }
 
@@ -367,7 +367,7 @@ static byte verify_seek_result(byte expected_pcn) {
  * For Read Data, sends 7-byte block: C, H, R, N, EOT, GPL, DTL. */
 void fdc_write_full_cmd(byte cmd) {
     byte mfm_flag = is_mfm ? FDC_MFM : 0;
-    byte dh = (fdc_cmd.head << 2) | drive_select;
+    byte dh = (byte)((fdc_cmd.head << 2) | drive_select);
 
     intrinsic_di();
     fdc_write_when_ready(cmd + mfm_flag); /* command (+MFM if double density) */
@@ -497,6 +497,9 @@ const char msg_rc702[] = " RC702";
  * blocking the CRT refresh ISR with its delay loop.
  * Mask DMA ch1 (floppy) to stop stray DMA transfers.
  * Then enable interrupts so the CRT DMA ISR keeps refreshing. */
+#ifdef __clang__
+__attribute__((noreturn))
+#endif
 void halt_forever(void) {
     ctc3_write(0x03);   /* disable CTC ch3 interrupt, reset */
     dma_mask(1);
@@ -764,7 +767,7 @@ static void boot_from_floppy_or_jump_prom1(void) {
  * 0x0000 to just below the IVT.  The original ROM passes HL=INTVEC to
  * RDTRK0 as the byte count. */
 void floppy_boot(void) {
-    disk_type = (is_mini << 7) | disk_type;
+    disk_type = (byte)((is_mini << 7) | disk_type);
     disk_type--;
     fdc_detect_sector_size_and_density();
     dma_transfer_address = FLOPPYDATA;
