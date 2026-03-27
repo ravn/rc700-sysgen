@@ -202,6 +202,17 @@ clang_asm: rom.c rom.h
 clang_disasm: clang
 	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang_z80/prom.elf
 
+# Interleaved C + Z80 assembly listing (requires -g debug info build)
+clang_src_lis: rom.c rom.h boot_rom.c intvec.c clang_z80/rc700_prom.ld $(CLANG_COMPILER)
+	$(DOCKER) sh -c '\
+	$(CLANG_CC) $(CLANG_CFLAGS) -g -c boot_rom.c -o /tmp/boot_g.o && \
+	$(CLANG_CC) $(CLANG_CFLAGS) -g -c intvec.c -o /tmp/intvec_g.o && \
+	$(CLANG_CC) $(CLANG_CFLAGS) -g -c rom.c -o /tmp/rom_g.o && \
+	$(CLANG_CC) --target=z80 -c clang_z80/runtime.s -o /tmp/runtime_g.o && \
+	$(CLANG_LD) --gc-sections -T clang_z80/rc700_prom.ld /tmp/boot_g.o /tmp/intvec_g.o /tmp/rom_g.o /tmp/runtime_g.o -o /tmp/prom_g.elf && \
+	$(CLANG_OBJDUMP) -d -S --triple=z80 /tmp/prom_g.elf' > clang_z80/prom_src.lis
+	@echo "wrote clang_z80/prom_src.lis"
+
 clang_symbols: clang
 	$(DOCKER) $(CLANG_NM) --numeric-sort clang_z80/prom.elf
 
@@ -212,7 +223,7 @@ clang_mamesym: clang
 	@echo "wrote prom0_mame.sym ($$(wc -l < prom0_mame.sym) symbols)"
 
 clang_clean:
-	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin
+	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin clang_z80/prom_src.lis
 
 clean:
 	rm -f prom0 prom0_*.bin prom0_mame.sym prom0_debug.cmd prom0.ic66
@@ -221,4 +232,4 @@ clean:
 	rm -f clang_z80/*.o clang_z80/prom.elf clang_z80/prom.bin clang_z80/banner.h
 
 .PHONY: all rom_parts prom mame mamesym rc700 clean \
-	clang clang_prom clang_asm clang_disasm clang_symbols clang_mamesym clang_clean
+	clang clang_prom clang_asm clang_disasm clang_src_lis clang_symbols clang_mamesym clang_clean
