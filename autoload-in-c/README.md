@@ -9,7 +9,7 @@ See `ZSDCC_NOTES.md` for sdcc/z88dk quirks and optimization techniques.
 
 ## Current status
 
-PROM size: 1843 bytes (BOOT 104 + CODE 1739) out of 4096 (debug mode).
+PROM size: 1843 bytes (BOOT 104 + CODE 1739) out of 4096 (debug mode) with DSCC.  llvm-z80 now fits in 2K PROm.
 MAME boot test passes at 100% and 10% speed.
 CP/M and ID-COMAL boot verified.
 
