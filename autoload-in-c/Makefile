@@ -1,6 +1,6 @@
 # Makefile for RC702 autoload PROM rewrite
 #
-# SDCC build:  make rom_parts (requires z88dk — default)
+# SDCC build:  make rom_parts (requires z88dk:v2.4 Docker image)
 # Clang build: make clang     (requires docker + ~/git/llvm-z80/build/)
 # PROM image:  make prom      (assembles 4096-byte prom0.ic66 from SDCC build)
 # Clang PROM:  make clang_prom (assembles 4096-byte prom0.ic66 from clang build)
@@ -9,10 +9,11 @@
 # RC700 emu:   make rc700     (builds PROM, compiles & runs rc700 emulator)
 # Clean:       make clean
 
-# Z80 ROM build (requires z88dk in ../z88dk)
-Z88DK = ../z88dk
-ZCC = $(Z88DK)/bin/zcc
-ZCCCFG = $(Z88DK)/lib/config
+# Z80 ROM build (uses z88dk:v2.4 Docker image)
+Z88DK_DOCKER = docker run --rm \
+	-v $(CURDIR):/src \
+	-w /src \
+	z88dk:v2.4
 
 # sdcc compiler with sdcccall(1) register calling convention
 # rom.c: single-file Z80 build (HAL, init, FDC, format, boot, ISR)
@@ -40,13 +41,12 @@ ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 all: clean rom_parts
 
 rom_parts: sections.asm rom.c rom.h boot_rom.c intvec.c peephole.def
-	export PATH="$(Z88DK)/bin:$$PATH" && \
-	export ZCCCFG="$(ZCCCFG)" && \
-	STAMP=" ROA375 $$(date '+%Y-%m-%d %H.%M')/$$(whoami) " && \
-	printf '#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n' "$$STAMP" "$$STAMP" > build_stamp.h && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o boot_rom.o && \
-	$(ZCC) $(ZFLAGS) -c intvec.c -o intvec.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o rom.c boot_rom.o
+	$(Z88DK_DOCKER) sh -c '\
+	STAMP=" ROA375 $$(date "+%Y-%m-%d %H.%M")/$$(whoami) " && \
+	printf '"'"'#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n'"'"' "$$STAMP" "$$STAMP" > build_stamp.h && \
+	zcc $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o boot_rom.o && \
+	zcc $(ZFLAGS) -c intvec.c -o intvec.o && \
+	zcc $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o rom.c boot_rom.o'
 	@ls -la prom0_BOOT.bin prom0_CODE.bin 2>/dev/null
 	@BOOT=$$(wc -c < prom0_BOOT.bin); \
 	 CODE=$$(wc -c < prom0_CODE.bin); \
@@ -91,7 +91,6 @@ prom: rom_parts
 	 } > prom0.ic66; \
 	 echo "prom0.ic66: $$(wc -c < prom0.ic66 | tr -d ' ') bytes"
 	cp prom0.ic66 $(MAME_ROM)
-	cp prom0.ic66 $(RC700)/roa375.rom
 
 mame: prom mamesym
 	@awk '{printf "comadd %s,%s\n", $$1, $$2}' prom0_mame.sym > prom0_debug.cmd
@@ -136,7 +135,7 @@ mamesym: prom0.map
 # #ifdef __clang__.  boot_rom.c uses file-scope __asm__ with GNU as
 # directives for clang, SDCC asm directives for z88dk.
 
-LLVM_Z80 = $(HOME)/git/llvm-z80
+LLVM_Z80 = $(CURDIR)/../../llvm-z80
 CLANG_BUILD = /src/build/bin
 
 DOCKER = docker run --rm \
@@ -196,7 +195,6 @@ clang_prom: clang
 	 } > prom0.ic66
 	@echo "prom0.ic66: $$(wc -c < prom0.ic66 | tr -d ' ') bytes (clang build)"
 	cp prom0.ic66 $(MAME_ROM)
-	cp prom0.ic66 $(RC700)/roa375.rom
 
 clang_asm: rom.c rom.h
 	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S rom.c -o /dev/stdout
