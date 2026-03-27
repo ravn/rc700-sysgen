@@ -155,7 +155,8 @@ CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -Xclang -target-feature -Xclang +shadow-regs \
 	       -mllvm -disable-lsr \
-	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type
+	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type \
+	       -Wimplicit-int-conversion
 
 CLANG_OBJS = clang_z80/boot.o clang_z80/intvec.o clang_z80/rom.o clang_z80/runtime.o
 CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
