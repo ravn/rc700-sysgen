@@ -138,7 +138,7 @@ mamesym: prom0.map
 LLVM_Z80 = $(CURDIR)/../../llvm-z80
 CLANG_BUILD = /src/build/bin
 
-DOCKER = docker run --rm \
+DOCKER = docker run --rm -m 8g \
 	-v $(LLVM_Z80):/src \
 	-v $(CURDIR):/rom \
 	-w /rom \
