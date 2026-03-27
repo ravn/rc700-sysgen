@@ -228,13 +228,15 @@ static inline void intrinsic_im_2(void) {}
 #define ctc2_write(d)           port_out(ctc2, (d))
 #define ctc3_write(d)           port_out(ctc3, (d))
 
-/* DMA channel address/word count — two consecutive port writes */
-#define dma_ch1_addr(a) do { port_out(dma_ch1_addr,(byte)(a)); port_out(dma_ch1_addr,(byte)((a)>>8)); } while(0)
-#define dma_ch1_wc(w)   do { port_out(dma_ch1_wc,(byte)(w));   port_out(dma_ch1_wc,(byte)((w)>>8));   } while(0)
-#define dma_ch2_addr(a) do { port_out(dma_ch2_addr,(byte)(a)); port_out(dma_ch2_addr,(byte)((a)>>8)); } while(0)
-#define dma_ch2_wc(w)   do { port_out(dma_ch2_wc,(byte)(w));   port_out(dma_ch2_wc,(byte)((w)>>8));   } while(0)
-#define dma_ch3_addr(a) do { port_out(dma_ch3_addr,(byte)(a)); port_out(dma_ch3_addr,(byte)((a)>>8)); } while(0)
-#define dma_ch3_wc(w)   do { port_out(dma_ch3_wc,(byte)(w));   port_out(dma_ch3_wc,(byte)((w)>>8));   } while(0)
+/* DMA channel address/word count — two consecutive port writes.
+ * The local word _t avoids double-loading the argument from memory:
+ * volatile I/O stores prevent CSE of the surrounding loads. */
+#define dma_ch1_addr(a) do { word _t=(a); port_out(dma_ch1_addr,(byte)_t); port_out(dma_ch1_addr,(byte)(_t>>8)); } while(0)
+#define dma_ch1_wc(w)   do { word _t=(w); port_out(dma_ch1_wc,(byte)_t);   port_out(dma_ch1_wc,(byte)(_t>>8));   } while(0)
+#define dma_ch2_addr(a) do { word _t=(a); port_out(dma_ch2_addr,(byte)_t); port_out(dma_ch2_addr,(byte)(_t>>8)); } while(0)
+#define dma_ch2_wc(w)   do { word _t=(w); port_out(dma_ch2_wc,(byte)_t);   port_out(dma_ch2_wc,(byte)(_t>>8));   } while(0)
+#define dma_ch3_addr(a) do { word _t=(a); port_out(dma_ch3_addr,(byte)_t); port_out(dma_ch3_addr,(byte)(_t>>8)); } while(0)
+#define dma_ch3_wc(w)   do { word _t=(w); port_out(dma_ch3_wc,(byte)_t);   port_out(dma_ch3_wc,(byte)(_t>>8));   } while(0)
 
 /* ================================================================
  * Stuff in boot.c
