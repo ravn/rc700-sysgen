@@ -54,7 +54,7 @@ SECTIONS {
   __code_end = .;
   __code_size = __code_end - __code_start;
 
-  /* Verify PROM fits in 4096 bytes */
+  /* Verify PROM fits in 4096 bytes (code only, BSS is not in PROM) */
   __prom_end = __code_load + __code_size;
   ASSERT(__prom_end <= 4096, "PROM exceeds 4096 bytes!")
 
