@@ -92,13 +92,20 @@ prom: rom_parts
 	 echo "prom0.ic66: $$(wc -c < prom0.ic66 | tr -d ' ') bytes"
 	cp prom0.ic66 $(MAME_ROM)
 
+MAME_RUN = $(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	-nothrottle -window -skip_gameinfo \
+	-seconds_to_run 60 \
+	-autoboot_script mame_boot_test.lua \
+	-flop1 "$(FLOPPY)"
+
 mame: prom mamesym
 	@awk '{printf "comadd %s,%s\n", $$1, $$2}' prom0_mame.sym > prom0_debug.cmd
-	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
-		-nothrottle -window -skip_gameinfo \
-		-seconds_to_run 60 \
-		-autoboot_script mame_boot_test.lua \
-		-flop1 "$(FLOPPY)"
+	EXPECT_BANNER="RC700 ROA375" $(MAME_RUN)
+	@cat /tmp/boot_test_result.txt
+	@grep -q '^PASS' /tmp/boot_test_result.txt
+
+clang_mame: clang_prom
+	EXPECT_BANNER="RC700 CL" $(MAME_RUN)
 	@cat /tmp/boot_test_result.txt
 	@grep -q '^PASS' /tmp/boot_test_result.txt
 
