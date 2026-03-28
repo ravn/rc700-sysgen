@@ -355,7 +355,7 @@ static byte verify_seek_result(byte expected_pcn) {
     if (wait_fdc_ready(0xFF)) {
         return 1;
     }
-    if ((drive_select + 0b00100000) != fdc_result.st0 || /* SE+drive */
+    if ((drive_select + 0b00100000) != fdc_result.st0 || /* SE+drive */ /* TODO:  Should this be an and? */
         expected_pcn != fdc_result.st1) {
         /* verify PCN */
         return 2;
