@@ -1543,14 +1543,21 @@ void bios_wfitr(void) __naked
 byte ls_port;           /* 0=SIO-A, 1=SIO-B */
 
 /* noinline per-channel: address_space(2) PHI crash workaround (ravn/llvm-z80#44).
- * Inlining merges port pointers across branches → Legalizer crash. */
-static void __attribute__((noinline)) sio_a_wr5(byte v) { port_out(sio_a_ctrl, 5); port_out(sio_a_ctrl, v); }
-static void __attribute__((noinline)) sio_b_wr5(byte v) { port_out(sio_b_ctrl, 5); port_out(sio_b_ctrl, v); }
+ * Inlining merges port pointers across branches → Legalizer crash.
+ * SDCC doesn't need noinline — it doesn't merge address_space pointers. */
+#ifdef __clang__
+#define NOINLINE __attribute__((noinline))
+#else
+#define NOINLINE
+#endif
+static void NOINLINE sio_a_wr5(byte v) { port_out(sio_a_ctrl, 5); port_out(sio_a_ctrl, v); }
+static void NOINLINE sio_b_wr5(byte v) { port_out(sio_b_ctrl, 5); port_out(sio_b_ctrl, v); }
 static void sio_wr5(byte val) { if (ls_port) sio_b_wr5(val); else sio_a_wr5(val); }
 
-static byte __attribute__((noinline)) sio_a_rd1(void) { port_out(sio_a_ctrl, 1); return port_in(sio_a_ctrl); }
-static byte __attribute__((noinline)) sio_b_rd1(void) { port_out(sio_b_ctrl, 1); return port_in(sio_b_ctrl); }
+static byte NOINLINE sio_a_rd1(void) { port_out(sio_a_ctrl, 1); return port_in(sio_a_ctrl); }
+static byte NOINLINE sio_b_rd1(void) { port_out(sio_b_ctrl, 1); return port_in(sio_b_ctrl); }
 static byte sio_rd1(void) { return ls_port ? sio_b_rd1() : sio_a_rd1(); }
+#undef NOINLINE
 
 byte ls_line;
 

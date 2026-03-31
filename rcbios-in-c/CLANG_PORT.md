@@ -2,15 +2,17 @@
 
 ## Status: BOOTS CP/M (6379 bytes, MAXI disk, MAME verified 2026-03-31)
 
-## Size Comparison
+## Size Comparison (2026-03-31, same source, MSIZE=56)
 
-| Compiler | Binary | vs Assembly | Notes |
-|----------|--------|-------------|-------|
-| Assembly (REL30) | 6426 B | — | Hand-written reference |
-| SDCC (z88dk) | 6784 B | +358B (+5.6%) | |
-| **Clang (llvm-z80)** | **6379 B** | **-47B (-0.7%)** | Smaller than hand-written asm |
+| Compiler | Binary | vs SDCC | Notes |
+|----------|--------|---------|-------|
+| SDCC (z88dk) | 5561 B | — | Fits MINI (6144B) |
+| **Clang (llvm-z80)** | **6379 B** | **+818B (+14.7%)** | Fits MAXI (9984B) only |
 
 MINI limit: 6144B — clang is 235B over. MAXI limit: 9984B — OK.
+
+Note: earlier SIZE_COMPARISON.md figure (6784B) was from an older BIOS version
+with different features. The current SDCC build from the same source is 5561B.
 
 ## Decision Log
 - No `+shadow-regs` for rcbios (ISRs use explicit register save/restore)
