@@ -152,71 +152,32 @@ static volatile word wboot_vec, bdos_vec;
  */
 typedef struct {
     byte  _pad0;            /* 0xFFD0: reserved (unused byte) */
-    byte  curx;             /* 0xFFD1: cursor column position (0-79).
-                             * Current horizontal position on screen. */
-    word cury;              /* 0xFFD2: cursor row as byte offset (row × 80).
-                             * Used for direct screen memory addressing:
-                             * screen[cury + curx] is the cursor position.
-                             * Values: 0, 80, 160, ..., 1920. */
-    byte  cursy;            /* 0xFFD4: cursor row number (0-24).
-                             * Redundant with cury but needed for 8275
-                             * cursor position commands and XY reporting. */
-    word locbuf;            /* 0xFFD5: scroll source pointer.
-                             * Points to start of source row during scroll
-                             * operations (insert/delete line). */
-    byte  xflg;             /* 0xFFD7: escape sequence state machine.
-                             *   0 = normal character output
-                             *   6 = ESC 06h received, awaiting 1st coordinate
-                             *   1 = 1st coordinate received, awaiting 2nd
-                             * Controls the multi-byte XY cursor addressing
-                             * sequence (0x06, col+0x20, row+0x20). */
-    word locad;             /* 0xFFD8: screen position offset.
-                             * Temporary variable used during scroll and
-                             * line insert/delete operations. */
-    byte  usession;         /* 0xFFDA: character currently being output.
-                             * Saved here so control character handlers
-                             * can reference the character being processed. */
+    byte  curx;             /* 0xFFD1: cursor column position (0-79) */
+    word cury;              /* 0xFFD2: cursor row as byte offset (row × 80) */
+    byte  cursy;            /* 0xFFD4: cursor row number (0-24) */
+    word locbuf;            /* 0xFFD5: scroll source pointer */
+    byte  xflg;             /* 0xFFD7: escape sequence state (0/1/6) */
+    word locad;             /* 0xFFD8: screen position offset (scroll temp) */
+    byte  usession;         /* 0xFFDA: character currently being output */
     byte  _pad1[3];         /* 0xFFDB-0xFFDD: reserved gap */
-    byte  adr0;             /* 0xFFDE: first coordinate of XY escape sequence.
-                             * When xflg=1, this holds the column (or row,
-                             * depending on adrmod) from the first byte
-                             * of the 0x06 addressing sequence. */
-    word timer1;            /* 0xFFDF: warm-boot countdown timer.
-                             * Decremented by the CTC2 display interrupt ISR.
-                             * When it reaches 0, triggers a warm boot.
-                             * Set by _bios_exit to schedule delayed reboot. */
-    word timer2;            /* 0xFFE1: floppy motor stop countdown.
-                             * Decremented by display interrupt ISR (50 Hz).
-                             * When it reaches 0, motor is turned off.
-                             * Reloaded from stptim_var on each disk access. */
-    word delcnt;            /* 0xFFE3: general-purpose delay counter.
-                             * Decremented by display interrupt ISR.
-                             * Used for timed waits (e.g., FDC head settle). */
-    word warmjp;            /* 0xFFE5: exit routine JP target address.
-                             * Address jumped to by _bios_exit when timer1
-                             * expires.  Typically set to warm boot entry. */
-    byte  fdtimo_var;       /* 0xFFE7: motor-off timeout reload value.
-                             * Number of 20 ms ticks before motor turns off
-                             * after last disk operation.  Loaded from config. */
+    byte  adr0;             /* 0xFFDE: first XY escape coordinate */
+    /* --- ISR-modified fields below: must be volatile --- */
+    volatile word timer1;   /* 0xFFDF: warm-boot countdown (ISR decrements) */
+    volatile word timer2;   /* 0xFFE1: motor stop countdown (ISR decrements) */
+    volatile word delcnt;   /* 0xFFE3: delay counter (ISR decrements) */
+    word warmjp;            /* 0xFFE5: exit routine JP target address */
+    byte  fdtimo_var;       /* 0xFFE7: motor-off timeout reload value */
     byte  _pad2[2];         /* 0xFFE8-0xFFE9: reserved gap */
-    word stptim_var;        /* 0xFFEA: motor timer reload value.
-                             * Copied from CFG.stptim at boot.
-                             * Reloaded into timer2 on each disk access. */
-    word clktim;            /* 0xFFEC: screen blank / clock timer.
-                             * Decremented by display ISR.  Used for
-                             * screen saver timeout or RTC display update. */
+    word stptim_var;        /* 0xFFEA: motor timer reload value */
+    volatile word clktim;   /* 0xFFEC: screen blank timer (ISR decrements) */
     byte  _pad3[14];        /* 0xFFEE-0xFFFB: reserved gap (14 bytes) */
-    word rtc0;              /* 0xFFFC: real-time clock low word.
-                             * Incremented by display ISR at 50 Hz.
-                             * Combined with rtc2 for 32-bit tick counter. */
-    word rtc2;              /* 0xFFFE: real-time clock high word.
-                             * Incremented when rtc0 overflows.
-                             * rtc2:rtc0 = 32-bit count of 20 ms ticks. */
+    volatile word rtc0;     /* 0xFFFC: real-time clock low (ISR increments) */
+    volatile word rtc2;     /* 0xFFFE: real-time clock high (ISR increments) */
 } WorkArea;
 
 #ifndef HOST_TEST
 #define WORK_ADDR   0xFFD0      /* work area base address */
-#define W (*(volatile WorkArea *)WORK_ADDR)
+#define W (*(WorkArea *)WORK_ADDR)
 
 /* Absolute addresses for work area fields (used in inline asm).
  * These MUST match the WorkArea struct layout above. */
@@ -225,7 +186,7 @@ typedef struct {
 #define RTC0_ADDR   0xFFFC      /* WorkArea.rtc0 */
 #define RTC2_ADDR   0xFFFE      /* WorkArea.rtc2 */
 #else
-extern volatile WorkArea _workarea;
+extern WorkArea _workarea;
 #define W _workarea
 #endif
 
