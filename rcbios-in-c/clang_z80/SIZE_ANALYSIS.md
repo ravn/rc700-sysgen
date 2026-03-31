@@ -52,13 +52,42 @@ function sizes aren't directly comparable. Grouped analysis needed.
 | fdc_general_cmd | 41 B | sec_rw / rwoper |
 | clear_screen | 39 B | bios_conout_c |
 
-## Optimization targets
+## Detailed findings (2026-03-31)
 
-1. **Boot section** (-175B potential): make relocate_bios static again for clang
-   by having the shim call it through a wrapper, or inline the boot sequence
-2. **CONOUT inlining** (~100B potential): clang inlines aggressively into
-   bios_conout_c. SDCC keeps functions separate with tail-call optimization.
-   May benefit from `__attribute__((noinline))` on selected display helpers.
-3. **Disk I/O** (~50B): sec_rw and rwoper are larger. Need assembly comparison.
-4. **ISR overhead** (~50B): __attribute__((interrupt)) generates more register
-   saves than SDCC's __critical __interrupt.
+### ISRs: clang WINS
+Clang's `__attribute__((interrupt))` saves only clobbered registers.
+SDCC's `__critical __interrupt` saves AF,BC,DE,HL,IY unconditionally.
+Example: `isr_sio_b_tx` — clang 14B, SDCC 24B. Not an optimization target.
+
+### Redundant BSS variable loads (biggest opportunity)
+Clang reloads BSS variables from memory repeatedly instead of keeping
+them in registers. Example in `delete_line` (inlined in bios_conout_c):
+`cury` (0xFFD2) loaded 3 times in 20 instructions — each load is 3B.
+
+Total BSS loads in BIOS: 161. Many are redundant reloads of the same
+variable within a basic block or across simple calls. This is the
++static-stack BSS spill problem (ravn/llvm-z80#20).
+
+Estimated savings: ~100-150B if redundant loads eliminated.
+
+### Loop counter as 16-bit (wboot_c)
+The `for (sec = 0; sec < NSECTS; sec++)` loop in wboot_c uses 16-bit
+HL as loop counter even though `sec` is `byte` and NSECTS=0x2C. The
+16-bit compare (`LD A,L; SUB $2C; OR H`) costs 2 extra bytes per
+iteration vs a simple 8-bit `CP` or `DJNZ`.
+
+### Address computation for fixed-address writes
+Writing to page zero (`wboot_jp`, `bdos_jp` at address 0x0000, 0x0005)
+uses `LD DE,addr; LD (DE),A` (4B) where `LD (addr),A` (3B) would work.
+
+### 16-bit LD (addr),HL for word stores
+Clang uses `LD (HL),E; INC HL; LD (HL),D` (3B) to store 16-bit values
+where `LD (addr),DE` (4B ED opcode) or `LD (addr),HL` (3B) could be
+used directly.
+
+## Optimization targets (prioritized)
+
+1. **Redundant BSS loads** (~100-150B): ravn/llvm-z80#20, core compiler issue
+2. **8-bit loop counters** (~20-30B): byte variables promoted to 16-bit
+3. **Direct address stores** (~10-20B): fixed addresses via LD (addr),A
+4. **Boot section** (~50B): structural (shim overhead, non-inlined relocate)
