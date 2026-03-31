@@ -78,7 +78,7 @@ IMG_DATA = $(HOME)/Downloads/PolyPascal_3.10.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test clang_bios clang_mame clang_asm clang_clean
+.PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test clang_bios clang_mame clang_asm clang_src_lis clang_clean
 
 all: bios size
 
@@ -333,6 +333,7 @@ CLANG_CFLAGS = --target=z80 -Oz -g -nostdlib \
 	       -mllvm -disable-lsr \
 	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type \
 	       -Wimplicit-int-conversion \
+	       -fdebug-prefix-map=/bios=$(CURDIR) \
 	       -DMSIZE=$(MSIZE)
 
 CLANG_OBJS = clang_z80/boot_block.o clang_z80/boot_confi.o \
@@ -387,6 +388,15 @@ clang_mame: clang_bios
 
 clang_asm: bios.c bios.h hal.h clang_z80/intrinsic.h clang_z80/string.h builddate.h
 	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S bios.c -o /dev/stdout
+
+clang_src_lis: clang_bios
+	docker run --rm -m 8g \
+		-v $(LLVM_Z80):/src \
+		-v $(CURDIR):$(CURDIR):ro \
+		-w $(CURDIR) \
+		ubuntu:24.04 \
+		$(CLANG_OBJDUMP) -d -S -l --triple=z80 $(CURDIR)/clang_z80/bios.elf > clang_z80/bios_src.lis
+	@echo "wrote clang_z80/bios_src.lis ($$(wc -l < clang_z80/bios_src.lis) lines)"
 
 clang_clean:
 	rm -f clang_z80/*.o clang_z80/bios.elf clang_z80/bios.bin clang_z80/bios.lis
