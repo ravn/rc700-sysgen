@@ -1,16 +1,15 @@
 # Clang/LLVM-Z80 Port of rcbios-in-c
 
-## Status: BOOTS CP/M (6040 bytes -Oz, MAME verified 2026-03-31)
+## Status: BOOTS CP/M (5996 bytes -Oz, MAME verified 2026-04-01)
 
-## Size Comparison (2026-03-31, same source, MSIZE=56)
+## Size Comparison (2026-04-01, same source, MSIZE=56)
 
 | Compiler | Binary | vs SDCC | Notes |
 |----------|--------|---------|-------|
-| SDCC (z88dk) | 5561 B | — | Fits MINI (6144B) |
-| Clang -Os | 6379 B | +818B (+14.7%) | MAXI only |
-| **Clang -Oz** | **6040 B** | **+479B (+8.6%)** | **Fits MINI (104B spare)** |
+| SDCC (z88dk) | 5570 B | — | Fits MINI (6144B) |
+| **Clang -Oz** | **5996 B** | **+426B (+7.6%)** | **Fits MINI (148B spare)** |
 
-Both MINI (6144B) and MAXI (9984B) supported with -Oz.
+Both MINI (6144B) and MAXI (9984B) supported.
 
 ## Decision Log
 - No `+shadow-regs` for rcbios (ISRs use explicit register save/restore)
@@ -19,10 +18,13 @@ Both MINI (6144B) and MAXI (9984B) supported with -Oz.
 - Two jump vector tables: SDCC (naked shims in bios.c) and clang (shims in bios_shims.s)
 - Banner shows compiler: `C-bios/clang` or `C-bios/sdcc`
 
-## Bugs Found
+## Bugs Found / Fixed
 - ravn/llvm-z80#44 — address_space(2) PHI crash on conditional port I/O
   - Workaround: noinline per-channel SIO functions (~12B overhead)
 - Missing `__umodqi3` (8-bit unsigned modulo) — added to runtime.s
+- Blanket `volatile` on WorkArea struct (from 2f06e78 refactoring) prevented
+  optimizer from keeping display fields in registers. Fixed: per-field volatile
+  on ISR-modified fields only. Saved 45B.
 
 ## Compiler Features Verified
 
