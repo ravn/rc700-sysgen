@@ -7,6 +7,7 @@ Work in progress!
 
 
 ---
+2026-03-31: AUTOLOAD and BIOS now compiles with llvm-z80 and boots in MAME.
 
 2026-03-21:  AUTOLOAD and BIOS now in pure C with inline assembly and boots in MAME.  Initial support for working in CLion (non-commercial version).
 
