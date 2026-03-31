@@ -1012,8 +1012,8 @@ static void delete_line(void)
 }
 
 /* Insert line — shift lines down from cury to ROW23, fill current line.
- * Backward copy (dst > src, overlapping) — memmove library hangs,
- * so use an explicit backward loop. */
+ * Backward copy (dst > src, overlapping) — memmove library hangs on z88dk,
+ * so use an explicit backward loop (works on all compilers). */
 static void insert_line(void)
 {
     static word count;
