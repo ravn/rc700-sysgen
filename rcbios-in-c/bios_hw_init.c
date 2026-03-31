@@ -19,18 +19,36 @@
 
 /* ISR functions in bios.c (relocated BIOS) — referenced by IVT */
 extern void isr_dummy(void);
-extern void isr_crt(void);
-extern void isr_floppy(void);
 extern void isr_hd(void);
 extern void isr_sio_b_tx(void);
 extern void isr_sio_b_ext(void);
 extern void isr_sio_b_spec(void);
 extern void isr_sio_a_tx(void);
 extern void isr_sio_a_ext(void);
-extern void isr_sio_a_rx(void);
 extern void isr_sio_a_spec(void);
-extern void isr_pio_kbd(void);
 extern void isr_pio_par(void);
+
+/* Stack-switching ISRs: SDCC uses __naked wrappers in bios.c;
+ * clang uses assembly wrappers in bios_shims.s. */
+#ifdef __clang__
+extern void isr_crt_wrapper(void);
+extern void isr_floppy_wrapper(void);
+extern void isr_sio_a_rx_wrapper(void);
+extern void isr_pio_kbd_wrapper(void);
+#define ISR_CRT      isr_crt_wrapper
+#define ISR_FLOPPY   isr_floppy_wrapper
+#define ISR_SIO_A_RX isr_sio_a_rx_wrapper
+#define ISR_PIO_KBD  isr_pio_kbd_wrapper
+#else
+extern void isr_crt(void);
+extern void isr_floppy(void);
+extern void isr_sio_a_rx(void);
+extern void isr_pio_kbd(void);
+#define ISR_CRT      isr_crt
+#define ISR_FLOPPY   isr_floppy
+#define ISR_SIO_A_RX isr_sio_a_rx
+#define ISR_PIO_KBD  isr_pio_kbd
+#endif
 
 /* FDC write helper in bios.c (relocated BIOS) */
 extern void fdc_write(byte val);
@@ -57,8 +75,8 @@ typedef void (*isr_fn)(void);
 static const isr_fn ivt_template[IVT_ENTRIES] = {
     isr_dummy,              /*  0: CTC1 ch0 — SIO-A baud rate */
     isr_dummy,              /*  1: CTC1 ch1 — SIO-B baud rate */
-    isr_crt,                /*  2: CTC1 ch2 — display refresh */
-    isr_floppy,             /*  3: CTC1 ch3 — floppy completion */
+    ISR_CRT,                /*  2: CTC1 ch2 — display refresh */
+    ISR_FLOPPY,             /*  3: CTC1 ch3 — floppy completion */
     isr_hd,                 /*  4: CTC2 ch0 — hard disk */
     isr_dummy,              /*  5: CTC2 ch1 — unused */
     isr_dummy,              /*  6: CTC2 ch2 — unused */
@@ -69,9 +87,9 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
     isr_sio_b_spec,         /* 11: SIO ch.B special */
     isr_sio_a_tx,           /* 12: SIO ch.A TX */
     isr_sio_a_ext,          /* 13: SIO ch.A ext status */
-    isr_sio_a_rx,           /* 14: SIO ch.A RX — ring buffer */
+    ISR_SIO_A_RX,           /* 14: SIO ch.A RX — ring buffer */
     isr_sio_a_spec,         /* 15: SIO ch.A special */
-    isr_pio_kbd,            /* 16: PIO ch.A — keyboard */
+    ISR_PIO_KBD,            /* 16: PIO ch.A — keyboard */
     isr_pio_par,            /* 17: PIO ch.B — parallel output */
 };
 
@@ -81,11 +99,15 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
  * Must NOT be declared inline — inlining removes the call boundary
  * and with it the sdcccall(1) guarantee that A holds the parameter.
  * Tested: inline version emits ld i,a without ld a,page — wrong. */
+#ifdef __clang__
+extern void set_i_reg(byte page);  /* in clang_z80/bios_shims.s */
+#else
 static void set_i_reg(byte page)
 {
     (void)page;
     __asm__("ld i, a\n");
 }
+#endif
 
 /* Copy IVT to page-aligned RAM and enable IM2 */
 static void setup_ivt(void)

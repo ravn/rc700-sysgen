@@ -29,6 +29,7 @@
 
 #include <string.h>
 #include <intrinsic.h>
+#include "hal.h"
 #include "bios.h"
 
 /* Linker symbols for section boundaries.
@@ -51,7 +52,7 @@ extern void bios_hw_init(void);
  *
  * sdcc inlines memcpy as LDIR and memset as LDIR (large) or DJNZ (small).
  * No library functions are linked — verified in the .asm listing. */
-static void relocate_bios(void)
+void relocate_bios(void)
 {
     /* Relocate BIOS section from physical to runtime address.
      * BIOS binary starts right after the last BOOT sub-section. */
@@ -85,6 +86,7 @@ extern void bios_boot(void);
  * The ROM sets SP to 0xBFFF (safe TPA memory below CCP).  Interrupts
  * are disabled throughout — bios_boot() eventually enables them after
  * setting SP to the BIOS private stack at 0xF500. */
+#ifndef __clang__
 void coldboot(void) __naked
 {
     intrinsic_di();
@@ -92,3 +94,5 @@ void coldboot(void) __naked
     bios_hw_init();
     bios_boot();                       /* sets SP to 0xF500, never returns */
 }
+#endif
+/* clang: coldboot is in clang_z80/bios_shims.s */

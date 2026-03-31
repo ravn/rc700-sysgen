@@ -161,18 +161,12 @@ void hal_di(void);
 #define hal_di()    __asm__("di")
 #define hal_halt()  __asm__("halt")
 #elif defined(__clang__)
-/* clang: sdcc keywords as no-ops for compilation (not linking) */
-#define __naked
-#define __critical
-#define __interrupt(n)
-#define __sdcccall(x)
-#define __asm__(x) __asm__ volatile(".error \"inline asm not supported in clang mode\"")
-#define __asm /**/
-#define __endasm /**/
-#define hal_ei()   ((void)0)
-#define hal_di()   ((void)0)
-#define hal_halt() ((void)0)
-static inline void intrinsic_im_2(void) {}
+/* clang: keyword stubs and intrinsics from clang_z80/intrinsic.h.
+ * Found via -Iclang_z80 on the compile command line. */
+#include <intrinsic.h>
+#define hal_ei()   intrinsic_ei()
+#define hal_di()   intrinsic_di()
+#define hal_halt() intrinsic_halt()
 #endif
 
 #endif /* HAL_H */

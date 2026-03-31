@@ -31,8 +31,8 @@
 #include "builddate.h"
 
 /* Forward declarations */
-static void bios_conout_c(byte c);
-static word bios_seldsk_c(byte drv);
+void bios_conout_c(byte c);
+word bios_seldsk_c(byte drv);
 static byte xread(void);
 void bios_home(void);
 
@@ -116,7 +116,7 @@ word trkoff[] = { 2, 2, 0, 0, 0, 0, 0, 0 };
  * ISR shared state
  * ================================================================ */
 
-static word sp_sav;           /* saved SP during ISR stack switch */
+word sp_sav;                  /* saved SP during ISR stack switch */
 
 /* Keyboard ring buffer (REL30) */
 static byte kbbuf[KBBUFSZ];
@@ -155,8 +155,8 @@ byte all1[71], chk1[32];
 
 /* CP/M requested disk/track/sector (set by BDOS calls) */
 static byte  sekdsk;
-static word sektrk;
-static word seksec;
+word sektrk;
+word seksec;
 
 /* Host buffer state (what's cached in hstbuf) */
 static byte  hstdsk;
@@ -188,7 +188,7 @@ static byte  readop;
 static byte  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
 
 /* DMA and format state */
-static word dmaadr;  /* CP/M DMA address */
+word dmaadr;         /* CP/M DMA address */
 static const FDF *form;  /* pointer to current FDF entry */
 byte  cform;   /* current format index */
 static byte  eotv;        /* sectors per side on track 0 */
@@ -215,7 +215,7 @@ typedef struct {
     byte pad;
 } fdc_result_block;
 
-static volatile fdc_result_block rstab;    /* FDC result */
+volatile fdc_result_block rstab;           /* FDC result */
 static volatile byte fl_flg;      /* floppy completion flag */
 
 /* FSPA working copy (set by SELDSK) */
@@ -339,7 +339,7 @@ static void watir(void)
         ;
 }
 
-static void wfitr(void)
+void wfitr(void)
 {
     watir();
     clfit();
@@ -586,9 +586,13 @@ static void readi(void)
     hal_ei();
 }
 
-static void wboot_c(void);
+void wboot_c(void);
+#ifndef __clang__
 static void jump_ccp(byte drive) __naked;
-static void bios_boot_c(void);
+#else
+extern void jump_ccp(byte drive);
+#endif
+void bios_boot_c(void);
 
 /* Cold boot entry — sets BIOS stack then calls bios_boot_c. */
 void bios_boot(void) __naked
@@ -597,7 +601,7 @@ void bios_boot(void) __naked
     bios_boot_c();
 }
 
-static void bios_boot_c(void)
+void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
@@ -620,7 +624,7 @@ static void bios_boot_c(void)
     wboot_c();
 }
 
-static void wboot_c(void)
+void wboot_c(void)
 {
     byte sec;
 
@@ -674,12 +678,14 @@ static volatile byte __at(CCP_BASE) ccp_entry_point;
 
 /* Jump to CCP entry point — does not return.
  * drive (in A via sdcccall(1)) is moved to C for CP/M convention. */
+#ifndef __clang__
 static void jump_ccp(byte drive) __naked
 {
     (void)drive;
     __asm__("ld c, a               \n"
             "jp _ccp_entry_point   \n");
 }
+#endif
 
 void bios_wboot(void) __naked
 {
@@ -1169,7 +1175,7 @@ void bios_conout(byte c) __naked
             "jp _bios_conout_c     \n"); /* explicit tail call */
 }
 
-static void bios_conout_c(byte c)
+void bios_conout_c(byte c)
 {
     usession = c;
     if (xflg != 0)
@@ -1311,7 +1317,7 @@ word bios_seldsk(byte disk) __naked
 #endif
 }
 
-static word bios_seldsk_c(byte drv)
+word bios_seldsk_c(byte drv)
 {
     static byte drive;
     static byte fmt;
@@ -1453,7 +1459,7 @@ byte bios_write(byte type) __naked
 #endif
 }
 
-static byte bios_write_c(byte wt)
+byte bios_write_c(byte wt)
 {
     return xwrite(wt);
 }
@@ -1528,34 +1534,23 @@ void bios_wfitr(void) __naked
  * This C version uses two code paths (SIO-A / SIO-B) with fixed ports. */
 
 /* SIO WR5 access via fixed ports (two code paths for A/B) */
-static byte ls_port;    /* 0=SIO-A, 1=SIO-B */
+byte ls_port;           /* 0=SIO-A, 1=SIO-B */
 
-static void sio_wr5(byte val)
-{
-    if (ls_port) {
-        port_out(sio_b_ctrl, 5);
-        port_out(sio_b_ctrl, val);
-    } else {
-        port_out(sio_a_ctrl, 5);
-        port_out(sio_a_ctrl, val);
-    }
-}
+/* noinline per-channel: address_space(2) PHI crash workaround (ravn/llvm-z80#44).
+ * Inlining merges port pointers across branches → Legalizer crash. */
+static void __attribute__((noinline)) sio_a_wr5(byte v) { port_out(sio_a_ctrl, 5); port_out(sio_a_ctrl, v); }
+static void __attribute__((noinline)) sio_b_wr5(byte v) { port_out(sio_b_ctrl, 5); port_out(sio_b_ctrl, v); }
+static void sio_wr5(byte val) { if (ls_port) sio_b_wr5(val); else sio_a_wr5(val); }
 
-static byte sio_rd1(void)
-{
-    if (ls_port) {
-        port_out(sio_b_ctrl, 1);
-        return port_in(sio_b_ctrl);
-    }
-    port_out(sio_a_ctrl, 1);
-    return port_in(sio_a_ctrl);
-}
+static byte __attribute__((noinline)) sio_a_rd1(void) { port_out(sio_a_ctrl, 1); return port_in(sio_a_ctrl); }
+static byte __attribute__((noinline)) sio_b_rd1(void) { port_out(sio_b_ctrl, 1); return port_in(sio_b_ctrl); }
+static byte sio_rd1(void) { return ls_port ? sio_b_rd1() : sio_a_rd1(); }
 
-static byte ls_line;
+byte ls_line;
 
 /* LINSEL entry: extract A=port, B=line from CP/M registers,
  * then call C body.  Returns result in A (0=no CTS, 0xFF=CTS). */
-static byte bios_linsel_body(void);
+byte bios_linsel_body(void);
 void bios_linsel(void) __naked
 {
     __asm__("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */
@@ -1565,7 +1560,7 @@ void bios_linsel(void) __naked
     /* sdcccall(1) returns byte in A — correct for CP/M */
 }
 
-static byte bios_linsel_body(void)
+byte bios_linsel_body(void)
 {
     /* Wait for all-sent (RR1 bit 0) */
     while (!(sio_rd1() & 0b00000001))

@@ -55,6 +55,7 @@ SECTIONS {
   /* Boot code: coldboot(), relocate_bios(), bios_hw_init().
    * Runs once at physical address, overwritten by CCP after boot. */
   .boot_code 0x0280 : {
+    KEEP(*bios_shims.o(.text.coldboot))
     KEEP(*boot_entry.o(.text*))
     KEEP(*boot_entry.o(.rodata*))
     KEEP(*bios_hw_init.o(.text*))
@@ -108,6 +109,16 @@ SECTIONS {
   } > BIOS
 
   __bss_size = __bss_end - __bss_start;
+
+  /* z88dk-compatible symbols for boot_entry.c (unchanged shared source).
+   * C name _BOOT_CODE_tail → linker symbol __BOOT_CODE_tail (with _ prefix). */
+  __BOOT_CODE_tail = __boot_end;
+  __bss_compiler_head = __bss_start;
+  __bss_compiler_size = __bss_size;
+
+  /* CCP entry point — jump_ccp in bios_shims.s references this.
+   * CCP_BASE = BIOSAD - 0x1600 (CCP+BDOS length) */
+  _ccp_entry_point = BIOSAD - 0x1600;
 
   /* Size of BIOS code+rodata+data (without BSS) for coldboot memcpy */
   __bios_code_size = __bss_head - BIOSAD;

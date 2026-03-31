@@ -1,6 +1,6 @@
 # Clang/LLVM-Z80 Port of rcbios-in-c
 
-## Status: Planning
+## Status: Compiles and links (6373 bytes). Not yet boot-tested.
 
 ## Decision Log
 - No `+shadow-regs` for rcbios (user decision 2026-03-31)
