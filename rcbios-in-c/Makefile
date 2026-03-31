@@ -78,7 +78,7 @@ IMG_DATA = $(HOME)/Downloads/PolyPascal_3.10.imd
 MINI_LIMIT = 6144
 MAXI_LIMIT = 9984
 
-.PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test
+.PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test asm-test cycle-test cycle-baseline profile profile-baseline test clang_bios clang_mame clang_asm clang_clean
 
 all: bios size
 
@@ -306,6 +306,90 @@ profile: bios
 # Profile baseline: original BIOS instruction trace
 profile-baseline:
 	./run_mame.sh -op
+
+# ================================================================
+# LLVM-Z80 clang build (requires Docker + llvm-z80/build/)
+# ================================================================
+
+LLVM_Z80 = $(CURDIR)/../../llvm-z80
+CLANG_BUILD = /src/build/bin
+
+DOCKER = docker run --rm -m 8g \
+	-v $(LLVM_Z80):/src \
+	-v $(CURDIR):/bios \
+	-w /bios \
+	ubuntu:24.04
+
+CLANG_CC      = $(CLANG_BUILD)/clang
+CLANG_LD      = $(CLANG_BUILD)/ld.lld
+CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
+CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
+CLANG_NM      = $(CLANG_BUILD)/llvm-nm
+CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
+
+CLANG_CFLAGS = --target=z80 -Os -nostdlib \
+	       -ffunction-sections -fdata-sections \
+	       -Xclang -target-feature -Xclang +static-stack \
+	       -mllvm -disable-lsr \
+	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type \
+	       -Wimplicit-int-conversion \
+	       -DMSIZE=$(MSIZE)
+
+CLANG_OBJS = clang_z80/boot_block.o clang_z80/boot_confi.o \
+	     clang_z80/boot_entry.o clang_z80/bios_hw_init.o \
+	     clang_z80/bios_jump_vector_table.o clang_z80/bios.o \
+	     clang_z80/bios_shims.o clang_z80/runtime.o
+
+clang_bios: builddate.h $(CLANG_OBJS) clang_z80/rc700_bios.ld
+	$(DOCKER) $(CLANG_LD) --gc-sections --defsym BIOSAD=$(BIOSAD) \
+		-T clang_z80/rc700_bios.ld $(CLANG_OBJS) -o clang_z80/bios.elf
+	$(DOCKER) $(CLANG_OBJCOPY) -O binary clang_z80/bios.elf clang_z80/bios.bin
+	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang_z80/bios.elf > clang_z80/bios.lis
+	@echo "clang BIOS: $$(wc -c < clang_z80/bios.bin | tr -d ' ') bytes"
+	@SIG=$$(dd if=clang_z80/bios.bin bs=1 skip=8 count=6 2>/dev/null); \
+	if [ "$$SIG" != " RC702" ]; then \
+		echo "ERROR: RC702 signature not found!"; exit 1; \
+	fi
+
+clang_z80/boot_block.o: boot_block.c bios.h builddate.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
+
+clang_z80/boot_confi.o: boot_confi.c bios.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) $(if $(filter-out DANISH,$(KBLANG)),-D$(KBLANG)) -c $< -o $@
+
+clang_z80/boot_entry.o: boot_entry.c bios.h hal.h clang_z80/intrinsic.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
+
+clang_z80/bios_hw_init.o: bios_hw_init.c bios.h hal.h clang_z80/intrinsic.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
+
+clang_z80/bios_jump_vector_table.o: clang_z80/bios_jump_vector_table.c bios.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
+
+clang_z80/bios.o: bios.c bios.h hal.h clang_z80/intrinsic.h clang_z80/string.h builddate.h $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
+
+clang_z80/bios_shims.o: clang_z80/bios_shims.s $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
+
+clang_z80/runtime.o: clang_z80/runtime.s $(CLANG_COMPILER)
+	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
+
+clang_mame: clang_bios
+	@cp $(IMG_MAXI) /tmp/bios_clang_maxi.imd
+	@$(PATCH) /tmp/bios_clang_maxi.imd clang_z80/bios.bin
+	@rm -f /tmp/bios_clang_maxi.mfi
+	@$(FLOPTOOL) flopconvert auto mfi /tmp/bios_clang_maxi.imd /tmp/bios_clang_maxi.mfi >/dev/null 2>&1
+	@rm -f /tmp/bios_clang_maxi.imd
+	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_clang_maxi.mfi \
+		-skip_gameinfo -window -resolution 1100x720
+
+clang_asm: bios.c bios.h hal.h clang_z80/intrinsic.h clang_z80/string.h builddate.h
+	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S bios.c -o /dev/stdout
+
+clang_clean:
+	rm -f clang_z80/*.o clang_z80/bios.elf clang_z80/bios.bin clang_z80/bios.lis
 
 # Host tests (TODO)
 test:
