@@ -395,7 +395,8 @@ clang_src_lis: clang_bios
 		-v $(CURDIR):$(CURDIR):ro \
 		-w $(CURDIR) \
 		ubuntu:24.04 \
-		$(CLANG_OBJDUMP) -d -S -l --triple=z80 $(CURDIR)/clang_z80/bios.elf > clang_z80/bios_src.lis
+		$(CLANG_OBJDUMP) -d -S -l --triple=z80 $(CURDIR)/clang_z80/bios.elf | \
+		sed 's|^; \(/Users/.*\):\([0-9]*\)$$|\1:\2:0:|' > clang_z80/bios_src.lis
 	@echo "wrote clang_z80/bios_src.lis ($$(wc -l < clang_z80/bios_src.lis) lines)"
 
 clang_clean:
