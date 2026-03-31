@@ -333,7 +333,7 @@ CLANG_CFLAGS = --target=z80 -Oz -g -nostdlib \
 	       -mllvm -disable-lsr \
 	       -Iclang_z80 -I. -Wno-gcc-compat -Wno-return-type \
 	       -Wimplicit-int-conversion \
-	       -fdebug-prefix-map=/bios=$(CURDIR) \
+	       -fdebug-prefix-map=/bios=. \
 	       -DMSIZE=$(MSIZE)
 
 CLANG_OBJS = clang_z80/boot_block.o clang_z80/boot_confi.o \
@@ -396,7 +396,7 @@ clang_src_lis: clang_bios
 		-w $(CURDIR) \
 		ubuntu:24.04 \
 		$(CLANG_OBJDUMP) -d -S -l --triple=z80 $(CURDIR)/clang_z80/bios.elf | \
-		sed 's|^; \($(CURDIR)/.*\):\([0-9]*\)$$|\1:\2:0:|' > clang_z80/bios_src.lis
+		sed 's|^; \(\./.*\):\([0-9]*\)$$|\1:\2:0:|' > clang_z80/bios_src.lis
 	@echo "wrote clang_z80/bios_src.lis ($$(wc -l < clang_z80/bios_src.lis) lines)"
 
 clang_clean:
