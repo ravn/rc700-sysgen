@@ -608,7 +608,13 @@ void bios_boot_c(void)
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
-           "RC700 " MSIZE_STR "k CP/M 2.2 C-bios " BUILDDATE "\r\n");
+           "RC700 " MSIZE_STR "k CP/M 2.2 C-bios/"
+#ifdef __clang__
+           "clang "
+#else
+           "sdcc "
+#endif
+           BUILDDATE "\r\n");
 
     cdisk = 0;
     hstact = 0;
