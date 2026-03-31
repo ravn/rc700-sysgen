@@ -832,8 +832,8 @@ scroll_ldi:
     ldir
     __endasm;
 #else
-    /* Portable C fallback (slower but works with clang) */
-    memmove((void *)0xF800, (void *)0xF850, 1920);
+    /* Forward copy (src > dest) — memcpy is safe and inlines as LDIR */
+    memcpy((void *)0xF800, (void *)0xF850, 1920);
     memset((void *)0xFF80, 0x20, 80);
 #endif
 
