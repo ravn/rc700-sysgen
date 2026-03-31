@@ -1,15 +1,24 @@
 # Clang/LLVM-Z80 Port of rcbios-in-c
 
-## Status: BOOTS CP/M (5996 bytes -Oz, MAME verified 2026-04-01)
+## Status: BOOTS CP/M (5957 bytes -Oz, MAME verified 2026-04-01)
 
 ## Size Comparison (2026-04-01, same source, MSIZE=56)
 
 | Compiler | Binary | vs SDCC | Notes |
 |----------|--------|---------|-------|
 | SDCC (z88dk) | 5570 B | — | Fits MINI (6144B) |
-| **Clang -Oz** | **5996 B** | **+426B (+7.6%)** | **Fits MINI (148B spare)** |
+| **Clang -Oz** | **5957 B** | **+387B (+6.9%)** | **Fits MINI (187B spare)** |
 
 Both MINI (6144B) and MAXI (9984B) supported.
+
+### Size history
+
+| Change | Clang | Delta | Cumulative |
+|--------|-------|-------|------------|
+| Initial -Os build | 6379 B | — | — |
+| Switch to -Oz | 6041 B | -338 B | -338 B |
+| Remove blanket volatile | 5996 B | -45 B | -383 B |
+| scroll: memmove→memcpy (LDIR) | 5957 B | -39 B | -422 B |
 
 ## Decision Log
 - No `+shadow-regs` for rcbios (ISRs use explicit register save/restore)
@@ -65,7 +74,11 @@ CFLAGS="--target=z80 -Os -nostdlib -ffunction-sections -fdata-sections \
 ```
 
 ## Remaining Work
-- [ ] Makefile target (`make clang_bios`)
-- [ ] MINI disk support (reduce 235B to fit 6144B limit)
-- [ ] Function-by-function size comparison vs SDCC
-- [ ] Verify SDCC build still works after shared source changes
+- [x] Makefile targets (clang_bios, clang_mame, clang_src_lis, clang_asm, clang_clean)
+- [x] MINI disk support (187B spare)
+- [x] SDCC build verified (5570B)
+- [ ] ravn/llvm-z80#45: LD (addr),rr for 16-bit stores (~40-50B potential)
+- [ ] Unrolled LDI scroll for speed (CONOUT is speed-critical)
+- [ ] rc700-gensmedet#6: z88dk memmove hangs (blocks LDDR in insert_line for SDCC)
+- [ ] Investigate z88dk intrinsics for CP/M ABI return values
+- [ ] Investigate z88dk GDB debugging interface
