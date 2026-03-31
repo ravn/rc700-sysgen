@@ -327,7 +327,7 @@ CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
 
-CLANG_CFLAGS = --target=z80 -Os -nostdlib \
+CLANG_CFLAGS = --target=z80 -Oz -nostdlib \
 	       -ffunction-sections -fdata-sections \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -mllvm -disable-lsr \

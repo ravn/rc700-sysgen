@@ -1,18 +1,16 @@
 # Clang/LLVM-Z80 Port of rcbios-in-c
 
-## Status: BOOTS CP/M (6379 bytes, MAXI disk, MAME verified 2026-03-31)
+## Status: BOOTS CP/M (6040 bytes -Oz, MAME verified 2026-03-31)
 
 ## Size Comparison (2026-03-31, same source, MSIZE=56)
 
 | Compiler | Binary | vs SDCC | Notes |
 |----------|--------|---------|-------|
 | SDCC (z88dk) | 5561 B | — | Fits MINI (6144B) |
-| **Clang (llvm-z80)** | **6379 B** | **+818B (+14.7%)** | Fits MAXI (9984B) only |
+| Clang -Os | 6379 B | +818B (+14.7%) | MAXI only |
+| **Clang -Oz** | **6040 B** | **+479B (+8.6%)** | **Fits MINI (104B spare)** |
 
-MINI limit: 6144B — clang is 235B over. MAXI limit: 9984B — OK.
-
-Note: earlier SIZE_COMPARISON.md figure (6784B) was from an older BIOS version
-with different features. The current SDCC build from the same source is 5561B.
+Both MINI (6144B) and MAXI (9984B) supported with -Oz.
 
 ## Decision Log
 - No `+shadow-regs` for rcbios (ISRs use explicit register save/restore)

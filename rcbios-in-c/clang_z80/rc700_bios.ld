@@ -80,16 +80,13 @@ SECTIONS {
     KEEP(*bios_jump_vector_table.o(.data*))
   } > BIOS
 
-  /* BIOS code */
+  /* BIOS code — no per-file rules; --gc-sections removes dead functions */
   .text : AT(LOADADDR(.bios_jt) + SIZEOF(.bios_jt)) {
-    *bios_shims.o(.text*)
-    *bios.o(.text*)
     *(.text*)
   } > BIOS
 
   /* Read-only data: strings, tables, DPBs, FDFs */
   .rodata : {
-    *bios.o(.rodata*)
     *(.rodata*)
   } > BIOS
 
