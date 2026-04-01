@@ -396,11 +396,11 @@ clang_src_lis: clang_bios
 		-w $(CURDIR) \
 		ubuntu:24.04 \
 		$(CLANG_OBJDUMP) -d -S -l --triple=z80 $(CURDIR)/clang_z80/bios.elf | \
-		sed 's|^; \(\./.*\):\([0-9]*\)$$|\1:\2:|' > clang_z80/bios_src.lis
-	@echo "wrote clang_z80/bios_src.lis ($$(wc -l < clang_z80/bios_src.lis) lines)"
+		sed 's|^; \(\./.*\):\([0-9]*\)$$|\1:\2:|' > clang_z80/bios_src.S
+	@echo "wrote clang_z80/bios_src.S ($$(wc -l < clang_z80/bios_src.S) lines)"
 
 clang_clean:
-	rm -f clang_z80/*.o clang_z80/bios.elf clang_z80/bios.bin clang_z80/bios.lis
+	rm -f clang_z80/*.o clang_z80/bios.elf clang_z80/bios.bin clang_z80/bios.lis clang_z80/bios_src.S
 
 # Host tests (TODO)
 test:

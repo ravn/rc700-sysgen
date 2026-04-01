@@ -94,7 +94,9 @@ input (works with both C and original BIOS).  Added instruction-level profiling 
 Baseline: C BIOS is 5.2% slower than original REL2.3 on TYPE FILEX.PRN (188M vs 179M
 cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
 
-2026-03-19:  All code is now in --no-crt C except for the entry stub and ISR stack switch wrappers.  
+2026-03-19:  All code is now in --no-crt C except for the entry stub and ISR stack switch wrappers.
+
+2026-04-01:  Session 7 — three llvm-z80 optimizations: (1) #45 direct LD (nn),A/HL for constant-address stores/loads (BIOS -212B), (2) #46 ptrtoint(GV+const) fold into single LD rr,GV+const with linker wrapping fix (BIOS -14B), (3) insert_line backward copies via lddr_copy() replacing manual byte loops (+6B code, but LDDR hardware speed).  PROM 1842B (-6B), BIOS 5737B (-220B from 5957B).
 
 
 ## Status

@@ -113,6 +113,17 @@ _memmove:
 .Lmemmove_done:
 	jp	(iy)
 
+	.section .text._lddr_copy,"ax",@progbits
+; void lddr_copy(void *src_end, void *dst_end, size_t n)
+; sdcccall(1): HL=src_end, DE=dst_end, n=stack
+; Backward block copy via LDDR. Caller must ensure n > 0.
+	.globl	_lddr_copy
+_lddr_copy:
+	pop	iy
+	pop	bc		; n
+	lddr
+	jp	(iy)
+
 	.section .text.__call_iy,"ax",@progbits
 ; __call_iy — indirect function call via IY register
 ; Used by the compiler for calls through function pointers.

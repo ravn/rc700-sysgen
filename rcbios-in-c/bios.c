@@ -1012,34 +1012,37 @@ static void delete_line(void)
 }
 
 /* Insert line — shift lines down from cury to ROW23, fill current line.
- * Backward copy (dst > src, overlapping) — memmove library hangs on z88dk,
- * so use an explicit backward loop (works on all compilers). */
+ * Backward copies use lddr_copy (HL=src_end, DE=dst_end → LDDR). */
 static void insert_line(void)
 {
     static word count;
-    static byte *src;
-    static byte *dst;
 
     count = ROW24_OFFSET - cury;
     if (count != 0) {
-        /* Constant start addresses — sdcc loads them directly */
-        src = screen + ROW24_OFFSET - 1;           /* last byte of ROW23 */
-        dst = screen + ROW24_OFFSET + SCRN_COLS - 1; /* last byte of ROW24 */
-        while (count--)
+#if defined(__SDCC) || defined(__SCCZ80)
+        /* Backward copy for overlapping shift-down (memmove hangs on z88dk) */
+        static byte *src, *dst;
+        static byte il_i;
+        src = screen + ROW24_OFFSET - 1;
+        dst = screen + ROW24_OFFSET + SCRN_COLS - 1;
+        il_i = (byte)count;
+        while (il_i--)
             *dst-- = *src--;
+#else
+        lddr_copy(screen + ROW24_OFFSET - 1,
+                  screen + ROW24_OFFSET + SCRN_COLS - 1,
+                  count);
+#endif
     }
     memset(screen + cury, ' ', SCRN_COLS);
     if (bgflg) {
-        static byte il_off, il_bgcount, il_i;
+        static byte il_off, il_bgcount;
         il_off = (byte)(cury >> 3);
         il_bgcount = BGSTAR_SIZE - BG_ROW_BYTES - il_off;
-        if (il_bgcount) {
-            /* Backward copy for overlapping shift-down (memmove hangs) */
-            src = bgstar + BGSTAR_SIZE - BG_ROW_BYTES - 1;
-            dst = bgstar + BGSTAR_SIZE - 1;
-            for (il_i = 0; il_i < il_bgcount; il_i++)
-                *dst-- = *src--;
-        }
+        if (il_bgcount)
+            lddr_copy(bgstar + BGSTAR_SIZE - BG_ROW_BYTES - 1,
+                      bgstar + BGSTAR_SIZE - 1,
+                      il_bgcount);
         memset(bgstar + il_off, 0, BG_ROW_BYTES);
     }
 }
