@@ -224,8 +224,7 @@ void bios_hw_init(void)
         byte d;
 
         /* Copy drive format table from config block */
-        for (d = 0; d < 16; d++)
-            fd0[d] = CFG.infd[d];
+        memcpy((void *)fd0, (const void *)CFG.infd, sizeof(fd0));
 
         /* Count configured drives from fd0 table */
         drno = 0;
