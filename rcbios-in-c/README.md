@@ -96,7 +96,7 @@ cycles).  Main hotspot: `_scroll` at 12.4% of samples.  See `CONOUT_BENCH.md`.
 
 2026-03-19:  All code is now in --no-crt C except for the entry stub and ISR stack switch wrappers.
 
-2026-04-01:  Session 7 — three llvm-z80 optimizations: (1) #45 direct LD (nn),A/HL for constant-address stores/loads (BIOS -212B), (2) #46 ptrtoint(GV+const) fold into single LD rr,GV+const with linker wrapping fix (BIOS -14B), (3) insert_line backward copies via lddr_copy() replacing manual byte loops (+6B code, but LDDR hardware speed).  PROM 1842B (-6B), BIOS 5737B (-220B from 5957B).
+2026-04-01:  Session 7 — llvm-z80 ISel optimizations + BIOS inline asm.  (1) #45 direct LD (nn),A/HL for constant-address stores/loads, (2) #46 ptrtoint(GV+const) fold with linker 16-bit wrapping fix (#47), (3) BSS load forwarding in LateOptimization.  BIOS: insert_line backward copies via lddr_copy()/LDDR, SIO init via OTIR (contiguous sioa/siob arrays share HL).  PROM 1842B (-6B), BIOS 5712B (-245B from 5957B).  MAME boot verified.
 
 
 ## Status

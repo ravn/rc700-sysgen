@@ -146,7 +146,9 @@ void bios_hw_init(void)
     port_out(ctc3, CFG.ctc_mode3);
     port_out(ctc3, CFG.ctc_count3);
 
-    /* SIO: program channels A and B from CONFI init blocks */
+    /* SIO: program channels A and B from CONFI init blocks.
+     * OTIR: output B bytes from (HL++) to port C. */
+#if defined(__SDCC) || defined(__SCCZ80)
     {
         byte i;
         for (i = 0; i < 9; i++)
@@ -154,6 +156,21 @@ void bios_hw_init(void)
         for (i = 0; i < 11; i++)
             port_out(sio_b_ctrl, CFG.siob[i]);
     }
+#else
+    __asm__ volatile(
+        "ld hl, %[sioa]\n\t"
+        "ld c, %[port_a]\n\t"
+        "ld b, 9\n\t"
+        "otir\n\t"              /* HL now points to siob (contiguous) */
+        "ld c, %[port_b]\n\t"
+        "ld b, 11\n\t"
+        "otir"
+        : : [sioa] "i" (CFG_ADDR + 0x08),
+            [port_a] "i" (PORT_SIO_A_CTRL),
+            [port_b] "i" (PORT_SIO_B_CTRL)
+        : "hl", "bc", "memory"
+    );
+#endif
 
     /* SIO: read initial status registers */
     (void)port_in(sio_a_ctrl);     /* read RR0-A */
