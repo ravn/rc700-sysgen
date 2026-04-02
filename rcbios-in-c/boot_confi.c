@@ -92,18 +92,18 @@ const byte confi_on_disk[128] = {
  * Selected at build time via KBLANG define (default: Danish). */
 const byte conv_tables[384] = {
 #ifdef SWEDISH
-#include "swedish_tables.h"
+#include "locale/swedish_tables.h"
 #elif defined(GERMAN)
-#include "german_tables.h"
+#include "locale/german_tables.h"
 #elif defined(UK_ASCII)
-#include "uk_ascii_tables.h"
+#include "locale/uk_ascii_tables.h"
 #elif defined(US_ASCII)
-#include "us_ascii_tables.h"
+#include "locale/us_ascii_tables.h"
 #elif defined(FRENCH)
-#include "french_tables.h"
+#include "locale/french_tables.h"
 #elif defined(LIBRARY)
-#include "library_tables.h"
+#include "locale/library_tables.h"
 #else
-#include "danish_tables.h"
+#include "locale/danish_tables.h"
 #endif
 };
