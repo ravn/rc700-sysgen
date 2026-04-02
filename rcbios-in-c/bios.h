@@ -13,6 +13,25 @@
 typedef uint8_t  byte;
 typedef uint16_t word;
 
+/* CP/M 2.2 Disk Parameter Header (DPH) — one per logical drive.
+ * Reference: CP/M 2.2 System Interface Guide, section 6.10
+ *   http://www.cpm.z80.de/manuals/cpm22-m.pdf page 53
+ *
+ * The BIOS returns a pointer to the DPH from SELDSK.  The BDOS uses
+ * the DPH to locate the translation table, directory buffer, DPB,
+ * check vector, and allocation vector for the selected drive.
+ *
+ * All fields are word (16-bit) pointers or reserved scratch areas.
+ * Total size: 16 bytes (8 words) per drive. */
+typedef struct {
+    word xlt;       /* +0:  sector translation table address (0 = no translation) */
+    word scratch[3];/* +2:  scratch area used by BDOS (3 words) */
+    word dirbf;     /* +8:  directory buffer address (128 bytes, shared by all drives) */
+    word dpb;       /* +10: Disk Parameter Block address (set by SELDSK) */
+    word csv;       /* +12: check vector address (removable media change detection) */
+    word alv;       /* +14: allocation vector address (disk space bitmap) */
+} DPH;
+
 /* Display memory: 25 rows × 80 columns at 0xF800, refreshed by 8275 CRT.
  * The array type is the single source of truth for all screen dimensions. */
 #define DSPSTR      0xF800      /* display refresh memory base */

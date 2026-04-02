@@ -228,11 +228,9 @@ static word trantb;      /* translation table pointer */
 static byte  dtlv;        /* data length value */
 static byte  dsktyp;      /* 0=floppy, 0xFF=HD */
 
-/* Disk Parameter Headers — 2 drives × 16 bytes (8 words) each
- * DPH layout: XLT(2), scratch(6), DIRBF(2), DPB(2), CHK(2), ALV(2)
- * Initialized at boot; DPB pointer updated by SELDSK.
- */
-word dpbase[2 * 8];
+/* Disk Parameter Headers — one per drive, returned by SELDSK.
+ * BSS-zeroed at boot; dpb pointer updated by SELDSK per format. */
+DPH dpbase[2];
 
 /* Motor control */
 static void fdstop(void)
@@ -1382,11 +1380,11 @@ word bios_seldsk_c(byte drv)
         dsktyp = sp->dsktyp;
     }
 
-    /* update DPB pointer in DPH (offset 10 = word 5) and return it */
+    /* update DPB pointer in DPH and return DPH address to BDOS */
     {
-        static word *dph;
-        dph = (word *)((byte *)dpbase + (word)drive * 16);
-        dph[5] = dpblck;
+        static DPH *dph;
+        dph = &dpbase[drive];
+        dph->dpb = dpblck;
         return (word)dph;
     }
 }
