@@ -39,6 +39,8 @@ extern byte _BOOT_CODE_tail;
 extern byte _BIOS_head;
 extern byte _bss_compiler_head;
 extern word _bss_compiler_size;
+extern word _sentinel_addr;     /* sentinel word at end of .data, before .bss */
+#define SENTINEL_VALUE 0x1842
 
 /* Data blocks in BOOT_DATA section (defined in boot_confi.c) */
 extern const byte confi_on_disk[128];
@@ -66,15 +68,29 @@ void relocate_bios(void)
     /* Copy conversion tables to runtime address */
     memcpy((void *)CONV_ADDR, conv_tables, 384);
 
-    /* Zero BSS.  Cannot use memset() here because __bss_compiler_size
-     * is a linker symbol, not a compile-time constant — sdcc emits a
-     * library call instead of inlining LDIR. TODO:  Can this be circumvented? */
-    {
-        byte *p = &_bss_compiler_head;
-        word n = (word)&_bss_compiler_size;
-        *p = 0;
-        memcpy(p + 1, p, n - 1);
-    }
+    /* Zero BSS via inline asm.  Cannot use C memcpy(p+1, p, n-1) here:
+     * with +static-stack, the compiler stores locals in BSS, and the
+     * BSS clear would clobber those spilled values.  Specifically, the
+     * compiler stored p+1 to BSS before *p=0, then the zero write
+     * corrupted the stored pointer, causing LDIR to write to address
+     * $EB00 instead of $EB69, zeroing .rodata including the boot
+     * banner string.  See issue #51. */
+    __asm volatile(
+        "ld hl, __bss_compiler_head \n"
+        "ld (hl), 0                 \n"
+        "ld d, h                    \n"
+        "ld e, l                    \n"
+        "inc de                     \n"
+        "ld bc, __bss_compiler_size - 1 \n"
+        "ldir                       \n"
+        ::: "memory"
+    );
+
+    /* Verify sentinel: BSS clear must not overwrite .data/.rodata (#51).
+     * The sentinel word is placed by the linker just before .bss.
+     * If it's been zeroed, the BSS clear overwrote preceding sections. */
+    if (_sentinel_addr != SENTINEL_VALUE)
+        for (;;) hal_halt();  /* hang — display will show nothing */
 }
 
 /* Forward declaration — bios_boot() never returns. */

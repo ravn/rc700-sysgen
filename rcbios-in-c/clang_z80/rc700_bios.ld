@@ -95,6 +95,13 @@ SECTIONS {
     *(.data*)
   } > BIOS
 
+  /* Sentinel word: last data before BSS.  Verified by coldboot after
+   * relocation to catch BSS-clear overwrite bugs (#51). */
+  .sentinel : {
+    __sentinel_addr = .;
+    SHORT(0x1842)
+  } > BIOS
+
   __bss_head = .;
 
   /* BSS — not stored in binary, zeroed by coldboot */
