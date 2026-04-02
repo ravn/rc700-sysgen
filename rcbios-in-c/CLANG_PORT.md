@@ -73,12 +73,54 @@ CFLAGS="--target=z80 -Os -nostdlib -ffunction-sections -fdata-sections \
 # Extract binary: llvm-objcopy -O binary bios.elf bios.bin
 ```
 
+## Relocation Sentinel Check (#51)
+
+The BIOS is loaded from disk Track 0 to low memory, then `relocate_bios()`
+in `boot_entry.c` copies it to the runtime address (BIOSAD = 0xDA00) and
+zeros the BSS section.  The BSS clear uses a forward-LDIR trick:
+
+```
+LD HL, bss_start      ; first byte
+LD (HL), 0            ; zero it
+LD D,H / LD E,L       ; DE = HL
+INC DE                 ; DE = bss_start + 1
+LD BC, bss_size - 1
+LDIR                   ; forward-copy the zero through BSS
+```
+
+**Bug #51:** With `+static-stack`, clang allocates function locals in BSS.
+The C version of this code stored the `dest = bss_start + 1` pointer to
+a BSS static variable, then `*(bss_start) = 0` zeroed the low byte of
+that stored pointer.  Result: LDIR wrote to a wrong address, zeroing
+`.rodata` including the boot banner string.
+
+**Fix:** The BSS clear is now inline asm (clang path), computing the
+destination in registers without touching BSS.
+
+**Sentinel:** The linker script (`clang/rc700_bios.ld`) places a 2-byte
+sentinel word `0x1842` at the end of `.data`, immediately before `.bss`:
+
+```
+.sentinel : {
+    __sentinel_addr = .;
+    SHORT(0x1842)
+} > BIOS
+```
+
+After the BSS clear, `boot_entry.c` verifies the sentinel is intact:
+
+```c
+if (_sentinel_addr != SENTINEL_VALUE)
+    for (;;) hal_halt();  /* hang — BSS clear overwrote data */
+```
+
+If the sentinel is zeroed, the BIOS halts immediately — no banner, no boot.
+This catches any future BSS clear overwrite regression at the earliest
+possible point.
+
 ## Remaining Work
-- [x] Makefile targets (clang_bios, clang_mame, clang_src_lis, clang_asm, clang_clean)
-- [x] MINI disk support (187B spare)
-- [x] SDCC build verified (5570B)
-- [ ] ravn/llvm-z80#45: LD (addr),rr for 16-bit stores (~40-50B potential)
-- [ ] Unrolled LDI scroll for speed (CONOUT is speed-critical)
+- [x] Unrolled LDI scroll (memcpy_z80, 20% faster, 4.7% TYPE speedup)
+- [x] Sentinel check for BSS clear (#51)
+- [x] Build refactor: clang/ and sdcc/ folders, COMPILER variable
 - [ ] rc700-gensmedet#6: z88dk memmove hangs (blocks LDDR in insert_line for SDCC)
-- [ ] Investigate z88dk intrinsics for CP/M ABI return values
-- [ ] Investigate z88dk GDB debugging interface
+- [ ] ravn/llvm-z80#53: +static-stack allocates constant locals to BSS
