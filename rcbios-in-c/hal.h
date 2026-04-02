@@ -47,14 +47,40 @@
 #define PORT_HD_CYLHI     0x65
 #define PORT_HD_SDH       0x66
 #define PORT_HD_STATUS    0x67
-#define PORT_DMA_CH0_ADDR 0xF0
-#define PORT_DMA_CH0_WC   0xF1
-#define PORT_DMA_CH1_ADDR 0xF2
-#define PORT_DMA_CH1_WC   0xF3
-#define PORT_DMA_CH2_ADDR 0xF4
-#define PORT_DMA_CH2_WC   0xF5
-#define PORT_DMA_CH3_ADDR 0xF6
-#define PORT_DMA_CH3_WC   0xF7
+/* Am9517A DMA controller — base address 0xF0
+ *
+ * Channel assignments (compile-time configurable):
+ *   CH0 = hard disk (WD1000)
+ *   CH1 = floppy (NEC µPD765)
+ *   CH2 = display data (Intel 8275 CRT)
+ *   CH3 = display attributes (Intel 8275 CRT)
+ *
+ * To reassign channels (e.g. for memory-to-memory DMA), change the
+ * DMA_CH_* defines below.  All port addresses, mode register values,
+ * and mask register values are derived automatically. */
+
+#define DMA_CH_HD      0   /* hard disk */
+#define DMA_CH_FLOPPY  1   /* floppy disk controller */
+#define DMA_CH_DISPLAY 2   /* 8275 CRT display data */
+#define DMA_CH_DISATTR 3   /* 8275 CRT display attributes */
+
+/* Am9517A register encoding (derived from channel number) */
+#define DMA_ADDR_PORT(ch)   (0xF0 + 2 * (ch))      /* channel address register */
+#define DMA_WC_PORT(ch)     (0xF0 + 2 * (ch) + 1)  /* channel word count register */
+#define DMA_MASK_SET(ch)    (0x04 | (ch))           /* single mask: disable channel */
+#define DMA_MASK_CLR(ch)    (ch)                    /* single mask: enable channel */
+#define DMA_MODE_MEM2IO(ch) (0x48 | (ch))           /* single mode, mem→IO (8237 "read") */
+#define DMA_MODE_IO2MEM(ch) (0x44 | (ch))           /* single mode, IO→mem (8237 "write") */
+
+/* Port addresses derived from channel assignments */
+#define PORT_DMA_FLP_ADDR  DMA_ADDR_PORT(DMA_CH_FLOPPY)
+#define PORT_DMA_FLP_WC    DMA_WC_PORT(DMA_CH_FLOPPY)
+#define PORT_DMA_DSP_ADDR  DMA_ADDR_PORT(DMA_CH_DISPLAY)
+#define PORT_DMA_DSP_WC    DMA_WC_PORT(DMA_CH_DISPLAY)
+#define PORT_DMA_ATR_ADDR  DMA_ADDR_PORT(DMA_CH_DISATTR)
+#define PORT_DMA_ATR_WC    DMA_WC_PORT(DMA_CH_DISATTR)
+
+/* DMA control registers (fixed, not channel-dependent) */
 #define PORT_DMA_CMD      0xF8
 #define PORT_DMA_REQ      0xF9
 #define PORT_DMA_SMSK     0xFA
@@ -109,14 +135,12 @@ DEFPORT(ctc2_ch0,     PORT_CTC2_CH0)
 DEFPORT(ctc2_ch1,     PORT_CTC2_CH1)
 DEFPORT(ctc2_ch2,     PORT_CTC2_CH2)
 DEFPORT(ctc2_ch3,     PORT_CTC2_CH3)
-DEFPORT(dma_ch0_addr, PORT_DMA_CH0_ADDR)
-DEFPORT(dma_ch0_wc,   PORT_DMA_CH0_WC)
-DEFPORT(dma_ch1_addr, PORT_DMA_CH1_ADDR)
-DEFPORT(dma_ch1_wc,   PORT_DMA_CH1_WC)
-DEFPORT(dma_ch2_addr, PORT_DMA_CH2_ADDR)
-DEFPORT(dma_ch2_wc,   PORT_DMA_CH2_WC)
-DEFPORT(dma_ch3_addr, PORT_DMA_CH3_ADDR)
-DEFPORT(dma_ch3_wc,   PORT_DMA_CH3_WC)
+DEFPORT(dma_flp_addr, PORT_DMA_FLP_ADDR)
+DEFPORT(dma_flp_wc,   PORT_DMA_FLP_WC)
+DEFPORT(dma_dsp_addr, PORT_DMA_DSP_ADDR)
+DEFPORT(dma_dsp_wc,   PORT_DMA_DSP_WC)
+DEFPORT(dma_atr_addr, PORT_DMA_ATR_ADDR)  /* display attributes (currently unused content) */
+DEFPORT(dma_atr_wc,   PORT_DMA_ATR_WC)
 DEFPORT(dma_cmd,      PORT_DMA_CMD)
 DEFPORT(dma_req,      PORT_DMA_REQ)
 DEFPORT(dma_smsk,     PORT_DMA_SMSK)
@@ -137,13 +161,12 @@ DEFPORT(hd_status,    PORT_HD_STATUS)
  * DMA channel helpers, CPU control, sdcc keyword compatibility
  * ================================================================ */
 
-/* DMA channel address/word count (two consecutive port writes) */
-#define hal_dma_ch1_addr(addr) do { port_out(dma_ch1_addr,(uint8_t)(addr)); port_out(dma_ch1_addr,(uint8_t)((addr)>>8)); } while(0)
-#define hal_dma_ch1_wc(wc)    do { port_out(dma_ch1_wc,(uint8_t)(wc));     port_out(dma_ch1_wc,(uint8_t)((wc)>>8));     } while(0)
-#define hal_dma_ch2_addr(addr) do { port_out(dma_ch2_addr,(uint8_t)(addr)); port_out(dma_ch2_addr,(uint8_t)((addr)>>8)); } while(0)
-#define hal_dma_ch2_wc(wc)    do { port_out(dma_ch2_wc,(uint8_t)(wc));     port_out(dma_ch2_wc,(uint8_t)((wc)>>8));     } while(0)
-#define hal_dma_ch3_addr(addr) do { port_out(dma_ch3_addr,(uint8_t)(addr)); port_out(dma_ch3_addr,(uint8_t)((addr)>>8)); } while(0)
-#define hal_dma_ch3_wc(wc)    do { port_out(dma_ch3_wc,(uint8_t)(wc));     port_out(dma_ch3_wc,(uint8_t)((wc)>>8));     } while(0)
+/* DMA channel address/word count (two consecutive port writes, low then high) */
+#define hal_dma_flp_addr(a) do { port_out(dma_flp_addr,(uint8_t)(a)); port_out(dma_flp_addr,(uint8_t)((a)>>8)); } while(0)
+#define hal_dma_flp_wc(w)   do { port_out(dma_flp_wc,(uint8_t)(w));   port_out(dma_flp_wc,(uint8_t)((w)>>8));   } while(0)
+#define hal_dma_dsp_addr(a) do { port_out(dma_dsp_addr,(uint8_t)(a)); port_out(dma_dsp_addr,(uint8_t)((a)>>8)); } while(0)
+#define hal_dma_dsp_wc(w)   do { port_out(dma_dsp_wc,(uint8_t)(w));   port_out(dma_dsp_wc,(uint8_t)((w)>>8));   } while(0)
+#define hal_dma_atr_wc(w)   do { port_out(dma_atr_wc,(uint8_t)(w));   port_out(dma_atr_wc,(uint8_t)((w)>>8));   } while(0)
 
 #ifdef HOST_TEST
 /* Host testing stubs */
