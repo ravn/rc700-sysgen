@@ -161,8 +161,8 @@ void hal_di(void);
 #define hal_di()    __asm__("di")
 #define hal_halt()  __asm__("halt")
 #elif defined(__clang__)
-/* clang: keyword stubs and intrinsics from clang_z80/intrinsic.h.
- * Found via -Iclang_z80 on the compile command line. */
+/* clang: keyword stubs and intrinsics from clang/intrinsic.h.
+ * Found via -Iclang on the compile command line. */
 #include <intrinsic.h>
 #define hal_ei()   intrinsic_ei()
 #define hal_di()   intrinsic_di()

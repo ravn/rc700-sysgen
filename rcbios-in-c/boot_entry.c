@@ -111,4 +111,4 @@ void coldboot(void) __naked
     bios_boot();                       /* sets SP to 0xF500, never returns */
 }
 #endif
-/* clang: coldboot is in clang_z80/bios_shims.s */
+/* clang: coldboot is in clang/bios_shims.s */

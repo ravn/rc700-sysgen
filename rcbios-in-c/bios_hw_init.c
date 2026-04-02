@@ -100,7 +100,7 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
  * and with it the sdcccall(1) guarantee that A holds the parameter.
  * Tested: inline version emits ld i,a without ld a,page — wrong. */
 #ifdef __clang__
-extern void set_i_reg(byte page);  /* in clang_z80/bios_shims.s */
+extern void set_i_reg(byte page);  /* in clang/bios_shims.s */
 #else
 static void set_i_reg(byte page)
 {

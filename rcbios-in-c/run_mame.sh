@@ -63,12 +63,14 @@ if $ORIGINAL; then
     rm -f "$WORK.imd"
     echo "Created unpatched MFI: $WORK.mfi"
 else
-    make bios
+    COMPILER=${COMPILER:-clang}
+    make bios COMPILER=$COMPILER
+    BIOS_CIM="$COMPILER/bios.cim"
     # Create/refresh MFI working image from source IMD
     # MFI is MAME's native writable format; IMD is read-only in MAME.
     # Patch is applied to an intermediate IMD copy, then converted to MFI.
     cp "$SRC_IMG" "$WORK.imd"
-    $PATCH "$WORK.imd" bios.cim
+    $PATCH "$WORK.imd" "$BIOS_CIM"
     # Inject extra files (Poly Pascal etc.) from source disk images
     if [ -f "$IMG_PPAS" ]; then
         for f in ppas.com ppas.erm ppas.hlp; do
@@ -104,9 +106,9 @@ if $CYCLETEST; then
         BIOS_LABEL="original-${FORMAT}"
         MAP_FILE="none"
     else
-        BIOS_SIZE=$(wc -c < bios.cim | tr -d ' ')
-        BIOS_LABEL="c-bios-${BIOS_SIZE}B"
-        MAP_FILE="$(pwd)/bios.map"
+        BIOS_SIZE=$(wc -c < "$BIOS_CIM" | tr -d ' ')
+        BIOS_LABEL="${COMPILER}-${BIOS_SIZE}B"
+        MAP_FILE="$(pwd)/${COMPILER}/bios.map"
     fi
 
     sed "s|BIOS_LABEL|${BIOS_LABEL}|g; s|MAP_FILE|${MAP_FILE}|g" \
@@ -121,9 +123,9 @@ elif $PROFILE; then
         BIOS_LABEL="original-${FORMAT}"
         MAP_FILE="none"
     else
-        BIOS_SIZE=$(wc -c < bios.cim | tr -d ' ')
-        BIOS_LABEL="c-bios-${BIOS_SIZE}B"
-        MAP_FILE="$(pwd)/bios.map"
+        BIOS_SIZE=$(wc -c < "$BIOS_CIM" | tr -d ' ')
+        BIOS_LABEL="${COMPILER}-${BIOS_SIZE}B"
+        MAP_FILE="$(pwd)/${COMPILER}/bios.map"
     fi
 
     # Auto-start script: issue "go" so MAME doesn't stay paused
