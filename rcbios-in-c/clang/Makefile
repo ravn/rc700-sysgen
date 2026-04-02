@@ -1,7 +1,86 @@
-# clang/Makefile — Clean target for clang BIOS build artifacts
-# Build is handled by parent Makefile (Docker needs parent as workdir).
+# clang/Makefile — Build RC702 BIOS with LLVM-Z80 clang (via Docker)
+#
+# Produces bios.cim from shared sources in parent directory.
+# Docker mounts parent as /bios, so paths inside Docker are /bios/*.c
+#
+# Called from parent: make -C clang bios.cim MSIZE=56 KBLANG=DANISH
+
+PARENT = ..
+
+# Inherit from parent
+MSIZE  ?= 56
+BIOSAD ?= $(shell printf '0x%04X' $$(( 0x3400 + ($(MSIZE) - 20) * 1024 + 0x1600 )))
+KBLANG ?= DANISH
+
+# LLVM-Z80 toolchain (via Docker)
+LLVM_Z80 = $(CURDIR)/../../../llvm-z80
+COMPILER = $(LLVM_Z80)/build/bin/clang
+
+# Docker: mount parent as /bios (where shared sources live)
+DOCKER = docker run --rm -m 8g \
+	-v $(LLVM_Z80):/src \
+	-v $(CURDIR)/..:/bios \
+	-w /bios \
+	ubuntu:24.04
+
+B = /src/build/bin
+
+CFLAGS = --target=z80 -Oz -g -nostdlib \
+	 -ffunction-sections -fdata-sections \
+	 -Xclang -target-feature -Xclang +static-stack \
+	 -mllvm -disable-lsr \
+	 -Iclang -I. -Wno-gcc-compat -Wno-return-type \
+	 -Wimplicit-int-conversion \
+	 -fdebug-prefix-map=/bios=. \
+	 -DMSIZE=$(MSIZE)
+
+OBJS = boot_block.o boot_confi.o boot_entry.o bios_hw_init.o \
+       bios_jump_vector_table.o bios.o bios_shims.o runtime.o
 
 .PHONY: clean
+
+# All Docker commands use /bios-relative paths (parent directory)
+bios.cim: $(PARENT)/builddate.h $(OBJS) rc700_bios.ld
+	$(DOCKER) $(B)/ld.lld --gc-sections --defsym BIOSAD=$(BIOSAD) \
+		-T clang/rc700_bios.ld $(addprefix clang/,$(OBJS)) -o clang/bios.elf
+	$(DOCKER) $(B)/llvm-objcopy -O binary clang/bios.elf clang/bios.cim
+	$(DOCKER) $(B)/llvm-objdump -d --triple=z80 clang/bios.elf > bios.lis
+	@echo "clang BIOS: $$(wc -c < bios.cim | tr -d ' ') bytes"
+	@SIG=$$(dd if=bios.cim bs=1 skip=8 count=6 2>/dev/null); \
+	if [ "$$SIG" != " RC702" ]; then \
+		echo "ERROR: RC702 signature not found!"; exit 1; \
+	fi
+
+# Compile shared sources — Docker sees them at /bios/<file>
+boot_block.o: $(PARENT)/boot_block.c $(PARENT)/bios.h $(PARENT)/builddate.h $(COMPILER)
+	$(DOCKER) $(B)/clang $(CFLAGS) -c boot_block.c -o clang/$@
+
+boot_confi.o: $(PARENT)/boot_confi.c $(PARENT)/bios.h $(COMPILER)
+	$(DOCKER) $(B)/clang $(CFLAGS) $(if $(filter-out DANISH,$(KBLANG)),-D$(KBLANG)) -c boot_confi.c -o clang/$@
+
+boot_entry.o: $(PARENT)/boot_entry.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h $(COMPILER)
+	$(DOCKER) $(B)/clang $(CFLAGS) -c boot_entry.c -o clang/$@
+
+bios_hw_init.o: $(PARENT)/bios_hw_init.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h $(COMPILER)
+	$(DOCKER) $(B)/clang $(CFLAGS) -c bios_hw_init.c -o clang/$@
+
+bios_jump_vector_table.o: bios_jump_vector_table.c $(PARENT)/bios.h $(COMPILER)
+	$(DOCKER) $(B)/clang $(CFLAGS) -c clang/bios_jump_vector_table.c -o clang/$@
+
+bios.o: $(PARENT)/bios.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h string.h $(PARENT)/builddate.h $(COMPILER)
+	$(DOCKER) $(B)/clang $(CFLAGS) -c bios.c -o clang/$@
+
+bios_shims.o: bios_shims.s $(COMPILER)
+	$(DOCKER) $(B)/clang --target=z80 -c clang/bios_shims.s -o clang/$@
+
+runtime.o: runtime.s $(COMPILER)
+	$(DOCKER) $(B)/clang --target=z80 -c clang/runtime.s -o clang/$@
+
+# Generate builddate.h in parent if needed
+$(PARENT)/builddate.h: FORCE
+	$(MAKE) -C $(PARENT) builddate.h
+
+FORCE:
 
 clean:
 	rm -f *.o bios.elf bios.cim bios.bin bios.lis bios_src.S bios_src.lis

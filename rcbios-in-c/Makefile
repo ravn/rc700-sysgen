@@ -60,8 +60,7 @@ endif
 CPMCP = /Users/ravn/.local/bin/cpmcp
 
 .PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test \
-        asm-test cycle-test cycle-baseline profile profile-baseline test \
-        clang_asm clang_src_lis
+        asm-test cycle-test cycle-baseline profile profile-baseline test
 
 all: bios size
 
@@ -85,143 +84,10 @@ FORCE:
 # Compiler dispatch: make bios → $(COMPILER)/bios.cim
 # ================================================================
 
-bios:
-	$(MAKE) $(COMPILER)/bios.cim
+bios: builddate.h
+	$(MAKE) -C $(COMPILER) bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG)
 
-# ================================================================
-# LLVM-Z80 clang build
-# ================================================================
-
-LLVM_Z80 = $(CURDIR)/../../llvm-z80
-CLANG_BUILD = /src/build/bin
-
-DOCKER = docker run --rm -m 8g \
-	-v $(LLVM_Z80):/src \
-	-v $(CURDIR):/bios \
-	-w /bios \
-	ubuntu:24.04
-
-CLANG_CC      = $(CLANG_BUILD)/clang
-CLANG_LD      = $(CLANG_BUILD)/ld.lld
-CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
-CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
-CLANG_NM      = $(CLANG_BUILD)/llvm-nm
-CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
-
-CLANG_CFLAGS = --target=z80 -Oz -g -nostdlib \
-	       -ffunction-sections -fdata-sections \
-	       -Xclang -target-feature -Xclang +static-stack \
-	       -mllvm -disable-lsr \
-	       -Iclang -I. -Wno-gcc-compat -Wno-return-type \
-	       -Wimplicit-int-conversion \
-	       -fdebug-prefix-map=/bios=. \
-	       -DMSIZE=$(MSIZE)
-
-CLANG_OBJS = clang/boot_block.o clang/boot_confi.o \
-	     clang/boot_entry.o clang/bios_hw_init.o \
-	     clang/bios_jump_vector_table.o clang/bios.o \
-	     clang/bios_shims.o clang/runtime.o
-
-clang/bios.cim: builddate.h $(CLANG_OBJS) clang/rc700_bios.ld
-	$(DOCKER) $(CLANG_LD) --gc-sections --defsym BIOSAD=$(BIOSAD) \
-		-T clang/rc700_bios.ld $(CLANG_OBJS) -o clang/bios.elf
-	$(DOCKER) $(CLANG_OBJCOPY) -O binary clang/bios.elf clang/bios.cim
-	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang/bios.elf > clang/bios.lis
-	@echo "clang BIOS: $$(wc -c < clang/bios.cim | tr -d ' ') bytes"
-	@SIG=$$(dd if=clang/bios.cim bs=1 skip=8 count=6 2>/dev/null); \
-	if [ "$$SIG" != " RC702" ]; then \
-		echo "ERROR: RC702 signature not found!"; exit 1; \
-	fi
-
-clang/boot_block.o: boot_block.c bios.h builddate.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
-
-clang/boot_confi.o: boot_confi.c bios.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) $(if $(filter-out DANISH,$(KBLANG)),-D$(KBLANG)) -c $< -o $@
-
-clang/boot_entry.o: boot_entry.c bios.h hal.h clang/intrinsic.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
-
-clang/bios_hw_init.o: bios_hw_init.c bios.h hal.h clang/intrinsic.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
-
-clang/bios_jump_vector_table.o: clang/bios_jump_vector_table.c bios.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
-
-clang/bios.o: bios.c bios.h hal.h clang/intrinsic.h clang/string.h builddate.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
-
-clang/bios_shims.o: clang/bios_shims.s $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
-
-clang/runtime.o: clang/runtime.s $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
-
-clang_asm: bios.c bios.h hal.h clang/intrinsic.h clang/string.h builddate.h
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S bios.c -o /dev/stdout
-
-clang_src_lis: clang/bios.cim
-	docker run --rm -m 8g \
-		-v $(LLVM_Z80):/src \
-		-v $(CURDIR):$(CURDIR):ro \
-		-w $(CURDIR) \
-		ubuntu:24.04 \
-		$(CLANG_OBJDUMP) -d -S -l --triple=z80 $(CURDIR)/clang/bios.elf | \
-		sed 's|^; \(\./.*\):\([0-9]*\)$$|\1:\2:|' > clang/bios_src.S
-	@echo "wrote clang/bios_src.S ($$(wc -l < clang/bios_src.S) lines)"
-
-# ================================================================
-# SDCC build (via z88dk)
-# ================================================================
-
-# z88dk toolchain
-ifneq ($(wildcard ../z88dk),)
-Z88DK = ../z88dk
-else
-Z88DK = z88dk
-endif
-ZCC = $(Z88DK)/bin/zcc
-ZCCCFG = $(Z88DK)/lib/config
-
-ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
-         -Cs"--max-allocs-per-node 1000000" \
-         -Cs"--fomit-frame-pointer" \
-         -Cs"--allow-unsafe-read" \
-         -Cs"--sdcccall 1" \
-         -Cs"--std-sdcc99" \
-         -Cs"--disable-warning 296" \
-         -custom-copt-rules=sdcc/peephole.def \
-         -pragma-define:CRT_ORG_CODE=0x0000 \
-         -Cs"-DMSIZE=$(MSIZE)" \
-         -Ca-DBIOSAD=$(BIOSAD) \
-         $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
-
-ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
-ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
-
-sdcc/bios.cim: sdcc/z88dk_section_layout.asm boot_block.c boot_confi.c boot_entry.c \
-               bios_hw_init.c bios_jump_vector_table.c bios.c hal.h bios.h \
-               builddate.h builddate.inc sdcc/peephole.def
-	@mkdir -p sdcc
-	export PATH="$(Z88DK)/bin:$$PATH" && \
-	export ZCCCFG="$(ZCCCFG)" && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -Cs"--constseg BOOT" -c boot_block.c -o sdcc/boot_block.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c boot_confi.c -o sdcc/boot_confi.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c boot_entry.c -o sdcc/boot_entry.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c bios_hw_init.c -o sdcc/bios_hw_init.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c bios_jump_vector_table.c -o sdcc/bios_jump_vector_table.o && \
-	cd sdcc && $(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm ../bios.c \
-		boot_block.o boot_confi.o boot_entry.o bios_hw_init.o bios_jump_vector_table.o
-	@cd sdcc && \
-	BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
-	CODESIZE=$$((0x$$BSS_HEAD - $(BIOSAD))); \
-	cat bios_BOOT.bin > bios.cim; \
-	dd if=bios_BIOS.bin bs=1 count=$$CODESIZE 2>/dev/null >> bios.cim
-	@echo "sdcc BIOS: $$(wc -c < sdcc/bios.cim | tr -d ' ') bytes"
-	@SIG=$$(dd if=sdcc/bios.cim bs=1 skip=8 count=6 2>/dev/null); \
-	if [ "$$SIG" != " RC702" ]; then \
-		echo "ERROR: RC702 signature not found!"; exit 1; \
-	fi
+# SDCC build rules are in sdcc/Makefile
 
 # ================================================================
 # Size check
