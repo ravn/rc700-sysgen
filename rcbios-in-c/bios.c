@@ -355,14 +355,14 @@ static byte  dma_write;      /* parameter: 0=read(FDC→mem), 1=write(mem→FDC)
 static void flp_dma_setup(void)
 {
     hal_di();
-    port_out(dma_smsk, 0x05);          /* mask ch1 */
-    port_out(dma_mode, dma_write ? 0x49 : 0x45);
+    port_out(dma_smsk, DMA_MASK_SET(DMA_CH_FLOPPY));
+    port_out(dma_mode, dma_write
+        ? DMA_MODE_MEM2IO(DMA_CH_FLOPPY)   /* disk write: mem→FDC */
+        : DMA_MODE_IO2MEM(DMA_CH_FLOPPY)); /* disk read:  FDC→mem */
     port_out(dma_clbp, 0);
-    port_out(dma_ch1_addr, (byte)dskad);
-    port_out(dma_ch1_addr, (byte)(dskad >> 8));
-    port_out(dma_ch1_wc, (byte)dma_count);
-    port_out(dma_ch1_wc, (byte)(dma_count >> 8));
-    port_out(dma_smsk, 0x01);          /* unmask ch1 */
+    hal_dma_flp_addr(dskad);
+    hal_dma_flp_wc(dma_count);
+    port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_FLOPPY));
     hal_ei();
 }
 
@@ -1766,21 +1766,20 @@ void isr_crt(void) __naked
     (void)port_in(crt_cmd);
 
     /* Program DMA for 8275 display refresh */
-    port_out(dma_smsk, 6);         /* mask DMA ch2 */
-    port_out(dma_smsk, 7);         /* mask DMA ch3 */
+    port_out(dma_smsk, DMA_MASK_SET(DMA_CH_DISPLAY));
+    port_out(dma_smsk, DMA_MASK_SET(DMA_CH_DISATTR));
     port_out(dma_clbp, 0);         /* clear byte pointer flip-flop */
 
-    /* DMA ch2: display data transfer (2000 bytes from DSPSTR) */
-    hal_dma_ch2_addr(DSPSTR);
-    hal_dma_ch2_wc(SCRN_SIZE - 1);
+    /* Display data: 2000 bytes from DSPSTR */
+    hal_dma_dsp_addr(DSPSTR);
+    hal_dma_dsp_wc(SCRN_SIZE - 1);
 
-    /* DMA ch3: attribute data (zero length) */
-    port_out(dma_ch3_wc, 0);
-    port_out(dma_ch3_wc, 0);
+    /* Attribute data: zero length (no attributes used) */
+    hal_dma_atr_wc(0);
 
     /* Unmask DMA channels */
-    port_out(dma_smsk, 2);         /* clear ch2 mask */
-    port_out(dma_smsk, 3);         /* clear ch3 mask */
+    port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_DISPLAY));
+    port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_DISATTR));
 
     /* Deferred cursor update — avoids 3 port writes per character */
     if (cur_dirty) {

@@ -180,11 +180,11 @@ void bios_hw_init(void)
     port_out(sio_b_ctrl, 1);       /* select RR1 */
     (void)port_in(sio_b_ctrl);     /* read RR1-B */
 
-    /* DMA: enter command mode and set channel modes */
-    port_out(dma_cmd, 0x20);       /* master clear */
-    port_out(dma_mode, 0x48);      /* ch0 mode (HD) */
-    port_out(dma_mode, 0x4A);      /* ch2 mode (display) */
-    port_out(dma_mode, 0x4B);      /* ch3 mode (display) */
+    /* DMA: master clear and set channel modes */
+    port_out(dma_cmd, 0x20);                          /* master clear */
+    port_out(dma_mode, DMA_MODE_MEM2IO(DMA_CH_HD));       /* HD: mem→disk */
+    port_out(dma_mode, DMA_MODE_MEM2IO(DMA_CH_DISPLAY));  /* display: mem→CRT */
+    port_out(dma_mode, DMA_MODE_MEM2IO(DMA_CH_DISATTR));  /* attributes: mem→CRT */
 
     /* FDC: send SPECIFY command */
     while (port_in(fdc_status) & 0x1F)
