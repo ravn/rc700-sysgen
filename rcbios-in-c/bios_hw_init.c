@@ -234,14 +234,39 @@ void bios_hw_init(void)
             drno = d;
         }
 
-        /* Initialize DPH entries for each drive */
-        for (d = 0; d <= drno && d < 2; d++) {
-            memset(&dpbase[d], 0, sizeof(DPH));
-            dpbase[d].dirbf = (word)dirbf;
-            dpbase[d].dpb   = (word)&dpb8;
-            dpbase[d].csv   = d == 0 ? (word)chk0 : (word)chk1;
-            dpbase[d].alv   = d == 0 ? (word)all0 : (word)all1;
+        /* Initialize DPH entries for each drive.
+         * Clang accepts link-time constants in static initializers;
+         * SDCC does not, so it uses per-field assignment. */
+#ifdef __clang__
+        {
+            static const DPH dph0 = {
+                0, {0,0,0}, dirbf, &dpb8, chk0, all0
+            };
+            static const DPH dph1 = {
+                0, {0,0,0}, dirbf, &dpb8, chk1, all1
+            };
+            dpbase[0] = dph0;
+            if (drno >= 1)
+                dpbase[1] = dph1;
         }
+#else
+        {
+            DPH *dph = &dpbase[0];
+            memset(dph, 0, sizeof(DPH));
+            dph->dirbf = dirbf;
+            dph->dpb   = &dpb8;
+            dph->csv   = chk0;
+            dph->alv   = all0;
+        }
+        if (drno >= 1) {
+            DPH *dph = &dpbase[1];
+            memset(dph, 0, sizeof(DPH));
+            dph->dirbf = dirbf;
+            dph->dpb   = &dpb8;
+            dph->csv   = chk1;
+            dph->alv   = all1;
+        }
+#endif
 
         /* Clear disk state */
         hstact = 0;

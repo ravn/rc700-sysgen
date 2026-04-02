@@ -219,12 +219,12 @@ volatile fdc_result_block rstab;           /* FDC result */
 static volatile byte fl_flg;      /* floppy completion flag */
 
 /* FSPA working copy (set by SELDSK) */
-static word dpblck;      /* DPB pointer */
+static DPB *dpblck;      /* DPB pointer (set by SELDSK per format) */
 static byte  cpmrbp;      /* records per block */
 static word cpmspt;      /* CP/M sectors per track */
 static byte  secmsk;      /* sector mask */
 static byte  secshf;      /* sector shift count */
-static word trantb;      /* translation table pointer */
+static byte *trantb;     /* sector translation table pointer */
 static byte  dtlv;        /* data length value */
 static byte  dsktyp;      /* 0=floppy, 0xFF=HD */
 
@@ -254,12 +254,12 @@ static void fdstar(void)
     hal_di();
     if (timer2 == 0) {
         /* motor was stopped — start and wait for spinup */
-        timer2 = (word)fdtimo_var;
+        timer2 = fdtimo_var;
         hal_ei();
         port_out(sw1, 0x01);
         waitd(50);              /* 50 * 20ms = 1 second */
     } else {
-        timer2 = (word)fdtimo_var;
+        timer2 = fdtimo_var;
         hal_ei();
     }
 }
@@ -400,7 +400,7 @@ static void chktrk(void)
     }
 
     /* sector translation */
-    tp = (byte *)trantb;
+    tp = trantb;
     acsec = tp[sec];
     actra = (byte)hsttrk;
     dskad = (word)&hstbuf[0];
@@ -1370,12 +1370,12 @@ word bios_seldsk_c(byte drv)
         eotv = form->eot;
 
         /* copy FSPA format parameters to working area */
-        dpblck = (word)sp->dpb;
+        dpblck = sp->dpb;
         cpmrbp = sp->cpmrbp;
         cpmspt = sp->cpmspt;
         secmsk = sp->secmsk;
         secshf = sp->secshf;
-        trantb = (word)sp->trantb;
+        trantb = sp->trantb;
         dtlv = sp->dtlv;
         dsktyp = sp->dsktyp;
     }
