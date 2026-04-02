@@ -1,4 +1,4 @@
-# sdcc/Makefile — Build RC702 BIOS with SDCC via z88dk
+# sdcc/Makefile — Build RC702 BIOS with SDCC via z88dk Docker
 #
 # Produces bios.cim from shared sources in parent directory.
 # Called from parent: make -C sdcc bios.cim MSIZE=56 KBLANG=DANISH
@@ -10,14 +10,11 @@ MSIZE  ?= 56
 BIOSAD ?= $(shell printf '0x%04X' $$(( 0x3400 + ($(MSIZE) - 20) * 1024 + 0x1600 )))
 KBLANG ?= DANISH
 
-# z88dk toolchain
-ifneq ($(wildcard ../../z88dk),)
-Z88DK = ../../z88dk
-else
-Z88DK = z88dk
-endif
-ZCC = $(Z88DK)/bin/zcc
-ZCCCFG = $(Z88DK)/lib/config
+# z88dk via Docker — mounts parent as /src so shared sources are visible
+DOCKER = docker run --rm \
+	-v $(CURDIR)/..:/src \
+	-w /src/sdcc \
+	z88dk:2.4
 
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
@@ -32,7 +29,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Ca-DBIOSAD=$(BIOSAD) \
          $(if $(filter-out DANISH,$(KBLANG)),-Ca-D$(KBLANG))
 
-ZLIB = -L$(Z88DK)/libsrc/_DEVELOPMENT/lib/sdcc_iy -lz80
+ZLIB = -lz80
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 
 .PHONY: clean
@@ -42,15 +39,14 @@ bios.cim: z88dk_section_layout.asm $(PARENT)/boot_block.c $(PARENT)/boot_confi.c
           $(PARENT)/bios_jump_vector_table.c $(PARENT)/bios.c \
           $(PARENT)/hal.h $(PARENT)/bios.h \
           $(PARENT)/builddate.h $(PARENT)/builddate.inc peephole.def
-	export PATH="$(Z88DK)/bin:$$PATH" && \
-	export ZCCCFG="$(ZCCCFG)" && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT" -Cs"--constseg BOOT" -c $(PARENT)/boot_block.c -o boot_block.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c $(PARENT)/boot_confi.c -o boot_confi.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c $(PARENT)/boot_entry.c -o boot_entry.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c $(PARENT)/bios_hw_init.c -o bios_hw_init.o && \
-	$(ZCC) $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c $(PARENT)/bios_jump_vector_table.c -o bios_jump_vector_table.o && \
-	$(ZCC) $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm $(PARENT)/bios.c \
-		boot_block.o boot_confi.o boot_entry.o bios_hw_init.o bios_jump_vector_table.o
+	$(DOCKER) sh -c '\
+	zcc $(ZFLAGS) -Cs"--codeseg BOOT" -Cs"--constseg BOOT" -c ../boot_block.c -o boot_block.o && \
+	zcc $(ZFLAGS) -Cs"--codeseg BOOT_DATA" -Cs"--constseg BOOT_DATA" $(if $(filter-out DANISH,$(KBLANG)),-Cs"-D$(KBLANG)") -c ../boot_confi.c -o boot_confi.o && \
+	zcc $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c ../boot_entry.c -o boot_entry.o && \
+	zcc $(ZFLAGS) -Cs"--codeseg BOOT_CODE" -c ../bios_hw_init.c -o bios_hw_init.o && \
+	zcc $(ZFLAGS) -Cs"--codeseg BIOS" -Cs"--constseg BIOS" -c ../bios_jump_vector_table.c -o bios_jump_vector_table.o && \
+	zcc $(ZFLAGS) $(ZLFLAGS) -o bios z88dk_section_layout.asm ../bios.c \
+		boot_block.o boot_confi.o boot_entry.o bios_hw_init.o bios_jump_vector_table.o'
 	@BSS_HEAD=$$(grep '__bss_compiler_head' bios.map | head -1 | sed 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/'); \
 	CODESIZE=$$((0x$$BSS_HEAD - $(BIOSAD))); \
 	cat bios_BOOT.bin > bios.cim; \

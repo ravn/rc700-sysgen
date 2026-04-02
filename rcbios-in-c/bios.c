@@ -1039,10 +1039,21 @@ static void insert_line(void)
         static byte il_off, il_bgcount;
         il_off = (byte)(cury >> 3);
         il_bgcount = BGSTAR_SIZE - BG_ROW_BYTES - il_off;
-        if (il_bgcount)
+        if (il_bgcount) {
+#if defined(__SDCC) || defined(__SCCZ80)
+            static byte *il_src, *il_dst;
+            static byte il_j;
+            il_src = bgstar + BGSTAR_SIZE - BG_ROW_BYTES - 1;
+            il_dst = bgstar + BGSTAR_SIZE - 1;
+            il_j = il_bgcount;
+            while (il_j--)
+                *il_dst-- = *il_src--;
+#else
             lddr_copy(bgstar + BGSTAR_SIZE - BG_ROW_BYTES - 1,
                       bgstar + BGSTAR_SIZE - 1,
                       il_bgcount);
+#endif
+        }
         memset(bgstar + il_off, 0, BG_ROW_BYTES);
     }
 }
