@@ -7,9 +7,8 @@ project(rc700-gensmedet C)
 # z88dk headers for navigation (stdint.h, etc.)
 set(Z88DK_INCLUDE ${CMAKE_SOURCE_DIR}/z88dk/include)
 
-# Stub sdcc keywords so CLion's clang parser doesn't choke.
-# Individual headers already guard these with #ifndef __SDCC.
-add_compile_definitions(HOST_TEST)
+# CLion's host clang follows the clang Z80 code paths.
+# Z80-specific asm is guarded by #ifdef __z80__ (only defined by llvm-z80).
 
 add_subdirectory(autoload-in-c)
 add_subdirectory(rcbios-in-c)

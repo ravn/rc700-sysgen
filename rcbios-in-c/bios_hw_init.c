@@ -148,7 +148,7 @@ void bios_hw_init(void)
 
     /* SIO: program channels A and B from CONFI init blocks.
      * OTIR: output B bytes from (HL++) to port C. */
-#if defined(__SDCC) || defined(__SCCZ80)
+#if defined(__SDCC) || defined(__SCCZ80) || !defined(__z80__)
     {
         byte i;
         for (i = 0; i < 9; i++)
@@ -221,6 +221,7 @@ void bios_hw_init(void)
 
     /* Initialize disk subsystem */
     {
+        // ReSharper disable once CppJoinDeclarationAndAssignment
         byte d;
 
         /* Copy drive format table from config block */

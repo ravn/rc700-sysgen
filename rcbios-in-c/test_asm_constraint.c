@@ -2,6 +2,7 @@
  * blocks16 = (n / 16) * 16  — byte count for 16xLDI loop, used as BC directly
  * remainder = n % 16         — byte count for initial LDIR (0 = skip)
  * Always inlined; all args are compile-time constants at call sites. */
+// ReSharper disable CppJoinDeclarationAndAssignment
 typedef unsigned short word;
 typedef unsigned char byte;
 

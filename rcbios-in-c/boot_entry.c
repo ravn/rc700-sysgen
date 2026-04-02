@@ -70,7 +70,7 @@ void relocate_bios(void)
 
     /* Zero BSS.  Clang uses inline asm to avoid +static-stack BSS
      * self-clobber (#51).  SDCC uses C memcpy trick (no static-stack). */
-#ifdef __clang__
+#if defined(__clang__) && defined(__z80__)
     __asm volatile(
         "ld hl, __bss_compiler_head \n"
         "ld (hl), 0                 \n"

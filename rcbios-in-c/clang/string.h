@@ -24,6 +24,7 @@ void lddr_copy(void *src_end, void *dst_end, size_t n);
 static inline void
 memcpy_z80(void *dest, const void *src, unsigned short blocks16, unsigned char remainder)
 {
+#ifdef __z80__
     if (remainder) {
         unsigned short rem = remainder;
         __asm volatile("ldir"
@@ -37,6 +38,9 @@ memcpy_z80(void *dest, const void *src, unsigned short blocks16, unsigned char r
             "   jp pe, 1b"
             : "+{de}"(dest), "+{hl}"(src), "+{bc}"(bc) :: "memory");
     }
+#else
+    memcpy(dest, src, blocks16 + remainder);
+#endif
 }
 
 #endif

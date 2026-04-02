@@ -22,6 +22,9 @@
  * bios_boot_c(), bios_linsel() + bios_linsel_body().
  */
 
+// Until Clion is taught about sdcc:
+// ReSharper disable CppJoinDeclarationAndAssignment
+
 #include <string.h>
 #if defined(__SDCC) || defined(__SCCZ80)
 #include <intrinsic.h>
@@ -649,6 +652,7 @@ void wboot_c(void)
         seksec = sec;
         if (xread()) {
             puts_p("\r\nDisk read error - reset\r\n");
+            // ReSharper disable once CppDFAEndlessLoop
             for (;;)
                 hal_halt();
         }
@@ -1426,7 +1430,6 @@ static byte xwrite(byte wt)
 
     if (wt == WRUAL) {
         /* first write to unallocated block */
-        cpmrbp = cpmrbp;  /* keep as-is, just set unacnt */
         unacnt = cpmrbp;
         unadsk = sekdsk;
         unatrk = sektrk;

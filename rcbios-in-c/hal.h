@@ -90,7 +90,7 @@
 #define PORT_DMA_MASK     0xFF
 
 /* DEFPORT: one macro, three backends */
-#if defined(__clang__) && !defined(HOST_TEST)
+#if defined(__clang__) && defined(__z80__)
 #define __io __attribute__((address_space(2)))
 #define DEFPORT(name, addr) \
     static inline uint8_t port_in_##name(void) { \
@@ -107,7 +107,8 @@
 #define port_out(name, val) (_sfr_##name = (val))
 #else
 #define DEFPORT(name, addr) \
-    static inline uint8_t port_in_##name(void) { return 0; } \
+    static inline uint8_t port_in_##name(void) { \
+        volatile uint8_t _hw = 0; return _hw; } \
     static inline void port_out_##name(uint8_t val) { (void)val; }
 #define port_in(name)       port_in_##name()
 #define port_out(name, val) port_out_##name(val)
@@ -168,17 +169,7 @@ DEFPORT(hd_status,    PORT_HD_STATUS)
 #define hal_dma_dsp_wc(w)   do { port_out(dma_dsp_wc,(uint8_t)(w));   port_out(dma_dsp_wc,(uint8_t)((w)>>8));   } while(0)
 #define hal_dma_atr_wc(w)   do { port_out(dma_atr_wc,(uint8_t)(w));   port_out(dma_atr_wc,(uint8_t)((w)>>8));   } while(0)
 
-#ifdef HOST_TEST
-/* Host testing stubs */
-void hal_ei(void);
-void hal_di(void);
-#define __naked
-#define __critical
-#define __interrupt(n)
-#define __sdcccall(x)
-#define __asm__(x) ((void)0)
-#define hal_halt() ((void)0)
-#elif defined(__SDCC) || defined(__SCCZ80)
+#if defined(__SDCC) || defined(__SCCZ80)
 /* Z80 inline helpers */
 #define hal_ei()    __asm__("ei")
 #define hal_di()    __asm__("di")

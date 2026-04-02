@@ -19,6 +19,7 @@
  *   - sections.asm — linker section layout
  */
 
+// ReSharper disable CppJoinDeclarationAndAssignment
 #include <string.h>
 #ifdef __SDCC
 #include <intrinsic.h>

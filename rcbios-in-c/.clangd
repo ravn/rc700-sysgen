@@ -1,7 +1,18 @@
 CompileFlags:
   Add:
-    - -DHOST_TEST
+    - -xc
+    - -std=c99
+    - -Iclang
+    - -DMSIZE=56
     - -Wno-unknown-attributes
+    - -Wno-gcc-compat
     - -Wno-unused-value
+    - -Wno-unused-function
     - -Wno-int-to-pointer-cast
     - -Wno-pointer-to-int-cast
+    - -Wno-shift-count-overflow
+Diagnostics:
+  ClangTidy:
+    Remove:
+      - bugprone-infinite-loop
+      - misc-use-internal-linkage
