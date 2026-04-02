@@ -615,7 +615,7 @@ void bios_boot_c(void)
            "sdcc "
 #endif
            BUILDDATE "\r\n");
-
+    /* todo: single block, easy zero */
     cdisk = 0;
     hstact = 0;
     erflag = 0;
@@ -832,8 +832,8 @@ scroll_ldi:
     ldir
     __endasm;
 #else
-    /* Forward copy (src > dest) — memcpy is safe and inlines as LDIR */
-    memcpy((void *)0xF800, (void *)0xF850, 1920);
+    /* 16x LDI unroll: 20% faster than LDIR (16T/byte vs 21T/byte) */
+    memcpy_z80((void *)0xF800, (void *)0xF850, 1920, 0);  /* 1920/16*16=1920, 1920%16=0 */
     memset((void *)0xFF80, 0x20, 80);
 #endif
 
