@@ -39,10 +39,8 @@ extern byte _BOOT_CODE_tail;
 extern byte _BIOS_head;
 extern byte _bss_compiler_head;
 extern word _bss_compiler_size;
-#ifdef __clang__
 extern word _sentinel_addr;     /* sentinel word at end of .data, before .bss */
 #define SENTINEL_VALUE 0x1842
-#endif
 
 /* Data blocks in BOOT_DATA section (defined in boot_confi.c) */
 extern const byte confi_on_disk[128];
@@ -83,9 +81,6 @@ void relocate_bios(void)
         "ldir                       \n"
         ::: "memory"
     );
-    /* Verify sentinel: BSS clear must not overwrite .data/.rodata (#51). */
-    if (_sentinel_addr != SENTINEL_VALUE)
-        for (;;) hal_halt();
 #else
     {
         byte *p = &_bss_compiler_head;
@@ -94,6 +89,18 @@ void relocate_bios(void)
         memcpy(p + 1, p, n - 1);
     }
 #endif
+}
+
+/* Verify relocation: the sentinel word at the end of .data (just before
+ * .bss) must survive the BSS clear.  If it's been zeroed, the BSS clear
+ * overwrote preceding sections — the BIOS is corrupt and must not run.
+ *
+ * Called from coldboot() after relocate_bios(), before jumping to the
+ * relocated BIOS code.  See issue #51. */
+void verify_relocation(void)
+{
+    if (_sentinel_addr != SENTINEL_VALUE)
+        for (;;) hal_halt();  /* hang — display will show nothing */
 }
 
 /* Forward declaration — bios_boot() never returns. */
@@ -110,6 +117,7 @@ void coldboot(void) __naked
 {
     intrinsic_di();
     relocate_bios();
+    verify_relocation();
     bios_hw_init();
     bios_boot();                       /* sets SP to 0xF500, never returns */
 }

@@ -30,6 +30,7 @@
 _coldboot:
 	di
 	call	_relocate_bios
+	call	_verify_relocation
 	call	_bios_hw_init
 	ld	sp, BIOS_STACK
 	jp	_bios_boot_c

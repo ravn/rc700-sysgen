@@ -32,5 +32,12 @@
     SECTION code_clib
     SECTION code_string
 
+    ; Sentinel word: verified by verify_relocation() after BSS clear (#51).
+    ; Must be between last data and BSS.
+    SECTION SENTINEL
+GLOBAL __sentinel_addr
+__sentinel_addr:
+    defw 0x1842
+
     SECTION BSS
     SECTION bss_compiler
