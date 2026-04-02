@@ -100,6 +100,7 @@ void relocate_bios(void)
 void verify_relocation(void)
 {
     if (_sentinel_addr != SENTINEL_VALUE)
+        // ReSharper disable once CppDFAEndlessLoop
         for (;;) hal_halt();  /* hang — display will show nothing */
 }
 

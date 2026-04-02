@@ -862,6 +862,7 @@ void main_relocated(void) __naked
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
     display_banner_and_start_crt();
     get_floppy_ready();
+    // ReSharper disable once CppDFAEndlessLoop
     for (;;);  // halt if ever getting back here.
 }
 

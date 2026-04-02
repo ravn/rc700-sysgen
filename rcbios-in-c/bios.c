@@ -25,6 +25,7 @@
 // Until Clion is taught about sdcc:
 // ReSharper disable CppJoinDeclarationAndAssignment
 
+// ReSharper disable CppDeclaratorNeverUsed
 #include <string.h>
 #if defined(__SDCC) || defined(__SCCZ80)
 #include <intrinsic.h>
@@ -371,7 +372,7 @@ static void flp_dma_setup(void)
  * fdfp points past DMA count bytes, at the MF field:
  *   fdfp[0]=MF, fdfp[1]=N, fdfp[2]=EOT, fdfp[3]=gap
  */
-static void fdc_general_cmd(byte cmd, byte *fdfp)
+static void fdc_general_cmd(byte cmd, const byte *fdfp)
 {
     hal_di();
     fdc_write(cmd + fdfp[0]);       /* command + MF flag */

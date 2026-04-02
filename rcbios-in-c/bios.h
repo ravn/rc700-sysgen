@@ -40,7 +40,7 @@ typedef byte DisplayRow[80];
 typedef DisplayRow Display[25];
 
 /* Dimensions derived from the display array type */
-#define SCRN_COLS   ((word)sizeof(DisplayRow))          /* 80 */
+#define SCRN_COLS   ((byte)sizeof(DisplayRow))          /* 80 */
 #define SCRN_ROWS   (sizeof(Display) / sizeof(DisplayRow))  /* 25 */
 #define SCRN_SIZE   ((word)sizeof(Display))             /* 2000 */
 
