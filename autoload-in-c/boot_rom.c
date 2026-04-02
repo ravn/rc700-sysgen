@@ -11,12 +11,7 @@
  * NMI handler (address 0x0066).
  */
 
-#ifdef __SDCC
 #include <string.h>
-#include <intrinsic.h>
-#else
-#include <string.h>
-#endif
 #include "rom.h"
 
 extern void main_relocated(void);
@@ -85,11 +80,14 @@ extern const byte code_end;
 __attribute__((section(".pagezero.text")))
 #endif
 void start(void) {
+    // Executing at 0x0000 - be very careful about library routines
     intrinsic_di();
     SET_SP(ROM_STACK);
     memcpy(RELOC_DST, RELOC_SRC, RELOC_SIZE);
+    // Now code is in its intended locaiton.
     if (BSS_SIZE)
         memset(BSS_DST, 0, BSS_SIZE);
+    // Jump to relocated code.
     main_relocated();
 }
 

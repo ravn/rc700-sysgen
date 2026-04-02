@@ -21,11 +21,7 @@
 
 // ReSharper disable CppJoinDeclarationAndAssignment
 #include <string.h>
-#ifdef __SDCC
-#include <intrinsic.h>
-#endif
 #include "rom.h"
-
 
 /* Wait for FDC ready-to-write, then write val to data register.
  * Polls MSR until RQM=1 and DIO=0 (CPU->FDC direction). */
@@ -99,15 +95,7 @@ void delay(byte outer, byte inner) {
  * 2. Initialization
  * ================================================================ */
 
-/* Set Z80 I register. */
-static void set_i_reg(byte page) {
-#ifdef __z80__
-    __asm__ volatile("ld i, a" : : "a"(page));
-#else
-    (void) page;  /* sdcccall(1) passes byte in A */
-    __asm__("ld i, a\n");
-#endif
-}
+/* set_i_reg() provided by compiler-specific intrinsic headers */
 
 
 /* Combined PIO/CTC/DMA/CRT initialization.
@@ -333,6 +321,7 @@ byte wait_fdc_ready(byte timeout) {
             return 0;
         }
     }
+    // after repeated tries timing out, fdc did not complete.
     return 1;
 }
 
@@ -478,7 +467,7 @@ byte drive_select = 0;
 byte fdc_isr_delay = 0;
 byte fdc_result_delay = 0;
 fdc_command_block fdc_cmd = {0};
-byte floppy_operation_completed_flag = 0;
+volatile byte floppy_operation_completed_flag = 0;
 byte is_mini = 0;
 byte is_mfm = 0;
 byte is_double_sided = 0;
@@ -511,7 +500,7 @@ void halt_forever(void) {
 /* Copy 'len' bytes to display buffer, then halt forever.
  * Macro so 'len' is compile-time constant — sdcc inlines as LDIR.
  * 'len' must NOT include NUL terminator. */
-#define halt_msg(msg, len) do { memcpy(dspstr + 160, (msg), (len)); halt_forever(); } while(0)
+#define halt_msg(msg, len) do { memcpy(dspstr + 80 * 2, (msg), (len)); halt_forever(); } while(0)
 
 /* Compare 6 bytes.  A __naked DJNZ version would save only 1 byte
  * (sdcc uses DEC C/JR NZ = 3 bytes vs DJNZ = 2 bytes, but setup is same).
@@ -521,7 +510,6 @@ void halt_forever(void) {
  * Pointer-increment generates compact sdcc output
  * (17 bytes, no IX frame) vs memcmp library call (24 bytes more). */
 byte compare_6bytes(const byte *a, const byte *b) {
-
     byte i = 6;
     do {
         if (*a++ != *b++) {
@@ -564,7 +552,7 @@ void error_display_halt(byte code) {
  * Verify Track 0 data and boot.
  *
  * Checks two signatures in Track 0:
- *   0x0002: " RC700" — ID-COMAL: search dir for SYSM/SYSC, then floppy_boot
+ *   0x0002: " RC700" — ID-COMAL: search dir for SYSM/SYSC, then floppy_legacy_boot
  *   0x0008: " RC702" — CP/M: jump via vector at 0x0000
  *   neither: halt with error
  *
@@ -583,7 +571,7 @@ void boot_floppy_or_prom(void) {
                 boot_dir += 0x20;
                 if (*boot_dir != 0 &&
                     check_sysfile(boot_dir, "SYSC") == 0) {
-                    floppy_boot();
+                    floppy_legacy_boot();
                 }
             }
             break;
@@ -714,7 +702,7 @@ static void get_floppy_ready(void) {
 }
 
 /* Floppy boot sequence: sense, recalibrate, detect, read, boot.
- * Placed before floppy_boot for tail-call fall-through (saves 3 bytes). */
+ * Placed before floppy_legacy_boot for tail-call fall-through (saves 3 bytes). */
 static void boot_from_floppy_or_jump_prom1(void) {
     byte status;
 
@@ -767,14 +755,14 @@ static void boot_from_floppy_or_jump_prom1(void) {
  * Reads up to INTVEC_ADDR (0x7000) bytes — enough to fill memory from
  * 0x0000 to just below the IVT.  The original ROM passes HL=INTVEC to
  * RDTRK0 as the byte count. */
-void floppy_boot(void) {
+void floppy_legacy_boot(void) {
     disk_type = (byte)((is_mini << 7) | disk_type);
     disk_type--;
     fdc_detect_sector_size_and_density();
     dma_transfer_address = FLOPPYDATA;
     fdc_read_data_from_current_location(INTVEC_ADDR);
     disk_type = 1;
-    jump_to(COMALBOOT);
+    jump_to(LEGACYBOOT);
 }
 
 /* BIOS syscall: read sectors from disk.

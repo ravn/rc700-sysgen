@@ -11,9 +11,7 @@
  */
 
 #include <string.h>
-#if defined(__SDCC) || defined(__SCCZ80)
 #include <intrinsic.h>
-#endif
 #include "hal.h"
 #include "bios.h"
 

@@ -73,7 +73,7 @@ typedef uint16_t word;
 #define INTVEC_PAGE (INTVEC_ADDR >> 8)  /* I register value (0x73) */
 #define ROM_STACK   0xBFFF      /* Stack set by ROM entry / INIT_RELOCATED */
 #define FLOPPYDATA  0x0000      /* Track 0 loaded here by ROM */
-#define COMALBOOT   0x1000      /* COMAL-80 boot address */
+#define LEGACYBOOT   0x1000      /* COMAL-80 boot address */
 #define PROM1_ADDR  0x2000      /* Secondary PROM (network boot) */
 #define DIROFF      0x0B60      /* Directory start in Track 0 */
 #define DIREND_HI   0x0D        /* Directory end high byte */
@@ -136,7 +136,8 @@ typedef uint16_t word;
 #define port_out(name, val) (_sfr_##name = (val))
 #else
 #define DEFPORT(name, addr) \
-    static inline uint8_t port_in_##name(void) { return 0; } \
+    static inline uint8_t port_in_##name(void) { \
+        volatile uint8_t _hw = 0; return _hw; } \
     static inline void port_out_##name(uint8_t val) { (void)val; }
 #define port_in(name)       port_in_##name()
 #define port_out(name, val) port_out_##name(val)
@@ -197,9 +198,13 @@ DEFPORT(dma_clbp,     0xFC)
 #define crt_command(d)          port_out(crt_cmd, (d))
 #define crt_status()            port_in(crt_cmd)
 
-/* DI/EI/IM2 intrinsics */
+/* DI/EI/IM2/set_i_reg intrinsics */
 #ifdef __SDCC
 #include <intrinsic.h>
+static void set_i_reg(byte page) {
+    (void) page;  /* sdcccall(1) passes byte in A */
+    __asm__("ld i, a\n");
+}
 #elif defined(__z80__)
 #include "clang/intrinsic.h"
 static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
@@ -207,6 +212,7 @@ static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
 static inline void intrinsic_di(void) {}
 static inline void intrinsic_ei(void) {}
 static inline void intrinsic_im_2(void) {}
+static inline void set_i_reg(byte page) { (void) page; }
 #endif
 #define ei()  intrinsic_ei()
 #define di()  intrinsic_di()
@@ -296,7 +302,7 @@ typedef struct {
 } fdc_command_block;
 
 extern fdc_command_block fdc_cmd;
-extern byte floppy_operation_completed_flag;      /* floppy interrupt flag (0=idle, 2=done) */
+extern volatile byte floppy_operation_completed_flag; /* floppy interrupt flag (0=idle, 2=done) */
 extern byte is_mini;              /* 1=mini/5.25", 0=maxi/8" (from SW1 bit 7) */
 extern byte is_mfm;              /* 1=MFM (double density), 0=FM (single) */
 extern byte detected_max_head;     /* 1=side 1 present */
@@ -333,7 +339,7 @@ byte fdc_detect_sector_size_and_density(void);
 /* boot */
 void display_banner_and_start_crt(void);
 void error_display_halt(byte code);
-void floppy_boot(void);
+void floppy_legacy_boot(void);
 void prom1_if_present(void);
 void halt_forever(void);
 byte compare_6bytes(const byte *a, const byte *b);

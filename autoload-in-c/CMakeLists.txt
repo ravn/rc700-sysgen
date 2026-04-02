@@ -23,7 +23,5 @@ target_include_directories(rom_index PRIVATE
     ${Z88DK_INCLUDE}
 )
 
-# Define __z80__ so CLion shows the Z80/Clang code paths.
-target_compile_definitions(rom_index PRIVATE
-    __z80__=1
-)
+# Z80-specific asm is guarded by #ifdef __z80__ (only defined by llvm-z80).
+# Host clang gets safe fallbacks — no need to fake __z80__ here.
