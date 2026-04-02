@@ -55,7 +55,7 @@ extern void fdc_write(byte val);
 
 /* BSS variables in bios.c (at relocated runtime addresses) */
 extern byte drno;
-extern word dpbase[];
+extern DPH dpbase[];
 extern byte dirbf[];
 extern const DPB dpb8;
 extern byte chk0[], chk1[], all0[], all1[];
@@ -236,12 +236,11 @@ void bios_hw_init(void)
 
         /* Initialize DPH entries for each drive */
         for (d = 0; d <= drno && d < 2; d++) {
-            word *dph = &dpbase[d * 8];
-            memset(dph, 0, 8 * sizeof(word));       /* zero entire DPH */
-            dph[4] = (word)dirbf;          /* DIRBF */
-            dph[5] = (word)&dpb8;          /* DPB (initial) */
-            dph[6] = d == 0 ? (word)chk0 : (word)chk1;
-            dph[7] = d == 0 ? (word)all0 : (word)all1;
+            memset(&dpbase[d], 0, sizeof(DPH));
+            dpbase[d].dirbf = (word)dirbf;
+            dpbase[d].dpb   = (word)&dpb8;
+            dpbase[d].csv   = d == 0 ? (word)chk0 : (word)chk1;
+            dpbase[d].alv   = d == 0 ? (word)all0 : (word)all1;
         }
 
         /* Clear disk state */
