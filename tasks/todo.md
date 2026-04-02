@@ -132,3 +132,12 @@ and byte counts.
 | 11 | rc703-rel10 | src-rc703/BIOS_REL10.MAC | MATCH |
 | 12 | rc703-rel12 | src-rc703/BIOS.MAC -DREL12 | MATCH |
 | 13 | rc703-relTFj | src-rc703/BIOS.MAC -DRELTFJ | MATCH |
+
+## Note: +static-stack removal option
+
+Without `+static-stack`, BIOS is 6617B (+908B, 16% larger) but boots correctly
+with banner and avoids the entire class of BSS self-clobber bugs (#51, #53).
+Still fits MAXI disk (9984B limit, 3367B headroom). Consider removing
+`+static-stack` if the compiler bugs prove too hard to fix.
+
+Sizes: with +static-stack 5709B, without 6617B, SDCC 5570B.
