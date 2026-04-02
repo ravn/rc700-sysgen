@@ -201,7 +201,7 @@ DEFPORT(dma_clbp,     0xFC)
 #ifdef __SDCC
 #include <intrinsic.h>
 #elif defined(__z80__)
-#include "clang_z80/intrinsic.h"
+#include "clang/intrinsic.h"
 static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
 #else
 static inline void intrinsic_di(void) {}

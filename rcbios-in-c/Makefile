@@ -374,8 +374,7 @@ test:
 # ================================================================
 
 clean:
-	rm -f clang/*.o clang/bios.elf clang/bios.cim clang/bios.bin clang/bios.lis clang/bios_src.S
-	rm -f sdcc/*.o sdcc/bios sdcc/bios.cim sdcc/bios.map sdcc/bios.lis sdcc/bios_BOOT.bin sdcc/bios_BIOS.bin
-	rm -f sdcc/*.sym sdcc/bios.def sdcc/zcc_opt.def sdcc/*.c.lis sdcc/*.c.asm
+	$(MAKE) -C clang clean
+	$(MAKE) -C sdcc clean
 	rm -f builddate.h builddate.inc
 	rm -f /tmp/bios_c_mini.imd /tmp/bios_c_maxi.imd

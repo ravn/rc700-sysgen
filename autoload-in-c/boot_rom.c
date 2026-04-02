@@ -31,7 +31,7 @@ extern char _code_load[], _code_start[], _code_size[];
 extern char _bss_start[], _bss_size[];
 
 /* Banner string — 42 bytes, referenced by display_banner in CODE. */
-#include "clang_z80/banner.h"
+#include "clang/banner.h"
 #ifdef __ELF__
 __attribute__((section(".pagezero.data"), used))
 #endif
