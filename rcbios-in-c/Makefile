@@ -158,7 +158,7 @@ conotest: conout_test.c builddate.h
 	export PATH="$(Z88DK)/bin:$$PATH" && \
 	export ZCCCFG="$(ZCCCFG)" && \
 	$(ZCC) +cpm -clib=sdcc_iy -SO3 --opt-code-size \
-		-Cs"--std-sdcc99" -create-app -o conotest conout_test.c
+		-Cs"--std-sdcc23" -create-app -o conotest conout_test.c
 	@echo "conotest.com: $$(wc -c < conotest.com | tr -d ' ') bytes"
 
 conout-test: bios conotest

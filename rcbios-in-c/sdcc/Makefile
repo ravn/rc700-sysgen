@@ -21,7 +21,7 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--fomit-frame-pointer" \
          -Cs"--allow-unsafe-read" \
          -Cs"--sdcccall 1" \
-         -Cs"--std-sdcc99" \
+         -Cs"--std-sdcc23" \
          -Cs"--disable-warning 296" \
          -custom-copt-rules=peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
