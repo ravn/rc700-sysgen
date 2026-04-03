@@ -302,7 +302,7 @@ void fdc_read_result(void) {
 
     for (i = 0; i < 7; i++) {
         p[i] = fdc_read_when_ready();
-        delay(0, fdc_result_delay);
+        /* delay(0, fdc_result_delay); — no-op: outer=0 returns immediately */
         if (!(fdc_status() & 0b00010000)) {
             /* CB=0: no more result bytes */
             p[i + 1] = dma_status();
@@ -812,7 +812,7 @@ void refresh_crt_dma_50hz_interrupt(void) __critical __interrupt(1) {
  * Sets floppy_flag, then reads result or senses interrupt. */
 void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
     floppy_operation_completed_flag = 2; /* Only non-zero value */
-    delay(0, fdc_isr_delay);
+    /* delay(0, fdc_isr_delay); — no-op: outer=0 returns immediately */
     if (fdc_status() & 0b00010000) {    /* CB=1: result phase ready */
         fdc_read_result();
     } else {
