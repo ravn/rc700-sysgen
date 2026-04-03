@@ -177,7 +177,8 @@ ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--sdcccall 1" -Cs"--disable-warning 296" \
          -custom-copt-rules=sdcc/peephole.def \
          -pragma-define:CRT_ORG_CODE=0x0000 \
-         -pragma-define:CRT_ORG_BSS=0x8200
+         -pragma-define:CRT_ORG_BSS=0x8200 \
+         -pragma-define:CRT_CPU_CLOCK_HZ=4000000
 
 ZLIB = -lz80
 ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)

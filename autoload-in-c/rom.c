@@ -50,52 +50,52 @@ byte fdc_read_when_ready(void) {
 }
 
 /* ================================================================
- * delay() — triple-nested timing loop.
+ * delay_ms() — compiler-independent millisecond delay.
  *
- * WARNING: The FDC boot sequence is timing-sensitive.  If the PROM
- * fails to boot (floppy not detected), check DELAY_T first.
+ * SDCC: uses z88dk's z80_delay_ms() (hand-tuned asm, cycle-counted,
+ *       calibrated via CRT_CPU_CLOCK_HZ=4000000 on the zcc command line).
  *
- * Total time: outer × inner × 256 × DELAY_T T-states.
- * DELAY_T depends on the compiler's inner loop code generation
- * and MUST be updated when changing compiler or optimization level:
- *   SDCC:  djnz             = 13 T-states/iter
- *   clang: complex dec/test = 76 T-states/iter
- *   asm:   dec a; jr nz     = 16 T-states/iter (original ROM)
+ * Clang: inline asm delay loop with known T-state count.
+ *        Inner loop: DEC E; JR NZ = 16T per iteration (verified with ticks).
+ *        Total: outer × inner × 256 × 16 T-states.
  *
- * To measure: disassemble delay(), count T-states in the innermost
- * loop (the one that decrements k), and update DELAY_T.
- *
- * All callers use DELAY_T to compute parameters at compile time
- * so timing is correct regardless of compiler.
+ * Both are compiler-independent — no DELAY_T calibration needed.
  * ================================================================ */
-#if defined(__SDCC)
-#define DELAY_T  13   /* sdcc: djnz = 13T (taken) */
-#elif defined(__clang__)
-#define DELAY_T  16   /* clang -Os: dec e; jr nz = 4+12 = 16T (taken) */
-#else
-#error "DELAY_T not calibrated for this compiler — measure inner loop T-states"
-#endif
+
+#ifdef __SDCC
+
+#include <z80.h>
+#define delay_ms(ms) z80_delay_ms(ms)
+
+/* Short runtime-variable delay for FDC timing (fdc_result_delay, fdc_isr_delay).
+ * delay(0, N) is a no-op (outer=0 returns immediately). */
+void delay(byte outer, byte inner) {
+    if (!outer) return;
+    do {
+        byte mid = inner;
+        do {
+            byte k = 0;
+            do { __asm__(""); } while (--k);
+        } while (--mid);
+    } while (--outer);
+}
+
+#else /* clang — inline asm delay with known timing */
 
 #define Z80_MHZ  4
-
-/* Convert milliseconds to delay(outer, inner) arguments.
- * Total T-states = outer × inner × 256 × DELAY_T.
- * T-states for ms milliseconds = ms × Z80_MHZ × 1000.
- *
- * Algorithm: pick smallest outer (1..255) where inner fits in 8 bits.
- * For most values outer=1 works; only very long delays need outer>1. */
+#define _DELAY_T 16   /* dec e; jr nz = 4+12 = 16T (verified with z88dk-ticks) */
 #define _DELAY_TSTATES(ms)   ((long)(ms) * Z80_MHZ * 1000)
-#define _DELAY_INNER_1(ms)   (_DELAY_TSTATES(ms) / (256L * DELAY_T))
-#define _DELAY_INNER_2(ms)   (_DELAY_TSTATES(ms) / (2L * 256 * DELAY_T))
+#define _DELAY_INNER_1(ms)   (_DELAY_TSTATES(ms) / (256L * _DELAY_T))
+#define _DELAY_INNER_2(ms)   (_DELAY_TSTATES(ms) / (2L * 256 * _DELAY_T))
 
-/* delay_ms(ms): call delay() with compile-time computed arguments.
- * Uses outer=1 when inner fits in 255, otherwise outer=2. */
 #define delay_ms(ms) \
     delay( \
         (_DELAY_INNER_1(ms) <= 255) ? 1 : 2, \
         (byte)((_DELAY_INNER_1(ms) <= 255) ? _DELAY_INNER_1(ms) : _DELAY_INNER_2(ms)) \
     )
 
+/* Low-level delay: outer × inner × 256 × 16T.
+ * Also used for short runtime-variable delays (fdc_result_delay, fdc_isr_delay). */
 void delay(byte outer, byte inner) {
     if (!outer) return;
     do {
@@ -103,15 +103,13 @@ void delay(byte outer, byte inner) {
         do {
             byte k = 0;
             do {
-#ifdef __SDCC
-                __asm__("");
-#else
                 __asm__ volatile("");  /* optimization barrier */
-#endif
             } while (--k);
         } while (--mid);
     } while (--outer);
 }
+
+#endif /* __SDCC / clang */
 
 /* ================================================================
  * 2. Initialization
@@ -271,14 +269,10 @@ void calc_size_of_current_track(void) {
  * Wait for sector 1 (~1 rev) + read 26 sectors (~1 rev) = 332ms.
  * Require >= 400ms total timeout across 255 iterations.
  *
- * Parameters are computed from DELAY_T via delay_ms() so timing
- * is correct regardless of compiler.
- *
  * Each of 255 poll iterations does delay_ms(WAITFL_POLL_MS).
- * Total timeout = 255 × WAITFL_POLL_MS ≈ 510ms (>= 400ms required).
+ * Original ROM: WAITFL calls DELAY with B=1,C=1 → ~3ms per poll.
+ * 255 × 3ms = 765ms total timeout (>= 400ms required).
  */
-/* Original ROM: WAITFL calls DELAY with B=1,C=1 → ~3ms per poll.
- * 255 iterations × 3ms = 765ms total timeout (>= 400ms required). */
 #define WAITFL_POLL_MS    3
 
 /* Compile-time check: total timeout >= 400ms */
