@@ -46,15 +46,15 @@ prom:
 	 fi
 	@{ cat $(COMPILER)/prom.bin; \
 	   perl -e "print \"\\xff\" x (4096 - $$(wc -c < $(COMPILER)/prom.bin | tr -d ' '))"; \
-	 } > prom0.ic66
-	cp prom0.ic66 $(MAME_ROM)
+	 } > $(COMPILER)/prom0.ic66
+	cp $(COMPILER)/prom0.ic66 $(MAME_ROM)
 
 # ================================================================
 # MAME targets
 # ================================================================
 
 mame: prom mamesym
-	@awk '{printf "comadd %s,%s\n", $$1, $$2}' prom0_mame.sym > prom0_debug.cmd
+	@awk '{printf "comadd %s,%s\n", $$1, $$2}' $(COMPILER)/prom0_mame.sym > $(COMPILER)/prom0_debug.cmd
 	$(eval EXPECT := $(if $(filter sdcc,$(COMPILER)),RC700 ROA375,RC700 CL))
 	EXPECT_BANNER="$(EXPECT)" $(MAME_RUN)
 	@cat /tmp/boot_test_result.txt
@@ -64,7 +64,7 @@ mamesym:
 ifeq ($(COMPILER),clang)
 	@$(DOCKER) $(CLANG_NM) --numeric-sort clang/prom.elf | \
 		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
-		> prom0_mame.sym
+		> clang/prom0_mame.sym
 else
 	@awk '/= \$$[0-9A-Fa-f]+ ; addr,/ { \
 		name = $$1; addr = $$3; \
@@ -72,9 +72,9 @@ else
 		sub(/^\$$/, "0x", addr); \
 		sub(/^_/, "", name); \
 		printf "%s %s\n", addr, name; \
-	}' sdcc/prom0.map | sort > prom0_mame.sym
+	}' sdcc/prom0.map | sort > sdcc/prom0_mame.sym
 endif
-	@echo "wrote prom0_mame.sym ($$(wc -l < prom0_mame.sym) symbols)"
+	@echo "wrote $(COMPILER)/prom0_mame.sym ($$(wc -l < $(COMPILER)/prom0_mame.sym) symbols)"
 
 # ================================================================
 # LLVM-Z80 clang build
@@ -150,8 +150,8 @@ clang_symbols: clang/prom.bin
 clang_mamesym: clang/prom.bin
 	@$(DOCKER) $(CLANG_NM) --numeric-sort clang/prom.elf | \
 		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
-		> prom0_mame.sym
-	@echo "wrote prom0_mame.sym ($$(wc -l < prom0_mame.sym) symbols)"
+		> clang/prom0_mame.sym
+	@echo "wrote clang/prom0_mame.sym ($$(wc -l < clang/prom0_mame.sym) symbols)"
 
 # ================================================================
 # SDCC build (via z88dk Docker)
@@ -178,10 +178,10 @@ sdcc/prom.bin: sdcc/sections.asm rom.c rom.h boot_rom.c intvec.c sdcc/peephole.d
 	@mkdir -p sdcc
 	$(Z88DK_DOCKER) sh -c '\
 	STAMP=" ROA375 $$(date "+%Y-%m-%d %H.%M")/$$(whoami) " && \
-	printf '"'"'#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n'"'"' "$$STAMP" "$$STAMP" > build_stamp.h && \
+	printf '"'"'#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n'"'"' "$$STAMP" "$$STAMP" > sdcc/build_stamp.h && \
 	zcc $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o sdcc/boot_rom.o && \
 	zcc $(ZFLAGS) -c intvec.c -o sdcc/intvec.o && \
-	cd sdcc && zcc $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm ../intvec.o ../rom.c ../boot_rom.o'
+	cd sdcc && zcc $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o ../rom.c boot_rom.o'
 	@cd sdcc && cat prom0_BOOT.bin prom0_CODE.bin > prom.bin
 	@PROM=$$(wc -c < sdcc/prom.bin | tr -d ' '); \
 	 echo "sdcc PROM: $$PROM bytes"
@@ -211,4 +211,4 @@ rc700: prom
 clean:
 	$(MAKE) -C clang clean
 	$(MAKE) -C sdcc clean
-	rm -f prom0.ic66 prom0_mame.sym prom0_debug.cmd
+	rm -f build_stamp.h prom0.ic66 prom0_mame.sym prom0_debug.cmd

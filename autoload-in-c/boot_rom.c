@@ -98,7 +98,7 @@ void start(void) {
 #ifdef __SDCC
 
 /* Banner string */
-#include "build_stamp.h"
+#include "sdcc/build_stamp.h"
 void banner_string(void) __naked {
     __asm__("DEFM \" RC700\"\n"
             "DEFM " BUILD_STAMP_STR "\n");
