@@ -1,7 +1,7 @@
 CompileFlags:
   Add:
     - -xc
-    - -std=c99
+    - -std=c23
     - -Wno-unknown-attributes
     - -Wno-gcc-compat
     - -Wno-unused-value

@@ -1,7 +1,7 @@
 CompileFlags:
   Add:
     - -xc
-    - -std=c99
+    - -std=c23
     - -Iclang
     - -DMSIZE=56
     - -Wno-unknown-attributes
