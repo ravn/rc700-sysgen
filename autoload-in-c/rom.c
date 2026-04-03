@@ -71,8 +71,28 @@ byte fdc_read_when_ready(void) {
 #ifdef __SDCC
 #define DELAY_T  13   /* sdcc: djnz */
 #else
-#define DELAY_T  76   /* clang: complex 8-bit decrement loop */
+#define DELAY_T  76   /* clang -Os: complex 8-bit decrement loop */
 #endif
+
+#define Z80_MHZ  4
+
+/* Convert milliseconds to delay(outer, inner) arguments.
+ * Total T-states = outer × inner × 256 × DELAY_T.
+ * T-states for ms milliseconds = ms × Z80_MHZ × 1000.
+ *
+ * Algorithm: pick smallest outer (1..255) where inner fits in 8 bits.
+ * For most values outer=1 works; only very long delays need outer>1. */
+#define _DELAY_TSTATES(ms)   ((long)(ms) * Z80_MHZ * 1000)
+#define _DELAY_INNER_1(ms)   (_DELAY_TSTATES(ms) / (256L * DELAY_T))
+#define _DELAY_INNER_2(ms)   (_DELAY_TSTATES(ms) / (2L * 256 * DELAY_T))
+
+/* delay_ms(ms): call delay() with compile-time computed arguments.
+ * Uses outer=1 when inner fits in 255, otherwise outer=2. */
+#define delay_ms(ms) \
+    delay( \
+        (_DELAY_INNER_1(ms) <= 255) ? 1 : 2, \
+        (byte)((_DELAY_INNER_1(ms) <= 255) ? _DELAY_INNER_1(ms) : _DELAY_INNER_2(ms)) \
+    )
 
 void delay(byte outer, byte inner) {
     if (!outer) return;
@@ -249,30 +269,18 @@ void calc_size_of_current_track(void) {
  * Wait for sector 1 (~1 rev) + read 26 sectors (~1 rev) = 332ms.
  * Require >= 400ms total timeout across 255 iterations.
  *
- * Parameters are computed from DELAY_T so timing is correct
- * regardless of compiler.  Target: ~13,000T per iteration.
+ * Parameters are computed from DELAY_T via delay_ms() so timing
+ * is correct regardless of compiler.
+ *
+ * Each of 255 poll iterations does delay_ms(WAITFL_POLL_MS).
+ * Total timeout = 255 × WAITFL_POLL_MS ≈ 510ms (>= 400ms required).
  */
-#define Z80_MHZ           4
-#define WAITFL_TARGET_T   13000   /* T-states per poll iteration */
-#define WAITFL_DELAY_INNER  ((WAITFL_TARGET_T) / (256 * (DELAY_T)))
-#if WAITFL_DELAY_INNER < 1
-#undef WAITFL_DELAY_INNER
-#define WAITFL_DELAY_INNER 1
-#endif
-#define WAITFL_DELAY_OUTER  1
+/* Original ROM: WAITFL calls DELAY with B=1,C=1 → ~3ms per poll.
+ * 255 iterations × 3ms = 765ms total timeout (>= 400ms required). */
+#define WAITFL_POLL_MS    3
 
-/* Compile-time check: timeout >= 400ms */
-#define WAITFL_PER_ITER  ((long)WAITFL_DELAY_OUTER * WAITFL_DELAY_INNER * 256 * DELAY_T)
-#define WAITFL_MS        (255L * WAITFL_PER_ITER / (Z80_MHZ * 1000))
-typedef char _wait_floppy_ready_timeout_check[(WAITFL_MS >= 400) ? 1 : -1];
-
-/* Motor spin-up delay: ~850,000 T-states ≈ 212ms at 4MHz.
- * delay(SPINUP_OUTER, 0xFF): SPINUP_OUTER × 255 × 256 × DELAY_T T-states. */
-#if DELAY_T <= 16
-#define SPINUP_OUTER 1    /* asm/sdcc: 1 × 255 × 256 × 13 = 849,920T */
-#else
-#define SPINUP_OUTER 1    /* clang: 1 × 255 × 256 × 76 = 4,968,960T (longer but safe) */
-#endif
+/* Compile-time check: total timeout >= 400ms */
+typedef char _waitfl_timeout_check[(255L * WAITFL_POLL_MS >= 400) ? 1 : -1];
 
 /* Send Sense Interrupt Status; ST0 in [0], PCN in [1]. */
 void fdc_sense_interrupt(void) {
@@ -313,7 +321,7 @@ void fdc_read_result(void) {
  * Returns 0=ok, 1=timeout. */
 byte wait_fdc_ready(byte timeout) {
     while (--timeout) {
-        delay(WAITFL_DELAY_OUTER, WAITFL_DELAY_INNER);
+        delay_ms(WAITFL_POLL_MS);
         if (floppy_operation_completed_flag) {
             intrinsic_di();
             floppy_operation_completed_flag = 0;
@@ -661,26 +669,8 @@ static void fdc_read_data_from_current_location(word total_bytes_to_read) {
     }
 }
 
-/* FDC power-on delay: ~260ms = 1,040,000 T-states.
- * Total = outer × inner × 256 × DELAY_T.
- * Outer/inner chosen so inner fits in 8 bits (≤255). */
-#define FDC_INIT_TARGET_T  1040000L
-#if DELAY_T <= 16
-/* SDCC (DELAY_T=13): need outer=2 to keep inner ≤ 255.
- * 2 × 157 × 256 × 13 = 1,045,504T ≈ 261ms. */
-#define FDC_INIT_DELAY_OUTER 2
-#else
-/* Clang (DELAY_T=76): outer=1 suffices.
- * 1 × 53 × 256 × 76 = 1,031,168T ≈ 258ms. */
-#define FDC_INIT_DELAY_OUTER 1
-#endif
-#define FDC_INIT_DELAY_INNER (FDC_INIT_TARGET_T / (FDC_INIT_DELAY_OUTER * 256 * DELAY_T))
-#if FDC_INIT_DELAY_INNER > 255
-#error "FDC_INIT_DELAY_INNER overflow — adjust FDC_INIT_DELAY_OUTER"
-#endif
-
 static void init_fdc(void) {
-    delay(FDC_INIT_DELAY_OUTER, FDC_INIT_DELAY_INNER);
+    delay_ms(391);  /* FDC power-on delay: original ROM uses B=1,C=0xFF ≈ 391ms */
     while (port_in(fdc_status) & 0x1F)
         ;
     fdc_write_when_ready(0x03);  /* Specify command */
@@ -706,7 +696,7 @@ static void get_floppy_ready(void) {
 static void boot_from_floppy_or_jump_prom1(void) {
     byte status;
 
-    delay(SPINUP_OUTER, 0xFF);
+    delay_ms(391);  /* motor spin-up: original ROM uses B=1,C=0xFF ≈ 391ms */
 
     /* sense drive status (inlined sense_drive) */
     fdc_write_when_ready(FDC_SENSE_DRIVE);
