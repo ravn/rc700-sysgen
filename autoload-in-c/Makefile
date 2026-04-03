@@ -105,7 +105,7 @@ CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
 CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 
-CLANG_CFLAGS = --target=z80 -Oz -nostdlib \
+CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 	       -ffunction-sections -fdata-sections \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -Xclang -target-feature -Xclang +shadow-regs \
