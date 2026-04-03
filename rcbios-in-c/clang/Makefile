@@ -14,7 +14,7 @@ KBLANG ?= DANISH
 
 # LLVM-Z80 toolchain (via Docker)
 LLVM_Z80 = $(CURDIR)/../../../llvm-z80
-COMPILER = $(LLVM_Z80)/build/bin/clang
+CLANG_BIN = $(LLVM_Z80)/build/bin/clang
 
 # Docker: mount parent as /bios (where shared sources live)
 DOCKER = docker run --rm -m 8g \
@@ -52,28 +52,28 @@ bios.cim: $(PARENT)/builddate.h $(OBJS) rc700_bios.ld
 	fi
 
 # Compile shared sources — Docker sees them at /bios/<file>
-boot_block.o: $(PARENT)/boot_block.c $(PARENT)/bios.h $(PARENT)/builddate.h $(COMPILER)
+boot_block.o: $(PARENT)/boot_block.c $(PARENT)/bios.h $(PARENT)/builddate.h $(CLANG_BIN)
 	$(DOCKER) $(B)/clang $(CFLAGS) -c boot_block.c -o clang/$@
 
-boot_confi.o: $(PARENT)/boot_confi.c $(PARENT)/bios.h $(COMPILER)
+boot_confi.o: $(PARENT)/boot_confi.c $(PARENT)/bios.h $(CLANG_BIN)
 	$(DOCKER) $(B)/clang $(CFLAGS) $(if $(filter-out DANISH,$(KBLANG)),-D$(KBLANG)) -c boot_confi.c -o clang/$@
 
-boot_entry.o: $(PARENT)/boot_entry.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h $(COMPILER)
+boot_entry.o: $(PARENT)/boot_entry.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h $(CLANG_BIN)
 	$(DOCKER) $(B)/clang $(CFLAGS) -c boot_entry.c -o clang/$@
 
-bios_hw_init.o: $(PARENT)/bios_hw_init.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h $(COMPILER)
+bios_hw_init.o: $(PARENT)/bios_hw_init.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h $(CLANG_BIN)
 	$(DOCKER) $(B)/clang $(CFLAGS) -c bios_hw_init.c -o clang/$@
 
-bios_jump_vector_table.o: bios_jump_vector_table.c $(PARENT)/bios.h $(COMPILER)
+bios_jump_vector_table.o: bios_jump_vector_table.c $(PARENT)/bios.h $(CLANG_BIN)
 	$(DOCKER) $(B)/clang $(CFLAGS) -c clang/bios_jump_vector_table.c -o clang/$@
 
-bios.o: $(PARENT)/bios.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h string.h $(PARENT)/builddate.h $(COMPILER)
+bios.o: $(PARENT)/bios.c $(PARENT)/bios.h $(PARENT)/hal.h intrinsic.h string.h $(PARENT)/builddate.h $(CLANG_BIN)
 	$(DOCKER) $(B)/clang $(CFLAGS) -c bios.c -o clang/$@
 
-bios_shims.o: bios_shims.s $(COMPILER)
+bios_shims.o: bios_shims.s $(CLANG_BIN)
 	$(DOCKER) $(B)/clang --target=z80 -c clang/bios_shims.s -o clang/$@
 
-runtime.o: runtime.s $(COMPILER)
+runtime.o: runtime.s $(CLANG_BIN)
 	$(DOCKER) $(B)/clang --target=z80 -c clang/runtime.s -o clang/$@
 
 # Generate builddate.h in parent if needed

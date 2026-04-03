@@ -69,14 +69,12 @@ all: bios size
 # ================================================================
 
 builddate.h: FORCE
-	@echo '#define BUILDDATE "'$$(date +%Y-%m-%d\ %H:%M)'"' > $@.tmp
-	@cmp -s $@.tmp $@ 2>/dev/null || mv $@.tmp $@
-	@rm -f $@.tmp
+	@echo '#define BUILDDATE "'$$(date +%Y-%m-%d\ %H:%M)'"' > $@.$$$$; \
+	 cmp -s $@.$$$$ $@ 2>/dev/null && rm -f $@.$$$$ || mv $@.$$$$ $@
 
 builddate.inc: FORCE
-	@echo '    defm " C-BIOS '$$(date +%Y-%m-%d\ %H:%M)' /Thorbjoern Ravn Andersen"' > $@.tmp
-	@cmp -s $@.tmp $@ 2>/dev/null || mv $@.tmp $@
-	@rm -f $@.tmp
+	@echo '    defm " C-BIOS '$$(date +%Y-%m-%d\ %H:%M)' /Thorbjoern Ravn Andersen"' > $@.$$$$; \
+	 cmp -s $@.$$$$ $@ 2>/dev/null && rm -f $@.$$$$ || mv $@.$$$$ $@
 
 FORCE:
 
