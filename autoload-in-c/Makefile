@@ -62,7 +62,7 @@ mame: prom mamesym
 
 mamesym:
 ifeq ($(COMPILER),clang)
-	@$(DOCKER) $(CLANG_NM) --numeric-sort clang/prom.elf | \
+	@$(RUN) $(CLANG_NM) --numeric-sort clang/prom.elf | \
 		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
 		> clang/prom0_mame.sym
 else
@@ -81,13 +81,23 @@ endif
 # ================================================================
 
 LLVM_Z80 = $(CURDIR)/../../llvm-z80
-CLANG_BUILD = /src/build/bin
+NATIVE ?= 1
 
-DOCKER = docker run --rm -m 8g \
+ifneq ($(NATIVE),0)
+  # Native macOS build — run tools directly
+  CLANG_BUILD = $(LLVM_Z80)/build-macos/bin
+  RUN =
+  CLANG_COMPILER = $(CLANG_BUILD)/clang
+else
+  # Docker build
+  CLANG_BUILD = /src/build/bin
+  RUN = docker run --rm -m 8g \
 	-v $(LLVM_Z80):/src \
 	-v $(CURDIR):/rom \
 	-w /rom \
 	ubuntu:24.04
+  CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
+endif
 
 CLANG_CC      = $(CLANG_BUILD)/clang
 CLANG_LD      = $(CLANG_BUILD)/ld.lld
@@ -95,7 +105,7 @@ CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
 CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 
-CLANG_CFLAGS = --target=z80 -Os -nostdlib \
+CLANG_CFLAGS = --target=z80 -Oz -nostdlib \
 	       -ffunction-sections -fdata-sections \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -Xclang -target-feature -Xclang +shadow-regs \
@@ -104,12 +114,11 @@ CLANG_CFLAGS = --target=z80 -Os -nostdlib \
 	       -Wimplicit-int-conversion
 
 CLANG_OBJS = clang/boot.o clang/intvec.o clang/rom.o clang/runtime.o
-CLANG_COMPILER = $(LLVM_Z80)/build/bin/clang
 
 clang/prom.bin: $(CLANG_OBJS) clang/rc700_prom.ld
-	$(DOCKER) $(CLANG_LD) --gc-sections -T clang/rc700_prom.ld $(CLANG_OBJS) -o clang/prom.elf
-	$(DOCKER) $(CLANG_OBJCOPY) -O binary clang/prom.elf clang/prom.bin
-	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf > clang/prom.lis
+	$(RUN) $(CLANG_LD) --gc-sections -T clang/rc700_prom.ld $(CLANG_OBJS) -o clang/prom.elf
+	$(RUN) $(CLANG_OBJCOPY) -O binary clang/prom.elf clang/prom.bin
+	$(RUN) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf > clang/prom.lis
 
 clang/banner.h:
 	@STAMP=" CL $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
@@ -117,38 +126,37 @@ clang/banner.h:
 	 echo "#define CLANG_BANNER \"$$BANNER\"" > $@
 
 clang/boot.o: boot_rom.c rom.h clang/banner.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
 
 clang/runtime.o: clang/runtime.s $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) --target=z80 -c $< -o $@
+	$(RUN) $(CLANG_CC) --target=z80 -c $< -o $@
 
 clang/intvec.o: intvec.c rom.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c intvec.c -o $@
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -c intvec.c -o $@
 
 clang/rom.o: rom.c rom.h $(CLANG_COMPILER)
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -c rom.c -o $@
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -c rom.c -o $@
 
 clang_asm: rom.c rom.h
-	$(DOCKER) $(CLANG_CC) $(CLANG_CFLAGS) -S rom.c -o /dev/stdout
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -S rom.c -o /dev/stdout
 
 clang_disasm: clang/prom.bin
-	$(DOCKER) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf
+	$(RUN) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf
 
 clang_src_lis: rom.c rom.h boot_rom.c intvec.c clang/rc700_prom.ld $(CLANG_COMPILER)
-	$(DOCKER) sh -c '\
-	$(CLANG_CC) $(CLANG_CFLAGS) -g -c boot_rom.c -o /tmp/boot_g.o && \
-	$(CLANG_CC) $(CLANG_CFLAGS) -g -c intvec.c -o /tmp/intvec_g.o && \
-	$(CLANG_CC) $(CLANG_CFLAGS) -g -c rom.c -o /tmp/rom_g.o && \
-	$(CLANG_CC) --target=z80 -c clang/runtime.s -o /tmp/runtime_g.o && \
-	$(CLANG_LD) --gc-sections -T clang/rc700_prom.ld /tmp/boot_g.o /tmp/intvec_g.o /tmp/rom_g.o /tmp/runtime_g.o -o /tmp/prom_g.elf && \
-	$(CLANG_OBJDUMP) -d -S --triple=z80 /tmp/prom_g.elf' > clang/prom_src.lis
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -g -c boot_rom.c -o /tmp/boot_g.o
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -g -c intvec.c -o /tmp/intvec_g.o
+	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -g -c rom.c -o /tmp/rom_g.o
+	$(RUN) $(CLANG_CC) --target=z80 -c clang/runtime.s -o /tmp/runtime_g.o
+	$(RUN) $(CLANG_LD) --gc-sections -T clang/rc700_prom.ld /tmp/boot_g.o /tmp/intvec_g.o /tmp/rom_g.o /tmp/runtime_g.o -o /tmp/prom_g.elf
+	$(RUN) $(CLANG_OBJDUMP) -d -S --triple=z80 /tmp/prom_g.elf > clang/prom_src.lis
 	@echo "wrote clang/prom_src.lis"
 
 clang_symbols: clang/prom.bin
-	$(DOCKER) $(CLANG_NM) --numeric-sort clang/prom.elf
+	$(RUN) $(CLANG_NM) --numeric-sort clang/prom.elf
 
 clang_mamesym: clang/prom.bin
-	@$(DOCKER) $(CLANG_NM) --numeric-sort clang/prom.elf | \
+	@$(RUN) $(CLANG_NM) --numeric-sort clang/prom.elf | \
 		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
 		> clang/prom0_mame.sym
 	@echo "wrote clang/prom0_mame.sym ($$(wc -l < clang/prom0_mame.sym) symbols)"
