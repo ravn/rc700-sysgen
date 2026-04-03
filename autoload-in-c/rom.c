@@ -69,9 +69,9 @@ byte fdc_read_when_ready(void) {
  * so timing is correct regardless of compiler.
  * ================================================================ */
 #ifdef __SDCC
-#define DELAY_T  13   /* sdcc: djnz */
+#define DELAY_T  13   /* sdcc: djnz = 13T (taken) */
 #else
-#define DELAY_T  76   /* clang -Os: complex 8-bit decrement loop */
+#define DELAY_T  16   /* clang: dec e; jr nz = 4+12 = 16T (taken) */
 #endif
 
 #define Z80_MHZ  4
