@@ -327,7 +327,7 @@ void calc_size_of_current_track(void);
 
 /* fdc */
 void fdc_sense_interrupt(void);
-void fdc_seek(byte head_and_drive, byte cylinder);
+/* fdc_seek: static in rom.c (single call site) */
 void fdc_read_result(void);
 byte fdc_select_drive_cylinder_head(void);
 void fdc_write_full_cmd(byte cmd);
@@ -337,7 +337,7 @@ byte fdc_get_result_bytes(byte cmd, byte retries);
 byte fdc_detect_sector_size_and_density(void);
 
 /* boot */
-void display_banner_and_start_crt(void);
+/* display_banner_and_start_crt: static in rom.c (single call site) */
 void error_display_halt(byte code);
 void floppy_legacy_boot(void);
 void prom1_if_present(void);

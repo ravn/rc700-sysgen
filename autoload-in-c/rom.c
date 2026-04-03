@@ -175,7 +175,7 @@ extern void banner_string(void);  /* address of raw bytes in BOOT */
 /* Copy banner from BOOT ROM to display and start CRT controller.
  * Programs DMA ch2 with display address before starting CRT so the
  * first frame renders immediately without waiting for the ISR. */
-void display_banner_and_start_crt(void) {
+static void display_banner_and_start_crt(void) {
     memcpy(dspstr, (const byte *)&banner_string, BANNER_LENGTH);
     /* Pre-program DMA ch2 for first frame (ISR takes over for subsequent frames) */
     dma_mask(2);                     /* disable ch2 during programming */
@@ -289,7 +289,7 @@ void fdc_sense_interrupt(void) {
 }
 
 /* Send Seek command to head/drive dh, cylinder cyl. */
-void fdc_seek(byte head_and_drive, byte cylinder) {
+static void fdc_seek(byte head_and_drive, byte cylinder) {
     fdc_write_when_ready(FDC_SEEK);
     fdc_write_when_ready(head_and_drive & 0b00000111); /* HD + US (head + drive) */
     fdc_write_when_ready(cylinder); /* NCN (new cylinder number) */
