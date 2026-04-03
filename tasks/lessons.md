@@ -72,3 +72,53 @@ already documented in MEMORY.md line 38.
 memory files. The auto-loaded MEMORY.md snippet in system context is truncated
 (200 lines) and easy to skim past. Explicitly reading the files ensures full
 coverage and primes the correct workflows.
+
+## 2026-04-03: MAME Lua os.exit() does not flush MFI disk images
+
+**Context**: SYSGEN wrote to disk in MAME, but the MFI file was unchanged
+because the Lua script called `os.exit(0)` which kills MAME immediately.
+
+**Fix**: Use `manager.machine:exit()` for clean shutdown. MAME flushes the
+MFI file to disk during normal exit.
+
+**Lesson**: Never use `os.exit()` in MAME Lua scripts when disk writes must
+persist. Use `manager.machine:exit()` instead.
+
+## 2026-04-03: CP/M LOAD.COM expects type 00 EOF, not Intel HEX type 01
+
+**Context**: Generated Intel HEX with standard `:00000001FF` EOF record.
+LOAD.COM reported "INVALID HEX DIGIT" because it doesn't recognize type 01.
+
+**Fix**: Use `:0000000000` (zero-length type 00 data record) as EOF.
+CP/M's ASM.COM also produces this format.
+
+## 2026-04-03: MAME null_modem RS232 defaults override Lua settings
+
+**Context**: Tried to change null_modem baud rate from Lua via
+`field.user_value`. The setting appeared to change but the null_modem
+didn't reconfigure — `DEVICE_INPUT_DEFAULTS` from the driver takes
+precedence and is applied at device creation, before Lua runs.
+
+**Fix**: Change the defaults in `rc702.cpp` and rebuild MAME.
+
+## 2026-04-03: Original RC702 BIOS (rel 2.3) serial is 1200 7E1 with 1-char buffer
+
+**Context**: Serial transfer via PIP dropped characters even at 1200 baud.
+The original BIOS only buffers a single character in the SIO (no ring buffer,
+no effective RTS flow control). The clang BIOS has a 256-byte ring buffer.
+
+**Lesson**: Serial file transfer to the RC702 requires either the clang BIOS
+(ring buffer + RTS), or an external pacing mechanism. The distribution disk
+serial settings are 1200 baud, 7 data bits, even parity, 1 stop bit.
+
+## 2026-04-03: SYSGEN CPM56.COM workflow from RC702 Users Guide
+
+**Context**: Spent significant time trying to work around the fact that
+LOAD.COM creates a .COM spanning 0x0100-0x6BFF which overlaps the SYSGEN
+buffer. The official RC702 documentation (CPM_FOR_RC702_USERS_GUIDE.pdf
+appendix C) describes the correct workflow: SYSGEN reads/writes a file
+(CPM56.COM) directly, using a filename argument.
+
+**Lesson**: Always check vendor documentation before inventing workarounds.
+The SYSGEN file-based workflow is simple: `SYSGEN CPM56.COM` reads the
+file and writes to system tracks in one step.

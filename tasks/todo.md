@@ -112,6 +112,23 @@ TAB1 jump table entries for the 3 ESC handlers should point to DUMMY for REL30.
 See `rcbios/BGSTAR_ANALYSIS.md` for section-by-section breakdown with addresses
 and byte counts.
 
+## Done: SYSGEN BIOS install via CPM56.COM (completed 2026-04-03)
+
+Workflow to install C BIOS onto a disk using standard CP/M tools:
+- [x] SYSGEN memory layout reverse-engineered (track 1 at 0x0900, track 0 at 0x4500)
+- [x] mk_cpm56.py: patches bios.cim into CPM56.COM, generates Intel HEX
+- [x] cpm56_original.com: CCP+BDOS extracted from distribution disk via SYSGEN+SAVE
+- [x] Tested in MAME: LOAD CPM56 → SYSGEN CPM56.COM → boots with clang banner
+- [x] MAME rs232a defaults changed to 1200 7E1 (matches distribution disk)
+- [x] Serial transfer investigated: blocked by original BIOS 1-char SIO buffer
+- See `rcbios-in-c/SYSGEN_INSTALL.md` for full documentation
+
+### Remaining
+- [ ] Serial PIP transfer: needs clang BIOS ring buffer (chicken-and-egg)
+- [ ] Rebuild CCP+BDOS for different MTYPE (memory size) values
+- [ ] USB video grabber for monitoring physical machine
+- [ ] Test on real RC702 hardware
+
 ## Parked (not working on now)
 - [ ] 58K rel.1.4: 4 ISR-specific auto-labels remain in BIOS_58K_14.MAC (sub_e43dh, lee8ah, lee8bh, lf421h)
 - [ ] VERIFY.COM disassembly: Pascal-compiled disk verification utility (10KB). VERIFY.MAC in RC702E BIOS is a related but separate compilation (4KB app block, missing runtime). Low value — compiler output won't produce readable source.
