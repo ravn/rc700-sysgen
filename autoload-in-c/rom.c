@@ -68,10 +68,12 @@ byte fdc_read_when_ready(void) {
  * All callers use DELAY_T to compute parameters at compile time
  * so timing is correct regardless of compiler.
  * ================================================================ */
-#ifdef __SDCC
+#if defined(__SDCC)
 #define DELAY_T  13   /* sdcc: djnz = 13T (taken) */
+#elif defined(__clang__)
+#define DELAY_T  16   /* clang -Os: dec e; jr nz = 4+12 = 16T (taken) */
 #else
-#define DELAY_T  16   /* clang: dec e; jr nz = 4+12 = 16T (taken) */
+#error "DELAY_T not calibrated for this compiler — measure inner loop T-states"
 #endif
 
 #define Z80_MHZ  4
