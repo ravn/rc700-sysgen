@@ -126,15 +126,22 @@ is simply part of the contiguous DMA transfer.
 
 ### How the 8275 + Am9517A DMA split works
 
-The ROA375 PROM's circular-buffer scroll (roa375.asm:893-967) proves
-that the 8275 CRT controller can be fed from two DMA channels pointing
-to different memory regions:
+**Confirmed from the Intel 8275 datasheet (1984, pages 11 and 17):**
 
-- **Ch2 (higher priority)**: serves bytes first. When ch2 reaches
-  terminal count, the Am9517A automatically stops servicing ch2.
-- **Ch3 (lower priority)**: takes over and serves the remaining bytes.
-- The 8275 doesn't care which channel provides data — it just issues
-  DMA requests until it has enough characters for the frame.
+The 8275 has a **single DRQ output**. It requests characters via DMA
+bursts through this one line — it does NOT have separate DMA channels
+for character data and attributes. The attribute handling is internal
+(FIFO-based, for transparent/non-transparent field attribute modes).
+
+The ch2/ch3 split works because of Am9517A priority arbitration:
+- Ch2 (higher priority) services DRQ first
+- When ch2 reaches terminal count, the Am9517A stops servicing ch2
+- Ch3 (lower priority) takes over servicing the **same DRQ line**
+- The 8275 is completely unaware of the channel switch — it just
+  sees characters arriving in response to its DRQ requests
+
+The ROA375 PROM's circular-buffer scroll (roa375.asm:893-967) proves
+this mechanism works in practice with the RC702 hardware.
 
 In the circular scroll case:
 - Ch2: `DSPSTR + S` to end of buffer (2000 - S bytes)
@@ -361,16 +368,51 @@ essential for the initial implementation.
    characters — no 0xFF terminator needed. The terminal count on both
    channels ensures clean cutoff.
 
-4. **Attribute mode**: the 8275 can be configured for attribute-based
-   display (where ch3 provides per-character attributes). The RC702
-   BIOS doesn't use attributes (ch3 wc=0). Repurposing ch3 for the
-   status line means attributes remain unavailable. This is fine —
-   they were never used.
+4. **Attribute mode**: the 8275 handles field attributes internally
+   via its FIFO buffers — they are NOT fed by a separate DMA channel.
+   Ch3 in the RC702 is wired to the same DRQ as ch2 (the 8275's
+   single DMA request line). The BIOS labels ch3 "display attributes"
+   but it actually serves as a secondary character data channel that
+   kicks in after ch2 reaches terminal count. Setting ch3 wc=0
+   effectively disables it. Repurposing ch3 for the status line is
+   the intended use of this Am9517A priority mechanism — confirmed
+   by the ROA375 PROM's circular scroll and the 8275 datasheet.
 
 5. **ISR cost**: programming ch3 address + word count adds ~8 port
    writes (4 for address, 4 for word count including clear-byte-pointer).
    At 11T per OUT, that's ~88T extra per frame = ~4400T/sec at 50Hz.
    Negligible (0.1% CPU at 4MHz).
+
+## 8275 Reset Command Parameter Reference (from datasheet p.17)
+
+Screen Composition bytes 1-4 follow the Reset command (0x00 to cmd port):
+
+```
+Byte 1: S HHHHHHH     S=spaced rows, H=chars/row - 1 (0..79)
+Byte 2: VV RRRRRR     V=VRTC row count (0-3 → 1-4), R=rows/frame - 1 (0..63)
+Byte 3: UUUU LLLL     U=underline line# (0-15), L=lines/char row - 1 (0..15)
+Byte 4: MF CC ZZZZ    M=line counter mode, F=field attr mode,
+                       C=cursor (00=blink rev, 01=blink uline,
+                                 10=steady rev, 11=steady uline)
+                       Z=H retrace count - 2 (encoded)
+```
+
+RC702 defaults: `0x4F 0x98 0x7A 0x6D`
+- 0x4F: S=0, H=79 → 80 chars/row
+- 0x98: V=0b10(=3 VRTC rows), R=0x18(=24) → 25 rows/frame
+- 0x7A: U=0x7(=line 7 underline), L=0xA(=10) → 10+2=12? (check)
+- 0x6D: M=0, F=1(non-transparent), C=0b10(steady rev block),
+        Z=0xD → H retrace
+
+CRT26 modification: `0x98 - 0x3F = 0x59`
+- 0x59: V=0b01(=2 VRTC rows), R=0x19(=25) → 26 rows/frame
+- Reduces VRTC by 1 row and adds 1 display row simultaneously
+
+Special control codes (character data with MSB=1, bit6=1):
+- 0b1100xxxx: End of Row (VSP to end of line)
+- 0b1101xxxx: End of Row + Stop DMA
+- 0b1110xxxx: End of Screen (VSP to end of frame)
+- 0b1111xxxx: End of Screen + Stop DMA
 
 ## References
 
