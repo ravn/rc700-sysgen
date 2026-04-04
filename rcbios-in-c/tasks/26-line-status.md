@@ -122,19 +122,110 @@ The CRT ISR programs DMA ch2 every frame with `SCREENBASE` and
 `SCREENSIZE`. No DMA split (ch3 word count = 0). The 26th line
 is simply part of the contiguous DMA transfer.
 
-## Current C BIOS state
+## DMA split for separate status line buffer
+
+### How the 8275 + Am9517A DMA split works
+
+The ROA375 PROM's circular-buffer scroll (roa375.asm:893-967) proves
+that the 8275 CRT controller can be fed from two DMA channels pointing
+to different memory regions:
+
+- **Ch2 (higher priority)**: serves bytes first. When ch2 reaches
+  terminal count, the Am9517A automatically stops servicing ch2.
+- **Ch3 (lower priority)**: takes over and serves the remaining bytes.
+- The 8275 doesn't care which channel provides data — it just issues
+  DMA requests until it has enough characters for the frame.
+
+In the circular scroll case:
+- Ch2: `DSPSTR + S` to end of buffer (2000 - S bytes)
+- Ch3: `DSPSTR` for wrap-around (S bytes)
+- Total: 2000 bytes from two disjoint regions
+
+### Applying the split to a 26-line status line
+
+For 26 rows (2080 characters total), the split would be:
+- **Ch2**: 2000 bytes from `DSPSTR` (0xF800) — rows 0-24
+- **Ch3**: 80 bytes from `STATBUF` (a separate buffer) — row 25
+
+The 8275 requests 26×80 = 2080 characters per frame. Ch2 serves the
+first 2000 (rows 0-24). When ch2 reaches terminal count, ch3 kicks in
+and serves the remaining 80 characters (the status line) from a
+completely separate memory address.
+
+### Advantages over contiguous layout
+
+1. **Display buffer stays clean**: 0xF800-0xFF9F is exactly 2000 bytes,
+   no gap, no 0xFF terminator, no risk of overwriting BSS variables
+2. **Status buffer location is flexible**: can be in BSS, in the gap
+   between BSS end and 0xF600, or at any fixed address
+3. **No memory conflict**: the contiguous approach puts the status line
+   at 0xFFA0-0xFFEF, which is close to the fixed-address variables at
+   0xFFD0+ — tight and fragile
+4. **Compatible with circular scroll**: if we later implement zero-copy
+   scrolling, ch2 handles the circular split and ch3 still provides
+   the status line (would need 3-way split — see below)
+
+### Three-way split for scroll + status line (future)
+
+If both circular scroll and status line are wanted, we need three
+segments but only have two DMA channels. Options:
+
+a. **Copy the status line into display memory** at the scroll boundary.
+   Ch2 serves [S..1999], ch3 serves [0..S-1] + status line (contiguous
+   if status line is placed right after the wrap-around region).
+   Complication: status line must move with S.
+
+b. **Use 0xFF terminator** after row 24 to stop ch2 early, then ch3
+   serves the status line from a separate buffer.
+   Problem: 0xFF also terminates DMA mid-row, not at the end of 2000.
+   Need to verify 8275 behavior with 0xFF in this context.
+
+c. **Abandon circular scroll** for the status line variant.
+   Use memcpy_z80 scroll (current) + DMA-split status line.
+   Simplest and already fast enough (memcpy_z80 with 16×LDI).
+
+Decision: start with option (c). Circular scroll is a separate
+optimization and can be added later if needed.
+
+### Memory map with DMA-split status line
+
+```
+0xDA00  BIOS JP table + JTVARS
+0xDA71  BIOS code (.text)
+  ...   BIOS rodata, data
+  ...   BIOS BSS
+        [gap]
+0xF600  IVT (interrupt vector table, page-aligned)
+        Interrupt stack (grows DOWN from 0xF600)
+0xF680  OUTCON/INCONV tables (384 bytes)
+0xF800  Display memory: 25 rows × 80 cols (2000 bytes)
+0xFF9F  End of display (unchanged, clean 2000-byte boundary)
+
+Status line buffer: 80 bytes in BSS (e.g. statbuf[80])
+```
+
+The status line buffer lives in BSS alongside other BIOS variables.
+It's written by the status line driver and read by DMA ch3 at 50Hz.
+No fixed address needed — the ISR programs ch3 with the buffer address.
+
+### Current C BIOS state
 
 - `bios.h`: `Display[25]` = 25 rows, `SCRN_SIZE` = 2000
 - `boot_confi.c`: `par2 = 0x98` (25 rows, standard)
 - `bios_hw_init.c:202`: `port_out(crt_param, CFG.par2)` — writes par2 unmodified
-- `bios.c isr_crt()`: DMA word count = `SCRN_SIZE - 1` = 1999
+- `bios.c isr_crt()`: DMA ch2 word count = `SCRN_SIZE - 1` = 1999,
+  ch3 word count = 0 (attributes disabled)
+- `hal.h`: `DMA_CH_DISPLAY = 2`, `DMA_CH_DISATTR = 3`
+- `hal.h`: `hal_dma_atr_wc(w)` macro exists but only sets word count
+  (no `hal_dma_atr_addr` macro — needs adding)
 - No status line, no clock display, no 26th line
 
 ## Implementation Plan
 
-### Phase 1: CRT26 — enable the 26th line
+### Phase 1: CRT26 + DMA split — enable the 26th line
 
-**Goal**: Get the 8275 to display 26 rows instead of 25.
+**Goal**: Display 26 rows with the status line in a separate BSS buffer,
+fed by DMA ch3 while ch2 serves the normal 25-row display.
 
 1. **Add `CRT26` build flag** to Makefile (`-DCRT26`)
    - Both clang and SDCC variants
@@ -148,34 +239,63 @@ is simply part of the contiguous DMA transfer.
    #endif
    ```
 
-3. **Extend display memory definitions** in `bios.h`:
+3. **Add status line buffer** in `bios.c` (BSS):
    ```c
    #ifdef CRT26
-   #define STATLINE    ((byte *)(DSPSTR + SCRN_SIZE))  /* row 25 */
-   #define STAT_LEN    39          /* max status string length */
-   #define DMA_SIZE    (SCRN_SIZE + SCRN_COLS + 1)  /* 2081: 25 rows + status + 0xFF */
+   static byte statbuf[80];  /* status line content, DMA ch3 source */
+   #define STAT_LEN  39      /* max status string length */
+   #endif
+   ```
+
+4. **Add `hal_dma_atr_addr` macro** in `hal.h`:
+   ```c
+   #define hal_dma_atr_addr(a) do { \
+       port_out(dma_atr_addr,(uint8_t)(a)); \
+       port_out(dma_atr_addr,(uint8_t)((a)>>8)); \
+   } while(0)
+   ```
+
+5. **Rename ch3 from "attributes" to "status"** in `hal.h`:
+   ```c
+   #ifdef CRT26
+   #define DMA_CH_STATUS  3  /* status line (replaces attributes) */
    #else
-   #define DMA_SIZE    SCRN_SIZE   /* 2000 */
+   #define DMA_CH_DISATTR 3  /* 8275 display attributes (unused) */
+   #endif
+   ```
+   Or keep DISATTR and repurpose it — both work.
+
+6. **Update isr_crt** in `bios.c`:
+   ```c
+   /* Ch2: 25 rows of normal display */
+   hal_dma_dsp_addr(DSPSTR);
+   hal_dma_dsp_wc(SCRN_SIZE - 1);   /* 1999 */
+
+   #ifdef CRT26
+   /* Ch3: status line from separate buffer */
+   hal_dma_atr_addr((word)statbuf);
+   hal_dma_atr_wc(SCRN_COLS - 1);   /* 79 */
+   #else
+   hal_dma_atr_wc(0);               /* no attributes */
    #endif
    ```
 
-4. **Update isr_crt DMA word count** in `bios.c`:
-   ```c
-   hal_dma_dsp_wc(DMA_SIZE - 1);
-   ```
-
-5. **Clear 26th line + write 0xFF terminator** in `bios_hw_init.c`:
+7. **Init: clear status buffer** in `bios_hw_init.c`:
    ```c
    #ifdef CRT26
-   memset(STATLINE, ' ', SCRN_COLS);
-   screen[SCRN_SIZE + SCRN_COLS] = 0xFF;  /* DMA stop byte */
+   memset(statbuf, ' ', sizeof(statbuf));
    #endif
    ```
 
-6. **CONOUT stays 25 rows**: cursor addressing, scroll, insert/delete
+8. **DMA mode for ch3**: currently set to `DMA_MODE_MEM2IO(3)` in
+   `bios_hw_init.c`. This is correct — ch3 reads from memory and
+   writes to I/O (the 8275). No change needed.
+
+9. **CONOUT stays 25 rows**: cursor addressing, scroll, insert/delete
    all remain bounded to rows 0-24. The 26th line is ISR-managed only.
 
-Files: `bios.h`, `bios_hw_init.c`, `bios.c`, `Makefile`, `clang/Makefile`, `sdcc/Makefile`
+Files: `bios.h`, `hal.h`, `bios_hw_init.c`, `bios.c`,
+`Makefile`, `clang/Makefile`, `sdcc/Makefile`
 
 ### Phase 2: Status line driver
 
@@ -190,9 +310,10 @@ Files: `bios.h`, `bios_hw_init.c`, `bios.c`, `Makefile`, `clang/Makefile`, `sdcc
    ```
 
 2. **Status line rendering** (in `bios.c`):
-   - Copy up to `STAT_LEN` bytes from callback string to `STATLINE`
+   - Copy up to `STAT_LEN` bytes from callback string to `statbuf`
    - Pad remainder with spaces
-   - Called from `isr_crt` (every frame) or on-demand
+   - Called from `isr_crt` every second (not every frame — no need
+     to re-render 50×/sec when content changes at most 1×/sec)
 
 3. **Default status line**: show a simple clock (HH:MM) derived from
    the existing `rtc0` counter (already incremented 50×/sec in isr_crt).
@@ -214,11 +335,42 @@ essential for the initial implementation.
 
 1. Build with `-DCRT26` for both clang and SDCC
 2. MAME boot: verify 26th line visible, status line shows clock
-3. CONOUT regression: cursor addressing, scroll, insert/delete line
+3. Verify status line content is correct (spaces initially, clock later)
+4. CONOUT regression: cursor addressing, scroll, insert/delete line
    must all work correctly within the 25-row area
-4. Screen clear (^L) must clear rows 0-24 and reset status line
-5. No display corruption at row 25/26 boundary
-6. Binary size impact: should be small (< 50 bytes for phase 1)
+5. Screen clear (^L) must clear rows 0-24 and reset status line
+6. No display corruption at row 25/26 boundary
+7. Verify DMA ch3 is correctly programming from BSS buffer address
+8. Binary size impact: should be small (< 80 bytes for phase 1)
+
+## Open questions
+
+1. **Ch3 address register**: the current `hal_dma_atr_wc` macro only
+   sets word count. We need `hal_dma_atr_addr` to set the base address.
+   Does the assembly BIOS set ch3 address? Yes — roa375.asm:960-964
+   programs ch3 address for circular scroll. The C BIOS currently
+   doesn't because ch3 is "disabled" (wc=0). Adding the macro is
+   straightforward.
+
+2. **DMA mode register**: ch3 is currently initialized as
+   `DMA_MODE_MEM2IO(3)` = single mode, memory→I/O read, channel 3.
+   This is correct for feeding the 8275. No change needed.
+
+3. **0xFF terminator**: with the DMA split, ch2 serves exactly 2000
+   bytes and ch3 serves exactly 80 bytes. The 8275 gets exactly 2080
+   characters — no 0xFF terminator needed. The terminal count on both
+   channels ensures clean cutoff.
+
+4. **Attribute mode**: the 8275 can be configured for attribute-based
+   display (where ch3 provides per-character attributes). The RC702
+   BIOS doesn't use attributes (ch3 wc=0). Repurposing ch3 for the
+   status line means attributes remain unavailable. This is fine —
+   they were never used.
+
+5. **ISR cost**: programming ch3 address + word count adds ~8 port
+   writes (4 for address, 4 for word count including clear-byte-pointer).
+   At 11T per OUT, that's ~88T extra per frame = ~4400T/sec at 50Hz.
+   Negligible (0.1% CPU at 4MHz).
 
 ## References
 
@@ -226,6 +378,10 @@ essential for the initial implementation.
   `CONOUT.MAC` (screensize), `C.MAC` (IntDisplay ISR),
   `STATL.MAC` (status line driver), `CLOCK.MAC` (clock display),
   `KEYINT.MAC` (keyboard menu)
+- roa375/roa375.asm:893-967 — circular-buffer DMA split (ch2+ch3
+  feeding 8275 from two disjoint memory regions, proves the mechanism)
 - Intel 8275 datasheet: Reset command parameter encoding
-- C BIOS: `bios.h` (ConfiBlock.par2), `bios_hw_init.c` (CRT init),
-  `bios.c` (isr_crt DMA), `boot_confi.c` (default par2=0x98)
+- Am9517A / Intel 8237 DMA: channel priority, terminal count behavior
+- C BIOS: `bios.h` (ConfiBlock.par2), `hal.h` (DMA macros),
+  `bios_hw_init.c` (CRT init, DMA mode), `bios.c` (isr_crt DMA),
+  `boot_confi.c` (default par2=0x98)
