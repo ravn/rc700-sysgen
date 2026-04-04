@@ -1,7 +1,11 @@
-# kox.pas — CRT Parameter Explorer
+# kox.pas — CRT Display Breaker
 
 Turbo Pascal program photographed from an RC702 screen.
 Source: `A:KOX.PAS` (photo `IMG_3994.jpeg`)
+
+Deliberately corrupts the CRT display by rapidly cycling through
+nonsensical 8275 parameters until a key is pressed, then restores
+the correct settings. A visual stress test / prank program.
 
 ## Transcription
 
@@ -40,10 +44,11 @@ end.
 
 ## Analysis
 
-### The exploration loop
+### The breaking loop
 
 Each iteration sends a full 8275 Reset + Start Display + Load Cursor
-sequence with a different PAR4 value:
+sequence with a different PAR4 value, deliberately corrupting the
+display as fast as possible:
 
 | Step | Code | Port | Value | Meaning |
 |------|------|------|-------|---------|
@@ -57,24 +62,9 @@ sequence with a different PAR4 value:
 | 8 | `port[0]:=0;0` | data | 0,0 | Cursor at (0,0) |
 
 The loop counter `x` runs from 0 to 174, making PAR4 cycle from
-80 (0x50) to 254 (0xFE). This sweeps through all combinations of:
-
-```
-PAR4 bits:  M F CC ZZZZ
-
-  M    = line counter mode (0=normal, 1=offset)
-  F    = field attribute mode (0=transparent, 1=non-transparent)
-  CC   = cursor format (00=blink rev, 01=blink uline, 10=steady rev, 11=steady uline)
-  ZZZZ = horizontal retrace count (2..32 chars)
-
-  Plus bits 7:4 encode lines/char row:
-  0x50 → bits 7:4 = 0x5 → 6 lines/char
-  0xFE → bits 7:4 = 0xF → 16 lines/char
-```
-
-The display format during exploration is non-standard: 65 chars/row,
-17 rows, 11 scan lines/char — a deliberately odd format to make the
-parameter changes visually obvious.
+80 (0x50) to 254 (0xFE). Combined with the non-standard PAR1-PAR3
+values (65 chars/row, 17 rows), this produces rapidly changing
+garbage on screen — the display "breaks down" until a key is pressed.
 
 ### The restore block
 
