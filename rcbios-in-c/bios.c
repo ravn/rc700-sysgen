@@ -1281,9 +1281,9 @@ byte bios_reader_body(void)
     ch = rxbuf[rxtail];
     rxtail = new_tail;
 
-    /* reassert RTS if buffer has drained below low watermark */
-    used = (rxhead - new_tail) & RXMASK;
-    if (used < RXTHLO) {
+    /* reassert RTS only when buffer is empty — ensures the sender
+     * pauses long enough for PIP to complete disk writes */
+    if (new_tail == rxhead) {
         port_out(sio_a_ctrl, 0x05);        /* select WR5 */
         port_out(sio_a_ctrl, wr5a + 0x8A); /* DTR=1, TX enable, RTS=1 */
     }

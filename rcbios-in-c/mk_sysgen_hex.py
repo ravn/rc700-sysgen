@@ -50,49 +50,58 @@ def ihex_data(addr, data, max_per_line=16):
     return lines
 
 
-def build_checksum_loop():
-    """Return Z80 bytes for: sum A over (HL) for BC bytes, clobbers D.
-    loop: ADD A,(HL) / INC HL / DEC BC / LD D,A / LD A,B / OR C / LD A,D / JR NZ,loop
-    JR NZ offset: from PC after JR (= loop+9), back to loop (= loop+0) = -9 = 0xF7
+def build_checksum16_loop():
+    """Z80: 16-bit sum DE over (HL) for BC bytes.
+    loop:
+        LD A,(HL)    ; 7E
+        ADD A,E      ; 83
+        LD E,A       ; 5F
+        JR NC,+1     ; 30 01
+        INC D        ; 14
+        INC HL       ; 23
+        DEC BC       ; 0B
+        LD A,B       ; 78
+        OR C         ; B1
+        JR NZ,loop   ; 20 F4
     """
-    return [0x86, 0x23, 0x0B, 0x57, 0x78, 0xB1, 0x7A, 0x20, 0xF7]
+    return [0x7E, 0x83, 0x5F, 0x30, 0x01, 0x14, 0x23, 0x0B, 0x78, 0xB1, 0x20, 0xF4]
 
 
-def build_split_validator(expected_sum, addr1, len1, addr2, len2):
-    """Build Z80 code that checksums two memory regions and prints OK/FAIL.
+def build_validator(expected_sum, regions):
+    """Build Z80 code that checksums multiple memory regions and prints OK/FAIL.
 
-    Checksums addr1..addr1+len1 and addr2..addr2+len2, compares combined
-    8-bit sum against expected_sum.
+    regions: list of (addr, length) tuples to checksum consecutively.
+    16-bit sum in DE accumulates across all regions.
     """
     code = []
-    # XOR A
-    code += [0xAF]
-    # LD HL, addr1; LD BC, len1
-    code += [0x21, addr1 & 0xFF, (addr1 >> 8) & 0xFF]
-    code += [0x01, len1 & 0xFF, (len1 >> 8) & 0xFF]
-    # Checksum loop 1
-    code += build_checksum_loop()
-    # A now has partial sum; continue with region 2
-    if len2 > 0:
-        # LD HL, addr2; LD BC, len2
-        code += [0x21, addr2 & 0xFF, (addr2 >> 8) & 0xFF]
-        code += [0x01, len2 & 0xFF, (len2 >> 8) & 0xFF]
-        # Checksum loop 2 (A carries over)
-        code += build_checksum_loop()
-    # CP expected_sum
-    code += [0xFE, expected_sum & 0xFF]
+    # LD DE, 0 (clear 16-bit accumulator)
+    code += [0x11, 0x00, 0x00]
+    for addr, length in regions:
+        # LD HL, addr; LD BC, length
+        code += [0x21, addr & 0xFF, (addr >> 8) & 0xFF]
+        code += [0x01, length & 0xFF, (length >> 8) & 0xFF]
+        code += build_checksum16_loop()
+    # Compare DE against expected 16-bit sum
+    # LD A,E; CP expected_low
+    code += [0x7B, 0xFE, expected_sum & 0xFF]
     # JR NZ, fail
-    code += [0x20, 0x00]  # placeholder
-    fail_jr_pos = len(code) - 1
+    code += [0x20, 0x00]  # placeholder 1
+    fail_jr1_pos = len(code) - 1
+    # LD A,D; CP expected_high
+    code += [0x7A, 0xFE, (expected_sum >> 8) & 0xFF]
+    # JR NZ, fail
+    code += [0x20, 0x00]  # placeholder 2
+    fail_jr2_pos = len(code) - 1
 
     # OK: print "OK\r\n$" via BDOS
     for ch in "OK\r\n$":
         code += [0x1E, ord(ch), 0x0E, 0x02, 0xCD, 0x05, 0x00]
     code += [0xC9]  # RET
 
-    # Patch JR NZ offset
+    # Patch JR NZ offsets
     fail_start = len(code)
-    code[fail_jr_pos] = (fail_start - (fail_jr_pos + 1)) & 0xFF
+    code[fail_jr1_pos] = (fail_start - (fail_jr1_pos + 1)) & 0xFF
+    code[fail_jr2_pos] = (fail_start - (fail_jr2_pos + 1)) & 0xFF
 
     # FAIL: print "FAIL\r\n$"
     for ch in "FAIL\r\n$":
@@ -115,18 +124,17 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
-    # Checksum over bios.cim only (the actual payload)
-    expected_sum = sum(cim) & 0xFF
-    print(f"Payload checksum: 0x{expected_sum:02X} (sum of {len(cim)} bytes)")
+    # 16-bit checksum over bios.cim
+    expected_sum = sum(cim) & 0xFFFF
+    print(f"Payload checksum: 0x{expected_sum:04X} (16-bit sum of {len(cim)} bytes)")
 
-    # Build validator code — checksums bios.cim bytes at their SYSGEN addresses:
-    #   side 0 at T0_ADDR (3328 bytes), side 1 at T0_ADDR+SIDE0_SIZE+GAP_SIZE
-    # For simplicity, checksum side 0 and side 1 separately and combine.
-    # Actually, just checksum side 0 (at 0x4500) + side 1 (at 0x5F00) = bios.cim
+    # Build validator: checksums BIOS side 0 and side 1 at their SYSGEN addresses
     s0_len = min(len(cim), SIDE0_SIZE)
     s1_len = max(0, len(cim) - SIDE0_SIZE)
-    validator = build_split_validator(expected_sum, T0_ADDR, s0_len,
-                                      T0_ADDR + SIDE0_SIZE + GAP_SIZE, s1_len)
+    regions = [(T0_ADDR, s0_len)]
+    if s1_len > 0:
+        regions.append((T0_ADDR + SIDE0_SIZE + GAP_SIZE, s1_len))
+    validator = build_validator(expected_sum, regions)
     print(f"Validator: {len(validator)} bytes at 0x{COM_BASE:04X}")
 
     lines = []
@@ -134,17 +142,15 @@ def main():
     # Validator code at 0x0100
     lines.extend(ihex_data(COM_BASE, list(validator)))
 
-    # Side 0 FM data at 0x4500
+    # Side 0 FM data at 0x4500 — emit ALL bytes (no zero skip, checksummed)
     s0_data = cim[:s0_len]
-    s1_data = cim[SIDE0_SIZE:] if len(cim) > SIDE0_SIZE else b''
     lines.extend(ihex_data(T0_ADDR, s0_data))
 
-    # Gap is zeros — not included in HEX (SYSGEN buffer already has zeros
-    # from the SYSGEN read, or it doesn't matter since the BIOS doesn't use
-    # these sectors).
+    # Gap is not emitted (not checksummed, MLOAD/LOAD fills with zeros)
 
-    # Side 1 MFM data at 0x5F00 (only actual data, no padding)
+    # Side 1 MFM data at 0x5F00 — emit ALL bytes
     if len(cim) > SIDE0_SIZE:
+        s1_data = cim[SIDE0_SIZE:]
         s1_addr = T0_ADDR + SIDE0_SIZE + GAP_SIZE
         lines.extend(ihex_data(s1_addr, s1_data))
 
