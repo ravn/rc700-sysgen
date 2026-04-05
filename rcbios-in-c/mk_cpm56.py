@@ -39,41 +39,58 @@ def ihex_data(addr, data, max_per_line=32):
     return lines
 
 
-def build_checksum_loop():
-    """Z80: sum A over (HL) for BC bytes.
-    loop: ADD A,(HL) / INC HL / DEC BC / LD D,A / LD A,B / OR C / LD A,D / JR NZ,loop
+def build_checksum16_loop():
+    """Z80: 16-bit sum DE over (HL) for BC bytes.
+    loop:
+        LD A,(HL)    ; 7E
+        ADD A,E      ; 83
+        LD E,A       ; 5F
+        JR NC,+1     ; 30 01
+        INC D        ; 14
+        INC HL       ; 23
+        DEC BC       ; 0B
+        LD A,B       ; 78
+        OR C         ; B1
+        JR NZ,loop   ; 20 F4
     """
-    return [0x86, 0x23, 0x0B, 0x57, 0x78, 0xB1, 0x7A, 0x20, 0xF7]
+    return [0x7E, 0x83, 0x5F, 0x30, 0x01, 0x14, 0x23, 0x0B, 0x78, 0xB1, 0x20, 0xF4]
 
 
 def build_validator(expected_sum, regions):
     """Build Z80 code that checksums multiple memory regions and prints OK/FAIL.
 
     regions: list of (addr, length) tuples to checksum consecutively.
-    The 8-bit sum accumulates across all regions.
+    16-bit sum in DE accumulates across all regions.
     """
     code = []
-    # XOR A
-    code += [0xAF]
+    # LD DE, 0 (clear 16-bit accumulator)
+    code += [0x11, 0x00, 0x00]
     for addr, length in regions:
         # LD HL, addr; LD BC, length
         code += [0x21, addr & 0xFF, (addr >> 8) & 0xFF]
         code += [0x01, length & 0xFF, (length >> 8) & 0xFF]
-        code += build_checksum_loop()
-    # CP expected_sum
-    code += [0xFE, expected_sum & 0xFF]
+        code += build_checksum16_loop()
+    # Compare DE against expected 16-bit sum
+    # LD A,E; CP expected_low
+    code += [0x7B, 0xFE, expected_sum & 0xFF]
     # JR NZ, fail
-    code += [0x20, 0x00]  # placeholder
-    fail_jr_pos = len(code) - 1
+    code += [0x20, 0x00]  # placeholder 1
+    fail_jr1_pos = len(code) - 1
+    # LD A,D; CP expected_high
+    code += [0x7A, 0xFE, (expected_sum >> 8) & 0xFF]
+    # JR NZ, fail
+    code += [0x20, 0x00]  # placeholder 2
+    fail_jr2_pos = len(code) - 1
 
     # OK: print "OK\r\n$" via BDOS
     for ch in "OK\r\n$":
         code += [0x1E, ord(ch), 0x0E, 0x02, 0xCD, 0x05, 0x00]
     code += [0xC9]  # RET
 
-    # Patch JR NZ offset
+    # Patch JR NZ offsets
     fail_start = len(code)
-    code[fail_jr_pos] = (fail_start - (fail_jr_pos + 1)) & 0xFF
+    code[fail_jr1_pos] = (fail_start - (fail_jr1_pos + 1)) & 0xFF
+    code[fail_jr2_pos] = (fail_start - (fail_jr2_pos + 1)) & 0xFF
 
     # FAIL: print "FAIL\r\n$"
     for ch in "FAIL\r\n$":
@@ -116,38 +133,30 @@ def main():
         if zero_end > zero_start:
             com[zero_start:zero_end] = bytes(zero_end - zero_start)
 
-    # Build checksum validator over CCP+BDOS + BIOS side0 + BIOS side1,
-    # skipping the gap between side0 and side1.
+    # Build checksum validator over BIOS side0 + BIOS side1 only.
+    # CCP+BDOS is from the original .COM and has zero-skipped regions
+    # in the hex file that make checksumming unreliable.
     #
-    # Memory layout (addresses = TPA + file offset):
-    #   0x0900 .. 0x4500: CCP+BDOS (15360 bytes)
+    # Memory layout:
     #   0x4500 .. 0x5200: BIOS side 0 (SIDE0_SIZE = 3328 bytes)
-    #   0x5200 .. 0x5F00: gap (GAP_SIZE = 3328 bytes) — NOT checksummed
+    #   0x5200 .. 0x5F00: gap — NOT checksummed
     #   0x5F00 .. 0x5F00+s1_len: BIOS side 1
-    ccpbdos_addr = LOADP                          # 0x0900
-    ccpbdos_len  = T0_FILE_OFFSET - (LOADP - TPA) # 15360 bytes
     bios_s0_addr = TPA + T0_FILE_OFFSET            # 0x4500
     bios_s0_len  = s0_len
     bios_s1_addr = TPA + T0_FILE_OFFSET + SIDE0_SIZE + GAP_SIZE
     bios_s1_len  = max(0, len(cim) - SIDE0_SIZE)
 
-    regions = [(ccpbdos_addr, ccpbdos_len),
-               (bios_s0_addr, bios_s0_len)]
+    regions = [(bios_s0_addr, bios_s0_len)]
     if bios_s1_len > 0:
         regions.append((bios_s1_addr, bios_s1_len))
 
-    # Compute expected checksum over the same data
-    ccpbdos_off = LOADP - TPA
-    checksum_data = (com[ccpbdos_off:ccpbdos_off + ccpbdos_len]
-                   + com[T0_FILE_OFFSET:T0_FILE_OFFSET + s0_len]
-                   + com[T0_FILE_OFFSET + SIDE0_SIZE + GAP_SIZE:
-                         T0_FILE_OFFSET + SIDE0_SIZE + GAP_SIZE + bios_s1_len])
-    expected_sum = sum(checksum_data) & 0xFF
+    # Compute expected 16-bit checksum over bios.cim (= side0 + side1, contiguous)
+    expected_sum = sum(cim) & 0xFFFF
 
     validator = build_validator(expected_sum, regions)
     total_checked = sum(length for _, length in regions)
     print(f"Validator: {len(validator)} bytes, checksum 0x{expected_sum:02X} "
-          f"over {total_checked} bytes in {len(regions)} regions (gap skipped)")
+          f"over {total_checked} bytes in {len(regions)} regions (BIOS only)")
 
     # Place validator at 0x0100 (file offset 0)
     com[0:len(validator)] = validator
@@ -159,19 +168,22 @@ def main():
     print(f"Written: {com_path} ({len(com)} bytes)")
 
     # Generate Intel HEX:
-    #   1. Validator at 0x0100 (small, always included)
-    #   2. Payload from 0x0900 onward (CCP+BDOS+BIOS for SYSGEN)
-    # Skip zero blocks to minimize file size.
-    # Region 0x0100+validator_len..0x08FF is not emitted — LOAD fills with zeros.
+    #   1. Validator at 0x0100 (always included)
+    #   2. CCP+BDOS from 0x0900 (zero blocks skipped — not checksummed)
+    #   3. BIOS side 0 + gap + side 1 (ALL bytes emitted — no zero skip)
     lines = []
     # Validator
     lines.extend(ihex_data(TPA, list(validator)))
-    # Payload from 0x0900
+    # CCP+BDOS: skip zero blocks (not checksummed, saves transfer time)
     payload_start = LOADP - TPA  # file offset 0x0800
-    for offset in range(payload_start, len(com), 32):
+    for offset in range(payload_start, T0_FILE_OFFSET, 32):
         chunk = com[offset:offset + 32]
         if any(b != 0 for b in chunk):
             lines.append(ihex_record(0x00, TPA + offset, chunk))
+    # BIOS region: emit ALL bytes including zeros (checksummed!)
+    for offset in range(T0_FILE_OFFSET, len(com), 32):
+        chunk = com[offset:offset + 32]
+        lines.append(ihex_record(0x00, TPA + offset, chunk))
     lines.append(ihex_record(0x00, 0x0000, []))  # CP/M EOF
 
     hex_path = prefix + '.hex'
