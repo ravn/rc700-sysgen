@@ -729,6 +729,12 @@ static byte serial_conin(void) {
     return bios_reader_body();
 }
 static void serial_conout(byte c) {
+    /* Non-blocking: if SIO-A TX not ready (e.g. no host connected,
+     * CTS deasserted), skip.  CRT echo still shows the character. */
+    word timeout = 1000;
+    while (!ptpflg && --timeout)
+        ;
+    if (!timeout) return;
     bios_punch_body(c);
 }
 
@@ -1241,7 +1247,7 @@ void bios_conout_c(byte c)
     switch (IOBYTE_CON(iobyte)) {
     case IOB_TTY:
         serial_conout(c);
-        break;
+        /* fall through to also display on CRT */
     case IOB_CRT:
         usession = c;
         if (xflg != 0) xyadd();
