@@ -294,15 +294,82 @@ accesses to absolute BSS addresses.
 
 ---
 
+## Issue #68: Jump tables for small switch/case instead of cascaded branches
+
+**Summary:** For switch statements with 2-4 cases, clang generates a jump table
+(indirect dispatch via address array) even with `-Oz`. On Z80, the jump table
+dispatch overhead is 19 bytes + 2 bytes per case entry. Cascaded `CP n / JR Z`
+branches are 3-4 bytes per case, much smaller for small case counts.
+
+**Reproducer:**
+```c
+unsigned char iobyte;
+unsigned char fn_a(void);
+unsigned char fn_b(void);
+unsigned char fn_c(void);
+
+unsigned char test_switch(void) {
+    switch (iobyte & 3) {
+    case 0: return fn_a();
+    case 1: return fn_b();
+    case 2: return fn_c();
+    default: return 0;
+    }
+}
+```
+
+**Compile:** `clang --target=z80 -Oz -ffreestanding -S`
+
+**Actual — jump table dispatch (27 bytes overhead):**
+```asm
+ld  a, (_iobyte)          ; 3B
+and 3                     ; 2B  — mask to 2-bit
+ld  l, a / ld h, 0        ; 3B  — zero-extend to 16-bit
+add hl, hl                ; 1B  — ×2 for word table entries
+ex  de, hl                ; 1B
+ld  hl, LJTI0_0           ; 3B  — table base
+add hl, de                ; 1B  — + offset
+ld  e, (hl) / inc hl / ld d, (hl)  ; 3B — read target address
+ex  de, hl / jp (hl)      ; 2B  — indirect jump
+; ... case bodies ...
+LJTI0_0:                  ; 8B  — 4 × 2-byte addresses
+```
+
+**Expected — cascaded branches (~12 bytes overhead):**
+```asm
+ld  a, (_iobyte)          ; 3B
+and 3                     ; 2B
+jr  z, .case0             ; 2B  — case 0
+cp  1                     ; 2B
+jr  z, .case1             ; 2B  — case 1
+cp  2                     ; 2B
+jr  z, .case2             ; 2B  — case 2
+; ... default ...          ; fall through
+```
+
+**Impact:** ~15 bytes per 4-case switch. The BIOS has 4-5 IOBYTE dispatch
+switches (`bios_const`, `bios_conin`, `bios_conout_c`, `bios_list_body`,
+`bios_listst`), totaling ~60-75 bytes of excess jump table overhead.
+
+SDCC always uses cascaded compare-and-branch for small switches — this is
+one of its biggest advantages on Z80.
+
+**Threshold:** On Z80, jump tables become worthwhile around 6-8 cases
+(when the table entries are cheaper than the cascaded branches). For ≤4
+cases, cascaded branches are always smaller.
+
+---
+
 ## Summary: prioritized by BIOS byte impact
 
-| # | Issue | Per-occurrence | BIOS impact | Worst function |
-|---|-------|---------------|-------------|----------------|
-| 65 | 8→16 loop widening + missing DJNZ | 20-30B/loop | ~60B | bg_clear_from, scroll |
-| 66 | BSS static-stack reloads (SP-relative) | 3-6B/access | ~30B | sec_rw |
-| 62 | Constant address not folded | 5B/expr | ~25B | scroll, bios_conout_c |
-| 63 | Missing SUB/CP (HL) | 3B/compare | ~20B | sec_rw, rwoper |
-| 64 | Missing INC/DEC (HL) | 3B/inc | ~10B | sec_rw, bg_clear_from |
-| 65 | Missing DJNZ (simple case) | 2B/loop | ~10B | multiple |
+| # | Issue | Per-occurrence | BIOS impact | Status |
+|---|-------|---------------|-------------|--------|
+| 68 | Jump tables for small switches | ~15B/switch | **~60-75B** | NEW |
+| 65 | 8→16 loop widening + missing DJNZ | 20-30B/loop | ~60B | FIXED (G_UADDO i8) |
+| 66 | BSS static-stack reloads (SP-relative) | 3-6B/access | ~30B | open |
+| 62 | Constant address not folded | 5B/expr | ~25B | FIXED |
+| 63 | Missing SUB/CP (HL) | 3B/compare | ~20B | FIXED |
+| 64 | Missing INC/DEC (HL) | 3B/inc | ~10B | FIXED |
+| 65 | Missing DJNZ (simple case) | 2B/loop | ~10B | FIXED |
 
-Total recoverable: ~155B — closing the entire gap with SDCC.
+Issues #62-65 fixed in session 12. Remaining gap: ~110B, dominated by #68 (jump tables) and #66 (BSS reloads).
