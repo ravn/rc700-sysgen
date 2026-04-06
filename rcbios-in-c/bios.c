@@ -609,6 +609,9 @@ void bios_boot_c(void)
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
+    /* Set IOBYTE before first console output */
+    iobyte = IOBYTE_DEFAULT;
+
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
            "RC700 " MSIZE_STR "k CP/M 2.2 C-bios/"
@@ -641,7 +644,7 @@ void wboot_c(void)
     bios_seldsk_c(0);
 
     unacnt = 0;
-    iobyte = IOBYTE_DEFAULT;
+    /* iobyte NOT reset here — preserve STAT CON:=TTY: across warm boots */
     dskno = 0;
 
     bios_home();
