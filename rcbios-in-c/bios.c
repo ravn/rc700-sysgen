@@ -719,6 +719,13 @@ static byte serial_const(void) {
     return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 static byte serial_conin(void) {
+    /* Ensure RTS is asserted so host can send.  RTS may be de-asserted
+     * if the RCA ISR throttled a previous burst.  bios_reader_body only
+     * reasserts when the buffer drains to empty, but if we're called
+     * with an empty buffer and RTS=0 (e.g. after warm boot), we'd block
+     * forever.  readi() unconditionally arms RTS + receiver interrupts. */
+    if (rxtail == rxhead)
+        readi();
     return bios_reader_body();
 }
 static void serial_conout(byte c) {
