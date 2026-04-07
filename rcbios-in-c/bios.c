@@ -123,6 +123,13 @@ word trkoff[] = { 2, 2, 0, 0, 0, 0, 0, 0 };
 
 word sp_sav;                  /* saved SP during ISR stack switch */
 
+/* 26th display row (status line).
+ * The 8275 is reprogrammed to display 26 rows; the first 25 are fed from
+ * DSPSTR (0xF800, DMA ch.2 = 2000 bytes); this 80-byte buffer supplies
+ * row 26 via DMA ch.3.  Lives in BIOS BSS so it doesn't intrude on the
+ * 0xF800 + 2000 display layout or the 0xFFD0 work area. */
+byte status_line[80];
+
 /* Keyboard ring buffer (REL30) */
 static byte kbbuf[KBBUFSZ];
 static volatile byte kbhead;   /* write index (ISR updates) */
@@ -1828,40 +1835,98 @@ void bios_hrdfmt(void) { }
  *   isr_enter_full / isr_exit_full: save/restore AF,BC,DE,HL (for
  *     ISRs with C body code that may clobber all registers) */
 
+/* SDCC build: these inline-asm helpers ARE the ISR prologue/epilogue
+ * because SDCC's isr_crt is a real Z80 ISR (RETI at end).
+ *
+ * Clang build: the wrappers in bios_shims.s do the save/switch/call/restore;
+ * the body of isr_crt is a regular C function and these helpers MUST be
+ * empty no-ops (otherwise we get a double-save and a stray RETI inside the
+ * C body, crashing on return).
+ *
+ * For SDCC the asm MUST be volatile — without volatile, clang-style DCE
+ * could remove it after inlining; we keep volatile here defensively even
+ * though SDCC doesn't have that bug. */
+#ifdef __clang__
+static inline void isr_enter(void)      {}
+static inline void isr_exit(void)       {}
+static inline void isr_enter_full(void) {}
+static inline void isr_exit_full(void)  {}
+#else
 static inline void isr_enter(void) __naked
 {
-    __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #" STR(ISTACK_ADDR) " \n"
-            "push af              \n");
+    __asm__ volatile("ld (_sp_sav), sp     \n"
+                     "ld sp, #" STR(ISTACK_ADDR) " \n"
+                     "push af              \n");
 }
 
 static inline void isr_exit(void) __naked
 {
-    __asm__("pop af               \n"
-            "ld sp, (_sp_sav)     \n"
-            "ei                   \n"
-            "reti                 \n");
+    __asm__ volatile("pop af               \n"
+                     "ld sp, (_sp_sav)     \n"
+                     "ei                   \n"
+                     "reti                 \n");
 }
 
 static inline void isr_enter_full(void) __naked
 {
-    __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #" STR(ISTACK_ADDR) " \n"
-            "push af              \n"
-            "push bc              \n"
-            "push de              \n"
-            "push hl              \n");
+    __asm__ volatile("ld (_sp_sav), sp     \n"
+                     "ld sp, #" STR(ISTACK_ADDR) " \n"
+                     "push af              \n"
+                     "push bc              \n"
+                     "push de              \n"
+                     "push hl              \n");
 }
 
 static inline void isr_exit_full(void) __naked
 {
-    __asm__("pop hl               \n"
-            "pop de               \n"
-            "pop bc               \n"
-            "pop af               \n"
-            "ld sp, (_sp_sav)     \n"
-            "ei                   \n"
-            "reti                 \n");
+    __asm__ volatile("pop hl               \n"
+                     "pop de               \n"
+                     "pop bc               \n"
+                     "pop af               \n"
+                     "ld sp, (_sp_sav)     \n"
+                     "ei                   \n"
+                     "reti                 \n");
+}
+#endif
+
+/*
+ * Refresh the 26th-row status line.
+ *
+ *   "FDD:x  RX:hh [<64-char bar>] "
+ *
+ * Col 4    : '*' if floppy operation in progress (fl_flg == 0), else ' '
+ * Cols 10-11: 2-digit hex SIO ring buffer fill (rxhead-rxtail, 00..FF)
+ * Cols 14-77: 64-char fill bar, '#' if used else '-' (each '#' = 4 bytes)
+ *
+ * Called from isr_crt() once per frame; reads volatile static state from
+ * the same compilation unit so no extern declarations are needed.
+ */
+static const char hex_digits[16] = "0123456789ABCDEF";
+
+static void status_line_update(void)
+{
+    byte rxused = (byte)((rxhead - rxtail) & RXMASK);
+    byte fill   = (byte)((rxused + 3) >> 2);   /* 0..64, ceil(rxused/4) */
+    byte i;
+
+    status_line[0]  = 'F';
+    status_line[1]  = 'D';
+    status_line[2]  = 'D';
+    status_line[3]  = ':';
+    status_line[4]  = (fl_flg == 0) ? '*' : ' ';
+    status_line[5]  = ' ';
+    status_line[6]  = ' ';
+    status_line[7]  = 'R';
+    status_line[8]  = 'X';
+    status_line[9]  = ':';
+    status_line[10] = hex_digits[rxused >> 4];
+    status_line[11] = hex_digits[rxused & 0x0F];
+    status_line[12] = ' ';
+    status_line[13] = '[';
+    for (i = 0; i < 64; i++)
+        status_line[14 + i] = (i < fill) ? '#' : '-';
+    status_line[78] = ']';
+    status_line[79] = ' ';
 }
 
 /*
@@ -1876,24 +1941,34 @@ void isr_crt(void) __naked
 #ifndef HOST_TEST
     isr_enter_full();
 
-    /* Read CRT status register to acknowledge interrupt */
+    /* Read CRT status register to acknowledge interrupt — do this FIRST
+     * so the 8275 doesn't keep asserting IRQ while we work. */
     (void)port_in(crt_cmd);
 
-    /* Program DMA for 8275 display refresh */
+    /* Program DMA for 8275 display refresh BEFORE doing any other work,
+     * so the row buffer fills are armed before the 8275 starts requesting
+     * data for the new frame.  Delaying this causes 8275 DMA underrun
+     * which manifests as a flickering / blank display. */
     port_out(dma_smsk, DMA_MASK_SET(DMA_CH_DISPLAY));
     port_out(dma_smsk, DMA_MASK_SET(DMA_CH_DISATTR));
     port_out(dma_clbp, 0);         /* clear byte pointer flip-flop */
 
-    /* Display data: 2000 bytes from DSPSTR */
+    /* Display data (rows 1-25): 2000 bytes from DSPSTR via DMA ch.2 */
     hal_dma_dsp_addr(DSPSTR);
     hal_dma_dsp_wc(SCRN_SIZE - 1);
 
-    /* Attribute data: zero length (no attributes used) */
-    hal_dma_atr_wc(0);
+    /* Status line (row 26): 80 bytes from status_line[] via DMA ch.3. */
+    hal_dma_atr_addr((word)status_line);
+    hal_dma_atr_wc(SCRN_COLS - 1);
 
     /* Unmask DMA channels */
     port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_DISPLAY));
     port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_DISATTR));
+
+    /* Update the status line buffer for the NEXT frame.  status_line[]
+     * is the source for DMA ch.3, but the 8275 reads it during the next
+     * row 26 fetch — by then the new content is in place. */
+    status_line_update();
 
     /* Deferred cursor update — avoids 3 port writes per character */
     if (cur_dirty) {

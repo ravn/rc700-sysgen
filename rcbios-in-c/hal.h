@@ -182,6 +182,7 @@ DEFPORT(hd_status,    PORT_HD_STATUS)
 #define hal_dma_flp_wc(w)   do { port_out(dma_flp_wc,(uint8_t)(w));   port_out(dma_flp_wc,(uint8_t)((w)>>8));   } while(0)
 #define hal_dma_dsp_addr(a) do { port_out(dma_dsp_addr,(uint8_t)(a)); port_out(dma_dsp_addr,(uint8_t)((a)>>8)); } while(0)
 #define hal_dma_dsp_wc(w)   do { port_out(dma_dsp_wc,(uint8_t)(w));   port_out(dma_dsp_wc,(uint8_t)((w)>>8));   } while(0)
+#define hal_dma_atr_addr(a) do { port_out(dma_atr_addr,(uint8_t)(a)); port_out(dma_atr_addr,(uint8_t)((a)>>8)); } while(0)
 #define hal_dma_atr_wc(w)   do { port_out(dma_atr_wc,(uint8_t)(w));   port_out(dma_atr_wc,(uint8_t)((w)>>8));   } while(0)
 
 #if defined(__SDCC) || defined(__SCCZ80)

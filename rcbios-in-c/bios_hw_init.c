@@ -197,12 +197,18 @@ void bios_hw_init(void)
     /* Clear work area (curx through end of 64K address space) */
     memset((void *)(WORK_ADDR + 1), 0, 0xFFFF - WORK_ADDR);
 
-    /* CRT 8275: reset and program */
-    port_out(crt_cmd, 0x00);       /* reset */
-    port_out(crt_param, CFG.par[0]);   /* chars/row */
-    port_out(crt_param, CFG.par[1]);   /* rows/frame */
-    port_out(crt_param, CFG.par[2]);   /* lines/char + underline */
-    port_out(crt_param, CFG.par[3]);   /* cursor format */
+    /* CRT 8275: reset and program.
+     * par[1] is overridden with -0x3F to enable the 26-row layout
+     * (VerticalRetraceCount = -1, RowsOnScreen = +1) — same trick used
+     * by rc702-bios's "ifdef crt26" path.  Row 26 = the status line. */
+    port_out(crt_cmd, 0x00);                    /* reset */
+    port_out(crt_param, CFG.par[0]);            /* chars/row */
+    port_out(crt_param, CFG.par[1] - 0x3F);     /* 26 rows/frame, VR-1 */
+    port_out(crt_param, CFG.par[2]);            /* lines/char + underline */
+    port_out(crt_param, CFG.par[3]);            /* cursor format */
+
+    /* status_line[] is refreshed every frame by status_line_update() in
+     * isr_crt; no boot-time initialization needed. */
     port_out(crt_cmd, 0x80);       /* load cursor position */
     port_out(crt_param, 0);        /* cursor X = 0 */
     port_out(crt_param, 0);        /* cursor Y = 0 */
