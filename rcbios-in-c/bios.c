@@ -747,23 +747,30 @@ static byte kbd_dequeue(void)
     return inconv[raw];
 }
 
-/* Console input: always poll BOTH keyboard and serial. The IOBYTE CON
- * field is now an availability hint rather than an exclusive selector,
- * so a local user can type while a remote driver also sends via serial.
- * IOB_UC1 is the only "no input" mode. */
+/* Console input modes (CON field of IOBYTE):
+ *   TTY (0): serial port (SIO-A) only — for headless / remote operation
+ *   CRT (1): keyboard only — for pure local operation
+ *   BAT (2): serial only (CP/M batch mode reads from RDR, treated as serial)
+ *   UC1 (3): JOINED — both keyboard AND serial work simultaneously, so a
+ *            local user can type while a remote driver also sends data.
+ *            Default mode (IOBYTE_DEFAULT).
+ *
+ * Encoding: keyboard is allowed when (con & 1) — true for CRT and UC1.
+ *           serial is allowed when (con != 1) — true for TTY/BAT/UC1. */
 byte bios_const(void)
 {
-    if (IOBYTE_CON(iobyte) == IOB_UC1) return 0;
-    return (kbstat | serial_const()) ? 0xFF : 0x00;
+    byte con = IOBYTE_CON(iobyte);
+    if ((con & 1) && kbstat)         return 0xFF;
+    if ((con != 1) && serial_const()) return 0xFF;
+    return 0;
 }
 
 byte bios_conin(void)
 {
-    if (IOBYTE_CON(iobyte) == IOB_UC1) return 0x1A;
-    /* Drain whichever source has data first; if both empty, wait. */
+    byte con = IOBYTE_CON(iobyte);
     for (;;) {
-        if (kbtail != kbhead) return kbd_dequeue();
-        if (rxtail != rxhead) return serial_conin();
+        if ((con & 1) && kbtail != kbhead) return kbd_dequeue();
+        if ((con != 1) && rxtail != rxhead) return serial_conin();
         hal_halt();
     }
 }
@@ -1259,7 +1266,13 @@ void bios_conout_c(byte c)
     case IOB_BAT:
         bios_list_body(c);
         break;
-    default:
+    case IOB_UC1:
+        /* Joined: send to both serial and CRT, like TTY mode. */
+        serial_conout(c);
+        usession = c;
+        if (xflg != 0) xyadd();
+        else if (usession < 32) specc();
+        else displ();
         break;
     }
 }
