@@ -199,10 +199,10 @@ void bios_hw_init(void)
 
     /* CRT 8275: reset and program */
     port_out(crt_cmd, 0x00);       /* reset */
-    port_out(crt_param, CFG.par1);     /* chars/row */
-    port_out(crt_param, CFG.par2);     /* rows/frame */
-    port_out(crt_param, CFG.par3);     /* lines/char + underline */
-    port_out(crt_param, CFG.par4);     /* cursor format */
+    port_out(crt_param, CFG.par[0]);   /* chars/row */
+    port_out(crt_param, CFG.par[1]);   /* rows/frame */
+    port_out(crt_param, CFG.par[2]);   /* lines/char + underline */
+    port_out(crt_param, CFG.par[3]);   /* cursor format */
     port_out(crt_cmd, 0x80);       /* load cursor position */
     port_out(crt_param, 0);        /* cursor X = 0 */
     port_out(crt_param, 0);        /* cursor Y = 0 */
