@@ -148,6 +148,21 @@ static volatile word wboot_vec, bdos_vec;
 #define PORT_FDD        PORT_FDC_DATA
 #define PORT_CRT_DATA   PORT_CRT_PARAM
 
+/* IOBYTE device redirection (CP/M 2.2 Table 6-4).
+ * STAT CON:=TTY: routes console to SIO-A serial for remote control. */
+#define IOBYTE_CON(io)  ((io) & 0x03)
+#define IOBYTE_RDR(io)  (((io) >> 2) & 0x03)
+#define IOBYTE_PUN(io)  (((io) >> 4) & 0x03)
+#define IOBYTE_LST(io)  (((io) >> 6) & 0x03)
+
+#define IOB_TTY  0      /* CON:TTY/RDR:TTY/PUN:TTY/LST:TTY → SIO-A serial */
+#define IOB_CRT  1      /* CON:CRT/RDR:PTR/PUN:PTP/LST:CRT */
+#define IOB_BAT  2      /* CON:BAT/RDR:UR1/PUN:UP1/LST:LPT */
+#define IOB_UC1  3      /* CON:UC1/RDR:UR2/PUN:UP2/LST:UL1 (parked) */
+
+/* Default: CON:=CRT(1), RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
+#define IOBYTE_DEFAULT  0x94  /* CON:=TTY (serial+CRT echo), RDR:=PTR, PUN:=PTP, LST:=LPT */
+
 /* Ring buffer parameters (REL30) */
 #define RXBUFSZ     256         /* SIO ring buffer size (page-aligned) */
 #define RXMASK      (RXBUFSZ-1)

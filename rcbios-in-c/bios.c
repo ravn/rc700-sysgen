@@ -34,6 +34,9 @@
 
 /* Forward declarations */
 void bios_conout_c(byte c);
+void bios_list_body(byte c);
+void bios_punch_body(byte c);
+byte bios_reader_body(void);
 word bios_seldsk_c(byte drv);
 static byte xread(void);
 void bios_home(void);
@@ -163,14 +166,14 @@ word seksec;
 /* Host buffer state (what's cached in hstbuf) */
 static byte  hstdsk;
 static word hsttrk;
-static word hstsec;
+static byte hstsec;
 
 /* Last seek position (skip redundant FDC seeks) */
 byte  lstdsk;
 static word lsttrk;
 
 /* Intermediate: seksec >> secshf */
-static word sekhst;
+static byte sekhst;
 
 /* Buffer status */
 byte  hstact;     /* 0=empty, 1=valid */
@@ -313,16 +316,16 @@ static void fdc_seek(void)
 
 static void fdc_result(void)
 {
-    byte i;
     byte *p = (byte *)&rstab;
-    for (i = 0; i < 7; i++) {
+    byte n = 7;
+    do {
         byte delay;
-        p[i] = fdc_read();
+        *p++ = fdc_read();
         for (delay = 4; delay; delay--)
             ;
         if (!(port_in(fdc_status) & 0b00010000))  /* CB: more result bytes? */
             return;
-    }
+    } while (--n);
 }
 
 /* Interrupt flag */
@@ -606,6 +609,9 @@ void bios_boot_c(void)
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
+    /* Set IOBYTE before first console output */
+    iobyte = IOBYTE_DEFAULT;
+
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
            "RC700 " MSIZE_STR "k CP/M 2.2 C-bios/"
@@ -638,7 +644,7 @@ void wboot_c(void)
     bios_seldsk_c(0);
 
     unacnt = 0;
-    iobyte = 0;
+    /* iobyte NOT reset here — preserve STAT CON:=TTY: across warm boots */
     dskno = 0;
 
     bios_home();
@@ -701,22 +707,62 @@ void bios_wboot(void) __naked
 }
 
 /* ----------------------------------------------------------------
- * Console I/O — keyboard ring buffer (REL30)
+ * Console I/O — IOBYTE-redirectable (CP/M 2.2 Table 6-4)
+ *
+ * CON: field (bits 1:0):
+ *   0=TTY: SIO-A serial   1=CRT: keyboard+display
+ *   2=BAT: RDR→in,LST→out 3=UC1: parked
  * ---------------------------------------------------------------- */
+
+/* Serial (SIO-A) console primitives for IOBYTE TTY: mode */
+static byte serial_const(void) {
+    return (rxtail != rxhead) ? 0xFF : 0x00;
+}
+static byte serial_conin(void) {
+    /* Ensure RTS is asserted so host can send.  RTS may be de-asserted
+     * if the RCA ISR throttled a previous burst.  bios_reader_body only
+     * reasserts when the buffer drains to empty, but if we're called
+     * with an empty buffer and RTS=0 (e.g. after warm boot), we'd block
+     * forever.  readi() unconditionally arms RTS + receiver interrupts. */
+    if (rxtail == rxhead)
+        readi();
+    return bios_reader_body();
+}
+static void serial_conout(byte c) {
+    /* Non-blocking: if SIO-A TX not ready (e.g. no host connected,
+     * CTS deasserted), skip.  CRT echo still shows the character. */
+    byte timeout = 255;
+    while (!ptpflg && --timeout)
+        ;
+    if (!timeout) return;
+    bios_punch_body(c);
+}
 
 byte bios_const(void)
 {
-    return kbstat;
+    switch (IOBYTE_CON(iobyte)) {
+    case IOB_TTY:  return serial_const();
+    case IOB_CRT:  return kbstat;
+    case IOB_BAT:  return serial_const();
+    default:       return 0;
+    }
 }
 
 byte bios_conin(void)
 {
-    while (kbtail == kbhead)
-        hal_halt();
-    byte raw = kbbuf[kbtail];
-    kbtail = (kbtail + 1) & (KBBUFSZ - 1);
-    kbstat = (kbtail != kbhead) ? 0xFF : 0x00;
-    return inconv[raw];
+    switch (IOBYTE_CON(iobyte)) {
+    case IOB_TTY:  return serial_conin();
+    case IOB_CRT: {
+        while (kbtail == kbhead)
+            hal_halt();
+        byte raw = kbbuf[kbtail];
+        kbtail = (kbtail + 1) & (KBBUFSZ - 1);
+        kbstat = (kbtail != kbhead) ? 0xFF : 0x00;
+        return inconv[raw];
+    }
+    case IOB_BAT:  return serial_conin();
+    default:       return 0x1A;
+    }
 }
 
 /* ================================================================
@@ -741,7 +787,7 @@ static byte graph;           /* graphical mode flag (sticky) */
 
 /* Forward declarations — definitions placed for tail-call fall-through */
 static void cursor_right(void);
-static void cursorxy(void);
+static inline void cursorxy(void);
 
 /* Reset cursor to top-left (does NOT update 8275) */
 static void goto00(void);
@@ -899,9 +945,8 @@ static void carriage_return(void)
     cursorxy();
 }
 
-/* Placed after carriage_return() so the tail call falls through (saves 3 bytes).
- * CR is the hottest path — every output line ends with CR+LF. */
-static void cursorxy(void)
+/* Single byte-store — always inline to avoid CALL/RET overhead (4B per site). */
+static inline void cursorxy(void)
 {
     cur_dirty = 1;              /* deferred to isr_crt for speed */
 }
@@ -1198,13 +1243,22 @@ void bios_conout(byte c) __naked
 
 void bios_conout_c(byte c)
 {
-    usession = c;
-    if (xflg != 0)
-        xyadd();
-    else if (usession < 32)
-        specc();
-    else
-        displ();
+    switch (IOBYTE_CON(iobyte)) {
+    case IOB_TTY:
+        serial_conout(c);
+        /* fall through to also display on CRT */
+    case IOB_CRT:
+        usession = c;
+        if (xflg != 0) xyadd();
+        else if (usession < 32) specc();
+        else displ();
+        break;
+    case IOB_BAT:
+        bios_list_body(c);
+        break;
+    default:
+        break;
+    }
 }
 
 /* LIST: transmit character on SIO Channel B (printer).
@@ -1216,7 +1270,7 @@ void bios_list(void) __naked
             "jp _bios_list_body    \n"); /* explicit tail call */
 }
 
-void bios_list_body(byte c)
+static void list_lpt(byte c)
 {
     while (!prtflg)
         ;                       /* wait for TX ready */
@@ -1228,6 +1282,16 @@ void bios_list_body(byte c)
     port_out(sio_b_ctrl, 0x07);    /* TX int, ext status, status affects vector */
     port_out(sio_b_data, c);
     hal_ei();
+}
+
+void bios_list_body(byte c)
+{
+    switch (IOBYTE_LST(iobyte)) {
+    case IOB_TTY:  serial_conout(c); break;
+    case IOB_CRT:  bios_conout_c(c); break;
+    case IOB_BAT:  list_lpt(c);      break;  /* LPT: SIO-B */
+    default:       break;
+    }
 }
 
 /* PUNCH: transmit character on SIO Channel A (serial).
@@ -1244,6 +1308,9 @@ void bios_punch(void) __naked
 
 void bios_punch_body(byte c)
 {
+    byte pun = IOBYTE_PUN(iobyte);
+    if (pun >= IOB_BAT) return;     /* UP1/UP2: parked */
+
     while (!ptpflg)
         ;                       /* wait for TX ready */
     hal_di();
@@ -1270,7 +1337,10 @@ void bios_reader(void) __naked
 
 byte bios_reader_body(void)
 {
-    byte ch, new_tail, used;
+    byte rdr = IOBYTE_RDR(iobyte);
+    if (rdr >= IOB_BAT) return 0x1A;    /* UR1/UR2: parked, return EOF */
+
+    byte ch, new_tail;
 
     /* wait for data in ring buffer */
     while (rxtail == rxhead)
@@ -1305,6 +1375,8 @@ void bios_reads(void) __naked
 
 byte bios_reads_body(void)
 {
+    byte rdr = IOBYTE_RDR(iobyte);
+    if (rdr >= IOB_BAT) return 0;       /* UR1/UR2: parked */
     return (rxtail != rxhead) ? 0xFF : 0x00;
 }
 
@@ -1486,7 +1558,12 @@ byte bios_write_c(byte wt)
 
 byte bios_listst(void)
 {
-    return prtflg;
+    switch (IOBYTE_LST(iobyte)) {
+    case IOB_TTY:  return ptpflg;   /* SIO-A TX ready */
+    case IOB_CRT:  return 0xFF;     /* CRT always ready */
+    case IOB_BAT:  return prtflg;   /* LPT: SIO-B TX ready */
+    default:       return 0;        /* UL1: parked */
+    }
 }
 
 word bios_sectran(word sector) __naked
