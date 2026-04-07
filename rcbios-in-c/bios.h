@@ -504,22 +504,28 @@ typedef struct {
      *
      * CONFI.COM can modify PAR4 to change cursor shape and character height.
      */
-    byte par1;              /* +0x20: 8275 Parameter 1 — horizontal format
-                             *   0x4F = (0x4F & 0x7F) + 1 = 80 characters per row */
-    byte par2;              /* +0x21: 8275 Parameter 2 — vertical format
-                             *   0x98:  bits 5:0 = (0x18)+1 = 25 rows per frame
-                             *          bits 7:6 = VRTC timing */
-    byte par3;              /* +0x22: 8275 Parameter 3 — retrace timing
-                             *   0x7A:  bits 4:0 = (0x1A)+2 = 28 H retrace chars
-                             *          bits 7:5 = (3)+1 = 4 V retrace scan lines */
-    byte par4;              /* +0x23: 8275 Parameter 4 — scan lines and cursor
-                             *   0x6D:  bits 7:4 = (6)+1 = 7 lines per char row (REL30)
-                             *          bits 3:2 = underline position
-                             *          bits 1:0 = cursor format:
-                             *            00=blink underline, 01=blink block,
-                             *            10=steady underline, 11=steady block
-                             *          0x6D → 7 lines/char, steady block cursor
-                             *          (rel.2.1: 0x4D → 5 lines/char, blink block) */
+    byte par[4];            /* +0x20..+0x23: 8275 init parameters
+                             *               (4 contiguous bytes — block-loadable via OTIR)
+                             *
+                             *   par[0] — Parameter 1: horizontal format
+                             *     0x4F = (0x4F & 0x7F) + 1 = 80 characters per row
+                             *
+                             *   par[1] — Parameter 2: vertical format
+                             *     0x98:  bits 5:0 = (0x18)+1 = 25 rows per frame
+                             *            bits 7:6 = VRTC timing
+                             *
+                             *   par[2] — Parameter 3: retrace timing
+                             *     0x7A:  bits 4:0 = (0x1A)+2 = 28 H retrace chars
+                             *            bits 7:5 = (3)+1 = 4 V retrace scan lines
+                             *
+                             *   par[3] — Parameter 4: scan lines and cursor
+                             *     0x6D:  bits 7:4 = (6)+1 = 7 lines per char row (REL30)
+                             *            bits 3:2 = underline position
+                             *            bits 1:0 = cursor format:
+                             *              00=blink underline, 01=blink block,
+                             *              10=steady underline, 11=steady block
+                             *            0x6D → 7 lines/char, steady block cursor
+                             *            (rel.2.1: 0x4D → 5 lines/char, blink block) */
 
     /*
      * NEC µPD765 (Intel 8272) FDC SPECIFY command.

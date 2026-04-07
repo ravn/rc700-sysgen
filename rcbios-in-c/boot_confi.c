@@ -41,10 +41,10 @@ const byte confi_on_disk[128] = {
     0x48, 0x49, 0x4A, 0x4B,  /* +0x1C: ch0-ch3 single/read */
 
     /* 8275 CRT controller reset parameters */
-    0x4F,               /* +0x20: par1 80 chars/row */
-    0x98,               /* +0x21: par2 25 rows, VRTC timing */
-    0x7A,               /* +0x22: par3 28 H retrace, 4 V retrace */
-    0x6D,               /* +0x23: par4 7 lines/char, steady block cursor */
+    0x4F,               /* +0x20: par[0] 80 chars/row */
+    0x98,               /* +0x21: par[1] 25 rows, VRTC timing */
+    0x7A,               /* +0x22: par[2] 28 H retrace, 4 V retrace */
+    0x6D,               /* +0x23: par[3] 7 lines/char, steady block cursor */
 
     /* FDC SPECIFY command */
     0x03,               /* +0x24: fdprog_len 3 bytes */
