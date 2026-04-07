@@ -89,7 +89,14 @@
 #define PORT_DMA_TMP      0xFD
 #define PORT_DMA_MASK     0xFF
 
-/* DEFPORT: one macro, three backends */
+/* DEFPORT: one macro, three backends.
+ *
+ * Two API forms:
+ *   port_in/port_out(name, val)   — name is a constant identifier (compile-time)
+ *   port_in_rt/port_out_rt(p, v)  — p is a runtime byte (port number)
+ *
+ * The _rt form lets one helper handle multiple ports (e.g., SIO channel A vs B
+ * selected at runtime). Requires #44 fix on clang side. */
 #if defined(__clang__) && defined(__z80__)
 #define __io __attribute__((address_space(2)))
 #define DEFPORT(name, addr) \
@@ -101,10 +108,16 @@
     }
 #define port_in(name)       port_in_##name()
 #define port_out(name, val) port_out_##name(val)
+#define port_in_rt(p)       (*(volatile __io uint8_t *)(uint8_t)(p))
+#define port_out_rt(p, v)   (*(volatile __io uint8_t *)(uint8_t)(p) = (v))
 #elif defined(__SDCC) || defined(__SCCZ80)
 #define DEFPORT(name, addr) __sfr __at (addr) _sfr_##name;
 #define port_in(name)       (_sfr_##name)
 #define port_out(name, val) (_sfr_##name = (val))
+/* SDCC has no clean way to do runtime port I/O in pure C —
+ * __sfr requires constant addresses. Code that needs runtime port
+ * selection must use per-port helpers + a dispatcher (see bios.c
+ * sio_wr5 for an example). port_in_rt/port_out_rt are clang-only. */
 #else
 #define DEFPORT(name, addr) \
     static inline uint8_t port_in_##name(void) { \
@@ -112,6 +125,8 @@
     static inline void port_out_##name(uint8_t val) { (void)val; }
 #define port_in(name)       port_in_##name()
 #define port_out(name, val) port_out_##name(val)
+#define port_in_rt(p)       ((uint8_t)0)
+#define port_out_rt(p, v)   ((void)(p), (void)(v))
 #endif
 
 DEFPORT(crt_param,    PORT_CRT_PARAM)
