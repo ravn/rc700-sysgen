@@ -738,30 +738,33 @@ static void serial_conout(byte c) {
     bios_punch_body(c);
 }
 
+/* Read one byte from the keyboard buffer. Caller must ensure kbtail!=kbhead. */
+static byte kbd_dequeue(void)
+{
+    byte raw = kbbuf[kbtail];
+    kbtail = (kbtail + 1) & (KBBUFSZ - 1);
+    kbstat = (kbtail != kbhead) ? 0xFF : 0x00;
+    return inconv[raw];
+}
+
+/* Console input: always poll BOTH keyboard and serial. The IOBYTE CON
+ * field is now an availability hint rather than an exclusive selector,
+ * so a local user can type while a remote driver also sends via serial.
+ * IOB_UC1 is the only "no input" mode. */
 byte bios_const(void)
 {
-    switch (IOBYTE_CON(iobyte)) {
-    case IOB_TTY:  return serial_const();
-    case IOB_CRT:  return kbstat;
-    case IOB_BAT:  return serial_const();
-    default:       return 0;
-    }
+    if (IOBYTE_CON(iobyte) == IOB_UC1) return 0;
+    return (kbstat | serial_const()) ? 0xFF : 0x00;
 }
 
 byte bios_conin(void)
 {
-    switch (IOBYTE_CON(iobyte)) {
-    case IOB_TTY:  return serial_conin();
-    case IOB_CRT: {
-        while (kbtail == kbhead)
-            hal_halt();
-        byte raw = kbbuf[kbtail];
-        kbtail = (kbtail + 1) & (KBBUFSZ - 1);
-        kbstat = (kbtail != kbhead) ? 0xFF : 0x00;
-        return inconv[raw];
-    }
-    case IOB_BAT:  return serial_conin();
-    default:       return 0x1A;
+    if (IOBYTE_CON(iobyte) == IOB_UC1) return 0x1A;
+    /* Drain whichever source has data first; if both empty, wait. */
+    for (;;) {
+        if (kbtail != kbhead) return kbd_dequeue();
+        if (rxtail != rxhead) return serial_conin();
+        hal_halt();
     }
 }
 

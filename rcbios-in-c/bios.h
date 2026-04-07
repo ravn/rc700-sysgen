@@ -160,8 +160,11 @@ static volatile word wboot_vec, bdos_vec;
 #define IOB_BAT  2      /* CON:BAT/RDR:UR1/PUN:UP1/LST:LPT */
 #define IOB_UC1  3      /* CON:UC1/RDR:UR2/PUN:UP2/LST:UL1 (parked) */
 
-/* Default: CON:=CRT(1), RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
-#define IOBYTE_DEFAULT  0x94  /* CON:=TTY (serial+CRT echo), RDR:=PTR, PUN:=PTP, LST:=LPT */
+/* Default: CON:=TTY (serial primary, with keyboard fallback).
+ * bios_const/bios_conin poll BOTH keyboard and serial regardless of the
+ * IOBYTE setting, so a local user can type while a remote driver controls
+ * via serial. The CON field selects the PREFERRED source. */
+#define IOBYTE_DEFAULT  0x94  /* CON:=TTY(0), RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
 
 /* Ring buffer parameters (REL30) */
 #define RXBUFSZ     256         /* SIO ring buffer size (page-aligned) */
