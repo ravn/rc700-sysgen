@@ -32,6 +32,14 @@
 #include "hal.h"
 #include "bios.h"
 
+/* Force LDIR inlining for clang. With -ffreestanding, clang treats memcpy
+ * as a regular extern function and emits CALL instead of inlining LDIR.
+ * The __builtin_memcpy form always lowers via the Z80 backend's G_MEMCPY
+ * → LDIR path. SDCC inlines memcpy() from <string.h> automatically. */
+#ifdef __clang__
+#define memcpy __builtin_memcpy
+#endif
+
 /* Linker symbols for section boundaries.
  * z88dk linker defines these with double underscore; C adds another
  * underscore prefix, so we use single underscore here → ___name in asm. */
@@ -56,6 +64,19 @@ extern void bios_hw_init(void);
  * No library functions are linked — verified in the .asm listing. */
 void relocate_bios(void)
 {
+    /* Zero BSS FIRST.  Critical ordering: BSS is unavailable as a spill
+     * target until cleared, because +static-stack uses BSS slots in this
+     * function's frame area, which overlaps the area being cleared (#51,
+     * #53). By doing the clear first, no other operation can spill to
+     * BSS before the clear runs.
+     *
+     * Use linker symbol expressions directly so the compiler resolves
+     * them as link-time constants instead of computing via local vars. */
+    _bss_compiler_head = 0;
+    memcpy(&_bss_compiler_head + 1,
+           &_bss_compiler_head,
+           (word)&_bss_compiler_size - 1);
+
     /* Relocate BIOS section from physical to runtime address.
      * BIOS binary starts right after the last BOOT sub-section. */
     memcpy((void *)BIOS_BASE,
@@ -67,28 +88,6 @@ void relocate_bios(void)
 
     /* Copy conversion tables to runtime address */
     memcpy((void *)CONV_ADDR, conv_tables, 384);
-
-    /* Zero BSS.  Clang uses inline asm to avoid +static-stack BSS
-     * self-clobber (#51).  SDCC uses C memcpy trick (no static-stack). */
-#if defined(__clang__) && defined(__z80__)
-    __asm volatile(
-        "ld hl, __bss_compiler_head \n"
-        "ld (hl), 0                 \n"
-        "ld d, h                    \n"
-        "ld e, l                    \n"
-        "inc de                     \n"
-        "ld bc, __bss_compiler_size - 1 \n"
-        "ldir                       \n"
-        ::: "memory"
-    );
-#else
-    {
-        byte *p = &_bss_compiler_head;
-        word n = (word)&_bss_compiler_size;
-        *p = 0;
-        memcpy(p + 1, p, n - 1);
-    }
-#endif
 }
 
 /* Verify relocation: the sentinel word at the end of .data (just before
