@@ -169,6 +169,20 @@ logic is missing. The original RC702 BIOS explicitly did NOT support IOBYTE.
 ## Parked (not working on now)
 - [ ] 58K rel.1.4: 4 ISR-specific auto-labels remain in BIOS_58K_14.MAC (sub_e43dh, lee8ah, lee8bh, lf421h)
 - [ ] VERIFY.COM disassembly: Pascal-compiled disk verification utility (10KB). VERIFY.MAC in RC702E BIOS is a related but separate compilation (4KB app block, missing runtime). Low value — compiler output won't produce readable source.
+- [ ] **Microcontroller-as-PIO-A-server (investigate)**: pick a small MCU
+  (Raspberry Pi Pico / RP2040, Arduino, ATmega328) for direct connection
+  to the RC700's Z80-PIO Channel A parallel port to provide a bidirectional
+  data exchange / server peripheral. Open questions:
+  * 5 V tolerance vs level shifting (RP2040 GPIO is 3.3 V; ATmega328 is 5 V native)
+  * STROBE/READY (Z80-PIO Mode 2) handshake timing — RP2040 PIO state
+    machines look ideal; Arduino bit-bang may be too slow
+  * Wiring: PIO-A 8 data lines + ASTB + ARDY + GND, plus a reset/IRQ
+    return path for bidirectional half-duplex
+  * Software model: BIOS PUNCH/READER routed via IOBYTE to PIO-A?
+    A new BIOS device? An optional "RDR:=PIO" patch?
+  * Reuse target: same use-case as the FTDI serial cable
+    (`docs/serial_cable_wiring.md`, `docs/serial_motherboard_uart.md`)
+    but with much higher throughput than 38400 baud SIO-A.
 
 ## Verification Status (13 targets) — all MATCH
 | # | Target | Source | Status |
