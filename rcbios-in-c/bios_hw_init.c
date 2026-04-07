@@ -58,6 +58,7 @@ extern byte dirbf[];
 extern const DPB dpb8;
 extern byte chk0[], chk1[], all0[], all1[];
 extern byte hstact, hstwrt, unacnt, erflag, cform, lstdsk;
+extern byte status_line[80];   /* row 26 buffer (DMA ch.3 source), in bios.c */
 
 /* ================================================================
  * Interrupt vector table — function pointer array
@@ -207,8 +208,21 @@ void bios_hw_init(void)
     port_out(crt_param, CFG.par[2]);            /* lines/char + underline */
     port_out(crt_param, CFG.par[3]);            /* cursor format */
 
-    /* status_line[] is refreshed every frame by status_line_update() in
-     * isr_crt; no boot-time initialization needed. */
+    /* Pre-arm DMA ch.2 (display) and ch.3 (status line) BEFORE starting
+     * the 8275 display.  Without this, between "start display" here and
+     * the first isr_crt firing, the 8275 fetches its first frame's rows
+     * with no DMA armed → underrun → cold-boot flicker.  isr_crt will
+     * reprogram both channels every frame from now on. */
+    port_out(dma_smsk, DMA_MASK_SET(DMA_CH_DISPLAY));
+    port_out(dma_smsk, DMA_MASK_SET(DMA_CH_DISATTR));
+    port_out(dma_clbp, 0);                  /* clear byte pointer flip-flop */
+    hal_dma_dsp_addr(DSPSTR);
+    hal_dma_dsp_wc(SCRN_SIZE - 1);          /* 2000 bytes for rows 1..25 */
+    hal_dma_atr_addr((word)status_line);
+    hal_dma_atr_wc(SCRN_COLS - 1);          /* 80 bytes for row 26 */
+    port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_DISPLAY));
+    port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_DISATTR));
+
     port_out(crt_cmd, 0x80);       /* load cursor position */
     port_out(crt_param, 0);        /* cursor X = 0 */
     port_out(crt_param, 0);        /* cursor Y = 0 */
