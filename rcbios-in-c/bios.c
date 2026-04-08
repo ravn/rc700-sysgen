@@ -1067,22 +1067,45 @@ static void delete_line(void)
     }
 }
 
-/* Insert line — shift lines down from cury to ROW23, fill current line.
- * Backward copies use lddr_copy (HL=src_end, DE=dst_end → LDDR). */
+/* Insert line — shift lines from cury..ROW23 down by one row, then
+ * blank the current line.
+ *
+ * The shift is an overlapping backward copy (dst > src by SCRN_COLS).
+ * On clang we go through lddr_copy() (LDDR via runtime.s).  On SDCC
+ * we use a hand-rolled backward byte loop because z88dk's memmove
+ * does NOT work with --sdcccall 1: z88dk only ships
+ * `string/c/sdcc_ix/memmove_callee.asm` which is hard-coded to the
+ * sdcccall(0) convention (pops 3 args from stack), but our BIOS uses
+ * --sdcccall 1 where args go in registers.  The result is that
+ * memmove_callee pops garbage and either hangs or corrupts memory.
+ * Verified by ravn/rc700-gensmedet#6 — a standalone CP/M test program
+ * with the same overlap pattern works fine because user-space CP/M
+ * code is built with sdcccall(0).
+ *
+ * Earlier versions of this file ALSO had a latent bug in the byte
+ * loop: it used a `byte` loop counter for a `word` count, so for
+ * cury < ~1664 the loop wrapped early and only ~128 bytes got
+ * shifted — visible as "ctrl-A from a row near the top of the
+ * screen only shifts the bottom part".  Fixed below by using a
+ * `word` counter throughout. */
 static void insert_line(void)
 {
+    /* `static` locals — see ravn/rc700-gensmedet#6.  Stack-allocated
+     * locals trip a SDCC sdcc_iy + --fomit-frame-pointer codegen quirk
+     * where the word loop counter gets stored via `inc sp; inc sp;
+     * push de` + IX-relative reads, with the IX/SP relationship not
+     * tracked correctly — the generated code copies the wrong number
+     * of bytes.  BSS-allocated statics avoid the IX dance entirely. */
     static word count;
-
     count = ROW24_OFFSET - cury;
     if (count != 0) {
 #if defined(__SDCC) || defined(__SCCZ80)
-        /* Backward copy for overlapping shift-down (memmove hangs on z88dk) */
         static byte *src, *dst;
-        static byte il_i;
+        static word i;
         src = screen + ROW24_OFFSET - 1;
         dst = screen + ROW24_OFFSET + SCRN_COLS - 1;
-        il_i = (byte)count;
-        while (il_i--)
+        i = count;
+        while (i--)
             *dst-- = *src--;
 #else
         lddr_copy(screen + ROW24_OFFSET - 1,
