@@ -184,6 +184,22 @@ DEFPORT(hd_status,    PORT_HD_STATUS)
 #define hal_dma_dsp_wc(w)   do { port_out(dma_dsp_wc,(uint8_t)(w));   port_out(dma_dsp_wc,(uint8_t)((w)>>8));   } while(0)
 #define hal_dma_atr_wc(w)   do { port_out(dma_atr_wc,(uint8_t)(w));   port_out(dma_atr_wc,(uint8_t)((w)>>8));   } while(0)
 
+/* Inline-asm volatile portability shim.
+ *
+ * Outputless inline asm in clang must be `__asm__ volatile(...)` to
+ * survive DCE after inlining (otherwise the body silently disappears).
+ * SDCC's gcc-compat `__asm__("...")` parser does NOT accept the
+ * `volatile` keyword — it errors with `syntax error: token -> 'volatile'`.
+ * SDCC inline asm is implicitly volatile and never DCE'd, so the
+ * keyword is unnecessary there.
+ *
+ * Use ASM_VOLATILE("...") in shared-source asm blocks. */
+#ifdef __clang__
+#define ASM_VOLATILE(...) __asm__ volatile(__VA_ARGS__)
+#else
+#define ASM_VOLATILE(...) __asm__(__VA_ARGS__)
+#endif
+
 #if defined(__SDCC) || defined(__SCCZ80)
 /* Z80 inline helpers */
 #define hal_ei()    __asm__("ei")

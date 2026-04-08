@@ -103,7 +103,7 @@ extern void set_i_reg(byte page);  /* in clang/bios_shims.s */
 static void set_i_reg(byte page)
 {
     (void)page;
-    __asm__ volatile("ld i, a\n");
+    ASM_VOLATILE("ld i, a\n");
 }
 #endif
 
@@ -155,7 +155,7 @@ void bios_hw_init(void)
             port_out(sio_b_ctrl, CFG.siob[i]);
     }
 #else
-    __asm__ volatile(
+    ASM_VOLATILE(
         "ld hl, %[sioa]\n\t"
         "ld c, %[port_a]\n\t"
         "ld b, 9\n\t"

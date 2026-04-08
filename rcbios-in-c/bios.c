@@ -600,7 +600,7 @@ void bios_boot_c(void);
 /* Cold boot entry — sets BIOS stack then calls bios_boot_c. */
 void bios_boot(void) __naked
 {
-    __asm__ volatile("ld sp, #" STR(BIOS_STACK) "\n");       /* use BIOS private stack */
+    ASM_VOLATILE("ld sp, #" STR(BIOS_STACK) "\n");       /* use BIOS private stack */
     bios_boot_c();
 }
 
@@ -695,14 +695,14 @@ static volatile byte __at(CCP_BASE) ccp_entry_point;
 static void jump_ccp(byte drive) __naked
 {
     (void)drive;
-    __asm__ volatile("ld c, a               \n"
+    ASM_VOLATILE("ld c, a               \n"
             "jp _ccp_entry_point   \n");
 }
 #endif
 
 void bios_wboot(void) __naked
 {
-    __asm__ volatile("ld sp, #" STR(BIOS_STACK) " \n"  /* use BIOS private stack */
+    ASM_VOLATILE("ld sp, #" STR(BIOS_STACK) " \n"  /* use BIOS private stack */
             "jp _wboot_c          \n");
 }
 
@@ -1247,7 +1247,7 @@ static void specc(void)
 void bios_conout(byte c) __naked
 {
     (void)c;
-    __asm__ volatile("ld a, c               \n"
+    ASM_VOLATILE("ld a, c               \n"
             "jp _bios_conout_c     \n"); /* explicit tail call */
 }
 
@@ -1282,7 +1282,7 @@ void bios_conout_c(byte c)
  * __naked shim translates, then falls through to body. */
 void bios_list(void) __naked
 {
-    __asm__ volatile("ld a, c               \n"
+    ASM_VOLATILE("ld a, c               \n"
             "jp _bios_list_body    \n"); /* explicit tail call */
 }
 
@@ -1315,7 +1315,7 @@ void bios_list_body(byte c)
  * HL preserved for SNIOS (CP/NET). */
 void bios_punch(void) __naked
 {
-    __asm__ volatile("push hl     \n"
+    ASM_VOLATILE("push hl     \n"
             "ld a, c     \n"
             "call _bios_punch_body \n"
             "pop hl      \n"
@@ -1344,7 +1344,7 @@ void bios_punch_body(byte c)
  * HL preserved for SNIOS (CP/NET). */
 void bios_reader(void) __naked
 {
-    __asm__ volatile("push hl     \n"
+    ASM_VOLATILE("push hl     \n"
             "call _bios_reader_body \n"
             "pop hl      \n"
             "ld c, a     \n"
@@ -1382,7 +1382,7 @@ byte bios_reader_body(void)
  * HL preserved for SNIOS (CP/NET). */
 void bios_reads(void) __naked
 {
-    __asm__ volatile("push hl     \n"
+    ASM_VOLATILE("push hl     \n"
             "call _bios_reads_body \n"
             "pop hl      \n"
             "ld c, a     \n"
@@ -1417,7 +1417,7 @@ void bios_home(void)
 word bios_seldsk(byte disk) __naked
 {
     (void)disk;
-    __asm__ volatile("ld a, c               \n"
+    ASM_VOLATILE("ld a, c               \n"
             "call _bios_seldsk_c   \n"
             "ex de, hl             \n"
             "ret                   \n");
@@ -1483,21 +1483,21 @@ word bios_seldsk_c(byte drv)
 void bios_settrk(word track) __naked
 {
     (void)track;
-    __asm__ volatile("ld (_sektrk), bc       \n"  /* CP/M passes track in BC */
+    ASM_VOLATILE("ld (_sektrk), bc       \n"  /* CP/M passes track in BC */
             "ret                     \n");
 }
 
 void bios_setsec(word sector) __naked
 {
     (void)sector;
-    __asm__ volatile("ld (_seksec), bc       \n"  /* CP/M passes sector in BC */
+    ASM_VOLATILE("ld (_seksec), bc       \n"  /* CP/M passes sector in BC */
             "ret                     \n");
 }
 
 void bios_setdma(word addr) __naked
 {
     (void)addr;
-    __asm__ volatile("ld (_dmaadr), bc       \n"  /* CP/M passes DMA address in BC */
+    ASM_VOLATILE("ld (_dmaadr), bc       \n"  /* CP/M passes DMA address in BC */
             "ret                     \n");
 }
 
@@ -1560,7 +1560,7 @@ byte bios_read(void)
 byte bios_write(byte type) __naked
 {
     (void)type;
-    __asm__ volatile("ld a, c               \n"
+    ASM_VOLATILE("ld a, c               \n"
             "jp _bios_write_c      \n"); /* explicit tail call */
 #ifdef __clang__
     return 0; /* unreachable — silences clang -Wreturn-type */
@@ -1585,7 +1585,7 @@ byte bios_listst(void)
 word bios_sectran(word sector) __naked
 {
     (void)sector;
-    __asm__ volatile("ld h, b                \n"  /* return BC in HL (no translation) */
+    ASM_VOLATILE("ld h, b                \n"  /* return BC in HL (no translation) */
             "ld l, c                \n"
             "ret                    \n");
 #ifdef __clang__
@@ -1616,7 +1616,7 @@ word bios_sectran(word sector) __naked
 void bios_wfitr(void) __naked
 {
     wfitr();
-    __asm__ volatile("ld a, (_rstab)         \n"
+    ASM_VOLATILE("ld a, (_rstab)         \n"
             "ld b, a                \n"
             "ld a, (_rstab + 1)     \n"
             "ld c, a                \n"
@@ -1694,7 +1694,7 @@ byte ls_line;
 byte bios_linsel_body(void);
 void bios_linsel(void) __naked
 {
-    __asm__ volatile("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */
+    ASM_VOLATILE("ld (_ls_port), a       \n"  /* A=port (0=SIO-A, 1=SIO-B) */
             "ld a, b                \n"
             "ld (_ls_line), a       \n"); /* B=line (0-2) */
     bios_linsel_body();
@@ -1752,7 +1752,7 @@ byte bios_linsel_body(void)
  * The callback must NOT enable interrupts and must return via RET. */
 void bios_exit(void) __naked
 {
-    __asm__ volatile("ld (" STR(WARMJP_ADDR) "), hl \n"  /* warmjp = callback address */
+    ASM_VOLATILE("ld (" STR(WARMJP_ADDR) "), hl \n"  /* warmjp = callback address */
             "ex de, hl                   \n"
             "ld (" STR(TIMER1_ADDR) "), hl \n" /* timer1 = countdown */
             "ret                         \n");
@@ -1766,7 +1766,7 @@ void bios_exit(void) __naked
  * Returns (GET): DE = clock bits 0-15, HL = clock bits 16-31 */
 void bios_clock(void) __naked
 {
-    __asm__ volatile("or a                   \n"
+    ASM_VOLATILE("or a                   \n"
             "jr z, _clock_set       \n"
             "di                     \n"  /* read clock */
             "ld de, (" STR(RTC0_ADDR) ") \n"
@@ -1852,14 +1852,14 @@ static inline void isr_exit_full(void)  {}
 #else
 static inline void isr_enter(void) __naked
 {
-    __asm__ volatile("ld (_sp_sav), sp     \n"
+    ASM_VOLATILE("ld (_sp_sav), sp     \n"
                      "ld sp, #" STR(ISTACK_ADDR) " \n"
                      "push af              \n");
 }
 
 static inline void isr_exit(void) __naked
 {
-    __asm__ volatile("pop af               \n"
+    ASM_VOLATILE("pop af               \n"
                      "ld sp, (_sp_sav)     \n"
                      "ei                   \n"
                      "reti                 \n");
@@ -1867,7 +1867,7 @@ static inline void isr_exit(void) __naked
 
 static inline void isr_enter_full(void) __naked
 {
-    __asm__ volatile("ld (_sp_sav), sp     \n"
+    ASM_VOLATILE("ld (_sp_sav), sp     \n"
                      "ld sp, #" STR(ISTACK_ADDR) " \n"
                      "push af              \n"
                      "push bc              \n"
@@ -1877,7 +1877,7 @@ static inline void isr_enter_full(void) __naked
 
 static inline void isr_exit_full(void) __naked
 {
-    __asm__ volatile("pop hl               \n"
+    ASM_VOLATILE("pop hl               \n"
                      "pop de               \n"
                      "pop bc               \n"
                      "pop af               \n"
