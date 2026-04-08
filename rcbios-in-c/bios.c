@@ -1826,43 +1826,66 @@ void bios_hrdfmt(void) { }
  *   isr_enter / isr_exit: save/restore AF only (for simple flag-set
  *     ISRs whose C body only touches __sfr ports and static bytes)
  *   isr_enter_full / isr_exit_full: save/restore AF,BC,DE,HL (for
- *     ISRs with C body code that may clobber all registers) */
-
+ *     ISRs with C body code that may clobber all registers)
+ *
+ * Two notes about the bodies below:
+ *
+ *   1. The asm MUST be `__asm__ volatile`.  Without `volatile` clang
+ *      treats outputless inline asm as side-effect-free and may DCE
+ *      it after inlining, silently stripping the ISR register save /
+ *      restore and crashing on RETI.  This was a latent bug — for a
+ *      while clang chose not to inline these helpers and the asm
+ *      survived; an unrelated change to an ISR body shifted the
+ *      inlining heuristics and exposed it.
+ *
+ *   2. On the clang build path the wrappers in clang/bios_shims.s
+ *      already do the SP switch + push/call/pop/RETI sequence, so
+ *      these helpers must be no-op stubs there — otherwise we get a
+ *      double save and a stray RETI inside the C body, corrupting
+ *      _sp_sav and crashing on return.  SDCC has no shim wrapper, so
+ *      it gets the real asm bodies. */
+#ifdef __clang__
+static inline void isr_enter(void)      {}
+static inline void isr_exit(void)       {}
+static inline void isr_enter_full(void) {}
+static inline void isr_exit_full(void)  {}
+#else
 static inline void isr_enter(void) __naked
 {
-    __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #" STR(ISTACK_ADDR) " \n"
-            "push af              \n");
+    __asm__ volatile("ld (_sp_sav), sp     \n"
+                     "ld sp, #" STR(ISTACK_ADDR) " \n"
+                     "push af              \n");
 }
 
 static inline void isr_exit(void) __naked
 {
-    __asm__("pop af               \n"
-            "ld sp, (_sp_sav)     \n"
-            "ei                   \n"
-            "reti                 \n");
+    __asm__ volatile("pop af               \n"
+                     "ld sp, (_sp_sav)     \n"
+                     "ei                   \n"
+                     "reti                 \n");
 }
 
 static inline void isr_enter_full(void) __naked
 {
-    __asm__("ld (_sp_sav), sp     \n"
-            "ld sp, #" STR(ISTACK_ADDR) " \n"
-            "push af              \n"
-            "push bc              \n"
-            "push de              \n"
-            "push hl              \n");
+    __asm__ volatile("ld (_sp_sav), sp     \n"
+                     "ld sp, #" STR(ISTACK_ADDR) " \n"
+                     "push af              \n"
+                     "push bc              \n"
+                     "push de              \n"
+                     "push hl              \n");
 }
 
 static inline void isr_exit_full(void) __naked
 {
-    __asm__("pop hl               \n"
-            "pop de               \n"
-            "pop bc               \n"
-            "pop af               \n"
-            "ld sp, (_sp_sav)     \n"
-            "ei                   \n"
-            "reti                 \n");
+    __asm__ volatile("pop hl               \n"
+                     "pop de               \n"
+                     "pop bc               \n"
+                     "pop af               \n"
+                     "ld sp, (_sp_sav)     \n"
+                     "ei                   \n"
+                     "reti                 \n");
 }
+#endif
 
 /*
  * CRT display refresh ISR body (CTC ch.2)
