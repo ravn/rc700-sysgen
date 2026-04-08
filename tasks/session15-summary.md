@@ -7,18 +7,17 @@ Branch: main
 
 Implemented cross-block redundant `LD A,r` removal in `Z80LateOptimization`
 (ravn/llvm-z80#60), uncovered and fixed a pre-existing latent miscompile in
-`Z80PostRACompareMerge` along the way (now ravn/llvm-z80#65), and shipped a
-PROM size win.
+`Z80PostRACompareMerge` along the way (now ravn/llvm-z80#65), discovered and
+fixed a downstream peephole interaction (now ravn/llvm-z80#68), and shipped
+size wins in **both** PROM and BIOS.
 
-| | clang PROM | SDCC PROM |
-|---|---|---|
-| Session 14 final | 1756 | 1910 |
-| Session 15 final | **1751** | 1910 |
-| Δ | **-5 B** | — |
+| | clang PROM | clang BIOS | SDCC PROM | SDCC BIOS |
+|---|---|---|---|---|
+| Session 14 final | 1756 | 5827 | 1910 | 5797 |
+| Session 15 final | **1751** | **5822** | 1910 | 5797 |
+| Δ | **-5 B** | **-5 B** | — | — |
 
-Gap to SDCC widened from -8.1% to -8.3%.
-
-BIOS not rebuilt this session.
+PROM gap: -8.1% → **-8.3%** (wider). BIOS gap: +0.5% → **+0.4%** (narrower).
 
 ## What was done
 
@@ -101,27 +100,61 @@ DEC of A into A) and also defines FLAGS.
 **Test**: `llvm/test/CodeGen/Z80/post-ra-cmp-merge-cp.ll` reproduces it
 deterministically.
 
-### 3. Verification
+### 3. Downstream peephole interaction (now #68)
+
+After PROM verification, rebuilt BIOS to check for impact. Initial result:
+**5827 → 5830 (+3 B regression)**. Tracked it down to `xyadd`:
+
+A separate peephole at `Z80LateOptimization.cpp:3655` already handled:
+```
+LD A,r        ; I0
+PUSH AF       ; I1
+LD A,r        ; I2  (duplicate of I0, used as a temp via PUSH/POP)
+LD (addr),A   ; I3
+POP AF        ; I4
+```
+collapsing it to `LD A,r; LD (addr),A`. The cross-block #60 dataflow runs
+earlier in the same pass and **correctly identifies I2 as redundant** (A
+already equals r), so it eats I2. The 5-instruction matcher then no longer
+fires, leaving 3 wasted bytes (`PUSH AF` + `POP AF`) per affected site.
+
+**Fix**: extended the peephole to also accept the 4-instruction post-#60
+form (`LD A,r; PUSH AF; LD (addr),A; POP AF`). Result: BIOS shrank from
+5830 → **5822** — net **-5 B** vs original 5827 baseline.
+
+Filed as ravn/llvm-z80#68 with an audit checklist of other multi-
+instruction peepholes that contain `LD A,r` in the middle and might have
+the same interaction pending.
+
+### 4. Verification
 
 | Check | Result |
 |---|---|
 | New lit tests (`redundant-ld-a-reg.ll`, `post-ra-cmp-merge-cp.ll`) | PASS |
 | Z80 lit suite regressions | 0 (48/53 pass; same 5 pre-existing fails — see #67) |
-| PROM size | 1756 → **1751 B** |
+| PROM size | 1756 → **1751 B** (-5) |
+| BIOS size | 5827 → **5822 B** (-5) |
 | Undocumented insn check (IXH/IXL/IYH/IYL/SLL grep) | 0 hits |
 | MAME ROM CRC vs built PROM | match |
-| MAME boot test | PASS, banner `RC700 CL`, CP/M `A>` reached |
+| PROM MAME boot test | PASS, banner `RC700 CL`, CP/M `A>` reached |
+| BIOS MAME boot test | PASS, CP/M `A>` reached |
 
 ## Findings filed as issues
 
 - **ravn/llvm-z80#65** — Z80PostRACompareMerge CP miscompile (latent,
-  now fixed). Filed for traceability.
+  fixed in this session). Filed for traceability.
 - **ravn/llvm-z80#66** — cross-block #60 follow-up: split critical edges
-  to handle multi-pred merges. Estimated 5-15B more in PROM/BIOS.
+  to handle multi-pred merges. **Closed empirically as 0-byte prize**:
+  measured all 3 multi-pred LD A,r sites in the PROM; all are real
+  D→A return-value loads, not redundant reloads.
 - **ravn/llvm-z80#67** — placeholder for the 5 pre-existing lit
   failures (`cmp-eq-regpressure`, `fib`, `interrupt`, `shift-opt`,
   `spill-regclass`). Not introduced by this session; filed so future
   work can tell its own regressions apart from baseline noise.
+- **ravn/llvm-z80#68** — audit other multi-instruction peepholes in
+  `Z80LateOptimization.cpp` for the same kind of LD A,r interaction
+  that bit `xyadd`. Includes a checklist of candidate peepholes to
+  inspect.
 
 ## Lessons
 
@@ -147,3 +180,24 @@ deterministically.
    clobber will lose precision through the most common test pattern
    (`save; ...; or a; jr cc`). Special-casing these three opcodes
    recovers the precision.
+
+4. **A new optimization can defeat existing pattern peepholes that
+   contain its target instruction.** The cross-block #60 dataflow
+   correctly removed the inner `LD A,r` of a 5-instruction pattern
+   that another peephole was waiting to collapse. The 5-instruction
+   matcher then failed to match the 4-instruction residue and left
+   3 wasted bytes per site. Whenever a new pass removes instructions
+   that could be sub-patterns of fixed-shape peepholes elsewhere, the
+   downstream peepholes need to either (a) be extended to recognize
+   the post-removal residue, (b) be re-ordered to run before the new
+   pass, or (c) the new pass needs to know to leave specific patterns
+   alone. We chose (a) for the BSS spill push/pop peephole and filed
+   ravn/llvm-z80#68 to audit the rest.
+
+5. **Always rebuild downstream artifacts before claiming a win.**
+   Initial PROM-only verification missed a +3 B BIOS regression.
+   Rebuilding both PROM and BIOS as a verification step catches
+   cases where a change saves bytes in one binary and costs them in
+   another. The CompareMerge fix (#65) also adds bytes in some
+   functions because correctness recovery is non-zero-cost — the
+   only way to know is to rebuild and measure.
