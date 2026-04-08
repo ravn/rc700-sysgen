@@ -103,7 +103,7 @@ extern void set_i_reg(byte page);  /* in clang/bios_shims.s */
 static void set_i_reg(byte page)
 {
     (void)page;
-    __asm__("ld i, a\n");
+    __asm__ volatile("ld i, a\n");
 }
 #endif
 
