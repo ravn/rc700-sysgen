@@ -209,3 +209,75 @@ Still fits MAXI disk (9984B limit, 3367B headroom). Consider removing
 `+static-stack` if the compiler bugs prove too hard to fix.
 
 Sizes: with +static-stack 5709B, without 6617B, SDCC 5570B.
+
+## Parallel host link (PIO Port A bidirectional)
+
+Goal: replace the 38400-baud serial transport with a fast parallel link
+between RC700 and a modern host machine (e.g. a Linux box with a real
+DSUB-25 LPT port — 5 V TTL, electrically compatible with the Z80 PIO).
+
+Design doc: `rcbios-in-c/docs/parallel_host_interface.md`.
+Schematic analysis: `docs/schematics/MIC07_pinout.md`.
+Investigation log: `tasks/session16-summary.md`.
+
+### Status
+
+- Design doc exists from before session 16, assuming Mode 2
+  (bidirectional with full hardware handshake) on PIO Port A.
+- Session 16 read MIC07 and found that Mode 2 likely **does not work
+  on stock hardware** — ARDY appears unwired and BSTB/BRDY are on the
+  wrong DSUB-25 connector. Schematic reading is not yet
+  hardware-verified.
+- Stopped pending hardware inspection by the user.
+
+### Hardware verification (do these on the actual machine)
+
+- [ ] Confirm J4 = PIO Port A by ringing out J4 pin 21 (alleged A0)
+      with a meter back to a known Port A data pin on the Z80 PIO chip.
+- [ ] Confirm J3 = PIO Port B the same way (J3 pin 22 → B0).
+- [ ] **Critical:** check whether ARDY (Z80 PIO chip pin 18) is wired
+      to *any* J4 pin. If yes, Mode 2 is much closer to viable. If no,
+      see option 3 below.
+- [ ] Confirm BSTB's exact pin number on J3 — partly obscured in the
+      schematic crop.
+- [ ] Identify which J4 pins are unused (i.e. not data, not strobe,
+      not power, not ground). These are candidates for option 3 wiring.
+
+### Schematic re-read tasks (do at the keyboard)
+
+- [ ] Re-render MIC07 *uncropped* and trace one `KEY n` wire
+      pin-by-pin from J4 back to a clearly-numbered Port A pin on the
+      PIO chip. Confirms the J4 = Port A claim from the schematic
+      side, independent of the BIOS port mapping.
+- [ ] Look for ARDY in the left half of MIC07 (cropped out in
+      session 16) and on adjacent sheets (MIC06, MIC08).
+- [ ] Look for a tabular connector pinout appendix in the manual
+      text — many RC manuals have one separate from the schematic
+      sheets. Would settle the J3/J4 question definitively.
+
+### Three options to choose from once hardware is verified
+
+1. **Half-duplex, no rewiring.** Mode 0/1 + ASTB-driven RX
+   interrupt. Host→Z80 fully handshaked. Z80→host polled with fixed
+   timing or bit-banged via Mode 3. Slowest, simplest, no soldering.
+
+2. **Y-cable into J3 + J4.** Picks up BSTB/BRDY from J3 and the
+   data bus + ASTB from J4. Still missing ARDY (host inserts fixed
+   delay). Non-standard cable, no soldering.
+
+3. **Open the case, run 1–3 wires.** ARDY (PIO pin 18) → spare J4
+   pin, optionally also BSTB/BRDY → spare J4 pins. Single DSUB-25
+   into J4 then becomes a complete Mode 2 link with the full
+   ~25–30 KB/s the design doc estimated.
+
+### Once an option is picked
+
+- [ ] Update `rcbios-in-c/docs/parallel_host_interface.md` to match
+      reality (drop the warning header, document the chosen option).
+- [ ] BIOS work: PIO init swap (Port A to chosen mode, Port B to
+      Mode 1 input for keyboard), ISR rename, parallel ring buffer.
+- [ ] Move keyboard cable from J4 to J3 physically.
+- [ ] Host-side firmware/driver for the chosen option.
+- [ ] Lit test for the new BIOS init bytes per CLAUDE.md
+      "always add a lit test" rule (where applicable).
+

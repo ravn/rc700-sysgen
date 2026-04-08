@@ -1,5 +1,27 @@
 # Parallel Host Interface via PIO-A
 
+> **⚠ HARDWARE VERIFICATION NEEDED (session 16, 2026-04-08).**
+> Reading sheet MIC07 of the RC702 technical manual suggests the Mode 2
+> plan below **does not work on stock hardware**. Specifically:
+>
+> - **ARDY** (Z80 PIO chip pin 18, required by Mode 2) appears not to
+>   be wired to any external connector. The original RC702 designer
+>   only needed strobed *input* from the keyboard, so ARDY was
+>   apparently left dangling.
+> - **BSTB and BRDY** (also required by Mode 2 on Port A) are wired to
+>   J3 (Port B's connector), not J4 (Port A's connector). A single
+>   DSUB-25 cable into J4 cannot pick them up.
+>
+> See `docs/schematics/MIC07_pinout.md` and `tasks/session16-summary.md`
+> for the full reading and the three workaround options (half-duplex
+> with no rewiring; Y-cable into both J3 and J4; or open the case and
+> run 1–3 wires from the PIO chip / J3 over to spare J4 pins). The
+> schematic reading is not yet hardware-verified — the next step is to
+> ring out the connectors with a meter on the actual machine.
+>
+> The rest of this document describes the *intended* Mode 2 design and
+> still applies once the hardware question is resolved.
+
 ## Concept
 
 Use the Z80 PIO Port A in Mode 2 (bidirectional with handshake) for
