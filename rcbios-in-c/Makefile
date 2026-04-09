@@ -27,6 +27,9 @@ CFLAGS = -Wall -Wextra -std=c99 -DHOST_TEST
 # UK_ASCII, US_ASCII, FRENCH, LIBRARY
 KBLANG ?= DANISH
 
+# Keyboard PIO port: A (default, stock RC702) or B (frees A for host link)
+KBDPORT ?= A
+
 # CP/M memory layout — single source of truth for MSIZE.
 MSIZE ?= 56
 BIAS  = $(shell echo $$(( ($(MSIZE) - 20) * 1024 )))
@@ -83,7 +86,7 @@ FORCE:
 # ================================================================
 
 bios: builddate.h
-	$(MAKE) -C $(COMPILER) bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG)
+	$(MAKE) -C $(COMPILER) bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
 
 # SDCC build rules are in sdcc/Makefile
 

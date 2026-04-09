@@ -87,8 +87,13 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
     isr_sio_a_ext,          /* 13: SIO ch.A ext status */
     ISR_SIO_A_RX,           /* 14: SIO ch.A RX — ring buffer */
     isr_sio_a_spec,         /* 15: SIO ch.A special */
+#ifdef KBD_PIO_B
+    isr_pio_par,            /* 16: PIO ch.A — parallel host */
+    ISR_PIO_KBD,            /* 17: PIO ch.B — keyboard */
+#else
     ISR_PIO_KBD,            /* 16: PIO ch.A — keyboard */
     isr_pio_par,            /* 17: PIO ch.B — parallel output */
+#endif
 };
 
 /* Set the Z80 I register.  sdcccall(1) passes byte param in A,
@@ -128,8 +133,13 @@ void bios_hw_init(void)
     /* PIO: set interrupt vectors and modes */
     port_out(pio_a_ctrl, 0x20);    /* PIO-A interrupt vector */
     port_out(pio_b_ctrl, 0x22);    /* PIO-B interrupt vector */
-    port_out(pio_a_ctrl, 0x4F);    /* PIO-A input mode */
+#ifdef KBD_PIO_B
+    port_out(pio_a_ctrl, 0x0F);    /* PIO-A output mode (host link) */
+    port_out(pio_b_ctrl, 0x4F);    /* PIO-B input mode (keyboard) */
+#else
+    port_out(pio_a_ctrl, 0x4F);    /* PIO-A input mode (keyboard) */
     port_out(pio_b_ctrl, 0x0F);    /* PIO-B output mode */
+#endif
     port_out(pio_a_ctrl, 0x83);    /* PIO-A enable interrupt */
     port_out(pio_b_ctrl, 0x83);    /* PIO-B enable interrupt */
 

@@ -10,6 +10,7 @@ PARENT = ..
 MSIZE  ?= 56
 BIOSAD ?= $(shell printf '0x%04X' $$(( 0x3400 + ($(MSIZE) - 20) * 1024 + 0x1600 )))
 KBLANG ?= DANISH
+KBDPORT ?= A
 
 # LLVM-Z80 toolchain — probe for native build, fall back to Docker
 LLVM_Z80 = $(CURDIR)/../../../llvm-z80
@@ -37,7 +38,8 @@ CFLAGS = --target=z80 -Oz -g -nostdlib -ffreestanding \
 	 -mllvm -disable-lsr \
 	 -Iclang -I. -Wno-gcc-compat -Wno-return-type \
 	 -Wimplicit-int-conversion \
-	 -DMSIZE=$(MSIZE)
+	 -DMSIZE=$(MSIZE) \
+	 $(if $(filter B,$(KBDPORT)),-DKBD_PIO_B)
 
 OBJS = boot_block.o boot_confi.o boot_entry.o bios_hw_init.o \
        bios_jump_vector_table.o bios.o bios_shims.o runtime.o

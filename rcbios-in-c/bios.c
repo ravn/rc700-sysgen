@@ -1990,7 +1990,11 @@ void isr_pio_kbd(void) __naked
     /* Read keystroke from PIO (clears interrupt even if buffer full) */
     {
         byte key, new_head;
+#ifdef KBD_PIO_B
+        key = port_in(pio_b_data);
+#else
         key = port_in(pio_a_data);
+#endif
         new_head = (kbhead + 1) & KBMASK;
         if (new_head != kbtail) {
             kbbuf[kbhead] = key;

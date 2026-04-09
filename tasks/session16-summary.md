@@ -1,20 +1,21 @@
 # Session 16 Summary
 
-Date: 2026-04-08
+Date: 2026-04-08 → 2026-04-09
 Branch: main
 
 ## Headline
 
-Investigated the bidirectional parallel host link plan
-(`rcbios-in-c/docs/parallel_host_interface.md`) by reading the
-RC702 hardware schematics. Discovered the Mode 2 plan is **likely
-broken on stock hardware** — at least one of the four required Port A
-handshake lines (ARDY) appears not to be wired to any external
-connector, and the other two (BSTB/BRDY) come out on the wrong DSUB-25
-connector. Hardware verification with a meter is the next step before
-any code work.
+**Part 1 (2026-04-08):** Investigated the bidirectional parallel host
+link plan by reading sheet MIC07 of the RC702 technical manual.
+Discovered the Mode 2 plan is **likely broken on stock hardware** —
+ARDY appears not to be wired to any external connector, and
+BSTB/BRDY come out on the wrong DSUB-25 connector. Hardware
+verification with a meter is the next step.
 
-No code changes. Documentation only.
+**Part 2 (2026-04-09):** Implemented `KBDPORT=B` compile-time flag
+to move the keyboard from PIO Port A to Port B, freeing Port A for
+a future bidirectional host link. Verified on both clang and SDCC.
+Default build is binary-identical to the baseline (code bytes).
 
 ## Background
 
@@ -154,24 +155,68 @@ In increasing order of hardware effort:
 A real PC LPT port (5 V TTL) is electrically compatible with all
 three options.
 
-## Decision
+## Decision (part 1)
 
-Stop here for now. The user will look at the actual hardware later
-to verify the schematic readings before any cable work or BIOS
-changes. Open questions and verification steps recorded in
-`tasks/todo.md` under the new "Parallel host link" section.
+Hardware verification needed before any cable work. Open questions
+and verification steps recorded in `tasks/todo.md` under "Parallel
+host link".
+
+---
+
+## Part 2: Configurable keyboard PIO port (2026-04-09)
+
+### What was done
+
+Added compile-time flag `KBDPORT` (values `A` or `B`, default `A`)
+to move the keyboard between PIO Port A and Port B. This follows
+the existing `KBLANG` pattern for compile-time configuration.
+
+Three `#ifdef KBD_PIO_B` blocks in two source files:
+
+1. **`bios_hw_init.c`** — IVT table: swap entries 16/17 (keyboard ↔
+   parallel ISR). PIO init: swap mode bytes (A=input/B=output ↔
+   A=output/B=input).
+
+2. **`bios.c`** — keyboard ISR: read from `pio_b_data` (port 0x11)
+   instead of `pio_a_data` (port 0x10).
+
+Makefile plumbing in parent + clang + sdcc sub-Makefiles.
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| Default build (KBDPORT=A), clang, 5822 bytes | PASS — code-identical to baseline |
+| KBDPORT=B clang: ISR reads port 0x11 | PASS — `in a, ($11)` |
+| KBDPORT=B clang: IVT slots 16/17 swapped | PASS |
+| KBDPORT=B clang: PIO-A=output, PIO-B=input | PASS — `0x0F`/`0x4F` |
+| KBDPORT=B SDCC: compiles, 5860 bytes | PASS — no new warnings |
+
+Build usage:
+```bash
+make bios                         # Default: keyboard on PIO-A
+make bios KBDPORT=B               # Keyboard on PIO-B
+make bios COMPILER=sdcc KBDPORT=B # Same for SDCC
+```
+
+### No problems found
+
+This was a clean, minimal feature flag. No issues to file.
 
 ## Files added / changed
 
-- `docs/schematics/MIC07_keyboard_parallel.png` (new) — 450 DPI
-  render of MIC07
-- `docs/schematics/MIC07_keyboard_parallel_crop.png` (new) — right
-  side crop
-- `docs/schematics/MIC07_pinout.md` (new) — transcribed pin tables,
-  full analysis, three options
-- `rcbios-in-c/docs/parallel_host_interface.md` — added "Hardware
-  verification needed" section warning that the Mode 2 plan
-  assumes connectivity that has not been confirmed
-- `tasks/todo.md` — new "Parallel host link" section with the
-  hardware-check items
+### Part 1 (commit 4f76a7a)
+- `docs/schematics/MIC07_keyboard_parallel.png` (new)
+- `docs/schematics/MIC07_keyboard_parallel_crop.png` (new)
+- `docs/schematics/MIC07_pinout.md` (new)
+- `rcbios-in-c/docs/parallel_host_interface.md` — warning header
+- `tasks/todo.md` — "Parallel host link" section
 - `tasks/session16-summary.md` (this file)
+
+### Part 2 (this commit)
+- `rcbios-in-c/Makefile` — `KBDPORT` variable + forward
+- `rcbios-in-c/bios.c` — `#ifdef KBD_PIO_B` in keyboard ISR
+- `rcbios-in-c/bios_hw_init.c` — `#ifdef KBD_PIO_B` in IVT + PIO init
+- `rcbios-in-c/clang/Makefile` — `KBDPORT` + CFLAGS
+- `rcbios-in-c/sdcc/Makefile` — `KBDPORT` + ZFLAGS
+- `tasks/session16-summary.md` — updated with part 2
