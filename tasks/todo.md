@@ -228,7 +228,38 @@ Investigation log: `tasks/session16-summary.md`.
   on stock hardware** — ARDY appears unwired and BSTB/BRDY are on the
   wrong DSUB-25 connector. Schematic reading is not yet
   hardware-verified.
-- Stopped pending hardware inspection by the user.
+- `KBDPORT=B` compile-time flag implemented and verified on both
+  clang and SDCC (commit b746c0c). Default build unchanged.
+- **Blocked: waiting for DB-25 M/M cable.**
+  Candidate: elextra.dk H11461 (49 DKK, 2m) or H11463 (79 DKK, 5m).
+  Confirm 1:1 straight-through wiring before buying (phone 9684 0619).
+  Alternative host hardware: Arduino Micro (elextra H36812, 199 DKK,
+  5V native, no level shifter needed).
+
+### When the cable arrives — investigation plan
+
+Prerequisites: cable, Linux PC with real LPT port (`/dev/parport0`),
+RC700 with serial console working, keyboard unplugged from J4.
+
+1. Write `pioprobe.com` — small CP/M test program loaded over serial.
+   Takes single-letter commands, configures PIO modes, reads/writes
+   ports, reports results back on serial console.
+2. Write `lptprobe.py` — Linux-side script using `ppdev`/`pyparallel`.
+   Drives LPT data + control lines, reads status lines.
+3. **Cable mapping** (investigation #1): drive each LPT data line
+   high one at a time, read PIO port on RC700 → builds the complete
+   "LPT pin → J4 pin → PIO bit" map for this specific cable.
+4. **ARDY discovery** (investigation #2, the critical one): configure
+   PIO-A as Mode 0 output on RC700, write a byte, read all 5 LPT
+   status inputs on Linux. Any status pin that toggles in step with
+   the RC700 OUT instruction is ARDY wired through. Settles the
+   load-bearing question without a meter or opening the case.
+5. **Confirm J4 = Port A** (investigation #3): drive LPT line, read
+   both port 0x10 and 0x11 on RC700, see which responds.
+6. **Mode feasibility**: try Mode 0/1/2/3, see which round-trips data.
+7. **Throughput benchmark**: push 64 KB block, time it, compare to
+   38400 baud serial.
+8. Based on results → pick option 1/2/3, start BIOS + host firmware.
 
 ### Hardware verification (do these on the actual machine)
 
