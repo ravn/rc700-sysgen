@@ -1694,12 +1694,28 @@ before running SYSGEN.
 - [Intel 8275 Programmable CRT Controller (1979) (PDF)](https://bitsavers.org/components/intel/8275/1979_8275.pdf)
 - [Intel 8275 CRTC - Scribd](https://www.scribd.com/doc/19068954/Intel-8275-CRTC)
 
-### RC702 Technical Manual
+### Documentation PDFs
 
-- **docs/RC702_Microcomputer_Tech_Man.pdf** — Scanned RC702 Microcomputer
-  Technical Manual (122 pages). OCR text layer added with
-  `jbarlow83/ocrmypdf` Docker image (tesseract-based), making the PDF
-  searchable. Some schematic-only pages have no text layer.
+All scanned PDFs in `docs/` have searchable OCR text layers. OCR was added
+using the `jbarlow83/ocrmypdf` Docker image (tesseract-based):
+
+```bash
+docker run --rm -v "$(pwd)/docs:/data" jbarlow83/ocrmypdf:latest \
+  --skip-text --deskew --rotate-pages /data/INPUT.pdf /data/OUTPUT.pdf
+```
+
+Flags: `--skip-text` preserves existing text, `--deskew` straightens
+skewed scans, `--rotate-pages` auto-corrects rotation. Use `--force-ocr`
+only if the existing text layer is known to be bad (test first — it can
+make things worse on low-quality scans).
+
+| PDF | Pages | OCR Status |
+|-----|-------|------------|
+| `RC702_Microcomputer_Tech_Man.pdf` | 122 | OCR added 2026-04-10 |
+| `RC702-RC703_Microcomputer_technical_manual.pdf` | 168 | Pre-existing text layer (mediocre quality, re-OCR tested but worse) |
+| `CPM_FOR_RC702_USERS_GUIDE.pdf` | ~100 | OCR added 2026-04-10 |
+| `765.pdf` | ~40 | OCR added 2026-04-10 (uPD765 FDC datasheet) |
+| `PICCOLINE_RcComal80_Brugervejledning_jan1985.pdf` | ~200 | Pre-existing good text layer |
 
 ### Additional Resources
 
