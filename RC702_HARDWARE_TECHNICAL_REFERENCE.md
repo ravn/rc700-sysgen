@@ -1716,6 +1716,15 @@ make things worse on low-quality scans).
 | `CPM_FOR_RC702_USERS_GUIDE.pdf` | ~100 | OCR added 2026-04-10 |
 | `765.pdf` | ~40 | OCR added 2026-04-10 (uPD765 FDC datasheet) |
 | `PICCOLINE_RcComal80_Brugervejledning_jan1985.pdf` | ~200 | Pre-existing good text layer |
+| `RC702tech.pdf` | ~220 | OCR added 2026-04-10 (RC702 technical notes, schematics) |
+
+Notable pages in `RC702tech.pdf`:
+- **SEM702** (physical pp.~215-217): Functional description, Comal80 programming
+  example, installation instructions for the RAM character generator
+- **Video generator** (p.81 / physical p.218): Schematic for adding highlight
+  to the video output signal
+- **MEM700** (physical p.219): Schematic for the memory disk (RAM disk)
+  described in `roa375/PHE358A.MAC`
 
 ### Additional Resources
 
