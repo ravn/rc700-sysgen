@@ -171,7 +171,7 @@ static void init_crt(void) {
  * The font data is read from PROM1 (0x2000–0x27FF): 128 characters ×
  * 16 dot lines × 8 pixels = 2048 bytes.
  *
- * A copy of the ROA296 character generator ROM must be installed in
+ * A copy of the ROA327 character generator ROM must be installed in
  * the PROM1 socket for this to work.  Without it, the display will
  * show garbage characters.
  *
@@ -876,7 +876,7 @@ void main_relocated(void) __naked
     init_ctc();
     init_dma();
     init_crt();
-    load_chargen();  /* load font from PROM1 (ROA296) into SEM 702 RAM */
+    load_chargen();  /* load font from PROM1 (ROA327) into SEM 702 RAM */
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
     display_banner_and_start_crt();
