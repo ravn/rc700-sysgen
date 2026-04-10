@@ -168,7 +168,7 @@ clang_mamesym: clang/prom.bin
 Z88DK_DOCKER = docker run --rm \
 	-v $(CURDIR):/src \
 	-w /src \
-	z88dk:v2.4
+	z88dk:2.4
 
 ZFLAGS = +z80 -clib=sdcc_iy --no-crt --opt-code-size -SO3 \
          -Cs"--max-allocs-per-node 1000000" \
