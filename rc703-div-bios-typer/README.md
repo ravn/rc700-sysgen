@@ -12,6 +12,14 @@ these files are **genuine development sources** with original comments,
 variable names, algorithm descriptions, and modification history written by
 the developers themselves.
 
+**Note:** This is likely a heavily bugfixed personal fork by TFj, diverging
+from the RC Computer rel.1.1 baseline in 1983 and evolving independently
+through 1987 for his own RC703 setup. It is not an official RC Computer
+release. The RC702 releases (rel.2.0–2.3) evolved on a separate track, so
+differences between this source and the RC702 reconstruction may go in
+either direction — TFj fixes not in the RC702 line, or RC702 improvements
+not in TFj's fork.
+
 ## History and Authorship
 
 The source has a documented chain of authorship spanning 1982–1987:

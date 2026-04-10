@@ -6,12 +6,25 @@
 reverse-engineered from binary images. Both reconstruct byte-exactly against their
 respective reference binaries (`make verify` passes all 13 variants).
 
+**Important caveat:** The RC703 source is likely a heavily bugfixed personal fork
+by Torben Fjerdingstad, diverging from rel.1.1 in 1983 and evolving independently
+through 1987. The RC702 releases (rel.2.0–2.3) evolved on a separate track. Neither
+source is inherently "more correct" — they represent two independent development
+lines from the same ancestor. Differences may be: (a) TFj bug fixes not in the
+RC702 line, (b) RC702 improvements not backported to TFj's fork, (c) RC703-specific
+hardware adaptations, or (d) TFj site-specific preferences.
+
 This document records differences found during comparison that may warrant
-investigation or future work.
+investigation or future work. Items are ranked by potential impact, not by
+certainty that either version is wrong.
 
 ---
 
 ## HIGH Priority — Worth investigating against binaries
+
+These differences have the highest potential functional impact. They may
+reflect TFj bug fixes for problems he encountered on his RC703, or they
+may be RC703-specific adaptations that don't apply to the RC702.
 
 ### 1. FLO4: Missing double-recalibrate (FLOPPY.MAC)
 
