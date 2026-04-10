@@ -64,7 +64,12 @@ byte fdc_read_when_ready(void) {
 
 #ifdef __SDCC
 
-#include <z80.h>
+/* z88dk's z80_delay_ms: cycle-counted delay, calibrated via
+ * CRT_CPU_CLOCK_HZ=4000000 on the zcc command line.
+ * Declared here instead of #include <z80.h> because the arch/z80.h
+ * header uses __smallc/__z88dk_fastcall qualifiers that zsdcc's
+ * --c1mode --sdcccall 1 pipeline doesn't handle correctly. */
+extern void z80_delay_ms(unsigned int ms);
 #define delay_ms(ms) z80_delay_ms(ms)
 
 /* Short runtime-variable delay for FDC timing (fdc_result_delay, fdc_isr_delay).
