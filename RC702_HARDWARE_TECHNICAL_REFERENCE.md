@@ -1694,6 +1694,13 @@ before running SYSGEN.
 - [Intel 8275 Programmable CRT Controller (1979) (PDF)](https://bitsavers.org/components/intel/8275/1979_8275.pdf)
 - [Intel 8275 CRTC - Scribd](https://www.scribd.com/doc/19068954/Intel-8275-CRTC)
 
+### RC702 Technical Manual
+
+- **docs/RC702_Microcomputer_Tech_Man.pdf** — Scanned RC702 Microcomputer
+  Technical Manual (122 pages). OCR text layer added with
+  `jbarlow83/ocrmypdf` Docker image (tesseract-based), making the PDF
+  searchable. Some schematic-only pages have no text layer.
+
 ### Additional Resources
 
 - **CP/M 2.2 Operating System Manual:** [Digital Research CP/M Documentation](http://www.cpm.z80.de/)
