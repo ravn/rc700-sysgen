@@ -57,8 +57,16 @@ BOOT section is in ROM, accessible until `prom_disable()`.
 CODE payload is copied to RAM at 0x7000 by `begin()` using linker
 symbols `__BOOT_tail` (source), `_intvec`/`_code_end` (length).
 
+### rc703-div-bios-typer/
+**Original authored** RC703 BIOS source code (not reconstructed from disassembly).
+Extracted from a floppy disk image. Release 1.1, dated 83.09.14.
+Authors: Karsten Dindorp & Hugo K. Holm (1982), with RC703 corrections (FK & LO, 1983),
+RC763B hard disk support (LO, 1983), and YD-380 partner drive mods (Torben Fjerdingstad, 1987).
+Contains 13 M80 assembler modules, patch files for 4 drive configurations, plus CP/M utilities.
+See `rc703-div-bios-typer/README.md` for full documentation.
+
 ### rcbios/
-CP/M BIOS source reconstruction and tools:
+CP/M BIOS source **reconstruction** (reverse-engineered from binary BIOS images) and tools:
 - `src/` - Modular BIOS source (BIOS.MAC, CPMBOOT.MAC, INIT.MAC, SIO.MAC, etc.)
 - `verify_bios.py` - Verify assembled BIOS against reference binaries
 - `patch_bios.py` - Patch assembled BIOS onto IMD disk images for emulator testing

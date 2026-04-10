@@ -557,6 +557,10 @@ RECA:	CALL	CLFIT		;
 	PAGE
 
 					; [RC702] µPD765 FDC read with DMA and retry
+					; Retries up to 10 times on soft errors.
+					; After 5 failures, issues a recalibrate (RECA)
+					; before continuing retries.
+					; Bit 3 of ST0 = equipment check (hard error, no retry).
 SECRD:	LD	A,10		;
 	LD	(REPET),A	;
 RPSC:	CALL	FDSTAR		;
@@ -619,6 +623,10 @@ WFDAT:	LD	A,5		;
 	PAGE
 
 					; [RC702] mini floppy motor control via SW1 port
+					; Motor is controlled via bit 0 of port SW1 (14h).
+					; EXCNT1 is the motor-off countdown timer (20ms ticks),
+					; reloaded from FDTIMO each time the motor is needed.
+					; When EXCNT1 reaches 0, the CTC ch.2 ISR calls FDSTOP.
 FDSTAR:	IN	A,(SW1)		; PROCEDURE START_FLOPPY_MOTOR;
 	AND	80H		; BEGIN
 	RET	Z		;   IF MINI_DRIVE THEN BEGIN
@@ -696,32 +704,37 @@ XHOM20:	CALL	FDSTAR		; ELSE:
 
 				; [RC702] µPD765 FDC low-level command sequences
 				; PROCEDURE WAIT_READY_WRITE;
-FLO2:	IN	A,(FDC)		;
-	AND	0C0H		;
-	CP	080H		;
+				; Waits for RQM=1,DIO=0 (FDC ready to accept data from CPU)
+FLO2:	IN	A,(FDC)		; READ MAIN STATUS REGISTER
+	AND	0C0H		; MASK RQM (BIT 7) AND DIO (BIT 6)
+	CP	080H		; RQM=1,DIO=0: CPU->FDC DIRECTION
 	JP	NZ,FLO2		;
 	RET			;
 
 				; PROCEDURE WAIT_READY_READ;
-FLO3:	IN	A,(FDC)		;
-	AND	0C0H		;
-	CP	0C0H		;
+				; Waits for RQM=1,DIO=1 (FDC has data for CPU to read)
+FLO3:	IN	A,(FDC)		; READ MAIN STATUS REGISTER
+	AND	0C0H		; MASK RQM (BIT 7) AND DIO (BIT 6)
+	CP	0C0H		; RQM=1,DIO=1: FDC->CPU DIRECTION
 	JP	NZ,FLO3		;
 	RET			;
 
 				; PROCEDURE RECALIBRATE;
+				; µPD765 command 07h: moves head to track 0.
+				; Issues recalibrate with current drive (bits 0-1 of DSKNO).
 FLO4:	CALL	FLO2		;    WAIT_READY_WRITE;
-	LD	A,7		;
-	OUT	(FDD),A		;    RECALIBRATE;
+	LD	A,7		;    RECALIBRATE COMMAND
+	OUT	(FDD),A		;
 	CALL	FLO2		;    WAIT_READY_WRITE;
 	LD	A,(DSKNO)	;
-	AND	3		;
-	OUT	(FDD),A		;    SELECT_DRIVE;
+	AND	3		;    DRIVE SELECT (BITS 0-1)
+	OUT	(FDD),A		;
 	RET			;
 
 				; PROCEDURE SENSE_DRIVE_STATUS;
+				; µPD765 command 04h: reads drive status (ST3).
 FLO5:	CALL	FLO2		; WAIT_READY_WRITE;
-	LD	A,4		;
+	LD	A,4		; SENSE DRIVE STATUS COMMAND
 	OUT	(FDD),A		;
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(DSKNO)	;
@@ -729,42 +742,52 @@ FLO5:	CALL	FLO2		; WAIT_READY_WRITE;
 	OUT	(FDD),A		; SELECT_DRIVE;
 	CALL	FLO3		; WAIT_READY_READ;
 	IN	A,(FDD)		;
-	LD	(RSTAB),A	; RSTAB:=INTERRUPT_REGISTER;
+	LD	(RSTAB),A	; RSTAB:=STATUS_REGISTER_3;
 	RET			;
 
 	PAGE
 
 				; PROCEDURE SENSE_INTERRUPT_STATUS;
+				; µPD765 command 08h: reads ST0 and current cylinder
+				; after a seek/recalibrate interrupt.
+				; If ST0 bits 7-6 = 10b (invalid command), only ST0 is returned.
+				; Otherwise ST0 and the present cylinder number (PCN) are returned.
 FLO6:	CALL	FLO2		; WAIT_READY_WRITE;
-	LD	A,8		;
-	OUT	(FDD),A		; SENSE_INT;
+	LD	A,8		; SENSE INTERRUPT STATUS COMMAND
+	OUT	(FDD),A		;
 	CALL	FLO3		; WAIT_READY_READ;
 	IN	A,(FDD)		;
 	LD	(RSTAB),A	; RSTAB:=STATUS_REGISTER_0;
-	AND	0C0H		;
-	CP	080H		;
-	RET	Z		;
+	AND	0C0H		; CHECK INTERRUPT CODE (BITS 7-6)
+	CP	080H		; 10b = INVALID COMMAND
+	RET	Z		; RETURN IF INVALID (NO PCN FOLLOWS)
 	CALL	FLO3		; WAIT_READY_READ;
 	IN	A,(FDD)		;
-	LD	(RSTAB+1),A	; RSTAB1:=STATUS_REGISTER_1;
+	LD	(RSTAB+1),A	; RSTAB+1:=PRESENT_CYLINDER_NUMBER;
 	RET			;
 
 				; PROCEDURE SEEK;
+				; µPD765 command 0Fh: positions head to cylinder ACTRA.
+				; Only drive select bits (0-1) are used; head is implicit.
 FLO7:	CALL	FLO2		; WAIT_READY_WRITE;
-	LD	A,15		;
-	OUT	(FDD),A		; SEEK;
+	LD	A,15		; SEEK COMMAND (0Fh)
+	OUT	(FDD),A		;
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(DSKNO)	; SELECT_DRIVE_AND_HEAD;
-	AND	3		;
+	AND	3		; DRIVE SELECT (BITS 0-1)
 	OUT	(FDD),A		;
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(ACTRA)	;
-	OUT	(FDD),A		; SELECT_CYLINDER;
+	OUT	(FDD),A		; NEW CYLINDER NUMBER (NCN);
 	RET			;
 
 	PAGE
 
 				; PROCEDURE READ_RESULT;
+				; Reads the FDC result phase (up to 7 bytes):
+				;   RSTAB[0]=ST0, [1]=ST1, [2]=ST2,
+				;   [3]=C, [4]=H, [5]=R, [6]=N
+				; Stops early if FDC CB (bit 4) clears.
 RSULT:	LD	HL,RSTAB	; FOR D:=7 DOWNTO 0 DO
 	LD	D,7		; BEGIN
 RSL1:	CALL	FLO3		;   WAIT_READY_READ;
@@ -803,10 +826,13 @@ WATIR:	LD	A,(FL_FLG)	; PROCEDURE WAIT_FD_INTERRUPT;
 	RET			;
 
 				; [RC702] Am9517A DMA controller setup for FDC transfers
+				; DMA "read" = disk-to-memory (FDC read command)
+				; DMA "write" = memory-to-disk (FDC write command)
+				; Channel 1 is used for the floppy disk controller.
 FLPR:	LD	A,5		; PROCEDURE START_DMA_READ;
 	DI			;
 	OUT	(DMAMAS),A	; SET_CH1_MASK;
-	LD	A,49H		; MODE:=READ;
+	LD	A,49H		; MODE:=READ (DISK->MEMORY);
 FLFW:	OUT	(DMAMOD),A	; SELECT_MODE;
 	OUT	(DMACBC),A	; CLEAR_BYTECOUNTER;
 	LD	A,(DSKAD+0)	;
@@ -825,12 +851,25 @@ FLFW:	OUT	(DMAMOD),A	; SELECT_MODE;
 FLPW:	LD	A,5		; PROCEDURE START_DMA_WRITE;
 	DI			;
 	OUT 	(DMAMAS),A	; SET_CH1_MASK;
-	LD	A,45H		; MODE:=WRITE;
+	LD	A,45H		; MODE:=WRITE (MEMORY->DISK);
 	JP	FLFW		; GOTO START_DMA_COMMON;
 
 	PAGE
 
 				; [RC702] µPD765 9-byte read/write command sequence
+				; Sends a full read (06h) or write (05h) command to the FDC.
+				; Entry: A = command base (5=write, 6=read)
+				;        HL -> format descriptor (MF flag, N, EOT, GPL)
+				; The 9 bytes sent are:
+				;   1. command + MF flag (from format table)
+				;   2. HD/DS (head number + drive select from DSKNO)
+				;   3. C  (cylinder number from ACTRA)
+				;   4. H  (head number, extracted from DSKNO bits 2-3)
+				;   5. R  (sector number from ACSEC)
+				;   6. N  (sector size code from format table)
+				;   7. EOT (end-of-track sector number from format table)
+				;   8. GPL (gap length from format table)
+				;   9. DTL (data length from DTLV, used when N=0)
 GNCOM:	PUSH	AF		; PROCEDURE GENERAL_COMMAND;
 	DI			;
 	CALL	FLO2		; WAIT_READY_WRITE;
@@ -838,36 +877,36 @@ GNCOM:	PUSH	AF		; PROCEDURE GENERAL_COMMAND;
 	LD	B,(HL)		;
 	INC	HL		;
 	ADD	A,B		; ADD MF/FMF TO COMMAND;
-	OUT	(FDD),A		;
+	OUT	(FDD),A		; BYTE 1: COMMAND + MF FLAG
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(DSKNO)	;
-	OUT	(FDD),A		; SELECT_HEAD_AND_DRIVE;
+	OUT	(FDD),A		; BYTE 2: HEAD/DRIVE SELECT
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(ACTRA)	;
-	OUT	(FDD),A		; SELECT_CYLINDER;
+	OUT	(FDD),A		; BYTE 3: CYLINDER (C)
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(DSKNO)	;
 	RRA			;
 	RRA			;
 	AND	3		;
-	OUT	(FDD),A		; SELECT_HEAD;
+	OUT	(FDD),A		; BYTE 4: HEAD (H)
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(ACSEC)	;
-	OUT	(FDD),A		; SELECT_SECTOR;
+	OUT	(FDD),A		; BYTE 5: SECTOR (R)
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(HL)		;
 	INC	HL		;
-	OUT	(FDD),A		; SELECT_NUMBER_TYPE;
+	OUT	(FDD),A		; BYTE 6: N (SECTOR SIZE CODE)
 	CALL	FLO2		; WAIT_READY_WRITE;
 	LD	A,(HL)		;
 	INC	HL		;
-	OUT	(FDD),A		; SELECT_FINAL_SECTOR;
+	OUT	(FDD),A		; BYTE 7: EOT (FINAL SECTOR ON TRACK)
 	CALL	FLO2		;
 	LD 	A,(HL)		;
-	OUT	(FDD),A		; SELECT_GAP_LENGTH;
+	OUT	(FDD),A		; BYTE 8: GPL (GAP LENGTH)
 	CALL	FLO2		;
 	LD	A,(DTLV)	;
-	OUT	(FDD),A		; SELECT_DATA_LENGTH;
+	OUT	(FDD),A		; BYTE 9: DTL (DATA LENGTH, USED WHEN N=0)
 	EI			;
 	RET			;
 
@@ -877,6 +916,11 @@ GNCOM:	PUSH	AF		; PROCEDURE GENERAL_COMMAND;
 ;= µPD765 FLOPPY DISK CONTROLLER INTERRUPT ROUTINE      =
 ;= Saves SP, switches to ISTACK, sets FL_FLG=0xFF,      =
 ;= then reads FDC result (SENSE or full result phase).   =
+;= After setting FL_FLG, a short delay (5 iterations)    =
+;= allows the FDC to update its status register.         =
+;= If FDC busy bit (bit 4) is set, reads full 7-byte     =
+;= result phase (RSULT); otherwise issues SENSE           =
+;= INTERRUPT STATUS (FLO6) for seek/recalibrate results. =
 ;========================================================
 
 FLITR:	LD	(SP_SAV),SP	; SAVE ACCUMULATOR AND FLAGS

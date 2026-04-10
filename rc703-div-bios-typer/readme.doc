@@ -1,0 +1,8 @@
+Ved hj{lp af tracksys kan drive C og D v{re to fysiske floppydrives, to 8",
+to partnerdrives eller et af hver. (Partnerdrives kan ogs} k|re 8" format.).
+F|lgende bios'er kan l{gges p} spor 0:
+A,B mini, C,D maxi		QQMM.PCH	; patched
+A,B mini, C maxi, D partnerdr.	QQMP.PCH	; patched
+A,B mini, C,D partnerdrives	QQPP.SCE	; rettet i kildetekster
+Alm. bios med {ndret steprate	BIOS703.TFJ	; rettet i cpmboot.mac
+Desv{rre virker programmerne CONFI og SYSGEN ikke.

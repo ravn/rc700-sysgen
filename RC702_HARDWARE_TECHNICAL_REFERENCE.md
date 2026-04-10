@@ -90,13 +90,17 @@ RAMEN ports (0x18-0x1B) behave identically.
 
 ### ROM Mapping
 
-The RC702 supports two PROMs (see hardware manual page 17): PROM0 at 0x0000 (ROA375 autoload PROM) and an optional PROM1 at 0x2000 (line program ROM). Both are mapped into the Z80's address space at power-on. Writing any value to port 0x18 (RAMEN) disables both PROM mappings, allowing the full 64KB RAM to be linearly accessible. It is not known whether the hardware enforces the PROM size to be exactly 2KB.
+The RC702 supports two PROMs (see hardware manual page 17): PROM0 at 0x0000 (ROA375 autoload PROM) and an optional PROM1 at 0x2000 (line program ROM). Both are mapped into the Z80's address space at power-on. Writing any value to port 0x18 (RAMEN) disables both PROM mappings, allowing the full 64KB RAM to be linearly accessible.
+
+The PCB schematic (see `docs/PROM_SCHEMATICS.PNG`) shows a solder bridge option that connects address line A11 to the PROM sockets. When open (factory default), A11 is tied low, limiting PROMs to 2KB (2716-type). When closed, A11 is active, enabling 4KB PROMs (2732-type). This needs confirmation by physical inspection or testing with a cable on actual hardware.
 
 ### Memory Layout During Boot
 
 ```
 0x0000-0x07FF   PROM0: 2KB Boot ROM (ROA375) - disabled by OUT to RAMEN
+                (0x0000-0x0FFF with A11 solder bridge closed: 4KB)
 0x2000-0x27FF   PROM1: Optional line program ROM - disabled by OUT to RAMEN
+                (0x2000-0x2FFF with A11 solder bridge closed: 4KB)
 0x0000-0xFFFF   64KB RAM (fully accessible after PROMs disabled)
 0x7800-0x7FFF   CRT display buffer (2K, 80x24 characters)
 0xA000-0xBFFF   Bootstrap code copied from ROM
@@ -838,6 +842,24 @@ interface and busy control.
 The transmitter part functions exactly as the printer port and could be used
 for a punch device.  The receiver part can be used to attach e.g. a reader.
 
+#### RC791 Line Selector
+
+The RC791 is an external RS-232 A/B line switch that allows two devices to
+share one SIO channel.  It is controlled by the BIOS `LINSEL` routine
+(see `rc703-div-bios-typer/cpmboot.mac`) using DTR and RTS signaling:
+
+- **Parameters**: A = port (0=SIO-A, 1=SIO-B), B = line (0=release, 1=line A, 2=line B)
+- **Protocol**:
+  1. Wait for SIO "All Sent" (RR1 bit 0) — pending transmission completes
+  2. Clear both DTR and RTS (release current line)
+  3. If B=0, return (release only)
+  4. Set RTS based on line: RTS = (B==2), selecting line B when high
+  5. Assert DTR (bit 7) to latch the selection
+  6. Wait 1-2 timer periods for the switch to settle
+  7. Check CTS in RR0 — CTS set means the selected device responded (return 0xFF success), CTS clear means no device present (clear DTR/RTS, return 0 failure)
+
+Reference: https://datamuseum.dk/wiki/RC791_Linieselektor
+
 ---
 
 ## Multi-Density Disk Support
@@ -1002,7 +1024,7 @@ The RC702 SYSGEN differs significantly from the standard Digital Research SYSGEN
 
 When developing or modifying the ROA375 autoload ROM:
 
-1. **Size Constraint:** Must fit in 2KB (0x0000-0x07FF)
+1. **Size Constraint:** Must fit in 2KB (0x0000-0x07FF) with factory default solder bridge. 4KB (0x0000-0x0FFF) possible if A11 solder bridge is closed (unconfirmed).
 2. **Self-Relocation:** Must copy itself to RAM before disabling ROM mapping
 3. **Hardware Initialization:** Must properly initialize all controllers in correct order
 4. **Interrupt Vectors:** Must establish Mode 2 interrupt table before enabling interrupts
@@ -1641,6 +1663,16 @@ before running SYSGEN.
 
 ### Source Code Analysis
 
+- **rc703-div-bios-typer/:** Complete RC703 BIOS source code (original authored
+  source, not reconstructed). By Karsten Dindorp & Hugo K. Holm (1982), with
+  RC703 corrections by FK & LO (1983), RC763B support by LO (1983), and
+  YD-380 partner drive modifications by Torben Fjerdingstad (1987).
+  Release 1.1, dated 83.09.14. See `rc703-div-bios-typer/README.md` for
+  full provenance and module documentation.
+- **rcbios/src/:** Reconstructed RC702 BIOS source code (reverse-engineered
+  from binary BIOS images on system diskettes). Covers releases 1.4, 2.0–2.3,
+  and 3.0 via conditional assembly. Comments backported from RC703 source
+  where applicable.
 - **ROB358.MAC:** RC703 autoloader PROM source code
 - **ROA375.MAC:** RC702 autoloader ROM (reconstruction in progress)
 - **SYSGEN.ASM:** RC702-modified SYSGEN utility source code

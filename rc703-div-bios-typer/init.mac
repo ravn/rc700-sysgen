@@ -1,0 +1,508 @@
+	SUBTTL	HARDWARE INITIALIZATION CODE
+        
+        PAGE
+;========================================================
+;= MOVE CODE TO RUNTIME POSITION                        =
+;========================================================
+        ; ENTRY FROM ROM BOOTSTRAP
+        ; THIS CODE IS PLACED IN 380H AND FORWARD AFTER BOOT
+	DI                      ; (* disable interrupts during initialization *)
+        LD      HL,0            ; HL := load_address
+        LD      DE,START        ; DE := run_time_address
+        LD      BC,DSPSTR-START+1; BC := code_size
+        LDIR                    ; (* move code *)
+        LD      HL,CONVTA       ; HL := conv_tab_address;
+        LD      DE,OUTCON       ; DE := run_time_address;
+        LD      BC,128+256      ; BC := conv_tab_length;
+        LDIR                    ; (* move conversion tables *)
+        LD      SP,BUFF         ; (* if a interrupt should occure *)
+        LD      A,(CITAB+1)     ; (* high byte of int. table address *)
+        LD      I,A             ; (* load interrupt register *)
+        IM      2               ; (* set interrupt mode 2 *)
+;===========================================================
+;= INITIALIZE Z80 PIO                                      =
+;= PORT A USED FOR KEYBOARD INPUT                          =
+;= PORT B USED FOR PARALLEL OUTPUT                         =
+;===========================================================
+
+INIT:   LD      A,20H           ; SET PORT A INTERRUPT VECTOR
+        OUT     (PIOAC),A       ;
+        LD      A,22H           ; SET PORT B INTERRUPT VECTOR
+        OUT     (PIOBC),A       ;
+        LD      A,4FH           ; SET PORT A MODE (INPUT)
+        OUT     (PIOAC),A       ;
+        LD      A,0FH           ; SET PORT B MODE (OUTPUT)
+        OUT     (PIOBC),A       ;
+        LD      A,83H           ;
+        OUT     (PIOAC),A       ; ENABLE PORT A INTERRUPT
+        OUT     (PIOBC),A       ; ENABLE PORT B INTERRUPT
+        
+        PAGE
+;==============================================================
+;= INITIALIZE Z80 CTC                                         =
+;= CHANNEL 0 USED AS BAUD RATE GENERATOR FOR SIO CHANNEL A    =
+;= CHANNEL 1 USED AS BAUD RATE GENERATOR FOR SIO CHANNEL B    =
+;= CHANNEL 2 USED AS INTERRUPT HANDLER FOR DISPLAY CONTROLLER =
+;= CHANNEL 3 USED AS INTERRUPT HANDLER FOR DMA CONTROLLER     =
+;==============================================================
+        
+        LD      A,00H           ; SET CTC INTERRUPT VECTOR
+        OUT     (CTCCH0),A      ;
+        
+        LD      A,(MODE0)       ; SET OPERATING MODE FOR CHANNEL 0
+        OUT     (CTCCH0),A      ; MODE:= CLOCK GENERATOR (NO INTERRUPT)
+        LD      A,(COUNT0)      ; SET COUNT FOR CHANNEL 0
+        OUT     (CTCCH0),A      ;
+        
+        LD      A,(MODE1)       ; SET OPERATING MODE FOR CHANNEL 1
+        OUT     (CTCCH1),A      ; MODE:= CLOCK GENERATOR (NO INTERRUPT)
+        LD      A,(COUNT1)      ; SET COUNT FOR CHANNEL 1
+        OUT     (CTCCH1),A      ;
+        
+        LD      A,(MODE2)       ; SET OPERATING MODE FOR CHANNEL 2
+        OUT     (CTCCH2),A      ; MODE:= INTERRUPT AFTER 1 COUNT
+        LD      A,(COUNT2)      ; SET COUNT FOR CHANNEL 2
+        OUT     (CTCCH2),A      ;
+        
+        LD      A,(MODE3)       ; SET OPERATING MODE FOR CHANNEL 3
+        OUT     (CTCCH3),A      ; MODE:= INTERRUPT AFTER 1 COUNT
+        LD      A,(COUNT3)      ; SET COUNT FOR CHANNEL 3
+        OUT     (CTCCH3),A      ;
+        
+        PAGE
+;==============================================================
+;= INITIALIZE Z80 CTC 2                                       =
+;= CHANNEL 0 USED AS INTERRUPT GENERATOR FOR WD1000           =
+;= CHANNEL 1 NOT USED                                         =
+;= CHANNEL 2 NOT USED                                         =
+;= CHANNEL 3 NOT USED                                         =
+;==============================================================
+        
+        LD      A,08H           ; SET CTC INTERRUPT VECTOR
+        OUT     (CTC2C0),A      ;
+        
+        LD      A,(MODE4)       ; SET OPERATING MODE FOR CHANNEL 0
+        OUT     (CTC2C0),A      ; MODE:= INTERRUPT AFTER 1 COUNT
+        LD      A,(COUNT4)      ; SET COUNT FOR CHANNEL 0
+        OUT     (CTC2C0),A      ;
+        
+        LD      A,(MODE5)       ; SET OPERATING MODE FOR CHANNEL 1
+        OUT     (CTC2C1),A      ; MODE:= CHANNEL RESET
+        
+        LD      A,(MODE5)       ; SET OPERATING MODE FOR CHANNEL 2
+        OUT     (CTC2C2),A      ; MODE:= CHANNEL RESET
+        
+        LD      A,(MODE5)       ; SET OPERATING MODE FOR CHANNEL 3
+        OUT     (CTC2C3),A      ; MODE:= CHANNEL RESET
+        
+        PAGE
+;========================================================
+;= INITIALIZE Z80 SIO                                   =
+;= CHANNEL A USED FOR READER AND PUNCH                  =
+;= CHANNEL B USED FOR PRINTER                           =
+;========================================================
+        
+        LD      HL,PSIOA        ; SIO A PROGRAM
+        LD      B,9             ; PROGRAM LENGTH
+        LD      C,SIOAC         ; PORT A CONTROL
+        OTIR                    ; PROGRAM SIO CHANNEL A
+        
+        LD      HL,PSIOB        ; SIO B PROGRAM
+        LD      B,11            ; PROGRAM LENGTH
+        LD      C,SIOBC         ; PORT B CONTROL
+        OTIR                    ; PROGRAM SIO CHANNEL B
+        
+	IN	A,(SIOAC)	; READ CHANNEL A, STATUS REGISTER 0
+	LD	(RR0_A),A	;
+	LD	A,1		;
+	OUT	(SIOAC),A	;
+	IN	A,(SIOAC)	; READ CHANNEL A, STATUS REGISTER 1
+	LD	(RR1_A),A	;
+ 
+	IN	A,(SIOBC)	; READ CHANNEL B, STATUS REGISTER 0
+	LD	(RR0_B),A	;
+	LD	A,1		;
+	OUT	(SIOBC),A	;
+	IN	A,(SIOBC)	; READ CHANNEL B, STATUS REGISTER 1
+	LD	(RR1_B),A	;
+ 
+        PAGE
+;========================================================
+;= INITIALIZE AM9517 DMA                                =
+;= CHANNEL 0 - WINCHESTER DISK CONTROLLER               =
+;= CHANNEL 1 - FLOPPY DISK CONTROLLER                   =
+;= CHANNEL 2 - DISPLAY CONTROLLER                       =
+;= CHANNEL 3 - DISPLAY CONTROLLER                       =
+;========================================================
+        
+        LD      A,20H           ;
+        OUT     (DMAC),A        ; ENTER COMMAND MODE
+        
+        LD      A,(DMODE0)      ;
+        OUT     (DMAMOD),A      ; SET CHANNEL 0 MODE
+        
+        LD      A,(DMODE2)      ;
+        OUT     (DMAMOD),A      ; SET CHANNEL 2 MODE
+        
+        LD      A,(DMODE3)      ;
+        OUT     (DMAMOD),A      ; SET CHANNEL 3 MODE
+        
+        PAGE
+;========================================================
+;= INITIALIZE UPD765 FLOPPY DISK CONTROLLER             =
+;========================================================
+        IN      A,(SW1)         ;
+        AND     80H             ;
+        JR      Z,IFD0          ; IF MINI_DRIVE THEN
+        LD      HL,INFD0        ; BEGIN
+        LD      A,(HL)	        ;   CHANGE MAXI DRIVE FORMAT TO MINI
+	CP	8		;
+	JR	NZ,IFDX		;
+	LD	(HL),16		;
+IFDX:   INC     HL              ;   
+	LD	A,(HL)		;
+	CP	8		;
+	JR	NZ,IFDY		;
+        LD      (HL),16         ;
+IFDY:	LD	HL,FDPROG+3	;   CHANGE HEAD LOAD TIME TO 52 MS
+	LD	A,12*2+0	;	<7654321><0>
+	LD	(HL),A		;	 H.LOAD  DMA
+IFD0:   IN      A,(FDC)         ; ELSE:
+        AND     1FH             ; READ STATUS
+        JR      NZ,IFD0         ; WAIT TILL FD READY FOR COMMANDS
+        LD      HL,FDPROG       ;
+        LD      B,(HL)          ;
+IFD1:   INC     HL              ;
+IFD2:   IN      A,(FDC)         ;
+        AND     0C0H            ;
+        CP      80H             ; TEST DIO AND RQM
+        JR      NZ,IFD2         ;
+        LD      A,(HL)          ;
+        OUT     (FDD),A         ;
+        DJNZ IFD1         	;
+        
+        PAGE
+;========================================================
+;= INITIALIZE DISPLAY DRIVER VARIABLES                  =
+;========================================================
+        ; (* CLEAR DISPLAY BUFFER *)
+        LD      HL,DSPSTR       ;
+        LD      DE,DSPSTR+1     ;
+        LD      BC,07CFH        ;
+        LD      (HL),' '        ;
+        LDIR                    ;
+	
+        ; (* CLEAR BACKGROUND FLAGS *)
+        LD      HL,BGSTAR       ;
+        LD      DE,BGSTAR+1     ;
+        LD      BC,250          ;
+        LD      (HL),0          ;
+        LDIR                    ;
+        ; (* CLEAR VARIABLES *)
+        LD      HL,CCTAD        ;
+        LD      DE,CCTAD+1      ;
+        LD      (HL),0          ;
+        LD      BC,0FFFFH-CCTAD ;
+        LDIR                    ;
+
+				;	(*   INSERT DEFAULT COLLOURS   *)
+	ld	hl,dspstr	;
+	ld	a,(icolour)	;
+	ld	(colour),a	;
+	call	set$col		; set default colours
+
+        PAGE
+;========================================================
+;= INITIALIZE INTEL8275 DISPLAY CONTROLLER              =
+;========================================================
+        
+        LD      A,0             ;
+        OUT     (DSPLC),A       ; RESET
+        
+        LD      A,(PAR1)        ;
+        OUT     (DSPLD),A       ; SET CHARACTERS PR. ROW
+        
+        LD      A,(PAR2)        ;
+        OUT     (DSPLD),A       ; SET ROWS PR. FRAME
+        
+        LD      A,(PAR3)        ; SET LINES PR. CHARACTER AND
+        OUT     (DSPLD),A       ; UNDERLINE POSITION
+        
+        LD      A,(PAR4)        ; SET CURSOR FORMAT
+        OUT     (DSPLD),A       ;
+        
+        LD      A,80H           ; LOAD CURSOR POSITION COMMAND
+        OUT     (DSPLC),A       ;
+        LD      A,0             ;
+        OUT     (DSPLD),A       ; SET CURSOR X POSITION = 0
+        OUT     (DSPLD),A       ; SET CURSOR Y POSITION = 0
+        
+        LD      A,0E0H          ; PRESET COUNTERS
+        OUT     (DSPLC),A       ;
+        
+        LD      A,23H           ;
+        OUT     (DSPLC),A       ; START DISPLAY
+        
+        PAGE
+;================================================
+;= INITIALIZE RUN TIME VARIABLES                =
+;================================================
+	LD	DE,ENDPRG	; GET END PROGRAM ADR.
+	LD	HL,BGSTAR	; GET LAST PROGRAM ADR. + 1
+	AND	A		;
+	SBC	HL,DE		;
+	LD	C,L		;
+	LD	B,H        	;
+	LD	HL,ENDPRG+1	;
+	EX	DE,HL		;
+	LD	(HL),00		;
+	LDIR			; CLEAR ALL VARIABLES
+
+        LD      A,(PSIOA+6)     ;
+        AND     60H             ;
+        LD      (WR5A),A        ; M(SIOA_WR5):=SIOA.WR5.BITS_PR_CHAR;
+        
+        LD      A,(PSIOB+8)     ;
+        AND     60H             ;
+        LD      (WR5B),A        ; M(SIOB_WR5):=SIOB.WR5.BITS_PR_CHAR;
+        
+        LD      A,(XYFLG)       ;
+        LD      (ADRMOD),A      ;
+
+        LD      HL,(STPTIM)     ;
+        LD      (FDTIMO),HL     ;
+        
+	LD	A,0FFH		;
+	LD	(FL_FLG),A	; FLOPPY_BUSY:=FALSE
+
+	CALL	IDT		; initilize disk tables
+
+	ld	a,(ibootd)	;
+	ld	(bootd),a	; init bootd with HDINST var.
+
+	PAGE
+;==============================================================================
+;=  CHECK HARD DISK ONLINE                                                    =
+;==============================================================================
+
+INI050: EI			; 
+	LD	A,1		; 
+	LD	(HD_OFL),A	; INIT HDDSK OFFLINE
+INI060:	LD	B,0101B		;   STEPPING RATE (2,5 MILL.SECS)
+	LD	A,20H		;   SIZE,DRIVE,HEAD(00=256 BYTES/SECT 20=512)
+	CALL	HRDRST		;   RESTORE
+	LD	BC,0F000H	;   SET COUNTER
+HD_TMR:	LD	A,(HD_FLG)	;   WHILE NOT COMPLETE OR NOT TIMEOUT DO
+	OR	A		;     CHECK FLAG
+	JR	NZ,HD_RDY	;     IF READY THEN COMPLETE=TRUE;
+	DEC	BC		;
+	LD	A,B		;
+	OR	C		;     IF COUNT = 0 THEN TIMEOUT=TRUE;
+	JR	NZ,HD_TMR	;   ENDWHILE;
+	JP	HD_OFF		;
+   
+HD_RDY:	LD	A,(ERFLAG)	;   IF HD READY
+	OR	A		;     IF ERRORFLAG <> 0 THEN
+	LD	A,0		;       RESET ERROR FLAG
+	LD	(ERFLAG),A	;       RESET HD INTERRUPT FLAG
+	LD	(HD_FLG),A	;	PRINT WAITING MESSAGE
+	PUSH	AF		;       GOTO ISSUE RESTORE COMMAND
+	LD	HL,WMESS	;
+	CALL	PRMSG		;
+	XOR	A		;
+	LD	(WMESS),A	;
+	POP	AF		; 
+	JP	NZ,INI060	;       
+	XOR	A		;    ELSE       
+	LD	(HD_FLG),A	;       RESET HD-ITRFLAG
+	LD	(HD_OFL),A	;       HARDDISK OFFLINE = FALSE
+
+	PAGE
+;====================================================================
+;=  HARD DISK ONLINE  -->  READ CONFIGURATION SECTOR                =
+;====================================================================
+
+	LD	BC,2		;
+	CALL	SELD		;       SELECT DRIVE C:
+	CALL	XHOME		;       issue seek_command to set step-rate
+	LD	BC,0		;
+	CALL	SETT		;       SET TRACK = 0
+	LD	BC,124		;       SET SECTOR = 124 (LAST SECTOR -3
+	CALL	SETS		;       ON 2ND PAGE)
+	LD	BC,080H		;
+	CALL	SETD		;       SET DMA ADDRESS
+	CALL	XREAD		;       READ CONFIGURATION SECTOR
+	OR	A		;IF ERROR THEN
+	JR	Z,INI065	;       PRINT MESSAGE
+	LD	HL,HDERR	;       MAX DRIVE = 1
+	CALL	PRMSG		;       REMOVE CLEAR SCREEN FROM BOOTM
+	LD	A,13		;		
+	LD	(SIGNON),A	;       
+	JP	HD_OFF		; ELSE
+
+INI065:	LD	DE,INFD2	;   MOVE CONFIGURATION READ TO DISK CONF ARR
+	LD	HL,080H		;   (* READ BUFFER *)
+	LD	BC,15		;   (* NO OF BYTES *)
+	LDIR			;
+
+	PAGE
+;====================================================================
+;= CONFIGURATION SECTOR READ  -->  CHECK IF RC763 OR RC763B         =
+;====================================================================
+
+	XOR	A		; rodime_202_flag:=false
+	LD	(R202_FLG),A	;
+	LD	B,5		;
+	LD	DE,HD_TEXT	; hd_text:='RC763'
+	LD	HL,80H+32	; hard_disk_id from configuration sector
+
+CH_ID1:	LD	A,(DE)		; i:=0
+	CP	(HL)		; while hd_text(i)=hard_disk_id(i) and i<5 do
+	JR	NZ,CHK_CONF	;   i:=i+1
+	INC	DE		; 
+	INC	HL		;
+	DJNZ	CH_ID1		;
+
+	LD	A,(HL)		; if i=5 and hard_disk_id(i)='B' 
+	CP	'B'		;   then rodime_202_flag:=true
+	JR	NZ,CHK_CONF	;        re_initialize (dpb,fsp,fdf)
+	LD	A,1		;
+	LD	(R202_FLG),A	;
+
+	PAGE
+;====================================================================
+;=  IF RC763B  -->  CHANGE DPB'S, FSP'S AND FDF'S  FOR RODIME 202   =
+;====================================================================
+
+	LD	B,5		; insert new value of cpmspt=256 in dpb's
+	LD	DE,DPB40-DPB32	;        and fsp's
+	LD	IX,DPB32	;
+	LD	HL,256		;
+
+I_DPB:	LD	(IX+0),L	;
+	LD	(IX+1),H	;
+	ADD	IX,DE		;
+	DJNZ	I_DPB		;
+
+	LD	B,5		;
+	LD	DE,FSPA40-FSPA32;
+	LD	IX,FSPA32	;
+
+I_FSP:	LD	(IX+3),L	;
+	LD	(IX+4),H	;
+	ADD	IX,DE		;
+	DJNZ	I_FSP		;
+
+	LD	B,5		; insert new trk_size values in fdf's
+	LD	DE,FDF6-FDF5	;
+	LD	HL,TRKSIZ	;
+	LD	IX,FDF5		;
+
+I_FDF:	LD	A,(HL)		;
+	LD	(IX+2),A	;
+	INC	HL		;
+	LD	A,(HL)		;
+	LD	(IX+3),A	;
+	INC	HL		;
+	ADD	IX,DE		;
+	DJNZ	I_FDF		;
+
+	JR	CHK_CONF	; check configuration sector
+
+	PAGE
+
+HD_TEXT:DB	'RC763'		; hard disk id-text
+
+TRKSIZ:	DW	36		; 1.1 MB unit (Rodime 202 table)
+	DW	36		; 0.8 MB unit
+	DW	70		; 1.9 MB unit
+	DW	140		; 3.8 MB unit
+	DW	280		; 7.9 MB unit
+
+
+;====================================================================
+;= CONFIGURATION SECTOR READ  -->  CHECK CONFIGURATION              =
+;====================================================================
+
+CHK_CON:LD	HL,INFD2	; IF NOT CONF DISK THEN (FORMAT <> 20H AND 28H)
+	LD	A,(HL)		;
+	CP	20H		;     FORMAT C: := FLOPPY FORMAT+24
+	JR	Z,CHK_C1	;     FORMAT D: := FFH (* NOT USED *)
+	CP	28H		;     NUMBER FLS:= 02
+	JR	Z,CHK_C1	;
+	LD	A,(FD0)		;
+	ADD	A,24		;
+	LD	(HL),A		;
+	INC	HL		;
+	LD	(HL),0FFH	;
+CHK_C1:	CALL	IDT		; RE-INITIALIZE DISK TABLE CONFIG
+
+	PAGE
+;====================================================================
+;= FIND AND INSERT THE DISK OFFSET (SKIPPED TRACKS) FOR DISK C -> P =
+;====================================================================
+
+	LD	HL,FD2		; addr of format byte for disk unit C
+	LD	DE,3		; no of tracks to skip on unit C
+	LD	IY,TRKOFF+4	; track offset table ( unit C )
+				; i:=2 , off_set:=3
+I_TOFF:	LD	A,(HL)		; while format_byte(i) <> 255 do
+	CP	255		; do
+	JR	Z,I_TOF1	;
+	PUSH	HL		; 
+	LD	(IY+0),E	;   track_offset_table(i):=off_set
+	INC	IY		;
+	LD	(IY+0),D	;
+	INC	IY		;
+	AND	11111000B	;   format:=format_byte(i) and 11111000b
+	LD	B,0		;                   /* clear position bits */
+	LD	C,A		;
+	LD	IX,FDF1		;   offset:=offset+disk_format.trk_size(format)
+	ADD	IX,BC		;
+	LD	L,(IX+2)	;
+	LD	H,(IX+3)	;
+	ADD	HL,DE		;
+	EX	DE,HL		;
+	POP	HL		;
+	INC	HL		;   i:=i+1
+	JR	I_TOFF		; end
+
+I_TOF1:	JP	BIOS		;
+	
+	PAGE
+;==============================================================================
+;=	INITIALIZE DISK TABLES                                                =
+;=	move floppy/hard disk format array to runtime position		      =
+;=	count the number of atcive drives				      =
+;==============================================================================
+;
+IDT:	LD	C,0		; INIT. DRIVE COUNT
+	LD	HL,INFD0	; GET DEST. ADR.
+	LD	DE,FD0		; GET SRC. ADR.
+IDT10:	LD 	A,(HL)		; GET DRIVE # FORMAT CODE
+	CP	0FFH		;   IF: FORMAT CODE = OK.
+	JP	Z,IDT20		; THEN: INIT FD# WITH CODE
+	LD	(DE),A		;
+	INC	C		;       DRV. COUNT:=DRV. COUNT + 1
+	INC	DE		;
+	INC	HL		;       GOTO INI10
+	JP	IDT10		; ELSE:
+IDT20:	LD	A,C		;
+	DEC	A		;
+	LD	(DRNO),A	;	INIT. MAX DRIVE NO.
+	RET			;
+
+;====================================================================
+;=  HARD DISK OFFLINE OR READ ERROR FROM HARD DISK                  =
+;====================================================================
+
+HD_OFF:	LD	A,255		; mark unit C as offline
+	LD	(INFD2),A	;
+	XOR	A		; drive A = boot unit
+	LD	(BOOTD),A	;
+	CALL	IDT		; re-initialize disk tables (drno=1)
+
+	JP	BIOS		;
+
+        DS	(BIOS-$)	; ALIGN TO DA00H
+        

@@ -26,6 +26,8 @@
 ;           4: Alternative register set not used.
 ;           5: Alternative hard disk configuration.
 ;           6: Warm boot from hard disk drive C
+;           7: Extended unit C
+;           8: Support of 96 tpi 5.25" floppys
 ;
 ; The format of TRACK 0 is as follows:
 ;

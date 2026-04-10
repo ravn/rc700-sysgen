@@ -1,0 +1,123 @@
+---------------------------------------
+ Udf|rte patchninger i BIOS5.COM
+ Torben Fjerdingstad marts 1987
+ sidenr. fra M80 ,LST:=BIOS703(.MAC)
+ ZAP adr. = Adr - D380
+---------------------------------------
+---------------------------------------
+QQMM.PCH: A,B = MINI, C,D = MAXI-
+FORMAT.
+---------------------------------------
+
+                                                nu       f|r            ZAP 
+   Floppy timer delay {ndret    side 104: E632:=16      (32)           12B2
+
+   Diskkonf params {ndret(init) side  13: D52F:=10      (08)            1AF
+                                                10      (08)            1B0
+                                                18      (20)            1B1
+                                                18      (FF)            1B2
+
+   DRNO s{ttes fast p} 03       side  50: DBDE:=3E 03 00 00 00 00       85E
+   som betyder LD A,3  + 4 gange NOP
+                                                
+   Track offset rettet for c,d  side 130: EA8E:=02 00 02 00            170E
+                             som f|r var:       03 00 FF FF
+
+   DPB pointer for drive 2 rettet  s.141: EB9C:=4E 30  ,var 4E EA      181C
+   DPB pointer for drive 3 rettet  s.141: EBAC:=30 EA  ,var 7B EA      182C
+   Det bet|d at drive 2 fik DPB40 og drive 3 fik DPB64.
+
+   Clock skal skifte n}r der skiftes fra mini til maxi
+                                side  86: E2F6: LD      (F38E),A        F76
+                                                CP      08
+                                                JP      Z,E300 ;MINI
+                                                LD      A,2
+                                        MINI:   INC     A
+                                                OUT     14,A
+                                                NOP
+                                                NOP
+                                                LD      A,(F38E)
+
+   chk2,chk3,all2 og all3 er oprettet i omr}det alvhd som ikke bruges mere.
+                                side 141: EB9E: DW      alvhd+71       181E
+                                                DW      alvhd          1820
+                                                
+                                     og   EBAE  DW      alvhd+71+64+71
+                                                DW      alvhd+71+64
+
+---------------------------------------
+QQPP.PCH: A,B = MINI, C,D = PARTNER-
+FORMAT.
+---------------------------------------
+Hertil er benyttet disktabel 00 som ellers ikke bliver brugt.
+
+    side 125
+        DPB0:   128 SEC:sectors/track               EA03    00 80       1683
+                  4 BSH:shift factor                           04
+                 15 BLM:                                       0F
+                  0 EXM:extent mask                            00
+                599 DSM:stor.cap(trk*sec*seclen/bls         02 67
+                511 DRM:dir entries(64*32/1024 blocks)      01 FF
+                255 AL0,AL1:reserved dir. blocks            00 FF
+                 80 CKS:size of dir. check vector           00 40
+                  2 OFF:number of reserved tracks           00 02
+
+    side 131
+        FSPA00: DPB00  :DPB                         EA9A    EA 03       171A
+                 16    :cp/m sectors/bls-block                 10
+                128    :sectors/track                       00 80
+                  7    :sector mask                            07
+                  4    :sector shift count                     04
+                TRAN24 :sector translation table(no skew)   E9 E9
+                255    :data length                            FF
+                  0    :disk type                              00
+                  5    :filler                                 05
+
+    side 137
+                 16    :physical sectors/track      EB2A       10       17AA
+    FDF1:      1023    :dma count                           03 FF
+                 64    :mf                                     40
+                  3    :n                                      03
+                  8    :end of track                           08
+                 27    :gap length                             1B
+                 77    :tracks                                 4D
+                 
+    side 141
+        disk param headers:
+    drive 2:
+                DPB00                               EB9C    EA 03       181C
+                CHK2: ALVHD+71          (lgd=64(40H))       F2 56
+                ALL2: ALVHD             (lgd=71(47H))       F2 0F (som f|r)
+
+    drive 3:
+                DPB00                               EBAC    EA 03       182C
+                CHK3: ALVHD+71+64+76    (lgd>128(80H))      F2 E6
+                ALL3: ALVHD+76+64       (lgd=76(4CH))       F2 9A
+
+    side  13
+                INFD2:                              D531       00        1B1
+                INFD3:                                         00
+
+Problemet med at drives blev sat i read only status efter access p} 
+partnerdrivet skyldtes at HSTBUF overskrev katalogcheck registrene
+fordi den var for lille. Er nu |get fra 512 til 1024 bytes ved at
+flytte startadressen for HSTBUF frem til EC81 (var EE81):
+F|lgende steder benyttes HSTBUF, som alts} {ndres til EC81:
+
+     side  96:       LD      DE,HSTBUF;             E4B0                1130
+     side 100:       LD      DE,HSTBUF;             E555                11D5
+     side 112        LD      HL,HSTBUF;             E83F                14BF
+SIDSTE UDGAVE HEDDER NU QQMP.PCH:
+Q: Quad
+M: Maxi
+P: Partner, dvs.A=Q, B=Q, C=M, D=P (QQMP)
+-----------------------------------------------------------------------------
+Den eneste forskel p}           QQMP.PCH og     QQPP.PCH opsummeret:
+        side  13        INFD2:  DB 18           DB 00                   1B1
+        side 141        DPH:    DPB24(EA30)     DPB00(EA03)            181C
+Desv{rre er der ikke nok plads til CHK2 og ALV2 i det benyttede omr}de ALVHD,
+s} der er problemer med at drives f}r R/O status n}r drive C benyttes.
+Derfor er der lavet en ny udgave:  QQPP.SCE som er rettet i kildeteksten.
+Rettelserne vil kunne findes i MAC-filerne eller i bios703.prn ved at s|ge 
+sekvensen <TFj>.
+-----------------------------------------------------------------------------

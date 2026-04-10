@@ -21,6 +21,13 @@
 ;==============================================================================
 ;= Z80 CTC CONTROLLER                                   =
 ;========================================================
+; CTC channel assignment:
+;   CH.0: baud rate generator for SIO Channel A (timer mode, no interrupt)
+;   CH.1: baud rate generator for SIO Channel B (timer mode, no interrupt)
+;   CH.2: display refresh interrupt (counter mode, triggers DSPITR)
+;   CH.3: floppy disk interrupt (counter mode, triggers FLITR)
+; Timer mode (bit 6=1, bit 5=0): CLK/prescaler with programmable count.
+; Counter mode (bit 6=1, bit 5=1): counts external CLK/TRG pulses.
 MODE0:	DB	047H	; TIMER MODE
 	IFDEF	REL30
 COUNT0:	DB	001H	; COUNT FOR 38400 BAUD (SIO CHANNEL A)
@@ -38,6 +45,12 @@ COUNT3:	DB	001H	; INTERRUPT AFTER 1 COUNT (FLOPPY DISK)
 ;========================================================
 ;= Z80 SIO CONTROLLER                                   =
 ;========================================================
+; SIO is programmed via OTIR (block output).
+; Channel A: serial port for reader/punch (auxiliary I/O).
+; Channel B: serial port for printer (list device).
+; The interrupt vector (WR2) is only set on Channel B and applies
+; to both channels (SIO architecture). Status-affects-vector mode
+; (WR1 bit 2) makes the vector encode the interrupt source.
 PSIOA: 	DB 018H		; CHANNEL RESET
 	DB 004H		; SELECT WR4
 	IFDEF	REL30
@@ -85,17 +98,19 @@ PSIOB:	DB 018H		; CHANNEL RESET
 ;========================================================
 ;= AM9517 DMA CONTROLLER                                =
 ;========================================================
-DMODE0:	DB	048H	; DMA CHANNEL0 MODE (WD1000)
-DMODE1:	DB	049H	; DMA CHANNEL1 MODE (FLOPPY DISK)
-DMODE2:	DB	04AH	; DMA CHANNEL2 MODE (DISPLAY)
-DMODE3:	DB	04BH	; DMA CHANNEL3 MODE (DISPLAY)
+; Am9517 mode register: bits 7-6=mode, 5=auto-inc, 4=decrement, 3-2=transfer, 1-0=channel
+DMODE0:	DB	048H	; DMA CHANNEL0 MODE (WD1000) — single mode, read
+DMODE1:	DB	049H	; DMA CHANNEL1 MODE (FLOPPY DISK) — single mode, read
+DMODE2:	DB	04AH	; DMA CHANNEL2 MODE (DISPLAY) — single mode, read
+DMODE3:	DB	04BH	; DMA CHANNEL3 MODE (DISPLAY) — single mode, read
 
 ;========================================================
 ;= INTEL 8275 DISPLAY CONTROLLER                        =
 ;========================================================
-PAR1:	DB	04FH	; NORMAL ROWS,80 CHARACTERS PR. ROW
-PAR2:	DB	098H	; ROWCOUNTS/VRTC, 25 ROWS PR. FRAME
-PAR3:	DB	07AH	; UNDERLINE IN POSITION 8, 11 POSITIONS PR. CHARACTER
+; 8275 is programmed with 4 parameter bytes after a reset command.
+PAR1:	DB	04FH	; CHARACTERS PR. ROW - 1 (79 = 80 chars)
+PAR2:	DB	098H	; ROWS PR. FRAME + VERTICAL RETRACE (25 rows)
+PAR3:	DB	07AH	; LINES PR. CHARACTER (11) AND UNDERLINE POS. (8)
 			; Note that underline pos. must be less than 9
 	IFDEF	REL30
 PAR4:	DB	06DH	; CURSOR FORMAT NON-BLINK BLOCK (bits 5:4=10)
@@ -107,10 +122,16 @@ PAR4:	DB	04DH	; CURSOR FORMAT BLOCK,BLINK AND REVERSE VIDEO
 ;========================================================
 ;= UPD765 FLOPPY DISK CONTROLLER                        =
 ;========================================================
+; UPD765 SPECIFY command: sets mechanical timing parameters.
+; Byte 1: command code (03H = SPECIFY)
+; Byte 2: bits 7-4 = step rate time (SRT), bits 3-0 = head unload time (HUT)
+;         SRT = 16 - value (ms at 8MHz clock), HUT = value * 16 ms
+; Byte 3: bits 7-1 = head load time (HLT), bit 0 = DMA mode (0=DMA, 1=non-DMA)
+;         HLT = value * 2 ms
 FDPROG:	DB	3	; PROGRAM LENGTH
-	DB	003H	; SPECIFY COMMAND  
+	DB	003H	; SPECIFY COMMAND
 	DB 	0DFH	; STEP RATE TIME=3MS, HEAD UNLOAD TIME=240MS (MAXI)
-	DB	028H	; HEAD LOAD TIME=4OMS, DMAMODE
+	DB	028H	; HEAD LOAD TIME=40MS, DMAMODE
 
 ;========================================================
 ;= DEFAULT PARAMETERS USED BY CONFI PROGRAM             =
@@ -130,6 +151,10 @@ STPTIM:	DW	250	; MINI FLOPPY MOTOR STOP TIMER (5 SEC)
 ;==============================================================================
 ;= DISK CONFIGURATION PARAMETERS                                              =
 ;==============================================================================
+; Each INFDn byte selects the disk format for logical drive n.
+; The value is an index into the FDF/FSPA format descriptor tables.
+; At boot, IDT copies these to FD0..FD15 in the runtime area.
+; Modified by CONFI utility and HD configuration sector read.
 INFD0:	DB	08	; 08 : MAXI FLOPPY DISK 1,1 MB UNIT
 INFD1:	DB	08	; 16 : MINI FLOPPY DISK 0,8 MB UNIT
 	IFDEF	REL14

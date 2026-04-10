@@ -76,13 +76,18 @@ CHKP30:	SCF			; ELSE: SET CARRY FLAG
 ;=============================================================================
 ;=      SET UP TASK FILE TO WD1000                                           =
 ;=============================================================================
+; Maps a logical CP/M host sector number to the WD1000 task file registers:
+;   HSECNO (sector), HSZDHD (size/drive/head), HCYLLO/HCYLHI (cylinder),
+;   HWPCMP (write precompensation).
+; The head number is computed by dividing HSTSEC by END_OF_PAGE (sectors per
+; disk page from the format table). The remainder is the physical sector.
 ;
 STSKFL:	LD	HL,(FORM)	; SET CURRENT FORMAT TABLE ADR.
 	LD	DE,-1		;
 	EX	DE,HL		;
 	ADD	HL,DE		; GET ADR. OF END_OF_PAGE
-	XOR	A		; INIT. HEAD NO.
-	LD	C,(HL)		; GET END_OF_PAGE
+	XOR	A		; INIT. HEAD NO. = 0
+	LD	C,(HL)		; GET END_OF_PAGE (SECTORS PER HEAD)
 	LD	B,00H		;
 	LD	HL,(HSTSEC)	; GET SECTOR NO.
 STSK10:	AND	A		;
@@ -227,10 +232,15 @@ WAITHD:	LD	A,(HD_FLG)	; AWAIT HARD DISK INT.
 ;=============================================================================
 ;=	CHECK WD1000 FOR READY TO ACCEPT NEW COMMAND                         =
 ;=============================================================================
+; WD1000 STATUS REGISTER BITS:
+;   Bit 7: BUSY        Bit 6: READY        Bit 5: WRITE FAULT
+;   Bit 4: SEEK COMP.  Bit 3: DATA REQ.    Bit 2: CORRECTED
+;   Bit 1: (reserved)  Bit 0: ERROR
+; We require READY=1 and SEEK COMPLETE=1 (50H mask), WRITE FAULT=0.
 ;
 WDCRDY:	PUSH	AF		; SAVE REGISTERS
 	IN	A,(HDSTRG)	; READ WD STATUS REG.
-	AND	50H		; MASK OF READY,SEEK COMP. AND WRITE FAULT
+	AND	50H		; MASK READY (BIT 6) AND SEEK COMP. (BIT 4)
 	CP	50H		; TEST FOR READY AND SEEK COMP. IS TRUE
 	JP	Z,WDCR10	; AND WRITE FAULT IS FALSE
 	LD	A,0BBH		;   IF: NOT O.K.
@@ -351,6 +361,10 @@ HRDF10:	XOR	A		;	ELSE:
 ;=============================================================================
 ; 	WD1000 HARD DISK CONTROLLER INTERRUPT ROUTINE                        =
 ;=============================================================================
+; Triggered via CTC2 Ch.0 when WD1000 completes an operation.
+; Sets HD_FLG=0xFF (complete), mirrors WD1000 status and error
+; registers, increments error counter on failure.
+; Error code 0BBH in ERFLAG indicates WD1000 error.
 ;
 HDITR:	LD	(SP_SAV),SP	; SAVE OLD STACK POINTER
 	LD	SP,ISTACK	; INIT. NEW STACK POINTER

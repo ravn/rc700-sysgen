@@ -36,15 +36,25 @@ TRAN24:	DB	1,2,3,4		; 8" DD 255 B/S
 ;================================================
 ;= DISK PARAMETER BLOCKS FOR 5.25" FLOPPY DISKS =
 ;================================================
+; DPB fields (CP/M 2.2 standard):
+;   DW SPT  — CP/M 128-byte logical sectors per track
+;   DB BSH  — block shift factor (BLS = 128 * 2^BSH)
+;   DB BLM  — block mask (2^BSH - 1)
+;   DB EXM  — extent mask
+;   DW DSM  — total number of blocks - 1
+;   DW DRM  — total directory entries - 1
+;   DB AL0,AL1 — directory allocation bitmap (marks reserved blocks)
+;   DW CKS  — directory check vector size (DRM+1)/4 (0 for fixed media)
+;   DW OFF  — number of reserved tracks at disk start
 
 ;************** DS/DD 512 B/S ************** UNUSED
 DPB0:	DW	32	; SEC: CP/M SECTORS PR. TRACK
 	DB	3	; BSH: BLS (DATA ALLOCATION BLOCK SIZE) SHIFT FACTOR
-	DB	7	; ELM: BSH AND BLM DETERMINES BLS=1024 BYTES
+	DB	7	; BLM: BSH AND BLM DETERMINES BLS=1024 BYTES
 	DB	0	; EXM: EXTENT MASK
 	DW	144	; DSM: STORAGE CAPACITY(TRK*SEC*SECLEN/BLS)
 	DW	63	; DRM: DIRECTORY ENTRIES-1. OCCUPIES 64*32/1024 BLOCKS
-	DB	192,0	; ALQ,AL1: ONE BIT FOR EACH RESERVED DIRECTORY BLOCK
+	DB	192,0	; AL0,AL1: ONE BIT FOR EACH RESERVED DIRECTORY BLOCK
 	DW	16	; CKS: SIZE OF DIRECTORY CHECK VECTOR(64/4).
 	DW	0	; OFF: NUMBER OF RESERVED TRACKS AT DISK START
 
@@ -247,6 +257,16 @@ TRKOFF: DW	2		; FLOPPY DISK A OFFSET
 ;================================================
 ;= FLOPPY SYSTEM PARAMETERS FOR 5,25" FLOPPY    =
 ;================================================
+; Each FSPA entry is 16 bytes, copied to DPBLCK..DUM by SELD:
+;   DW  pointer to DPB (Disk Parameter Block)
+;   DB  CP/M records per block (BLS/128)
+;   DW  CP/M sectors per track
+;   DB  sector mask (records per host sector - 1)
+;   DB  sector shift count (log2 of records per host sector)
+;   DW  pointer to sector translation table (0=none)
+;   DB  data length value (128=FM, 255=MFM, 0=HD)
+;   DB  disk type (00=floppy, FFH=hard disk)
+;   DS  5 filler to obtain 16 byte length
 
 ;************** SS 512 B/S ************** UNSED
 FSPA00:	DW	DPB0		; DISK PARAMETER BLOCK
@@ -416,6 +436,14 @@ PSPA64:	DW	DPB64		; DISK PARAM BLOCK
 ;================================================
 ;= FLOPPY FORMAT PARAMETERS FOR 5,25" FLOPPY    =
 ;================================================
+; Each format descriptor has the following layout:
+;   DB  physical sectors per track (used by SELD for DPH setup)
+;   DW  DMA byte count (sector size - 1: 127=128B, 255=256B, 511=512B)
+;   DB  MF flag (0=FM/single density, 64=MFM/double density)
+;   DB  N (sector size code: 0=128B, 1=256B, 2=512B, 3=1024B)
+;   DB  EOT (sectors per side — used by CHKTRK for head selection)
+;   DB  GPL (gap length for read/write commands)
+;   DB  total tracks on disk
 
 ;************** SS 512 B/S ************** track 0 side 0
 	DB	32		; PHYSICAL SECTORS PR. TRACK
@@ -460,6 +488,14 @@ FDF4:	DW	511		; DMA COUNT
 ;=============================================================================
 ;= FLOPPY DISK FORMAT TABLES                                                 =
 ;=============================================================================
+; Each format descriptor has the following layout:
+;   DB  physical sectors per track (used by SELD for DPH setup)
+;   DW  DMA byte count (sector size - 1: 127=128B, 255=256B, 511=512B)
+;   DB  MF flag (0=FM/single density, 64=MFM/double density)
+;   DB  N (sector size code: 0=128B, 1=256B, 2=512B, 3=1024B)
+;   DB  EOT (sectors per side -- used by CHKTRK for head selection)
+;   DB  GPL (gap length for read/write commands)
+;   DB  total tracks on disk
 
 ;*** 8" SS 128 B/S ***
 	DB	26		; PHYSICAL SECTORS PR. TRACK
@@ -503,11 +539,18 @@ FDF4:	DW	255		; DMA COUNT
 ;=============================================================================
 ;= DISK FORMAT TABLES FOR HARD DISK                                          =
 ;=============================================================================
+; Each hard disk format descriptor has the following layout:
+;   DB  sectors per disk page (used by STSKFL to compute head number)
+;   DW  DMA transfer count (sector size - 1: 511 for 512-byte sectors)
+;   DW  tracks occupied by this logical unit
+;   DB  step rate (OR'd into WD1000 SEEK command)
+;   DB  sector size for WD1000 SDH register (00H=256, 20H=512, 60H=128)
+;   DB  write precompensation cylinder (WD1000 WPCMP register)
 
 ;*** 1 MB LOGICAL HARD DISK UNIT ***
 	DB	16		; SECTORS PER DISK PAGE
 FDF5:	DW	511		; DMA TRANSFER COUNT
-	DW	24		; TRACK OCCUPIED BY UNIT
+	DW	24		; TRACKS OCCUPIED BY UNIT
 	DB	00H		; STEP RATE
 	DB	20H		; SECTOR SIZE (00H:=256,20H:=512,60H:=128)
 	DB	00H		; WRITE PRECOMPRESSED
@@ -548,8 +591,17 @@ FDF9:	DW	511		; DMA TRANSFER COUNT
 	PAGE
 
 ;=============================================================================
-;= DISK PARAMETER HEADERS                                                    =
+;= DISK PARAMETER HEADERS (DPH) — 16 bytes each, per CP/M 2.2 spec          =
 ;=============================================================================
+; Each DPH contains:
+;   DW  XLT  — sector translation table address (0=none)
+;   DW  000  — BDOS scratch pad word 1
+;   DW  000  — BDOS scratch pad word 2
+;   DW  000  — BDOS scratch pad word 3
+;   DW  DIRBF — pointer to 128-byte directory scratch area
+;   DW  DPB  — pointer to Disk Parameter Block
+;   DW  CSV  — pointer to check vector (0 for fixed media)
+;   DW  ALV  — pointer to allocation vector
 
 ;*** DRIVE 0 ***
 DPBASE:	DW	0		; TRANSLATION TABLE

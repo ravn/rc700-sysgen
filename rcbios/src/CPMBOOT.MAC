@@ -31,14 +31,25 @@ WR5A:	DB	0		;
 WR5B:	DB	0		;
 MTYPE:	DB	0		; MACHINE TYPE: 0=RC700,   1=RC850
 				;                2=ITT3290, 3=RC703
+				; Set by CONFI utility; affects display driver and
+				; floppy clock frequency selection.
+; DRIVE FORMAT TABLE (FD0-FD15)
+; Each byte selects a disk format for that logical drive.
+; The value is an index into the FSPA/FDF format tables:
+;   Bits 7..3 = format type (selects FSPA and FDF entry)
+;   Bits 2..0 = position within HD partitions
+; 255 = drive not configured.
+; * = no sector translation done (identity mapping).
+; !! = 8" DD format on a mini system (external MAXI drive).
+;
 FD0:	DB	255		;    MAXI                MINI 96 tpi
-FD1:	DB	255		; 0: SS,128 B/S,25 S/T      not used
+FD1:	DB	255		; 0: SS,128 B/S,26 S/T      not used
 FD2:	DB	255		; 8: DD,512 B/S,30 S/T  *DD,512 B/S,20 S/T
 FD3:	DB	255		;16:*SS,128 B/S,26 S/T   DD,512 B/S,20 S/T
-FD4:	DB	255		;24:*DD,2S6 B/S,26 S/T !!DD,512 B/S,30 S/T
+FD4:	DB	255		;24:*DD,256 B/S,26 S/T !!DD,512 B/S,30 S/T 8"
 FD5:	DB	255		;32:*WINCHESTER DISK 0,9 MB UNIT 512 B/S
 FD6:	DB	255		;40:*WINCHESTER DISK 0,3 MB UNIT 512 B/S
-FD7:	DB	255		;4B:*WINCHESTER DISK 1,9 MB UNIT 512 B/S
+FD7:	DB	255		;48:*WINCHESTER DISK 1,9 MB UNIT 512 B/S
 FD8:	DB	255		;56:*WINCHESTER DISK 3,9 MB UNIT 512 B/S
 FD9:	DB	255		;64:*WINCHESTER DISK 7,9 MB UNIT 512 B/S
 FD10:	DB	255		;255: NOT USED
@@ -139,13 +150,23 @@ BOPLP:	JP	BOPLP		;   PRINT_MESSAGE;
 
 	PAGE
 
-EXIT:	LD	A,0C3H		; PROCEDURE DEF_EXIT_ROUTINE;
+; PROCEDURE DEF_EXIT_ROUTINE;
+; Installs an exit callback invoked when timer EXCNT0 reaches 0.
+; Entry: HL = callback address, DE = countdown (in 20ms CTC ticks)
+; The CTC ch.2 ISR decrements EXCNT0; when it reaches 0, it calls
+; the JP instruction at EXROUT.
+EXIT:	LD	A,0C3H		; OPCODE(JP)
 	LD	(EXROUT),A	;
 	LD	(EXROUT+1),HL	; DEFINE ADDRESS
 	EX	DE,HL		;
 	LD	(EXCNT0),HL	; DEFINE COUNT
 	RET			;
 
+; PROCEDURE CLOCK;
+; Read or set the 32-bit real-time clock counter.
+; Entry: A=0 sets clock from DE (low) and HL (high)
+;        A<>0 reads clock into DE (low) and HL (high)
+; The RTC is incremented by the CTC ch.2 ISR at 50 Hz (20ms/tick).
 CLOCK:
 	IFNDEF	REL20
 	DI			;
@@ -164,6 +185,21 @@ CLOCK1:	LD	(RTC0),DE	;     SET_CLOCK;
 
 	PAGE
 
+; PROCEDURE LINE_SELECT;
+; Selects a serial communication line on the SIO port.
+;   A: 0=terminal port (SIO CH.A), 1=printer port (SIO CH.B)
+;   B: 0=release line, 1=select line A, 2=select line B
+; Protocol:
+;   1. Wait for transmitter idle (RR1 bit 0 = All Sent)
+;   2. Wait 1-2 timer periods for line to settle
+;   3. De-assert DTR and RTS (release current line)
+;   4. If B=0, return (line released)
+;   5. Assert RTS if B=2 (line B select)
+;   6. Assert DTR (selects the line)
+;   7. Wait 1-2 timer periods
+;   8. Check CTS to confirm line responded
+;   9. Return 0FFH if CTS set, else release and return 0
+;
 LINSEL:	ADD	A,SIOAC		; PROCEDURE LINE_SELECT;
 	LD	C,A		; BEGIN
 	IFDEF	HARDDISK
@@ -203,6 +239,8 @@ LINSE1:	AND	20H		;       RTS:=FALSE;
 	LD	A,0FFH		;   END;
 	RET			; END;
 
+; Write SIO WR5 register: D=register select (5), A=control bits.
+; Bit 7: DTR, Bit 1: RTS, Bit 3: TX enable.
 SETSIG:	DI			;
 	OUT	(C),D		;
 	OUT	(C),A		;
