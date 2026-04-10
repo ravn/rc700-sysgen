@@ -164,6 +164,50 @@ static void init_crt(void) {
     crt_command(0xE0); /* preset counters */
 }
 
+/* SEM 702 character generator loader.
+ *
+ * The SEM 702 has a loadable character RAM that must be initialized
+ * from a font bitmap before the display shows meaningful characters.
+ * The font data is read from PROM1 (0x2000–0x27FF): 128 characters ×
+ * 16 dot lines × 8 pixels = 2048 bytes.
+ *
+ * A copy of the ROA296 character generator ROM must be installed in
+ * the PROM1 socket for this to work.  Without it, the display will
+ * show garbage characters.
+ *
+ * The pixel bits are stored MSB-first in the font ROM but the SEM 702
+ * expects them LSB-first, so each byte is bit-reversed before output.
+ *
+ * From PHE358A.MAC (RC702E autoload PROM source).
+ * Ports: 0xD1 = character number, 0xD2 = dot line, 0xD3 = pixel data.
+ */
+static void load_chargen(void)
+{
+    const byte *font = (const byte *)PROM1_ADDR;
+    byte ch, line;
+
+    port_out(chargen_char, 0);
+    port_out(chargen_dot, 0);
+
+    for (ch = 0; ch < 128; ch++) {
+        for (line = 0; line < 16; line++) {
+            /* Bit-reverse: font ROM is MSB-first, SEM 702 wants LSB-first */
+            byte src = *font++;
+            byte reversed = 0;
+            byte i;
+            for (i = 0; i < 8; i++) {
+                reversed >>= 1;
+                if (src & 0x80)
+                    reversed |= 0x80;
+                src <<= 1;
+            }
+            port_out(chargen_data, reversed);
+            port_out(chargen_dot, (line + 1) & 0x0F);
+        }
+        port_out(chargen_char, ch + 1);
+    }
+}
+
 /* banner_string is raw bytes in BOOT, referenced here via extern. */
 
 
@@ -832,6 +876,7 @@ void main_relocated(void) __naked
     init_ctc();
     init_dma();
     init_crt();
+    load_chargen();  /* load font from PROM1 (ROA296) into SEM 702 RAM */
     init_fdc();
     memset(dspstr, ' ', 80 * 25);   /* clear screen */
     display_banner_and_start_crt();

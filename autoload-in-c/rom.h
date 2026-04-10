@@ -159,6 +159,9 @@ DEFPORT(pio_b_ctrl,   0x13)
 DEFPORT(sw1,          0x14)
 DEFPORT(ramen,        0x18)
 DEFPORT(bib,          0x1C)
+DEFPORT(chargen_char, 0xD1)    /* SEM 702 character generator: character number */
+DEFPORT(chargen_dot,  0xD2)    /* SEM 702 character generator: dot line number */
+DEFPORT(chargen_data, 0xD3)    /* SEM 702 character generator: pixel data byte */
 DEFPORT(dma_ch1_addr, 0xF2)
 DEFPORT(dma_ch1_wc,   0xF3)
 DEFPORT(dma_ch2_addr, 0xF4)
