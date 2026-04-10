@@ -182,9 +182,15 @@ IFDX:	INC	HL		;
 	CP	8		;
 	JP	NZ,IFDY		;
 	LD	(HL),16		;
-IFDY:	LD	A,0FH		;   CHANGE HEAD LOAD TIME TO 52 MS
-	LD	(FDPROG+2),A	;	<7654321><0>  HLT=7, DMA=1
-				;	 H.LOAD  DMA
+IFDY:	LD	A,0FH		;   PATCH SRT/HUT FOR MINI DRIVES
+	LD	(FDPROG+2),A	;	<SSSS><HHHH>  SRT=0 (16ms), HUT=F (240ms)
+				;	 STEP  UNLOAD
+				; NOTE: RC703 source patches FDPROG+3 (HLT/DMA byte)
+				; instead, with value 12*2+0 (HLT=24ms, DMA mode).
+				; The comment "CHANGE HEAD LOAD TIME" in the original
+				; may indicate FDPROG+3 was intended here too. The
+				; RC702 binary has FDPROG+2 — verify if this is correct
+				; or a reconstruction error.
 IFD0:	IN	A,(FDC)		; ELSE:
 	AND	1FH		; READ STATUS
 	JP	NZ,IFD0		; WAIT TILL FD READY FOR COMMANDS
@@ -309,7 +315,9 @@ IFD2:	IN	A,(FDC)		; READ MAIN STATUS REGISTER
 INI050:	EI			;
 	LD	A,1		;
 	LD	(HD_OFL),A	; INIT HDDSK OFFLINE
-INI060:	LD	B,1		;   STEPPING RATE (2,5 MILL.SECS)
+INI060:	LD	B,1		;   STEPPING RATE (0.5 MS)
+				; NOTE: RC703 source uses B=5 (2.5ms, conservative).
+				; The RC702 binary has B=1 (fastest explicit rate).
 	LD	A,20H		;   SIZE,DRIVE,HEAD(00=256 BYTES/SECT 20=512)
 	CALL	HRDRST		;   RESTORE
 	LD	BC,0F000H	;   SET COUNTER

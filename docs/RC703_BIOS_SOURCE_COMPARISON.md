@@ -28,52 +28,75 @@ may be RC703-specific adaptations that don't apply to the RC702.
 
 ### 1. FLO4: Missing double-recalibrate (FLOPPY.MAC)
 
+**Verdict: RC703-specific enhancement, not an RC702 bug.**
+
 The RC703 source has a double-recalibrate sequence in FLO4: after the first
 recalibrate, it checks ST0 bit 4 (Equipment Check — track 0 not found within
-77 steps). If set, it recalibrates again. This handles drives with more than
-77 tracks (e.g., 80-track 96-tpi 5.25" mini drives) where a single recalibrate
-from track 79 wouldn't reach track 0.
+77 steps). If set, it recalibrates again. This handles 80-track YD-380
+partner drives where a single 77-step recalibrate may not reach track 0.
 
-The RC702 reconstruction does a single recalibrate only. If this is accurate to
-the binary, it means the RC702 BIOS has a latent bug for 96-tpi drives far from
-track 0. If the RC702 binary does have the double-recalibrate, the reconstruction
-is missing it.
+The RC702 does a single recalibrate only. This is correct for RC702 hardware:
+it only had 40-track (8") and 35-track (5.25") drives where 77 steps always
+suffices. TFj added the double-recalibrate specifically for his partner drives.
+No RC702 variant has this code.
 
 **Files:** `rc703-div-bios-typer/floppy.mac:671-685` vs `rcbios/src/FLOPPY.MAC:725-732`
 
 ### 2. Missing XHOME before HD config sector read (INIT.MAC)
 
-The RC703 source calls `CALL XHOME` between `CALL SELD` and `CALL SETT` when
-reading the hard disk configuration sector. This ensures the drive heads are at
-a known position before seeking. The RC702 reconstruction goes directly from
-SELD to SETT with no XHOME.
+**Verdict: TFj defensive fix, not a known RC702 failure.**
 
-Without XHOME, the WD1000 step rate may be uninitialized on the first hard disk
-access after restore, potentially causing seek failures.
+The RC703 source calls `CALL XHOME` between `CALL SELD` and `CALL SETT` when
+reading the HD configuration sector. The comment says "issue seek_command to
+set step-rate". The RC702 skips this, relying on HRDRST (which runs just
+above) having already configured the WD1000 step rate. This works because
+SELD selects the HD (drive C:) and HRDRST already initialized the controller.
+TFj's XHOME is belt-and-suspenders — ensures the step rate is set regardless
+of what HRDRST left behind. No RC702 variant has the XHOME call.
 
 **Files:** `rc703-div-bios-typer/init.mac:327` vs `rcbios/src/INIT.MAC:347-349`
 
 ### 3. FDPROG offset for head load time (INIT.MAC)
 
-The RC703 patches `FDPROG+3` (the HLT/ND byte of the FDC SPECIFY command) with
-`12*2+0` (HLT=24ms, DMA mode). The RC702 reconstruction patches `FDPROG+2`
-(the SRT/HUT byte) with `0Fh` (SRT=0=fastest, HUT=15=240ms).
+**Verdict: Likely a real bug in the RC702 binary (or a misattributed comment).**
 
-These patch different bytes of the SPECIFY command. One of them may be wrong,
-or they may reflect different FDPROG table layouts between versions. Needs
-verification against the actual binary bytes at this offset.
+The FDPROG table layout is identical in both versions:
+```
++0: DB 3       (byte count)
++1: DB 003H    (SPECIFY command)
++2: DB 0DFH    (SRT/HUT: step rate / head unload time)
++3: DB 028H    (HLT/DMA: head load time / DMA mode)
+```
+
+The RC703 patches `FDPROG+3` (HLT/DMA byte) with `12*2+0` = 24ms head load
+time, DMA mode. The RC702 patches `FDPROG+2` (SRT/HUT byte) with `0Fh` =
+SRT=0 (16ms step), HUT=F (240ms unload). But the RC702 comment says
+"CHANGE HEAD LOAD TIME" with HLT bit-field documentation — that description
+belongs to FDPROG+3, not FDPROG+2. Either the offset or the comment is wrong.
+
+The RC702 binary genuinely has FDPROG+2 (verified by byte-exact reconstruction).
+This means either the RC702 intentionally patches the step rate for mini drives
+(and the comment is copied from an older source that patched HLT), or the
+original RC702 BIOS has a latent bug where the wrong SPECIFY byte gets
+overwritten on mini floppy systems. Added a NOTE comment to the reconstruction.
 
 **Files:** `rc703-div-bios-typer/init.mac:167-169` vs `rcbios/src/INIT.MAC:185-186`
 
 ### 4. HD restore stepping rate (INIT.MAC)
 
-The RC703 uses `LD B,0101B` (5 = conservative step rate) for the initial HD
-restore command. The RC702 reconstruction uses `LD B,1` (fastest step rate).
-The WD1000 RESTORE command encodes the step rate in the low 4 bits.
+**Verdict: Genuine version difference. RC702 comment was wrong.**
 
-A too-fast step rate could cause the restore to fail if the drive can't keep
-up. This needs verification — if the binary has 01h, the reconstruction is
-correct; if it has 05h, it's wrong.
+The RC702 binary has `LD B,1` (step rate 1 = 0.5ms, fastest explicit rate).
+The RC703 source has `LD B,5` (step rate 5 = 2.5ms, conservative). The
+ROB358 autoload PROM also uses step rate 1 (`HDRES EQU 011H`).
+
+Both versions carried the comment "STEPPING RATE (2,5 MILL.SECS)" but 2.5ms
+corresponds to rate 5, not rate 1. The RC702 comment has been corrected to
+"0.5 MS" with a note about the RC703 difference.
+
+The RC702 uses the fastest rate, relying on the drive being able to keep up.
+The RC703 plays it safer — appropriate for TFj's setup where the drive type
+may vary. Not a reconstruction error, just a real version difference.
 
 **Files:** `rc703-div-bios-typer/init.mac:291` vs `rcbios/src/INIT.MAC:312`
 
