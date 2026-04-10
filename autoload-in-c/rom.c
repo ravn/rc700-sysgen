@@ -180,14 +180,15 @@ static void init_crt(void) {
  * The font data is read from PROM1 (0x2000–0x27FF): 128 characters ×
  * 16 dot lines × 8 pixels = 2048 bytes.
  *
- * A copy of the ROA327 character generator ROM must be installed in
- * the PROM1 socket for this to work.  Without it, the display will
- * show garbage characters.
+ * A character generator ROM must be installed in the PROM1 socket
+ * for this to work.  Without it, the display will show garbage.
  *
- * The ROA327 ROM stores pixels MSB-first but the SEM702 expects
- * LSB-first, so each byte is bit-reversed when loading from ROM.
- * (When programming the SEM702 directly from software, as in the
- * Comal80 example in the product docs, no reversal is needed.)
+ * PHE358A.MAC bit-reverses each byte when loading, implying that
+ * the PROM1 font data is in MSB-first order (like the ROA327 ROM)
+ * while the SEM702 hardware expects LSB-first.  However, we don't
+ * know for certain that the PROM1 content is an ROA327 image — it
+ * could be a custom font ROM in a different bit order.  If the
+ * display shows mirrored characters, try removing the bit-reversal.
  *
  * From PHE358A.MAC (RC702E autoload PROM source, LDGEN routine).
  * Ports: 0xD1 = character number (0-127),
