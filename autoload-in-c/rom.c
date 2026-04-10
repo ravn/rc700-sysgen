@@ -171,8 +171,12 @@ static void init_crt(void) {
 
 /* SEM 702 character generator loader.
  *
- * The SEM 702 has a loadable character RAM that must be initialized
- * from a font bitmap before the display shows meaningful characters.
+ * The SEM702 ("Semigrafik Memory") is a RAM-based character generator
+ * that replaces the standard ROA327 ROM character generator in IC82.
+ * It must be initialized from a font bitmap before the display shows
+ * meaningful characters.  See docs/RC702tech.pdf for the product
+ * documentation and Comal80 programming examples.
+ *
  * The font data is read from PROM1 (0x2000–0x27FF): 128 characters ×
  * 16 dot lines × 8 pixels = 2048 bytes.
  *
@@ -180,11 +184,15 @@ static void init_crt(void) {
  * the PROM1 socket for this to work.  Without it, the display will
  * show garbage characters.
  *
- * The pixel bits are stored MSB-first in the font ROM but the SEM 702
- * expects them LSB-first, so each byte is bit-reversed before output.
+ * The ROA327 ROM stores pixels MSB-first but the SEM702 expects
+ * LSB-first, so each byte is bit-reversed when loading from ROM.
+ * (When programming the SEM702 directly from software, as in the
+ * Comal80 example in the product docs, no reversal is needed.)
  *
- * From PHE358A.MAC (RC702E autoload PROM source).
- * Ports: 0xD1 = character number, 0xD2 = dot line, 0xD3 = pixel data.
+ * From PHE358A.MAC (RC702E autoload PROM source, LDGEN routine).
+ * Ports: 0xD1 = character number (0-127),
+ *        0xD2 = dot line (0-15),
+ *        0xD3 = pixel data byte.
  */
 static void load_chargen(void)
 {
