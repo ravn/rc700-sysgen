@@ -1,0 +1,7 @@
+FROM jbarlow83/ocrmypdf:latest
+# Add Danish language data for Tesseract so ocrmypdf can process Danish text.
+# The base jbarlow83/ocrmypdf image ships only English.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr-dan \
+ && rm -rf /var/lib/apt/lists/*

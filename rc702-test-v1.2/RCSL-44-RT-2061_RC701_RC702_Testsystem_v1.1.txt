@@ -1,0 +1,1981 @@
+RCSL No: 44-RT2061
+Edition: September 1983
+
+Author: Steen Nørgaard
+Jan Nielsen
+
+® SERVICE - CENTER
+ØSTERGADE 38
+J) 4000 ROSKILDE
+
+Title:
+
+Testsystem for the RC701/RC702
+Version 1.1
+User's Guide
+
+§ REGNECENTRALEN
+
+C af 1979
+
+RCSL No 42-i 2164
+
+Keywords:
+
+RC701/RC702, Test Programs.
+
+Abstract: This manual describes the testsystem and the testprograms for the
+RC701/RC702.
+The testprograms described in this manual are: the ram test, the
+ram controller test, the dma test, the ctc test, the fdc test, the
+pio test, the sio test, the fdd test, the wdc test, the fdd relia-
+bility test, the crt test, and the wdd reliability test.
+(48 printed pages)
+Copyright © 1983, A/S Regnecentralen af 1979
+RC Computer A/S
+& Printed by A/S Regnecentralen af 1979, Copenhagen
+a Users of this manual are cautioned that the specifications contai-
+på ned herein are subject to change by RC at any time without prior no-
+= tice. RC is not responsible for typographical or arithmetic errors
+2 which may appear in this manual and shall not be responsible for
+[sm
+
+any damages caused by reliance on any of the materials presented.
+
+TABLE OF CONTENTS PAGE
+
+l. INTRODUCTION @eeeestsoeveeeeeeeeeeeeeveseeevoeeeeeseve7eeecg eee e 8 8 ee @ @ |
+1.1 Load and Start @eeeeeevoeveveoeveeoeoeeoeoeeeeeseeeeveeevee eee ee @ ]
+
+2. THE TESTS @eeeoeoeeee eevee eoeeseeveeoeevseveeeeeseeeseeseeeevneeeeveeee8 8 028 @ 3
+
+3 e THE TESTROUTER eeeeseoeeveeeeve eee eveeeaevseee2e02080880808080 oe @eeeseoenen e028
+3 e | Switch Parameters eeoeoeoeseveevecoeoeveeoeeeeoseeoseeeeveees 8 8 6 e 6 @
+3 e 2 Keyboard Management eeoeeeveevoees eevee eevee eeeaoneeneneen eee 80 @
+
+3.3 Output @eeoeoeoceaevoeevp eee eeveeeeeveee eee eeeoeeeseeveen eee eee ee 8 8
+
+NYN oO Pp A
+
+3.4 Specialities @eeeeseeveoevoeveeoseesvseeseeeeeeveeeeneeneee7e eee 8 6 @
+
+4 e THE MEMORY TEST eeseeoeoeveeveeseeoseeeeeeevneeeessevoeeveeeeevevneene7 eee 8
+4 e 1 PROM Checksum Test eeoeoeeseeosvpeeoeeeeeeeeeeeseee een ee 8088 6 @ 8
+4 e 2 RAM Test eeeoeeveevseevsee eevee eseeeeeeseeeeesvseeeeeveeee eee 8
+
+00
+
+5. MEMORY REFRESH TEST .ccccccccccccccccccscccccsssccccsece§ Il
+6. DMA TEST seere eee eee eee eee eee eee 12
+Te CIC TEST seere eee eee eee 13
+8. FDC TEST cccccccccccccccccccccccccccccccccccccccccccsses 14
+
+9. PIO TEST eeeeeeeveeeeeeeeeseevneeeeeeeeeoev eevee evseeven7e eee e888 O88 @ 15
+9.1 Inserting Testcable ……6…6S6S6…ES…E…EE0ee0eeeeeeeeeeeeeedteeeeee 15
+
+10. SIO TEST eseeeevneveeeeeevoeveeevneeeseeeeveeeeeeeeeveeeeveeeeeevee eee 8 16
+1 0) e 1 Modem Signal Response Beseeeeeeebeee eee ] 6
+] 0 e 2 SIO Channels Test eeoeoeovoeeev eves e288 . eeoeoeeveveoeveeeese8de ] 7
+
+10.3 Baud Rate Measure @eeeeoeemveteseseseveeeeseeveseve7eeee828 F888 8 @ 18
+
+11. FDD TEST eeoeeevees eevee eseeee eevee eeveeeeev eevee eeveeeee eevee eee ee8 19
+
+11.1 FDD Test Error Messages @eeeeseoevoeoeeoeeeeseseeeeseeveeneeeve @ 20
+
+12. WDC TEST eevee eveeevoeveveeeeeeeeveeeveeevneeseeeeveeeeee eevee e ee ee 23
+
+12.1 WDC Test Error Messages @eeeseeoevoeoeeeoseeeeeseeeseeeeeneoe@ 24
+ii
+
+TABLE OF CONTENTS (continued)
+
+PAGE
+
+13.
+
+14.
+
+15.
+
+16.
+
+FDD RELIABILITY TEST @eese@eeooeoeaoe vp eseseeseeveeseveseoeseeseeeoevn es eee eed
+] 3 e 1 Drive Reliability Test Boeceecee6ebeebeebeeceebedeebeeebeCebeeetee
+] 3 e 2 Diskettetest @eeeeoeeoodoeeoeesseeoe eos eeovoeeeesvseeveeseoeeeeneneee es eo 8
+
+CRT TEST eeeeeoecoeoseevpesvseeeseeeeseeneoeeevseev osevsesesvee ee eee e088 0 @
+
+WDD RELIABILITY TEST @eeeaeeaoeeoeoeoewseeoevoeeeeoevoeveeeeeveaesoseeeneeece8
+15.1 Drive Reliability Test @eeaeeeeoeeoeoeeeeoeoeveseevueeee 8888 8
+
+15.2 Disk Test … O eee Se SoS So eDbedoeeaseeeesaeseeerecas
+
+ERROR CODES @eesaeeaeoceoseoeoevpeseeosveeseeeveeeeveeeeeeeenseeaeg ee eee 8 6 @
+
+27
+30
+31
+
+34
+
+36
+
+39
+
+39
+
+4]
+
+INTRODUCTION 1.
+
+1.1
+
+This mamual describes the diagnostic test programs for the RC700
+
+microcomputer.
+
+The test programs are testing the basic functions of the differ-
+ent parts of the hardware in the computer.
+
+The sequence of the different test programs in the test system is
+organized with rising complexity. As far as possible, no part of
+the hardware is used before it is tested.
+
+If an error appears then make some retries to see, if the error
+
+is permanent.
+
+Load and Start 1.1
+
+The test system is delivered on two flexible disks, a minidisk-
+ette and a maxidiskette, and in two PROM versions, a 4K PROM and
+as 2 x 2K PROM's.
+
+Starting the test system from flexible disk:
+
+- insert the diskette in the drive, push reset button and the
+tests start aitomatically.
+
+Starting the test system situated in PROM's:
+
+PROM system 1 (2 x 2K PROM)
+These two PROM's are to be used with MIC702 and MIC703.
+
+Turn off the power, remove the hood, install PROM (ROB361) in
+PROGRAMABLE ROM O socket and PROM (ROB362) in PROGRAMABLE ROM
+1 socket. Turn on the power again. RESET will start the tests
+
+automatically.
+
+PROM system 2 (4K PROM)
+This PROM is to be used with MIC703, if print modif is made,
+and MIC704.
+
+Turn off the power, remove the hood, install PROM (ROB363) in
+PROGRAMABLE ROM O socket. Turn on the power again. RESET will
+start the tests aitomatically.
+
+Due to the limited storage capacity in the PROM's, only some of
+the tests are available. It is the tests which have connection to
+the flexible disk drives. The tests are: RAM test, DMA test, CIC
+test and FDD test.
+
+THE TESTS . 2.
+
+The testsystem described in this manual consists of 12 tests. The
+tests are ran under control of a testrouter, which has the pur-
+pose of administering the mode in which a particular test is ran.
+The ten tests are:
+
+Memory test
+
+Memory refresh test
+DMA test
+
+CTC test
+
+FDC test
+
+PIO test
+
+FDD test
+
+SIO test
+
+WDC test
+
+FDD reliability test
+CRT test
+
+WDD reliability test
+THE TESTROUTER 3.
+
+3.1
+
+The testrouter is a central program which main purpose is to com
+pute the address of the next test in the sequence. The address of
+the next test is derived from a variable holding the present
+
+testnumber and normally incremented by me. Every time a test has
+
+finished and is not in looping mode, the testrouter is entered.
+
+Switch Parameters 3.1
+
+The variable holding the test mmber also contains four switch
+
+bits, by which the testrouter decides how to administer the
+tests.
+
+test No
+h Ik os
+aoeu
+1 oy p
+t p ber
+oO Pp
+r
+i
+n
+t
+halt: O: halt on error
+1: proceed though error
+loop: 0: sequential, big loop of all tests
+1: looping in the present test
+keyb on: O: the system has not been informed about an instal-
+
+led keyboard
+1: a key on the keyboard has been struck at least
+
+once
+
+supr print: 0: messages are printed on the display
+
+1: no messages are printed (usable for fast looping) e
+3.2
+
+Initial values of the switch parameters are all zeroes.
+
+Keyboard Management
+
+To enter the keyboard management is only possible when a strucked
+key has informed the system that a keyboard is connected. When
+this has happened, the testrouter answers with the valid capital
+letters and digits.
+
+Valid keys are as follows:
+
+H: set halt bit to 0
+R: set halt bit to 1
+L: set loop bit to 1
+G: set loop bit to 0
+S: set suppress print bit to 1
+P: set suppress print bit to 0
+
+(Please note that capital letters are used)
+
+<esc>: will stop execution.
+
+This is also the fact for any other key. Striking the <return>
+key will have the test system reentering the looping or running
+state.
+
+Numbers between O-F will insert a new test mimber into the vari-
+able.
+
+All other keys will give no response.
+
+If me for example wants to loop in test 6 and not oo into a HALT
+state if error, then strike the keys R, L, 6 (not necessarily
+this sequence). Furthermore if one wants to test fast for measur-
+ing purpose, one can suppress print by typing S. Suppress print
+means that nothing from now on will be written into the screen-
+buffer.
+
+3.2
+Relationship between the test numbers and actual tests is as fol-
+lows in the diskette versions:
+
+Test No Test name Test loop
+
+6) RAM test yes
+
+1 Memory refresh test yes
+
+2 DMA test yes
+
+3 CIC test yes
+
+4 FDC test yes
+
+5 PIO test yes
+
+6 SIO test yes
+
+7 FDD test
+
+8 WDC test See chapter 10 and 11
+9 WDC test **) Have to be selected by
+A FDD reliability test the testnunber
+
+B CRT test
+
+C WDD reliability test
+
+D not used yet
+
+E not used yet
+
+F not used yet
+
+**) Press the key
+WDC test, see
+
+"9" will force the testsystem to perform the
+
+chapter 12.
+
+%e
+
+Relationship between the test minbers and actual tests is as
+
+follows in PROM versions:
+
+Test No Test name Test loop
+
+PROM checksum and RAM test yes
+DMA test yes
+CTC test yes
+
+FDD test See chapter 10
+not used
+not used
+not used
+not used
+not used
+not used
+not used
+not used
+not used
+not used
+not used
+not used
+
+ymuo AwWpPwuo ON DMN fF WIN — O
+
+The test mumbers not used yet will force the test system to re-
+turn to test muimber 0.
+
+Output | 3.3
+
+3.4
+
+The testrouter will respond with some aitput. This is a version
+number and a test nimber. It also responds with the state of the
+test. This could be either running, stopped, looping or halted.
+
+Specialities 3.4
+
+The testrouter has a waiting point of 3 seconds when entered from
+the test mimber 0 to give the user time to key in some input to
+
+Change parameters.
+THE MEMORY TEST © 4.
+
+The memory test consists of two tests. A PROM checksum test and a
+
+PROM Checksum Test 4.1
+
+A check on the contents of the PROM (containing tests) is per-
+formed by adding the contents of all locations in the PROM and
+Checking that the result is FF (Hex).
+
+If a difference from FF (Hex) is found, an attempt is made to
+
+write an error message on the first line of the display.
+
+The error message has the following layaut:
+
+<RC700 TESTSYSTEM chksum err>
+
+Note that when loaded from flexible discs, the checksum is check-
+
+4.
+
+RAM test.
+4.1
+
+ed on the loaded image.
+4.2
+
+RAM Test 4.2
+
+The memory test thereafter performs a test of the dynamic RAM
+memory. Of course, all memory cells are tested by the memory test
+
+(all variables are kept in CPU registers).
+
+First the upper part (addresses higher than the last PROM ad-
+dress) of the memory is tested. If this was found OK, the test is
+moved to this memory area and the memory space shaded by PROM is
+tested.
+
+The test pattern for the dynamic RAM memory consisting of chips
+of 1 bit x 16 k is three times 00 followed by three times FF
+(Hex). When all memory cells have been tested, they are again
+tested with the inversed pattern. This means that all bits are
+
+tested for "zero" and "one" insertion. It is the most convenient
+
+eo
+
+pattern for discovering addressing errors because this modulus 3
+
+pattern will not be repeated equivalent in a higher modulus ad-
+dress.
+
+If an error occurs, a message will be written on the first line
+
+of the display. The layout is the following:
+<RC700 TESTSYSTEM mem err ha la ex re>
+
+Where "ha" is high address, "la" is low address, "ex" is expected
+value and "re" is received value. All mmbers are in hexadecimal
+
+notation. (To find any defective chip, consult fig. 1).
+
+When both the PROM checksum test and the RAM memory test are ter-
+minated, an attempt is made to write on the display (whether
+there has been an error or not). This is done as simple as poss-
+ible without any standard program (without interrupt service). On
+the first 17 positions of the first line, the identification of
+the system type will be written followed by a possible error mes-
+sage.
+
+The total turn around time for the RAM-test is 7.5 seconds.
+vw
+
+10
+
+ar
+”
+
+oO
+
+ad
+
+MIE
+Balle
+
+SODE
+
+É
+
+i)
+
+i
+
+H
+
+I
+
+EMEEDDDD :
+
+: (EESEEER :
+
+la rec
+
+BIT BIT BIT BIT
+7-4 3-0 7-4 3-0 7-4 3-0. 7-4 3-0
+00 600
+
+O-16 k
+3 F FF
+40 00
+
+16—32 k
+7 F FF
+80 00
+
+3248 k
+BF FF
+CO 600
+
+48-64 k
+FF FF
+
+Figure 1: Layout of 64K RAM memory.
+
+MEMORY REFRESH TEST / 5.
+
+The dynamic memory refresh test is a test which verifies the
+function of the memory controller chip.
+
+It writes a pattern in memory consisting of an XOR of high and
+low address part. The pattern is written from the memory address
+8000H until the hexadecimal address: FOOOH (where the display
+
+image starts).
+
+When the pattern has been written, the test waits for 5 seconds
+
+in a waiting loop before it performs a check of data.
+
+The main purpose of this test is to discover modification of data
+happened in the delay time, due to malfunction of the refresh
+counting in the memory controller.
+
+Possible error message is:
+
+<data modified in byte xx xx exp: xx rec: xx>
+
+Output is placed on the fourth line of the display.
+DMA TEST 7
+
+The DMA test loop is testing DMA transfers between channel 0 and
+Channel 1. This is done as a memory to memory transport. Channel
+
+1] is receiving and channel 0 is transmitting.
+
+The transmitted pattern is a mffer of 1 k containing a counting
+pattern. The pattern is as follows: 00 FF FE FD etc. repeated 4
+
+times.
+
+When the transport is finished, the receiving biffer is checked
+against the transmitted buffer byte by byte.
+
+The DMA test will write its messages on the fifth line of the
+display.
+
+Apart from the identification of the test, the possible messages
+from the DMA test are:
+
+<OK>
+<TC timeout 200 ms>
+
+<data error, byte no: xx xx exp: xx rec: xx>
+
+All mumbers are in hexadecimal notation. "TC timeout ms" shows
+that the terminal count bit for channel 1 in the DM status re-
+gister has not been set within 200 ms. and that the transport is
+
+therefore not successful.
+
+If the screeen is blanked or if the errormessages continue to
+appear after several retries the DMA-controller should be
+replaced.
+
+13
+
+CTC TEST 2
+
+Neo’
+
+This program is testing the counter timer circuit which is used
+for baud rate generator and as interrupt circuit for the CRT and
+the FDC controller.
+
+It is tested that the circuit will generate interrupt and that
+
+the vector (interrupt address) is correct.
+
+The four channels O, 1, 2 and 3 are tested. Channels O and 1 are
+tested in counter mode, counting on the fixed input clock giving
+interrupt after approx. 423 us. Channels 2 and 3 are tested in
+timer mode. The timer is for channel 2 started by the interrupt
+signal from the CRT controller. For channel 3 the timing is
+started automatically.
+
+The test is based on a timeout loop, so it is checked if the in-
+terrupt was received within a specified time (300 ms.). It is
+also checked that only the specified channel interrupts.
+
+The test can end up with 2 different error messages:
+
+<illegal interrupt, port: xx>
+meaning that another channel than the specified has interrupted.
+
+<no interrupt, ch:>
+
+meaning that the test has timed aut before interrupt was receiv-
+ed.
+
+Texts will be written on the sixth line of the display.
+14
+
+FDC TEST /
+
+The FDC test is a small test loop included in the big sequential
+loop of tests.
+
+When the test is entered, it is checked that the main status re-
+gister of the FDC has bit 7 set to indicate that the controller
+
+is ready.
+
+After that, an invalid command is sent to the controller to see
+
+if it responds correctly.
+
+The following three error messages could appear:
+
+<not ready receive-transmit>:
+bit 7 of the main status register was not set when entering the
+test.
+
+<wrong data-direction>:
+bit 6 of the main status register has wrong polarity.
+Push the RESET button and try again.
+
+<fault stat. reg.>:
+status register 0 should indicate an invalid command (bit 7 = 1,
+
+bit 6 = 0).
+
+Texts will be written om the seventh line of the display.
+
+15
+
+PIO TEST £ 9.
+
+9.1
+
+To run this test it is necessary to use the testcable CBL936,
+where plug J3 of the cable is installed in plug J1003 (PARALLEL
+OUT) of the computer, and plug J4 of the cable is installed in
+plug J1004 (KEYBOARD) of the computer.
+
+If no testcable is installed the testsystem will respond with
+received and expected data and "pio test aborted".
+
+To test if a testcable is installed the program transmits the
+byte E5 (hexadecimal) at the parallel ait port and checks the
+keyboard port. If the keyboard port holds the byte E5 it is as-
+sumed that the cable is installed, otherwise not.
+
+If the test is ran in looping a rolling counting pattern of 256
+bytes is transmitted and checked against the received pattern.
+
+The test can end up with 3 different error messages:
+<no interrupt from port A>
+means that an interrupt from the keyboard port has not occur-
+red within 20 T-cycles
+<channel B interrupt>
+means that an interrupt from the parallel cut port has inter-
+rupted
+<rec exp> received and expected data
+
+means that the transmitted and received bytes are not equal.
+
+Inserting Testcable 9.1
+
+Installing the testcable may cause a strobe signal to the key-
+board. If this happens, it will stop the testsystem (it is recog-
+nized with the state: stopped) and it is necessary to start the
+test up again with the keyboard.
+10.
+
+16
+
+SIO TEST. /
+
+10.1
+
+The SIO test is testing the modem signals and data transports on
+both SIO channels.
+
+Test message (9th and 10th line on display):
+
+SIO-test: <channel identifications>: <OK or error message>
+<channel identification> <baudrate>
+
+<channel identification>
+Identifies the message as belonging to a specific channel;
+shown as soon as the channel has completed its transfer.
+Channels are: line 1:, line 2:.
+
+<error message>
+The error messages are explained in the sections 10.1 and
+
+10.2.
+
+<baud rate>
+Explained in section 10.3.
+
+Modem Signal Response
+
+For the LINE I and LINE II SIO the responses of DIR and RTS are
+tested on the DCD and CTS pins. Loop plugs as shown in fig. 2
+
+must be installed q@m the terminal LINE connections.
+
+PIN
+Rrs | 4] ->
+cts | 5| <—
+DSR | 6] <4
+DATA} 2} —
+mara; 3| —
+om |20 | ->
+pcp | 8| <4
+a in! <
+
+Figure 2: LINE test loop plug (CBL998).
+
+10.
+
+10.1
+
+10.2
+
+17
+
+If an error occurs on the modem signals CTS or DCD the received
+hex. value should be interpreted as shown in fig. 3.
+
+Error messages from this part of the test:
+
+CTS or DCD error, exp: <xx> rec: <xx>
+Received value differs from expected; cf. fig. 3.
+
+76543210
+
+CTS
+
+Figure 3: Modem signal response.
+
+SIO Channels Test 10.2
+
+When the modem signal responses have been checked, testing of
+LINE I and LINE II SIO channels is initiated.
+
+The test procedure is as follows: each of the two channels is
+started and the control is handed over to the interrupt system
+and a timeout loop.
+
+The LINE I and LINE II SIO channels are initiated to 9600 bps by
+the CTC.
+
+Both channels transmit a databuffer of 4 k bytes with a counting
+pattern (00 FF FE FD etc.). The test loop will check the received
+buffers as soon as the patterns have been transferred. It also
+monitors both channels for timeout.
+10.3
+
+18
+
+Error messages from the SIO channel test:
+
+illegal interrupt, port: <xx>
+An interrupt has occurred from a device that was not intended
+to interrupt, or the SIO has given a status interrupt (any
+Change on the modem signals during data transfer will respond
+
+with this message).
+
+parity error
+A special receive interrupt with parity bit has occured.
+
+receiver overrun
+
+A special receive interrupt with overrun bit has occured.
+
+data error, byte no: <xx xx> exp: <xx> rec: <xx>
+The received buffer does not contain the expected pattern.
+
+Baud Rate Measure
+
+While the LINE I and LINE II SIO are active, their respective
+baud rates will be measured. This is done over a period of 1 sec.
+by having the CTC channel 3 giving interrupt every (approx.) 16
+msec. The number of bytes received in 1 sec. is multiplied by 11
+and written (8 data bits, 1 start, 1 stop and 1 parity bit).
+
+Beware that when one channel has finished its transfer, inter-
+rupts are disabled while the buffer is checked. This means that
+
+other channels’ baud rates can be a little less than else.
+
+10.3
+
+11.
+
+LH? 19
+
+FDD TEST 7 11.
+
+This test is testing the flexible disk controller and up to four
+connected drives, either 8" or 5 1/4". It is not a complete test
+of the flexible disk, but rather a fast verification of the basic
+functions of the controller and the drives connected to it.
+
+This test is a very tough test of the drive, and errors normally
+appear. To check the drive use the FDD RELIABILITY TEST (see
+Chapter 12).
+
+If the system has not been informed that a keyboard is connected,
+this test is a part of the big sequential loop. If the system has
+been informed that a keyboard is connected, this test has to be
+selected by its mumber (number 7); that is, the big sequential
+loop does not involve this test.
+
+Please note that before the FDD test is entered, a writeable
+diskette should be placed in the drive. For diskette stations
+connected to an RC700 Piccolo, it is recommendable only to use
+properly formatted diskettes of the type dual head, double side,
+soft sector, double density with the format 15 sectors/512 bytes
+on 8" diskettes and 9 sectors/512 bytes on 5 1/4" diskettes.
+
+The test will initialize the controller to a step rate time of
+maximum 20 ms., a head unload time of maximum 160 ms. and a head
+load time of maximum 40 ms.
+
+When the testing is initiated, the units which are ready, will be
+recalibrated. If no units are ready, the text <* all drives: not
+ready> will be written, and the test enters an idle state. When-
+ever a unit changes its state from not ready to ready, the test-
+ing will start on this wit.
+
+If minidrives are used, the test will use some seconds to find
+out the drives which are ready.
+
+Because of the READY signal when the drives are 5 1/4" diskette
+
+drives, they are only asked one time, if they are ready or not.
+This is done by trying a recalibration of the drives. Once a
+drive has been known ready or not, the testprogram expects it to
+be in this state throughaut the test, also in looping. Every
+drive connected to the system is tested.
+
+The testing sequence for a unit is first a recalibration and then
+the cyclic sequence, seek, write, read. Not the complete diskette
+is tested, but only the following 16 tracks are used for data re-
+covery checkout:
+
+For 8" units: 5, 60, 6, 59, 7, 58, 8, 40, 57, 9, 56, 36, 61,
+37, 38, 39.
+
+For 5 1/4" units: 5, 32, 6, 30, 7, 28, 8, 15, 31, 9, 27, 16, 29,
+17, 25, 24.
+
+The sector number varies from 1 throughout 9. On the first track
+the data checkout will be performed on sector 1, on the second
+
+track on sector 2 and so on.
+
+The test pattern written on the diskette is a counting pattern of
+512 bytes, which is transferred via the DMA controller channel 1.
+When the data is read from the diskette, it is placed in a buffer
+
+in the memory, and the write- and read-buffers are compared.
+
+When the test is in loop mode, each byte of the test buffer is
+
+incremented by one for each pass.
+
+If an error is detected one of the following errortexts till be
+
+written.
+
+11.1 FDD Test Error Messages 11.1
+
+<*fault in main status reg>
+
+Indicates an error in the controller main status register bit
+7 or 6.
+
+21
+
+<not ready>
+
+Indicates that the ready state for a specified drive has been
+set to not ready (bit 3 of status register 0).
+
+<write protected>
+Indicates that the write protect bit has been set (bit 1 of
+status register 1).
+
+<timecut>
+
+The specified drive has not responded to an operation with an
+
+interrupt within approx. 2 s.
+
+<*fault in fdc xx>
+
+Indicates that the status bits of status register 0 are in an
+invalid state. xx is a hexadecimal munber showing the contents
+
+of this register.
+
+<seek error>
+The drive could not find the specified track of the command
+issued (bit 5 of status register 0).
+
+<command abort>
+The command issued was invalid. The conmand was never started.
+It will appear if an earlier command was not terminated cor-
+rectly (bit 7 = 1 and bit 6 = 0 of status register 0).
+
+<door open>
+The drive door has been opened during execution.
+
+<recalibrate error>
+The seek end bit did not occur after a recalibrate conmand
+(bit 5 of status register 0).
+
+<track O signal not found>
+The track 0 signal fails to occur after 77 step pulses (bit 4
+of status register 0).
+
+<missing address mark in datafield>
+No address mark in the datafield (bit 0 of status register 2).
+22
+
+<missing address mark in id-field>
+No address mark is detected in the id field (bit O of status
+
+register 1).
+
+<bad cylinder>
+The contents of the cylinder mimber on the medium are differ-
+ent from the internal register and cylinder mimber appears to
+
+be FF Hex (bit 1 of status register 2).
+
+<wrong cylinder>
+
+The contents of the cylinder mimber on the medium are differ-
+
+ent from the internal register (bit 4 of status register 2).
+
+<cannot find sector>
+The controller cannot find the sector specified in the inter-
+
+nal register (bit 2 of status register 1).
+
+<crc fault in id-field>
+The CRC check discovered an error in the id field (bit 5 of
+status register 1, when bit 5 of status register 2 is zero).
+
+<crce fault in data field>
+The CRC check discovered an error in the data field (bit 5 of
+both status register 1 and 2).
+
+<overrun>
+If the controller is not services by the DMA controller within
+
+a certain time interval, the error occurs (bit 4 of status re-
+
+gister 1).
+
+<access beyond last sector>
+The controller has tried to access a sector beyond the final
+sector of a cylinder (bit 7 of status register 1).
+
+When one of the mentioned error messages, which has relation to a
+specific drive occurs, a heading is written before the message
+
+identifying the drive. The drives are mimbered 0 through 3.
+
+Texts will be written on the eighth line of the display.
+
+12.
+
+23
+
+This test is testing the WDC controller and up to two connected
+Winchester drives. It is not a complete test of the drives but
+rather a fast verification of the basic functions of the control-
+
+ler and the drives connected to it.
+
+The test is only run if a controller is installed. This is sig-
+nalled to the program by setting the switch S6 on the MIC board.
+
+If the system has not been informed that a keyboard is installed,
+this test will be a part of the big sequential loop if the switch
+S6 is set.
+
+:
+
+H
+
+3
+
+PP bddde
+ae |
+
+i
+
+|
+
+Figure 4: The switches 0-6 (here switch 6 is set).
+
+12.
+12.1
+
+24
+
+The test will start with drive 0 and after finishing all the
+operation the program will check if there is a drive 1 connected, e
+
+and in that case repeat the æerations on drive 1.
+
+The wdc-test starts with a test of the databus to the wdc. The
+test writes a register and reads it again. Only if the
+transmitted and the received bytes are equal the test starts.
+Otherwise the received and the expected bytes are written on the
+screen and the wdc-test is aborted.
+
+The testing sequence for a unit is first a restore and then the
+
+cyclic sequence, format, seek, write, read. The whole Winchester
+
+disk is not tested kut only cylinder 0 and 1. The system tests
+
+the winchester from head number 2 until head minber 6. This will e
+avoid destruction of the configurationsector. A track contains 17
+
+sectors and a sector contains 512 bytes. It is formatted with an
+
+interleave rate at 4:1 and no bad sectors.
+
+The testpattern written is a counting pattern from 00 to FF
+twice.
+
+The data are transferred via the DMA controller channel 0. In
+testing the CRC circuit the data read from the disk are placed in
+a buffer in the memory (E200-E3FF) and is compared with the
+writebuffer (EOOO-E1FF).
+
+WLC Test Error Messages 12.1 e
+
+<restore error>
+
+Indicates that the error bit in the status register is set.
+
+After a RESTORE command, and the "track O error" bit in the
+
+errorregister is not set.
+
+<track 0 error>
+The track 0 error bit is set during a RESTORE command if,
+after issuing 1023 stoppulses, TRACK 000 line is not asserted
+by the drive.
+
+25
+
+<format error>
+The error bit is set in the status register after a format
+
+operation.
+
+<write error>
+The error bit is set in the status register after a write
+operation, and the “aborted command" and the "id not found"
+
+bits are not set.
+
+<aborted write command>
+A valid write conmand is issued but cannot be executed based
+
+on the statusinformation from the drive.
+
+. <data mark not found>
+
+Will be written after a READ SECTOR command if, after success-
+fully identifying the ID field, the DATA ADDRESS MARK was not
+detected within 16 bytes of the ID field.
+
+<aborted read command>
+Indicates that a valid read command has been received that
+
+cannot be executed based on status information from the
+
+drive.
+
+<id not found>
+Indicates the ID field was not found.
+
+<cerc fault id-field>
+<crc fault data field>
+
+<timeout>
+
+An interrupt was not detected within a specified period.
+
+<bad block detect error>
+
+This bit must not be set, while all of the sectors are
+formatted as good sectors.
+
+<illegal interrupt, channel 3>
+The floppy channel on the CIC has interrupted illegal.
+<crce error>
+
+Means that the CRC-check and the buffer check do not match.
+
+13.
+
+27
+
+Lr.
+FDD RELIABILITY TEST
+
+This test is not a part of the big testloop; that is, it is
+necessary to select the test by the testnumber A.
+
+Because it is a reliability test, the program makes some error-
+statistics. The errors are divided into two groups: soft errors
+
+and hard errors.
+
+When an error appears, it is counted as a soft error, and the
+program tries the operation again (up until the mmbers of
+retries), if the same error appears in every retry, it is counted
+as a hard error and the soft error counter is decremented by the
+numbers of retries.
+
+When the test is running (after some questions have been answer-
+
+ed) it is possible to stop or to leave the test. If an "H" (capi-
+tal letter) is pushed, the test will stop. To continue the test,
+
+press the "RETURN" key. Pressing the "F" (capital letter) will
+
+cause a return to the testrouter.
+Pressing capital "R" will always restart the reliability test.
+
+When the test is running, a screen-image with the errorpossibil-
+ities is shown.
+
+The first line shows the name of the test, which can be either
+"FDD RELIABILITY TEST" or “DISKETTE TEST".
+
+The number (0 or 1) after the error text refers to the
+headnumber.
+
+The lines are as follows:
+
+PASS: passnunber.
+
+RETRIES : shows the number of retries, which
+has to be specified. In the same
+line the text "SOFT, HARD, HEAD,
+CYLINDER, SECTOR" is shown. In the
+
+13.
+28
+
+"SOFT" column the soft errors are
+accumilated. In the "HARD" column
+the hard errors are accumulated.
+"HEAD, CYLINDER, SECTOR" these
+three columns show for each error,
+
+where the last error appeared.
+
+NOT DETECT ID MARK: the fdc cannot detect the id
+address mark.
+
+NOT DETECT DATA MARK: the fdc cannot detect the data
+address mark.
+
+NOT FIND SECTOR: the fdc cannot find the specified
+sector.
+
+CRC ERROR IN ID: the fdc has detect an CRC error in
+the id field.
+
+CRC ERROR IN DATA: the fdc has detect an CRC error in
+the data field.
+
+SEEK ERROR: incremented if seek error in every
+retry.
+
+TIMEOUT: interrupt does not occur within one
+second.
+
+CRC-READING ERROR: the CRC is not properly read.
+
+FDC ERROR: wrong status from the fdc.
+
+WRITE ERROR: the accumulated errors in write
+
+command, and where the last error
+appeared.
+
+READ ERROR: the accumilated errors in read
+command, and where the last error
+appeared.
+
+CURRENT: shows the current head-, cylinder
+
+and sectoraddress.
+
+There are two possibilities with the reliability test. The two
+possibilities are either a drive test or a diskette test. Figure
+
+5 shows the structure in the test.
+
+Ten, or eleven questions have to be answered before the test
+starts. If an illegal answer has been given, a question-mark is
+
+responded until a legal muimber is given.
+
+29
+
+When a question is correctly answered, the next question appears
+
+on the screen. The first nine questions are:
+
+1)
+
+2)
+
+3)
+
+4)
+
+5)
+
+6)
+
+7)
+
+drive (0/1)
+The drive on which the test is wanted. Push "0" or "1" to
+select drivenumber.
+
+mini/maxi/quad (0/1/2)
+Selects the drive type. Minidrive, maxidrive or 96 TPI drive.
+Push "0", "1" or "2" to select drivetype.
+
+single/double density (0/1)
+
+Single density = 128 bytes/sector.
+Double density = 512 bytes/sector.
+Push "0" or "1" to select density.
+
+single/double sided (0/1)
+Push "0" or "1" to get next question.
+
+from track
+Has to be answered with two digits. If the tracknumber is
+bigger than the maximum for the selected drivetype (question
+
+1), the maximum is inserted. The maximum is for:
+
+mini: 36 (0-36: 37 tracks)
+maxi: 76 (0-76: 77 tracks)
+96TPI: 79 (0-79: 80 tracks)
+
+to track
+Has to be answered with two digits. If the tracknunber is
+bigger than the maximum for the selected drivetype (question
+
+1), the maximum is inserted. (See question munber 5).
+
+steprate ms (01-16)
+
+Two digits have to be typed to select the steprate for the
+drive. If the drive is a minidrive or a 96 TPI drive, the
+typed steprate will be miltiplied by 2. Recommended steprates
+are for the RC702 minidrives: 20 ms (type 10), the RC702
+maxidrive: 3 ms (type 03), the RC703 96 TPI: 6 ms (type 03).
+
+13.1
+
+8) retries (0-9)
+Determines how many retries which will be done if error.
+Push a digit to select the mimber of retries.
+
+9) diskettetest no/yes (0/1)
+
+Push "I" to select the diskettetest.
+Push "0" to select the drive reliability test
+
+Drive Reliability Test
+
+If a reliability test of the flexible disk drive is chosen, the
+
+tenth question is:
+
+10) format no/yes (0/1)
+Push "1" to format the diskette.
+Push "0" if no formatting is wanted.
+
+The formatting is made due to the answers of the questions. The
+formatting is not limited to the interval [from track, to track],
+but to the whole diskette if double sided is chosen, or to the
+
+whole side if single sided is chosen.
+
+If mini or 96 TPI drive is selected, the diskette is formatted
+with 16 sectors/track and 128 bytes/sector in single density. In
+double density the values are 10 sectors/track and 512
+bytes/sector.
+
+If maxidrive is selected, the diskette is formatted with 26 sec-
+tors/track and 128 bytes/sector in single density. In double den-
+sity the values are 15 sectors/track and 512 bytes/sector.
+
+The first operation in each pass is alternate seekings in the
+
+specified interval.
+
+When the seekings are finished, the write and read of a sector
+begins. The program starts with sector 1 of the specified first
+track (from back).
+
+13.1
+
+13.2
+
+31
+
+After a write of a sector it is checked if the writeoperation was
+properly performed. If the write was OK, a read of the sector is nm
+performed. If the write was not, a read of the sector does not
+take place, but the program continues with a write of the next
+
+sector.
+
+When the last sector in a track has been written and read (if
+possible), the same track is used on the other side, if double
+sided is chosen. When the cylinder is finished, the cylindernum-
+
+ber is incremented.
+
+When the last cylinder in the specified interval is finished, the
+passnumber is incremented and the operations start again, begin-
+
+ning with seekings.
+
+Diskettetest 13.2
+
+If the diskettetest is chosen, the next two questions are:
+
+10) read preformat no/yes (0/1)
+Push "1" to read the preformat.
+Push "0" if no reading of the preformat is wanted.
+
+11) format no/yes (0/1)
+Push "1" to format the diskette
+Push "0" if no formatting is wanted.
+
+After formatting the diskette the new format is read.
+
+When reading the preformat and the new format, the reading starts
+
+at cylinder 1. The reading is made due to the answers of the
+cylinder.
+
+The reason of reading the preformatting is to check the format-
+
+ting done by the manufacturer (minidiskettes are not preformat-
+ted).
+32
+
+If a hard error appears when reading the formatting, the reading
+is stopped with the message "HARD ERROR". To contime a push of a
+key (not "R", "H" or "F") is required.
+
+After action has been taken due to the answers of "read
+preformat" and "format", the specified interval is read. The
+reason that the interval is only read, is that the datapattern is
+not refreshed. This makes it possible to check the degradation in
+
+magnetism.
+
+33
+
+YN
+drive (0/1)
+e mini/maxi/quad (0/1/2)
+single/double density (0/1)
+single/double side (0/1)
+from track 2 digits
+to track 2 digits
+steprate ms (01-16) 2 digits
+retries (0-9)
+Questions to
+be answered
+no iskett yes
+drive test test
+i Y '
+©} read
+format (0/1) preformat (0/1)
+format (0/1)
+—— — — _ J i i i eee ee ee _ lt ——_ — ww ow
+Å
+due to due to answer
+answer format read of "read pre-
+of diskette preformat P
+"format" x format"
+; due to answer
+seer in from yes format
+track to track diskette of "format
+no
+v
+e write sec. in ast sector read
+interval from
+
+track to track
+
+no
+
+yes
+
+read
+sector
+
+update sec.
+cylinder .
+head
+
+last cylinder new format
+kk
+
+—“
+
+read interval
+from track
+to track
+
+* program halts so the information
+can be read.
+Push "RETURN" to continue.
+
+Figure 5: The structure in the reliability test.
+14.
+
+34
+
+CRT TEST 73
+
+This is a visual looping test which is not a part of the test-
+loop but has to be selected by the testnunber B (capital letter).
+When the test has finished, it starts again.
+
+When the test is running, it is possible to stop it, if the "H"
+
+key (capital letter) is pressed. To continue, press the "RETURN"
+key. To return to the testrouter, press "FE" (capital letter).
+
+The following should be seen:
+
+1:
+
+The character-PROM is written for a few seconds.
+
+A special code will blank the right side of the screen.
+The character-PROM is written.
+
+A special code will blank the lower half of the screen.
+The character-PROM is written.
+
+The screen is filled with "H". To adjust the screen "H" is
+often used.
+
+Cursor test. The cursor will start in the upper left corner
+and move down towards the lower right corner. All four cur-
+sortypes are tested, with the character-PROM as background.
+
+The cursor test starts with a cursor, which appears as a
+blinking reverse video block. The next cursortype is a blink-
+ing underline. The third cursortype is a non-blinking reverse
+
+block. The last cursor is a non-blinking underline.
+
+Field attributes test. The field attributes are tested on the
+character—PROM. The 25 lines appear as follows:
+
+a: 3 lines with blink
+
+b: 3 lines with reverse video
+
+35
+
+c: 3 lines with blink and reverse video
+e d: 4 lines with underline
+e: 3 lines with underline and blink
+f: 3 lines with underline and reverse video
+
+g: 6 lines with underline, blink and reverse video.
+
+9: Test of the dma-channels 2 and 3 and the interrupt from the |
+CRT controller. The first half of the screen is supplied by
+the dma-channel 2. An asterisk is the last character sent by
+this channel. The lower half is supplied by the dma-channel
+3. Two asterisks are the last characters sent by this chan-
+nel. After channel 3 has finished, an interruptroutine sets
+
+up the channels to screentransfers.
+10: The CRT test ends up with the graphic PROM written.
+
+After the graphic PROM is written, the test starts again with 1.
+
+e
+15.
+
+36
+
+WDD RELIABILITY TEST © 15.
+
+This test is not a part of the big testloop; that is, it is
+necessary to select the test by the testnunber C.
+
+Because it is a reliability test, the program makes some error-
+statistics.
+
+When an error appears the controller will try the operation again
+up until 16 times.
+
+When the test is running (after some questions have been answer-
+ed) it is possible to stop or to leave the test. If an "H"
+(capital letter) is pushed, the test will stop. To continue the
+test, press the "RETURN" key. Pressing "F" (capital letter) will
+
+cause a return to the testrouter.
+
+Pressing "R" (capital letter) will always restart the reliability
+test.
+
+When the test is running, a screen-image with the errorpossibil-
+
+ities is shown.
+
+The first line shows the name of the test, which can be either
+"WDD RELIABILITY TEST" or "DISK TEST".
+
+The lines are as follows:
+
+PASS: passnumber
+DATA ADDRESS MARK NOT FOUND: the wdc cannot detect the data
+
+address mark.
+
+ABORTED SEEK COMMAND: the seek command cannot be
+executed based on status from
+the drive.
+
+ABORTED WRITE COMMAND: the write command cannot be
+
+executed based on status from
+the drive.
+
+37
+
+ABORTED READ COMMAND:
+
+ID NOT FOUND:
+
+CRC ERROR IN ID:
+
+CRC ERROR IN DATA:
+
+CRC READING ERROR:
+
+BAD BLOCK DETECT ERROR:
+
+SEEK ERROR:
+
+TIMEOUT :
+
+WDC ERROR:
+
+WRITE ERROR:
+
+READ ERROR:
+
+CURRENT:
+
+There are two possibilities with
+
+the read command cannot be
+executed based on status from
+the drive.
+
+the specified id-field contain-
+ing the cylinder, head and
+
+sector nunber was not found.
+
+indicates that a CRC error was
+
+encountered in an id-field.
+
+indicates that a CRC error was
+
+encountered in a data-field.
+the CRC bytes were misread.
+
+a bad block mark was erroneous-
+
+ly read.
+
+a seek error was encountered.
+a command was not completed
+within a specified timeinter-
+val.
+
+wrong status from the wdc.
+
+the accumulated errors in write
+command, and where the last
+error appeared.
+
+the accumulated errors in read
+command, and where the last
+
+error appeared.
+
+shows the auirrent head-,
+
+cylinder and sectoraddress.
+
+the reliability test. The two
+38
+
+possibilities are either a drive test or a disk test. Figure 6
+
+shows the structure in the test.
+
+Six questions have to be answered before the test starts. If an
+
+illegal answer has been given, a question-mark is responded until
+
+a legal number is given.
+
+When a question is correctly answered, the next question appear
+
+on the screen.
+
+The six questions are:
+
+1)
+
+2)
+
+3)
+
+4)
+
+5)
+
+6)
+
+from head
+has to be answered with one digit in the interval from 0 to 5 ©
+
+to head
+
+has to be answered with one digit in the interval from 0 to 5.
+If "from head" is bigger than "to head" the two nunbers will
+be exchanged
+
+from track
+has to be answered with 3 digits. If the tracknunber is bigger
+than 191 the 191 will be inserted
+
+to track
+has to ke answered with 3 digits. If the tracknunber is bigger
+than 191 the 191 will be inserted. If "from track" is bigger ©
+
+than "to track" the two numbers will be exchanged
+
+disk test (only reading) no/yes (0/1)
+push 0 to select drive reliability test
+push 1 to select disk test
+
+format no/yes (0/1)
+
+push 0 if no formatting is wanted
+
+push 1 to format
+
+The formatting is done due to the answers of "fram head", "to
+head", "from track" and "to track". The formatting is perform-
+ed only in the specified volume.
+
+15.1
+
+39
+
+Remark that the formatting done with this testprogram is not
+compatible with the formatting done by HDFORM.
+
+Drive Reliability Test 15.1
+
+15.2
+
+The operations in each pass are first write a sector, read the
+same sector, invert the bitpattern and write and read the sector
+
+again. The read kuffer is compared with the write buffer.
+
+Disk Test 15.2
+
+In this part the specified interval is only read. The read data
+are checked for CRC error.
+"format"
+
+drive test
+
+40
+
+from head 1 digit
+to head 1 digit
+from track 3 digits
+to track 3 digits
+no é yes
+
+format (0/1)
+
+skett
+
+be? 2 8
+
+Questions to
+
+be answered
+
+Nee
+
+write sec. in
+interval from
+
+track to track
+
+no
+
+yes
+
+read
+sector
+
+update sec.
+cylinder
+
+head
+
+Figure 6:
+
+format (0/1)
+
+read interval
+from track
+to track
+
+The structure in the reliability test.
+
+due to answer
+
+of "format"
+
+16.
+
+41
+
+ERROR CODES 16.
+
+The testrouter outputs an error code, which is specific for the
+
+type of
+run the
+
+error discovered on port 50 Hex. This enables the use to
+testsystem on a MIC board alone without display. The
+
+error information may then be detected if a device which can de-
+code the mimbers is installed on the system his.
+
+The error codes are as follow:
+
+O: OK,
+
+no error
+
+1: PROM checksum error
+
+2: RAM
+
+error
+
+3: data error in DMA test
+4: DMA channel 1 has not set the terminal count bit within 200
+
+mS.
+5: not
+6: not
+7: not
+8: not
+9: not
+As: not
+B: CTC
+C: not
+D: not
+E: not
+F: not
+10: not
+11: not
+12: not
+13: not
+14: not
+15: not
+16: not
+
+in DMA test
+
+used
+
+used
+
+used
+
+used
+
+wanted interrupt in CIC test
+used
+
+test has timed out without interrupt
+used
+
+used
+
+used
+
+used
+
+used
+
+used
+
+used .
+
+used
+
+used
+
+used
+
+used
+
+17: data error in main memory refresh test
+
+18: FOC
+19: the
+20: FDC
+
+not ready to receive or transmit
+wrong data direction in FDC
+
+fault in status register
+
+31: fault in FDC (in FDD test)
+42
+
+seek error
+
+FDC command abort
+
+Open door
+
+recalibration error
+
+track O signal not found
+
+missing address mark in data field
+bad cylinder
+
+wrong cylinder
+
+missing address mark in ID field
+cannot find sector
+
+CRC fault in ID field
+
+CRC fault in data field
+
+drive not ready
+
+overrun in FDC
+
+trying to access beyond last cylinder
+drive is write protected
+
+flexible disk drive timeout
+flexible disk data error
+
+timeout in WDC test
+
+track 0 error in wdc-test
+
+restore error in wdc-test
+
+format error in wdc-test
+
+aborted write command in wdc-test
+id not found in wdc-test
+
+CRC fault in id field in wdc-test
+write error in wdc-test
+
+CRC error in wdc-test
+
+data mark not found in wdc-test
+aborted read command in wdc—test
+CRC error in datafield in wdc-test
+bad block detect error in wdc-test
+
+illegal interrupt in wdc-test.
+
+~ RE we
+
+RETURN LETTER
+
+e Title: Testsystem for the RC701/RC702 RCSL No.: 44-RT2061
+Version 1.1 User's Guide.
+A/S Regnecentralen af 1979/RC Computer A/S maintains a continual effort to im-
+prove the quality and usefulness of its publications. To do this effectively we need
+user feedback, your critical evaluation of this manual.
+
+Please comment on this manual’s completeness, accuracy, organization, usability,
+and readability:
+
+Do you find errors in this manual? If so, specify by page.
+
+How can this manual be improved?
+
+Other comments?
+
+| Name: Title:
+
+Company:
+Address:
+
+Date:
+
+Thank you
+
+°
+
+42-1 1288
+Ln eee ee eee eee eee eee eee as Fold here ............ ccc eee eee eee ee
+Lee eee eee eee wees Do not tear - Fold here and staple ..................
+Affix
+postage
+here
+& REGNECENTRALEN
+"mm af 1979
+
+Information Department
+Lautrupbjerg 1
+
+DK-2750 Ballerup
+Denmark
+
+Le ge
+

@@ -122,3 +122,148 @@ appendix C) describes the correct workflow: SYSGEN reads/writes a file
 **Lesson**: Always check vendor documentation before inventing workarounds.
 The SYSGEN file-based workflow is simple: `SYSGEN CPM56.COM` reads the
 file and writes to system tracks in one step.
+
+## 2026-04-11: `install_write_tap` does not see DMA writes
+
+**Context**: Tried to find the CPU instruction that installs a `HALT`
+opcode at RAM `0x0341` in the RC702 test disk using MAME Lua:
+
+```lua
+mem:install_write_tap(0x0341, 0x0341, "watch", function(off, data, mask)
+    table.insert(hits, {pc=cpu.state["PC"].value, ...})
+    return data
+end)
+```
+
+The tap was installed correctly but **never fired**, even though the
+bytes `76 18 FD` definitively appeared at `0x0341` during the run.
+
+**Root cause**: the bytes arrive as **DMA payload**, not CPU stores.
+MAME's Lua memory-tap API hooks the CPU bus side only; DMA
+controllers write directly into the physical memory backing store
+without going through that hook. Confirmed by static fingerprint
+search: the 88-byte runtime dispatcher at RAM `0x0330-0x0388` is a
+byte-exact copy of disk bytes `0x1D30-0x1D87`, so the phase-2 loader
+reads T1S0 sector 3 with DMA destination `0x0200` and the overlay
+lands the HALT byte at `0x0341` without any CPU store being involved.
+
+**Lesson**: For "who wrote this memory location" in MAME, decide
+first whether the source is a CPU store or a DMA payload:
+- **CPU store**: `install_write_tap` works, catches the PC directly.
+- **DMA payload**: put a watchpoint on the **DMA controller address
+  register** (e.g. `wpset 0xF2` for Am9517 CH1 on RC702), not on the
+  destination memory address. The DMA setup instruction is what you
+  want to find, not the DMA cycles themselves.
+
+Also a corollary: if `install_write_tap` reports zero hits on a
+location you KNOW is being written, don't assume the tap is broken —
+assume the writer is DMA and pivot to fingerprint-search the disk
+image for the expected bytes.
+
+**Files**: `rc702-test-v1.2/` full analysis.
+
+## 2026-04-11: MAME Lua autoboot gotchas
+
+Collected from debugging the RC702 test disk:
+
+1. **`-debug` starts paused**. The MAME debugger interpreter freezes
+   emulation at machine start when `-debug` is passed, waiting for
+   a `g` from the user. An autoboot Lua script must issue
+   `manager.machine.debugger:command("go")` as its first action if
+   it wants the emulation to start without human intervention.
+
+2. **`snap` filename is relative to `-snapshot_directory`**, not
+   absolute. The debugger command `snap /tmp/foo.png` does NOT write
+   to `/tmp/foo.png` — it treats the whole string as a relative
+   filename inside the configured snapshot directory. The right
+   recipe is `-snapshot_directory /tmp -snapname foo ; snap foo.png`.
+   Discovered after my first snap attempts wrote nothing to `/tmp`.
+
+3. **`-snap_directory` is NOT a valid option**. The correct name is
+   `-snapshot_directory`. MAME logs "Error: unknown option" and
+   quits on startup if you pick the wrong one.
+
+4. **`manager.machine:schedule_exit()` does not exist** in modern
+   MAME Lua. Correct methods: `manager.machine:exit()` or the
+   debugger command `quit` via
+   `manager.machine.debugger:command("quit")`.
+
+5. **Deferred tools require `ToolSearch`** from inside Claude Code.
+   Deferred doesn't mean disabled — it means the schema isn't loaded
+   upfront to save context, and you pull it with
+   `ToolSearch select:ToolName`. `WebFetch` was deferred in this
+   session and had to be loaded this way.
+
+**Lesson**: keep a file of known-working MAME Lua autoboot patterns
+next to the MAME runs that need them. `rc702-test-v1.2/mame_dump_on_halt.lua`
+is the canonical reference for "wait for a condition in memory,
+snapshot, dump RAM, exit".
+
+## 2026-04-11: Test program's port-0x50 is a diagnostic output channel
+
+**Context**: MAME reported `io: unhandled I/O, output 00 to port 50`
+during every run of the RC702 test disk. Initial assumption was that
+the test program was writing to some unmapped port by mistake. Manual
+§16 clarified.
+
+**Fact**: port `0x50` is the testsystem's **diagnostic error-code
+output channel**, designed for headless MIC-board test rigs that have
+no CRT. The testrouter writes a 1-byte status code to it after each
+sub-test completes: `00` OK, `01` PROM chksum error, `02` RAM error,
+`03-04` DMA errors, `17` refresh test data error, `18-1A` FDC issues,
+`1B-2D` FDD/FDC, `2E-3B` WDC. A headless rig wires a 7-segment
+display or LED bargraph to this port via the MIC bus.
+
+**Lesson**: when investigating "unhandled I/O" warnings on historical
+hardware, check the hardware's service manual for diagnostic /
+service-engineer ports before assuming it's a bug. A port that looks
+spurious to MAME might be a documented but minor-use channel that
+just isn't mapped in the driver.
+
+**Actionable follow-up**: MAME `rc702mini` driver could usefully
+gain a `-diag_port50 FILE` option that writes each byte to a log
+file, enabling headless CI of the testsystem. ~20 lines of C++.
+
+## 2026-04-11: Historical test programs require letter+Return
+
+**Context**: The RC702 test disk's on-screen prompt says
+`"type (H,R,L,G,S,P,<esc> or (0-F)) : "` but does NOT mention that
+a second keystroke (`Return`) is required to commit a command. The
+ISR at `0x0347` has an inner read loop that stays put until it sees
+`0x0D`.
+
+**Lesson**: when a historical interactive program seems "not to
+react" to key presses, check whether it's waiting for a line
+terminator. CRT-era test programs frequently batch keystrokes and
+act only on `CR` or `LF`, modelled after the teletype they were
+originally driven from. Read manual §3.2 (or equivalent) before
+assuming the input path is broken.
+
+## 2026-04-11: `ocrmypdf` with Danish tessdata via custom image
+
+**Context**: `jbarlow83/ocrmypdf:latest` ships only English tessdata.
+Running `ocrmypdf --language eng+dan ...` fails with "OCR engine
+does not have language data for the following requested languages:
+dan". The Debian package `tesseract-ocr-dan` adds it cheaply.
+
+**Solution**: two-line Dockerfile on top of `jbarlow83/ocrmypdf`:
+
+```dockerfile
+FROM jbarlow83/ocrmypdf:latest
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr-dan \
+ && rm -rf /var/lib/apt/lists/*
+```
+
+Build: `docker build -f Dockerfile.ocrmypdf-dan -t ocrmypdf-dan .`.
+Adds ~4 MB to the base image, builds in ~4 seconds.
+
+**Also**: `--force-ocr --deskew` transcodes images losslessly and
+can bloat a scanned PDF 6×. For the 5.5 MB RCSL manual the sequence
+`ocrmypdf --optimize 3 --jbig2-lossy` followed by
+`gs -sDEVICE=pdfwrite -dPDFSETTINGS=/ebook` brought it down to
+2.4 MB — smaller than the original — while keeping a full
+searchable text layer.
+
+**Files**: `rc702-test-v1.2/Dockerfile.ocrmypdf-dan`.

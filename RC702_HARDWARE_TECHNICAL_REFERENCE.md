@@ -283,7 +283,7 @@ This is the primary format used for CP/M operation on the RC702 system with maxi
 
 **Track 0 Total:** 6,144 bytes (6KB)
 
-#### Tracks 1-34 - Standard Double Density
+#### Tracks 1-35 - Standard Double Density
 
 **All remaining tracks, both sides:**
 - Encoding: MFM (Modified Frequency Modulation)
@@ -292,9 +292,51 @@ This is the primary format used for CP/M operation on the RC702 system with maxi
 - Sector interleave: 2:1
 - Physical sector order: 0, 2, 4, 6, 8, 1, 3, 5, 7
 
-**Total data tracks:** 34 tracks × 2 sides × 9 sectors × 512 bytes = 313,344 bytes (306KB)
+**Total data tracks:** 35 tracks × 2 sides × 9 sectors × 512 bytes = 322,560 bytes (315 KB)
 
-**Total disk capacity:** ~319KB (including Track 0)
+**Total disk capacity:** 328,704 bytes (321 KB) — 6,144 B (Track 0) + 322,560 B (Tracks 1–35)
+
+#### Reference image: `RC702_TEST_v1.2.bin`
+
+The above mini-floppy layout is corroborated byte-exact by the **RC700 TESTSYSTEM v1.2**
+diagnostic diskette preserved at the Dansk Datamuseum:
+
+- Source: <https://datamuseum.dk/wiki/Bits:30003293>
+- Description (original DA): *"Boot-diskette, som derefter kører en test af en RC702 Piccolo"*
+- Geometry as recorded by datamuseum.dk (matches the three-region layout above):
+  - `1c 1h 16s 128b`  → Track 0 Side 0 (2,048 B, FM)
+  - `1c 1h 16s 256b`  → Track 0 Side 1 (4,096 B, MFM)
+  - `35c 2h 9s 512b`  → Tracks 1–35, both sides (322,560 B, MFM)
+- File size: 328,704 B exactly (2,048 + 4,096 + 322,560).
+- Raw image starts with the autoload PROM boot header: bytes `80 02 00 … " RC702"`
+  i.e. load length `0x0280` (= 640 B = 5 × 128-byte sectors of boot code), matching
+  the format the ROA375 PROM reads from Track 0 Side 0.
+- Tail of the data area is filled with `0xE5` (CP/M "formatted but unused" fill),
+  confirming the diskette was standard-formatted and the test program leaves most
+  of the disk empty.
+- Embedded strings reveal the test suites: MEM refresh, DMA ch 0/1, CTC, FDC, FDD
+  reliability (SD/DD, SS/DS, mini/maxi/quad, configurable steprate/retries), SIO,
+  PIO, WDC (RC763/RC763B winchester) and WDD reliability.
+- Interactive menu: `"RC700 TESTSYSTEM"`, keys `H R L G S P <esc>` and hex `0-F`.
+
+**Not a CP/M diskette.** The image only *looks* bootable to the PROM; it is a
+custom linear-image loader, not CP/M:
+
+- Track 1 side 0 (offset `0x1800`) holds raw Z80 init code
+  (`AF 32 FF FF F3 D3 01 ED 7B FF FF D3 FD 3E 18 D3 0A D3 0B 3E 03 D3 0C-0F ED 5E …`)
+  — CTC bring-up and `IM 2`, i.e. a continuation of the test program. There is
+  no CCP (`C3 …` cold-boot jump) and no 3.5 KB BDOS following it.
+- Track 2 side 0 (offset `0x3C00`) is more executable code, not 32-byte
+  directory entries; there are no `0xE5` erased slots and no uppercase-ASCII
+  filename patterns in this region.
+- The strings `**NO SYSTEM FILES**`, `**NO KATALOG**`, `SYSM SYSC` visible in
+  the image are baked-in error messages lifted from the standard autoload PROM,
+  not live CP/M directory contents.
+
+So the PROM treats Track 0 Side 0 as its usual 640-byte bootstrap
+(`80 02 … " RC702"` header, 5 × 128 B sectors of boot code); that bootstrap
+is a bare-metal loader that reads the rest of the disk linearly into RAM and
+jumps into it. No BDOS, no CCP, no CP/M directory on this disk.
 
 ### CP/M Logical Structure
 
