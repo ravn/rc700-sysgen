@@ -315,6 +315,49 @@ siob-test: bios
 		|| (echo "=== SIO-B direct test FAILED ==="; exit 1)
 
 # ================================================================
+# SIO-B baud rate experiment
+# Usage: make siob-baud BAUD_IDX=0  (38400, baseline)
+#        make siob-baud BAUD_IDX=1  (76800, x1 mode)
+#        make siob-baud BAUD_IDX=2  (115200, x1 mode, 6.7% error)
+# ================================================================
+
+BAUD_IDX ?= 0
+# Map BAUD_IDX to MAME RS232_BAUD value
+BAUD_MAME_0 = 11
+BAUD_MAME_1 = 23
+BAUD_MAME_2 = 13
+BAUD_MAME_3 = 13
+BAUD_MAME = $(BAUD_MAME_$(BAUD_IDX))
+
+siob-baud: bios
+	@echo "=== SIO-B baud rate test (idx=$(BAUD_IDX)) ==="
+	../zmac/bin/zmac -z siob_baud_test.asm
+	cp $(IMG_MAXI) /tmp/bios_c_siob_baud.imd
+	$(PATCH) /tmp/bios_c_siob_baud.imd $(COMPILER)/bios.cim
+	$(CPMCP) -f rc702-8dd /tmp/bios_c_siob_baud.imd zout/siob_baud_test.cim 0:SIOBBAUD.COM
+	@printf '$(SIOB_MARKER)\r\n' > /tmp/siob_test_payload.txt
+	@rm -f /tmp/siob_iobyte_trigger /tmp/siob_baud_result
+	@python3 siob_iobyte_server.py /tmp/siob_test_payload.txt $(SIOB_PORT) \
+		> /tmp/siob_baud_server.log 2>&1 & echo $$! > /tmp/siob_baud_server.pid
+	@sleep 0.5
+	-SIOB_BAUD_IDX=$(BAUD_IDX) SIOB_BAUD_MAME=$(BAUD_MAME) \
+		$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_siob_baud.imd \
+		-bitb2 "socket.localhost:$(SIOB_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-autoboot_script $(CURDIR)/mame_siob_baud_test.lua
+	@if [ -f /tmp/siob_baud_server.pid ]; then \
+		kill $$(cat /tmp/siob_baud_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_baud_server.pid; \
+	fi
+	@echo ""
+	@echo "--- result ---"
+	@cat /tmp/siob_baud_result 2>/dev/null || echo "(no result)"
+	@head -1 /tmp/siob_baud_result | grep -q '^PASS' \
+		&& echo "=== BAUD TEST PASSED ===" \
+		|| (echo "=== BAUD TEST FAILED ==="; exit 1)
+
+# ================================================================
 # Host tests (TODO)
 # ================================================================
 
