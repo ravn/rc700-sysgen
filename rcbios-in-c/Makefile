@@ -40,10 +40,20 @@ BIOSAD = $(shell printf '0x%04X' $$(( 0x3400 + $(BIAS) + 0x1600 )))
 PATCH = python3 ../rcbios/patch_bios.py
 IMDINFO = python3 ../rcbios/imdinfo.py
 
-# MAME
-MAME = /Users/ravn/git/mame
-MAME_BIN = $(MAME)/regnecentralen
+# MAME — default to the submodule inside the workspace so the path
+# works on any machine that has `z80-compiler-suite-workspace` checked
+# out with submodules initialised.  Override with `make MAME=/path/to/mame`
+# if you keep MAME somewhere else.
+MAME ?= $(CURDIR)/../../mame
+# Prefer the debug binary (`regnecentralend`) over the release
+# (`regnecentralen`) when both exist; use whichever is present.
+MAME_BIN ?= $(firstword $(wildcard $(MAME)/regnecentralend $(MAME)/regnecentralen))
 FLOPTOOL = $(MAME)/floptool
+
+# Parallelism for `make mame-debug`.  Defaults to nproc/2 so a 4-core
+# box builds with -j 2 (safe for ~4 GB headroom); override on bigger
+# machines with `make mame-debug MAME_BUILD_JOBS=10`.
+MAME_BUILD_JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); echo $$(( n > 1 ? n / 2 : 1 )))
 
 # Disk images for testing
 IMG_MINI = $(HOME)/Downloads/CPM_med_COMAL80.imd
@@ -60,10 +70,11 @@ ZMAC = ../zmac/bin/zmac
 else
 ZMAC = zmac
 endif
-CPMCP = /Users/ravn/.local/bin/cpmcp
+CPMCP ?= cpmcp
 
 .PHONY: all bios size clean mame-mini mame-maxi mame-test conout-test bgstar-test \
-        asm-test cycle-test cycle-baseline profile profile-baseline test
+        asm-test cycle-test cycle-baseline profile profile-baseline test \
+        mame-debug mame-roms siob-iobyte-test
 
 all: bios size
 
@@ -230,6 +241,77 @@ profile-baseline:
 	./run_mame.sh -op
 
 # ================================================================
+# MAME build (regnecentralen subtarget, debug)
+# ================================================================
+#
+# Builds the MAME binary used by every mame-* target in this file.
+# Uses the exact recipe from mame/src/mame/regnecentralen/README.md:
+#
+#   make SUBTARGET=regnecentralen DEBUG=1 \
+#        SOURCES=src/mame/regnecentralen/rc702.cpp \
+#        TOOLS=1 SYMLEVEL=3 SYMBOLS=1 OSD=sdl -j ...
+#
+# Notes:
+#   - Produces $(MAME)/regnecentralend (the "d" suffix is DEBUG=1).
+#   - OSD=sdl forces SDL2 rather than MAME's default SDL3.  This is
+#     correct when only libsdl2-dev is installed (macOS via brew-less
+#     path, and most current Ubuntu releases).  If you have libsdl3-dev
+#     installed and want to test it, override OSD: `make mame-debug OSD=sdl3`.
+#   - MAME_BUILD_JOBS defaults to nproc/2 to keep the peak RSS under
+#     ~4 GB per link.  Override with `make mame-debug MAME_BUILD_JOBS=10`.
+
+OSD ?= sdl
+
+mame-debug:
+	@if [ ! -d "$(MAME)" ]; then \
+		echo "ERROR: MAME directory not found at $(MAME)"; \
+		echo "Initialise the submodule: git submodule update --init --depth 1 mame"; \
+		exit 1; \
+	fi
+	@echo "=== Building MAME regnecentralen (debug) with -j $(MAME_BUILD_JOBS) ==="
+	$(MAKE) -C $(MAME) \
+		SUBTARGET=regnecentralen \
+		DEBUG=1 \
+		SOURCES=src/mame/regnecentralen/rc702.cpp \
+		TOOLS=1 SYMLEVEL=3 SYMBOLS=1 \
+		OSD=$(OSD) \
+		-j $(MAME_BUILD_JOBS)
+	@echo "=== Binary at $(MAME)/regnecentralend ==="
+	@ls -lh $(MAME)/regnecentralend
+
+# ================================================================
+# RC702 ROMs (roa375, roa296, roa327, rob357, rob358)
+# ================================================================
+#
+# Downloads the boot PROM and character generator ROMs that rc702.cpp
+# references, from github.com/ravn/rc700.  Normally run once per
+# workspace checkout.  Individual ROM files are listed so `make` can
+# fetch missing ones incrementally.
+
+RC702_ROM_DIR = $(MAME)/roms/rc702
+RC702_ROM_BASE = https://github.com/ravn/rc700/raw/refs/heads/master
+RC702_ROMS = \
+	$(RC702_ROM_DIR)/roa296.rom \
+	$(RC702_ROM_DIR)/roa327.rom \
+	$(RC702_ROM_DIR)/rob357.rom \
+	$(RC702_ROM_DIR)/rob358.rom \
+	$(RC702_ROM_DIR)/roa375.ic66
+
+mame-roms: $(RC702_ROMS)
+	@echo "=== RC702 ROMs present in $(RC702_ROM_DIR) ==="
+	@ls -l $(RC702_ROM_DIR)
+
+$(RC702_ROM_DIR)/%.rom:
+	@mkdir -p $(RC702_ROM_DIR)
+	curl -fsSL -o $@ $(RC702_ROM_BASE)/$(notdir $@)
+
+# roa375 has the .rom source file but is installed as .ic66 (MAME
+# references the IC designator for PROM sockets).
+$(RC702_ROM_DIR)/roa375.ic66:
+	@mkdir -p $(RC702_ROM_DIR)
+	curl -fsSL -o $@ $(RC702_ROM_BASE)/roa375.rom
+
+# ================================================================
 # SIO-B IOBYTE routing test
 # ================================================================
 #
@@ -247,8 +329,14 @@ profile-baseline:
 SIOB_PORT ?= 4323
 SIOB_MARKER = SIOB-IOBYTE-TEST-OK
 
-siob-iobyte-test: bios
+siob-iobyte-test: bios mame-roms
 	@echo "=== SIO-B IOBYTE test ==="
+	@if [ -z "$(MAME_BIN)" ]; then \
+		echo "ERROR: no MAME binary found at $(MAME)/regnecentralend or $(MAME)/regnecentralen"; \
+		echo "Run 'make mame-debug' first to build it."; \
+		exit 1; \
+	fi
+	@echo "Using MAME_BIN=$(MAME_BIN)"
 	cp $(IMG_MAXI) /tmp/bios_c_siob.imd
 	$(PATCH) /tmp/bios_c_siob.imd $(COMPILER)/bios.cim
 	@# Payload the server will send over SIO-B.  The Lua script scrapes
