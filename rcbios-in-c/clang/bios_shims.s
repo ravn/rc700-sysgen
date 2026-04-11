@@ -298,3 +298,4 @@ _isr_sio_a_rx_wrapper:
 	ld	sp, (_sp_sav)
 	ei
 	reti
+

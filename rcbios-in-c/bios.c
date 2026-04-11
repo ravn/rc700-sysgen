@@ -48,6 +48,7 @@ void isr_dummy(void) __interrupt(0);
 void isr_hd(void) __interrupt(4);
 void isr_sio_b_tx(void) __critical __interrupt(8);
 void isr_sio_b_ext(void) __critical __interrupt(9);
+void isr_sio_b_rx(void) __critical __interrupt(10);
 void isr_sio_b_spec(void) __critical __interrupt(11);
 void isr_sio_a_tx(void) __critical __interrupt(12);
 void isr_sio_a_ext(void) __critical __interrupt(13);
@@ -137,6 +138,16 @@ static volatile byte cur_dirty; /* non-zero: cursor position needs ISR update */
 static byte rxbuf[RXBUFSZ];
 static volatile byte rxhead;   /* write index (RCA ISR updates) */
 static volatile byte rxtail;   /* read index (READER updates) */
+
+/* SIO Ch.B ring buffer (test console mode).
+ * volatile on rxbuf_b: the RX ISR is the only writer in this TU and
+ * nothing in bios.c reads the buffer (consumer is the test harness), so
+ * without volatile clang DCEs the store and every byte is silently
+ * dropped.  SDCC's sio_a_rx escapes this because its __naked inline
+ * asm store is opaque to the optimizer. */
+static volatile byte rxbuf_b[RXBUFSZ];
+static volatile byte rxhead_b;   /* write index (SIO-B RX ISR updates) */
+static volatile byte rxtail_b;   /* read index (consumer updates) */
 
 /* SIO status flags (0xFF = ready/not busy, 0x00 = busy) */
 static volatile byte prtflg = 0xFF;  /* printer (Ch.B TX) ready */
@@ -2063,12 +2074,36 @@ void isr_sio_b_ext(void) __critical __interrupt(9)
     port_out(sio_b_ctrl, 0x10);   /* reset ext/status interrupts */
 }
 
+/* RCB: Ch.B receive — store in ring buffer (test console mode).
+ *
+ * Runs on the interrupted program's stack (no ISTACK switch).  This
+ * avoids sharing _sp_sav with other stack-switching ISRs; the body is
+ * small enough (ring buffer store, no calls) that the compiler's
+ * AF/BC/DE/HL/IY save fits well within CP/M's 32-byte stack guarantee.
+ */
+void isr_sio_b_rx(void) __critical __interrupt(10)
+{
+    byte ch, new_head;
+
+    ch = port_in(sio_b_data);       /* read char (clears interrupt) */
+
+    new_head = (rxhead_b + 1) & RXMASK;
+
+    if (new_head != rxtail_b) {
+        rxbuf_b[rxhead_b] = ch;
+        rxhead_b = new_head;
+    }
+    /* no RTS flow control on SIO-B for now */
+}
+
 /* SPECB: Ch.B special receive condition — read error, reset */
 void isr_sio_b_spec(void) __critical __interrupt(11)
 {
     port_out(sio_b_ctrl, 0x01);   /* select RR1 */
     rr1_b = port_in(sio_b_ctrl);  /* read RR1 */
     port_out(sio_b_ctrl, 0x30);   /* error reset */
+    rxhead_b = 0;               /* flush ring buffer on error */
+    rxtail_b = 0;
 }
 
 /*

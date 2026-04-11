@@ -20,6 +20,7 @@ extern void isr_dummy(void);
 extern void isr_hd(void);
 extern void isr_sio_b_tx(void);
 extern void isr_sio_b_ext(void);
+extern void isr_sio_b_rx(void);
 extern void isr_sio_b_spec(void);
 extern void isr_sio_a_tx(void);
 extern void isr_sio_a_ext(void);
@@ -28,6 +29,8 @@ extern void isr_pio_par(void);
 
 /* Stack-switching ISRs: SDCC uses __naked wrappers in bios.c;
  * clang uses assembly wrappers in bios_shims.s. */
+/* isr_sio_b_rx runs on the interrupted program's stack (__critical
+ * __interrupt), so both paths reference it directly — no wrapper. */
 #ifdef __clang__
 extern void isr_crt_wrapper(void);
 extern void isr_floppy_wrapper(void);
@@ -36,6 +39,7 @@ extern void isr_pio_kbd_wrapper(void);
 #define ISR_CRT      isr_crt_wrapper
 #define ISR_FLOPPY   isr_floppy_wrapper
 #define ISR_SIO_A_RX isr_sio_a_rx_wrapper
+#define ISR_SIO_B_RX isr_sio_b_rx
 #define ISR_PIO_KBD  isr_pio_kbd_wrapper
 #else
 extern void isr_crt(void);
@@ -45,6 +49,7 @@ extern void isr_pio_kbd(void);
 #define ISR_CRT      isr_crt
 #define ISR_FLOPPY   isr_floppy
 #define ISR_SIO_A_RX isr_sio_a_rx
+#define ISR_SIO_B_RX isr_sio_b_rx
 #define ISR_PIO_KBD  isr_pio_kbd
 #endif
 
@@ -81,7 +86,7 @@ static const isr_fn ivt_template[IVT_ENTRIES] = {
     isr_dummy,              /*  7: CTC2 ch3 — unused */
     isr_sio_b_tx,           /*  8: SIO ch.B TX */
     isr_sio_b_ext,          /*  9: SIO ch.B ext status */
-    isr_dummy,              /* 10: SIO ch.B RX — disabled */
+    ISR_SIO_B_RX,           /* 10: SIO ch.B RX — test console */
     isr_sio_b_spec,         /* 11: SIO ch.B special */
     isr_sio_a_tx,           /* 12: SIO ch.A TX */
     isr_sio_a_ext,          /* 13: SIO ch.A ext status */
@@ -221,7 +226,7 @@ void bios_hw_init(void)
 
     /* Initialize runtime variables */
     wr5a = CFG.sioa[6] & 0x60;  /* SIO-A bits/char from WR5 */
-    wr5b = CFG.siob[8] & 0x60;  /* SIO-B bits/char from WR5 */
+    wr5b = CFG.siob[6] & 0x60;  /* SIO-B bits/char from WR5 (test console order) */
     adrmod = xyflg;              /* copy addressing mode (via CFG macro) */
 
     /* Initialize motor timer reload from config */
