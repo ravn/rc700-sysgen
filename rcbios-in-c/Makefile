@@ -281,6 +281,42 @@ siob-iobyte-test: bios
 		|| (echo "=== SIO-B IOBYTE test FAILED ==="; exit 1)
 
 # ================================================================
+# SIO-B direct BIOS test (no PIP/STAT — calls BIOS READER directly)
+# ================================================================
+
+siob-test: bios
+	@echo "=== SIO-B direct BIOS test ==="
+	../zmac/bin/zmac -z siob_test.asm
+	cp $(IMG_MAXI) /tmp/bios_c_siob2.imd
+	$(PATCH) /tmp/bios_c_siob2.imd $(COMPILER)/bios.cim
+	$(CPMCP) -f rc702-8dd /tmp/bios_c_siob2.imd zout/siob_test.cim 0:SIOBTEST.COM
+	@printf '$(SIOB_MARKER)\r\n' > /tmp/siob_test_payload.txt
+	@rm -f /tmp/siob_iobyte_trigger /tmp/siob_test_result
+	@echo "Starting SIO-B server on port $(SIOB_PORT) ..."
+	@python3 siob_iobyte_server.py /tmp/siob_test_payload.txt $(SIOB_PORT) \
+		> /tmp/siob_test_server.log 2>&1 & echo $$! > /tmp/siob_test_server.pid
+	@sleep 0.5
+	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_siob2.imd \
+		-rs232b null_modem \
+		-bitb "socket.localhost:$(SIOB_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-autoboot_script $(CURDIR)/mame_siob_test.lua
+	@if [ -f /tmp/siob_test_server.pid ]; then \
+		kill $$(cat /tmp/siob_test_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_test_server.pid; \
+	fi
+	@echo ""
+	@echo "--- SIO-B server log ---"
+	@cat /tmp/siob_test_server.log 2>/dev/null || echo "(no log)"
+	@echo ""
+	@echo "--- Lua result ---"
+	@cat /tmp/siob_test_result 2>/dev/null || (echo "(no result file)"; exit 1)
+	@head -1 /tmp/siob_test_result | grep -q '^PASS' \
+		&& echo "=== SIO-B direct test PASSED ===" \
+		|| (echo "=== SIO-B direct test FAILED ==="; exit 1)
+
+# ================================================================
 # Host tests (TODO)
 # ================================================================
 
