@@ -230,6 +230,57 @@ profile-baseline:
 	./run_mame.sh -op
 
 # ================================================================
+# SIO-B IOBYTE routing test
+# ================================================================
+#
+# Verifies that STAT RDR:=UR1: routes RDR: through SIO-B (the new
+# IOB_BAT arm in bios_reader_body).  Wires SIO-B to a TCP server and
+# runs PIP CON:=RDR:[E] inside MAME, screen-scraping for a marker.
+#
+# Requires:
+#   - MAME with -rs232b null_modem support (rc702 driver)
+#   - python3 for the TCP server
+#
+# Pass: /tmp/siob_iobyte_result starts with "PASS"
+# Fail: non-zero exit; inspect /tmp/siob_iobyte_result and MAME window
+
+SIOB_PORT ?= 4323
+SIOB_MARKER = SIOB-IOBYTE-TEST-OK
+
+siob-iobyte-test: bios
+	@echo "=== SIO-B IOBYTE test ==="
+	cp $(IMG_MAXI) /tmp/bios_c_siob.imd
+	$(PATCH) /tmp/bios_c_siob.imd $(COMPILER)/bios.cim
+	@# Payload the server will send over SIO-B.  The Lua script scrapes
+	@# the CRT for $(SIOB_MARKER) after PIP echoes it.
+	@printf '$(SIOB_MARKER)\r\n' > /tmp/siob_iobyte_payload.txt
+	@rm -f /tmp/siob_iobyte_trigger /tmp/siob_iobyte_result
+	@echo "Starting SIO-B server on port $(SIOB_PORT) ..."
+	@python3 siob_iobyte_server.py /tmp/siob_iobyte_payload.txt $(SIOB_PORT) \
+		> /tmp/siob_iobyte_server.log 2>&1 & echo $$! > /tmp/siob_iobyte_server.pid
+	@sleep 0.5
+	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_siob.imd \
+		-rs232b null_modem \
+		-bitb "socket.localhost:$(SIOB_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-autoboot_script $(CURDIR)/mame_siob_iobyte_test.lua
+	@# Kill the server if it's still running (Lua already wrote the result)
+	@if [ -f /tmp/siob_iobyte_server.pid ]; then \
+		kill $$(cat /tmp/siob_iobyte_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_iobyte_server.pid; \
+	fi
+	@echo ""
+	@echo "--- SIO-B server log ---"
+	@cat /tmp/siob_iobyte_server.log 2>/dev/null || echo "(no log)"
+	@echo ""
+	@echo "--- Lua result ---"
+	@cat /tmp/siob_iobyte_result 2>/dev/null || (echo "(no result file — Lua did not finish)"; exit 1)
+	@head -1 /tmp/siob_iobyte_result | grep -q '^PASS' \
+		&& echo "=== SIO-B IOBYTE test PASSED ===" \
+		|| (echo "=== SIO-B IOBYTE test FAILED ==="; exit 1)
+
+# ================================================================
 # Host tests (TODO)
 # ================================================================
 
