@@ -1,5 +1,36 @@
 # Lessons Learned
 
+## 2026-04-12: BIOS calls clobber registers — save/restore in test programs
+
+**Context**: SIO-B test program used DJNZ (register B) as loop counter, but
+BIOS READER (compiled C function with sdcccall(1)) clobbers B, C, D, E.
+Test reported 80-169 bytes received from a 22-byte payload.
+
+**Lesson**: Z80 CP/M BIOS calls preserve only the return value (A) and HL
+(if the shim saves it). All other registers are caller-saved. Test programs
+calling BIOS entry points must PUSH/POP any registers they need across calls.
+
+## 2026-04-12: CP/M BDOS modifies IOBYTE during console I/O
+
+**Context**: Test program set IOBYTE RDR:=UR1 (SIO-B), then called BDOS
+C_PRINT. Lua snapshot showed IOBYTE=0x97 instead of expected 0x9B — bits 3:2
+changed from 10 to 01, routing READER to SIO-A instead of SIO-B.
+
+**Lesson**: Don't rely on IOBYTE being stable across BDOS calls. If you need
+IOBYTE-routed BIOS calls, either re-assert IOBYTE before each call, or bypass
+BIOS and access the hardware/ring buffer directly.
+
+## 2026-04-12: SIO ×1 clock mode doesn't work for async receive
+
+**Context**: Attempted 76800 baud on SIO-B using ×1 clock mode (CTC count=8)
+instead of ×16 (CTC count=1). Test timed out — no data received.
+
+**Lesson**: ×1 mode has no oversampling. Even in MAME's digital simulation,
+the receiver clock edges don't align with transmitter bit centers. The SIO
+samples at transitions, getting garbage. ×16 is the minimum for reliable
+async receive. This means 38400 is the hardware ceiling for the 614.4 kHz
+baud rate generator.
+
 ## 2026-02-28: Verify datasheet quotes against primary source
 
 **Context**: MAME PR #15031 (Read Track ST1_ND fix) cited "the sector number is
