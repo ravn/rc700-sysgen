@@ -162,16 +162,47 @@ emu.register_frame_done(function()
         end
 
     elseif state == "pip" then
+        -- Save RDR: input to a file (avoids [ ] which natkeyboard
+        -- may not deliver reliably on generic_keyboard).
         if wait_frames == 0 then
-            manager.machine.natkeyboard:post("PIP CON:=RDR:[E]\r")
+            manager.machine.natkeyboard:post("PIP SIOB.TXT=RDR:\r")
         end
         wait_frames = wait_frames + 1
-        -- Trigger the server once the prompt has been replaced by PIP's echo.
         if not trigger_sent and wait_frames > FPS * 2 and not at_prompt() then
             send_trigger()
         end
         if trigger_sent and new_prompt() then
             log("PIP complete")
+            state = "stat_restore"
+            wait_frames = 0
+        elseif wait_frames > FPS * 60 then
+            log("TIMEOUT PIP")
+            finish(false)
+        end
+
+    elseif state == "stat_restore" then
+        -- Restore RDR: to default (PTR/SIO-A) to stop SIO-B input
+        if wait_frames == 0 then
+            manager.machine.natkeyboard:post("STAT RDR:=PTR:\r")
+        end
+        wait_frames = wait_frames + 1
+        if new_prompt() then
+            log("STAT RDR:=PTR: complete (restored)")
+            state = "type"
+            wait_frames = 0
+        elseif wait_frames > FPS * 10 then
+            log("TIMEOUT STAT restore")
+            finish(false)
+        end
+
+    elseif state == "type" then
+        -- TYPE the saved file to display it on screen for scraping.
+        if wait_frames == 0 then
+            manager.machine.natkeyboard:post("TYPE SIOB.TXT\r")
+        end
+        wait_frames = wait_frames + 1
+        if new_prompt() then
+            log("TYPE complete")
             log(screen_text())
             if screen_contains(EXPECTED) then
                 log("found marker: " .. EXPECTED)
@@ -180,8 +211,8 @@ emu.register_frame_done(function()
                 log("marker NOT found: " .. EXPECTED)
                 finish(false)
             end
-        elseif wait_frames > FPS * 60 then
-            log("TIMEOUT PIP")
+        elseif wait_frames > FPS * 30 then
+            log("TIMEOUT TYPE")
             finish(false)
         end
     end

@@ -77,8 +77,16 @@ def main() -> int:
     conn.sendall(b"\x1a")
     print(f"[siob] sent {len(data)} bytes + ^Z")
 
-    # Let the emulated UART drain before tearing the socket down
-    time.sleep(5)
+    # Keep the socket open until MAME disconnects (exits).
+    # Closing early causes a broken pipe that crashes MAME.
+    print("[siob] payload sent, waiting for MAME to disconnect ...")
+    try:
+        while True:
+            d = conn.recv(1024)
+            if not d:
+                break
+    except (ConnectionResetError, BrokenPipeError):
+        pass
     conn.close()
     srv.close()
     print("[siob] done")
