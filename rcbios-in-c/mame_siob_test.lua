@@ -96,15 +96,17 @@ local function finish(success)
 end
 
 local function configure_serial()
+    -- Log the actual baud rate settings for debugging
     local ports = manager.machine.ioport.ports
     for tag, port in pairs(ports) do
-        if tag:find("RS232_TXBAUD") or tag:find("RS232_RXBAUD") then
-            for _, field in pairs(port.fields) do
-                field.user_value = 0x0b  -- RS232_BAUD_38400
+        if tag:find("RS232") then
+            for name, field in pairs(port.fields) do
+                log(string.format("  port %s field %s = %d (def %d)",
+                    tag, name, field.user_value, field.defvalue))
             end
         end
     end
-    log("null_modem: 38400 8N1")
+    log("null_modem: using driver defaults (38400 8N1)")
 end
 
 local trigger_sent = false
@@ -152,6 +154,12 @@ emu.register_frame_done(function()
             local iobyte = mem_read(0x0003)
             log(string.format("debug: rxhead_b=%02X rxtail_b=%02X IVT[10]=%04X IOBYTE=%02X",
                 rxhead_b, rxtail_b, ivt_10_hi * 256 + ivt_10_lo, iobyte))
+            -- Dump first 32 bytes of SIO-B ring buffer (rxbuf_b at 0xEDF4)
+            local hex = {}
+            for i = 0, 31 do
+                hex[#hex+1] = string.format("%02X", mem_read(0xEDF4 + i))
+            end
+            log("  buf: " .. table.concat(hex, " "))
         end
         if trigger_sent and new_prompt() then
             log("SIOBTEST complete")

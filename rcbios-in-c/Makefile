@@ -261,8 +261,7 @@ siob-iobyte-test: bios
 	@sleep 0.5
 	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_siob.imd \
-		-rs232b null_modem \
-		-bitb "socket.localhost:$(SIOB_PORT)" \
+		-bitb2 "socket.localhost:$(SIOB_PORT)" \
 		-skip_gameinfo -window -resolution 1100x720 \
 		-autoboot_script $(CURDIR)/mame_siob_iobyte_test.lua
 	@# Kill the server if it's still running (Lua already wrote the result)
@@ -298,8 +297,7 @@ siob-test: bios
 	@sleep 0.5
 	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_siob2.imd \
-		-rs232b null_modem \
-		-bitb "socket.localhost:$(SIOB_PORT)" \
+		-bitb2 "socket.localhost:$(SIOB_PORT)" \
 		-skip_gameinfo -window -resolution 1100x720 \
 		-autoboot_script $(CURDIR)/mame_siob_test.lua
 	@if [ -f /tmp/siob_test_server.pid ]; then \

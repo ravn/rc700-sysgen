@@ -97,7 +97,7 @@ read_done:
         ld      c, C_PRINT
         call    BDOS
 
-        ; Print received data as ASCII
+        ; Print received data as hex dump (first 32 bytes)
         ld      de, msg_data
         ld      c, C_PRINT
         call    BDOS
@@ -105,22 +105,23 @@ read_done:
         ld      a, (rxlen)
         or      a
         jr      z, check_marker
+        cp      32
+        jr      c, hex_count_ok
+        ld      a, 32           ; cap at 32 bytes for hex dump
+hex_count_ok:
         ld      b, a
-print_data:
+hex_data:
         ld      a, (hl)
-        cp      20h
-        jr      c, skip_nonprint ; skip control chars
-        ld      c, a
         push    hl
         push    bc
-        ld      e, c
+        call    puthex
+        ld      e, ' '
         ld      c, C_WRITE
         call    BDOS
         pop     bc
         pop     hl
-skip_nonprint:
         inc     hl
-        djnz    print_data
+        djnz    hex_data
         call    putcrlf
 
 check_marker:

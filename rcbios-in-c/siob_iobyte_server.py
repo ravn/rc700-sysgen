@@ -2,7 +2,7 @@
 """TCP server for SIO-B IOBYTE routing tests in MAME.
 
 Mirrors sysgen_serial_server.py but targets SIO-B.  MAME connects via:
-    -rs232b null_modem -bitb "socket.localhost:4323"
+    -bitb2 "socket.localhost:4323"
 
 Used by `make siob-iobyte-test` to verify that bios_reader_body's
 IOB_BAT arm correctly routes RDR: to the SIO-B ring buffer.
