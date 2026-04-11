@@ -112,6 +112,11 @@ end
 local trigger_sent = false
 local function send_trigger()
     if trigger_sent then return end
+    -- Before sending trigger, check how many bytes already in SIO-B buffer
+    local rxhead_b = mem_read(0xEDF5)
+    local rxtail_b = mem_read(0xECFC)
+    log(string.format("pre-trigger: rxhead_b=%02X rxtail_b=%02X (spurious bytes: %d)",
+        rxhead_b, rxtail_b, (rxhead_b - rxtail_b) % 256))
     local f = io.open("/tmp/siob_iobyte_trigger", "w")
     f:write("go\n")
     f:close()
@@ -145,21 +150,25 @@ emu.register_frame_done(function()
         if not trigger_sent and wait_frames > FPS * 1 and not at_prompt() then
             send_trigger()
         end
-        -- Debug: periodically check SIO-B ring buffer and IVT
-        if trigger_sent and wait_frames % (FPS * 2) == 0 then
-            local rxhead_b = mem_read(0xEDF3)
-            local rxtail_b = mem_read(0xEDF2)
+        -- Debug: check SIO-B ring buffer every half second
+        if trigger_sent and wait_frames % (FPS / 2) == 0 then
+            local rxhead_b = mem_read(0xECF2)
+            local rxtail_b = mem_read(0xECF3)
             local ivt_10_lo = mem_read(0xF614)
             local ivt_10_hi = mem_read(0xF615)
             local iobyte = mem_read(0x0003)
             log(string.format("debug: rxhead_b=%02X rxtail_b=%02X IVT[10]=%04X IOBYTE=%02X",
                 rxhead_b, rxtail_b, ivt_10_hi * 256 + ivt_10_lo, iobyte))
-            -- Dump first 32 bytes of SIO-B ring buffer (rxbuf_b at 0xEDF4)
+            -- Dump first 32 bytes of SIO-B ring buffer (rxbuf_b at 0xECFC)
             local hex = {}
             for i = 0, 31 do
-                hex[#hex+1] = string.format("%02X", mem_read(0xEDF4 + i))
+                hex[#hex+1] = string.format("%02X", mem_read(0xECFC + i))
             end
             log("  buf: " .. table.concat(hex, " "))
+            -- Read SIO-B RR0 via I/O port (0x0B = SIO-B ctrl)
+            local sio_b_rr0 = manager.machine.devices[":maincpu"].spaces["io"]:read_u8(0x0B)
+            log(string.format("  SIO-B RR0=%02X (RxAvail=%d DCD=%d CTS=%d)",
+                sio_b_rr0, sio_b_rr0 & 1, (sio_b_rr0 >> 3) & 1, (sio_b_rr0 >> 5) & 1))
         end
         if trigger_sent and new_prompt() then
             log("SIOBTEST complete")

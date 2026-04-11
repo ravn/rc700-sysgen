@@ -18,6 +18,11 @@ CONOUT  equ     BIOS + 0Ch      ; C = char
 READER  equ     BIOS + 15h      ; returns A = byte from RDR:
 READS   equ     BIOS + 4Dh      ; returns A = FF if data ready, 0 if not
 
+; BIOS BSS addresses for direct ring buffer access (from nm bios.elf)
+RXHEAD_B equ    0ECF2h          ; _rxhead_b
+RXTAIL_B equ    0ECF3h          ; _rxtail_b
+RXBUF_B  equ    0ECFCh          ; _rxbuf_b (256 bytes)
+
 ; CP/M
 BDOS    equ     0005h
 IOBYTE  equ     0003h
@@ -30,16 +35,16 @@ IOB_RDR_MASK equ 0Ch           ; bits 3:2
 IOB_RDR_UR1  equ 08h           ; value 2 << 2
 
 start:
-        ; Print banner
-        ld      de, msg_banner
-        ld      c, C_PRINT
-        call    BDOS
-
-        ; Set IOBYTE RDR: = UR1 (SIO-B)
+        ; Set IOBYTE RDR: = UR1 (SIO-B) FIRST, before any BDOS calls
         ld      a, (IOBYTE)
         and     ~IOB_RDR_MASK   ; clear RDR field
         or      IOB_RDR_UR1     ; set to UR1
         ld      (IOBYTE), a
+
+        ; Print banner (IOBYTE already set)
+        ld      de, msg_banner
+        ld      c, C_PRINT
+        call    BDOS
 
         ; Print "IOBYTE="
         ld      de, msg_iobyte
@@ -49,6 +54,22 @@ start:
         call    puthex
         call    putcrlf
 
+        ; Verify IOBYTE wasn't clobbered by BDOS
+        ld      a, (IOBYTE)
+        push    af
+        ld      de, msg_iob2
+        ld      c, C_PRINT
+        call    BDOS
+        pop     af
+        call    puthex
+        call    putcrlf
+
+        ; Re-assert IOBYTE in case BDOS changed it
+        ld      a, (IOBYTE)
+        and     ~IOB_RDR_MASK
+        or      IOB_RDR_UR1
+        ld      (IOBYTE), a
+
         ; Read up to 128 bytes from READER, stop on Ctrl-Z (0x1A)
         ; or after 128 bytes, whichever comes first.
         ld      hl, rxdata      ; store received data here
@@ -57,8 +78,10 @@ start:
         ; Wait up to ~10 seconds for first byte (500 polls with HALT)
         ld      de, 500
 wait_first:
-        call    READS
-        or      a
+        ld      a, (RXTAIL_B)
+        ld      c, a
+        ld      a, (RXHEAD_B)
+        cp      c               ; head != tail means data available
         jr      nz, read_loop
         ei
         halt                    ; yield to ISRs
@@ -71,13 +94,34 @@ wait_first:
         ld      de, msg_timeout
         ld      c, C_PRINT
         call    BDOS
-        jr      fail
+        jp      fail
 
 read_loop:
-        call    READER          ; A = byte from SIO-B
+        push    bc              ; save loop counter (READER clobbers B)
+        push    hl              ; save store pointer
+        ; Spin until SIO-B ring buffer has data
+.rwait: ld      a, (RXTAIL_B)
+        ld      c, a
+        ld      a, (RXHEAD_B)
+        cp      c
+        jr      z, .rwait
+        ; Read rxbuf_b[tail]
+        ld      e, c
+        ld      d, 0
+        ld      hl, RXBUF_B
+        add     hl, de
+        ld      a, (hl)         ; A = received byte
+        ; Advance tail
+        inc     c
+        push    af
+        ld      a, c
+        ld      (RXTAIL_B), a
+        pop     af
+        pop     hl              ; restore store pointer
+        pop     bc              ; restore loop counter
         cp      1Ah             ; Ctrl-Z?
         jr      z, read_done
-        ld      (hl), a         ; store
+        ld      (hl), a         ; store byte
         inc     hl
         djnz    read_loop
 
@@ -204,6 +248,7 @@ msg_data:    defm 'Data: $'
 msg_pass:    defm 13,10,'SIOB-IOBYTE-TEST-OK',13,10,'$'
 msg_fail:    defm 13,10,'SIOB-IOBYTE-TEST-FAIL',13,10,'$'
 
+msg_iob2:    defm 'IOB2=$'
 marker:      defm 'SIOB-IOBYTE-TEST-OK'
 
 rxlen:       defb 0

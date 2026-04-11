@@ -642,6 +642,8 @@ void bios_boot_c(void)
     kbstat = 0;
     rxhead = 0;
     rxtail = 0;
+    rxhead_b = 0;
+    rxtail_b = 0;
     readi();
 
     wboot_c();
