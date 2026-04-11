@@ -319,8 +319,12 @@ completed. MAME raised `attempt to call a nil value (method
 - **Did NOT commit my `~/git/rc700` fixes**. The user said "go back
   to mame" mid-session, ruling out rc700 as not accurate enough
   overall. The fixes are good and uncommitted in the working tree,
-  safe to commit whenever convenient. Can't file as issues because
-  `ravn/rc700` has issues disabled.
+  safe to commit whenever convenient.
+  **Update:** at end of session the user enabled issues on
+  `ravn/rc700` and the three bugs are now filed there:
+  - ravn/rc700#1 — `crt_poll()` IFF bug
+  - ravn/rc700#2 — Makefile macOS build (SDL2 framework + main wrapper)
+  - ravn/rc700#3 — COMAL80 keystroke injector needs opt-out flag
 - **Did NOT create any pull requests**. User reinforced the
   "never ever create pull requests" rule during this session. I was
   only planning to file issues when I ran `gh --version`, but the
