@@ -315,6 +315,45 @@ siob-test: bios
 		|| (echo "=== SIO-B direct test FAILED ==="; exit 1)
 
 # ================================================================
+# BIOS deploy via dual serial (SIO-B console + SIO-A data)
+# Uploads Intel HEX, runs LOAD+SYSGEN, hard resets, verifies banner.
+# ================================================================
+
+DEPLOY_CON_PORT ?= 4324
+DEPLOY_DAT_PORT ?= 4325
+
+deploy-serial: bios
+	@echo "=== BIOS deploy via serial ==="
+	python3 mk_cpm56.py cpm56_original.com $(COMPILER)/bios.cim cpm56
+	cp $(IMG_MAXI) /tmp/bios_deploy.imd
+	$(PATCH) /tmp/bios_deploy.imd $(COMPILER)/bios.cim
+	@rm -f /tmp/siob_deploy_trigger /tmp/siob_deploy_done /tmp/siob_deploy_result
+	@echo "Starting deploy server..."
+	@python3 -u siob_deploy_server.py cpm56.hex $(DEPLOY_CON_PORT) $(DEPLOY_DAT_PORT) \
+		> /tmp/siob_deploy_server.log 2>&1 & echo $$! > /tmp/siob_deploy_server.pid
+	@sleep 0.5
+	-EXPECTED_BANNER="C-bios/clang" \
+		$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_deploy.imd \
+		-bitb1 "socket.localhost:$(DEPLOY_DAT_PORT)" \
+		-bitb2 "socket.localhost:$(DEPLOY_CON_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 -nothrottle \
+		-autoboot_script $(CURDIR)/mame_siob_deploy_test.lua
+	@if [ -f /tmp/siob_deploy_server.pid ]; then \
+		kill $$(cat /tmp/siob_deploy_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_deploy_server.pid; \
+	fi
+	@echo ""
+	@echo "--- Deploy server log ---"
+	@cat /tmp/siob_deploy_server.log 2>/dev/null || echo "(no log)"
+	@echo ""
+	@echo "--- Result ---"
+	@cat /tmp/siob_deploy_result 2>/dev/null || (echo "(no result)"; exit 1)
+	@head -1 /tmp/siob_deploy_result | grep -q '^PASS' \
+		&& echo "=== DEPLOY TEST PASSED ===" \
+		|| (echo "=== DEPLOY TEST FAILED ==="; exit 1)
+
+# ================================================================
 # SIO-B serial console integration test
 # Sends DIR / ASM FILEX / TYPE FILEX.PRN via serial, verifies output
 # appears on both CRT display and serial port.
