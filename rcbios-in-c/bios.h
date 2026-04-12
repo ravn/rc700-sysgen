@@ -166,6 +166,34 @@ static volatile word wboot_vec, bdos_vec;
  * RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2). */
 #define IOBYTE_DEFAULT  0x97  /* CON:=UC1(3) joined, RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
 
+/* Warm-boot state: variables zeroed on every warm boot.
+ * Grouped in a struct so warm boot can memset them with one LDIR. */
+typedef struct {
+    byte kbhead;               /* keyboard write index */
+    byte kbtail;               /* keyboard read index */
+    byte kbstat;               /* keyboard status */
+    byte rxhead;               /* SIO-A RX write index */
+    byte rxtail;               /* SIO-A RX read index */
+    byte rxhead_b;             /* SIO-B RX write index */
+    byte rxtail_b;             /* SIO-B RX read index */
+    byte hstact;               /* disk cache valid */
+    byte hstwrt;               /* disk cache dirty */
+    byte erflag;               /* error flag */
+} WarmBootState;
+
+extern volatile WarmBootState wb;
+
+#define kbhead   wb.kbhead
+#define kbtail   wb.kbtail
+#define kbstat   wb.kbstat
+#define rxhead   wb.rxhead
+#define rxtail   wb.rxtail
+#define rxhead_b wb.rxhead_b
+#define rxtail_b wb.rxtail_b
+#define hstact   wb.hstact
+#define hstwrt   wb.hstwrt
+#define erflag   wb.erflag
+
 /* Ring buffer parameters (REL30) */
 #define RXBUFSZ     256         /* SIO ring buffer size (page-aligned) */
 #define RXMASK      (RXBUFSZ-1)
