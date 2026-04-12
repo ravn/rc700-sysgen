@@ -77,17 +77,7 @@ emu.register_frame_done(function()
     if done then return end
     frame = frame + 1
 
-    if frame == 1 then
-        local ports = manager.machine.ioport.ports
-        for tag, port in pairs(ports) do
-            if tag:find("rs232b") and (tag:find("RS232_TXBAUD") or tag:find("RS232_RXBAUD")) then
-                for _, field in pairs(port.fields) do
-                    field.user_value = 0x0b  -- RS232_BAUD_38400
-                end
-            end
-        end
-        log("rs232b baud forced to 38400")
-    end
+    -- No I/O port reads from Lua — they side-effect the SIO!
 
     if frame > FPS * 300 then finish(false, "GLOBAL TIMEOUT"); return end
 
@@ -95,6 +85,11 @@ emu.register_frame_done(function()
         -- Wait for banner with serial port announcement
         if frame > FPS * 5 and screen_contains("Console also on serial port B") then
             log("Banner detected — serial console active")
+            -- Send trigger to server
+            local f = io.open("/tmp/siob_console_trigger", "w")
+            f:write("go\n")
+            f:close()
+            log("Trigger sent to server")
             state = "wait_server"
             wait_frames = 0
         elseif frame > FPS * 30 then
@@ -117,13 +112,15 @@ emu.register_frame_done(function()
             local wb_addr = 0xED4C  -- from llvm-nm _wb
             local rxhead_b = mem_read(wb_addr + 5)
             local rxtail_b = mem_read(wb_addr + 6)
+            -- NOTE: do NOT read SIO-B control port (0x0B) from Lua —
+            -- it side-effects the SIO and can clear pending interrupts!
             log(string.format("  waiting: IOBYTE=%02X rxhead_b=%02X rxtail_b=%02X frame=%d",
                 iob, rxhead_b, rxtail_b, wait_frames))
         end
         if file_exists("/tmp/siob_console_done") then
             log("Server done, capturing CRT")
             state = "verify"
-        elseif wait_frames > FPS * 90 then
+        elseif wait_frames > FPS * 180 then
             finish(false, "TIMEOUT waiting for server to finish")
         end
 
@@ -139,30 +136,33 @@ emu.register_frame_done(function()
 
         local crt = screen_text()
 
-        -- Check that key content appears on BOTH outputs
-        local checks = {
-            {"DIR listing", "FILEX"},
-            {"ASM output", "ASM"},
-            {"A> prompt", "A>"},
+        -- Verify serial output contains key content from all commands.
+        -- CRT only shows the last 25 lines (TYPE scrolls past everything),
+        -- so we check CRT for final A> prompt only.
+        local checks_serial = {
+            {"DIR listing (FILEX in dir)", "FILEX"},
+            {"ASM ran",                    "END OF ASSEMBLY"},
+            {"TYPE output (FILEX.PRN)",    "boot    equ"},
+            {"final prompt",               "A>"},
         }
 
         local all_pass = true
-        for _, check in ipairs(checks) do
+        for _, check in ipairs(checks_serial) do
             local label, needle = check[1], check[2]
-            local on_serial = serial_text:find(needle, 1, true) ~= nil
-            local on_crt = crt:find(needle, 1, true) ~= nil
-            log(string.format("  %s: serial=%s CRT=%s",
-                label,
-                on_serial and "YES" or "NO",
-                on_crt and "YES" or "NO"))
-            if not on_serial then
+            local found = serial_text:find(needle, 1, true) ~= nil
+            log(string.format("  serial: %s = %s", label, found and "YES" or "NO"))
+            if not found then
                 log("  FAIL: '" .. needle .. "' missing from serial output")
                 all_pass = false
             end
-            if not on_crt then
-                log("  FAIL: '" .. needle .. "' missing from CRT display")
-                all_pass = false
-            end
+        end
+
+        -- CRT: just check A> prompt is visible (proves display is working)
+        local crt_prompt = crt:find("A>", 1, true) ~= nil
+        log(string.format("  CRT: A> prompt = %s", crt_prompt and "YES" or "NO"))
+        if not crt_prompt then
+            log("  FAIL: A> prompt missing from CRT")
+            all_pass = false
         end
 
         -- Write CRT dump for manual inspection

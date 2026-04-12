@@ -9,6 +9,7 @@ Usage:
     python3 siob_console_server.py [port]
 """
 
+import os
 import socket
 import sys
 import time
@@ -51,25 +52,44 @@ def main():
 
     all_output = b""
 
-    # Wait for initial boot banner + first A> prompt
-    print("[console] waiting for first A> prompt...")
-    data = wait_for(conn, "A>", timeout=60)
-    all_output += data
-    text = data.decode("ascii", errors="replace")
-    print(f"[console] boot output ({len(data)} bytes):")
-    for line in text.split("\r\n"):
-        if line.strip():
-            print(f"  {line.rstrip()}")
+    # Wait for trigger file from Lua (indicates boot complete, A> prompt visible)
+    trigger = "/tmp/siob_console_trigger"
+    print(f"[console] waiting for Lua trigger {trigger} ...")
+    for _ in range(120):
+        try:
+            if os.path.exists(trigger):
+                os.unlink(trigger)
+                break
+        except OSError:
+            pass
+        time.sleep(0.5)
+    else:
+        print("[console] ERROR: trigger timeout")
+        conn.close(); srv.close()
+        return 2
+    print("[console] trigger received")
 
-    # Send each command and capture output.
-    # Each command: send, then wait for next "A>" prompt (disk I/O can be slow).
+    # Drain any pending output from boot banner
+    conn.settimeout(0.5)
+    try:
+        while True:
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            all_output += chunk
+    except socket.timeout:
+        pass
+    conn.settimeout(None)
+    print(f"[console] drained {len(all_output)} boot bytes")
+
+    # Send each command, wait for response
     for cmd in COMMANDS:
         cmd_str = cmd.decode().rstrip()
-        time.sleep(0.5)  # let CCP settle after previous prompt
+        time.sleep(0.3)
         print(f"[console] sending: {cmd_str}")
         conn.sendall(cmd)
 
-        # Wait for next A> prompt (allow 60s for slow disk operations like ASM)
+        # Wait for "A>" in response
         data = wait_for(conn, "A>", timeout=60)
         all_output += data
         text = data.decode("ascii", errors="replace")

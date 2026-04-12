@@ -326,7 +326,7 @@ siob-console-test: bios
 	@echo "=== SIO-B serial console test ==="
 	cp $(IMG_MAXI) /tmp/bios_c_console.imd
 	$(PATCH) /tmp/bios_c_console.imd $(COMPILER)/bios.cim
-	@rm -f /tmp/siob_console_done /tmp/siob_console_result /tmp/siob_console_serial.txt /tmp/siob_console_crt.txt
+	@rm -f /tmp/siob_console_done /tmp/siob_console_result /tmp/siob_console_serial.txt /tmp/siob_console_crt.txt /tmp/siob_console_trigger
 	@echo "Starting console server on port $(CONSOLE_PORT) ..."
 	@python3 -u siob_console_server.py $(CONSOLE_PORT) \
 		> /tmp/siob_console_server.log 2>&1 & echo $$! > /tmp/siob_console_server.pid
@@ -334,7 +334,7 @@ siob-console-test: bios
 	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_console.imd \
 		-bitb2 "socket.localhost:$(CONSOLE_PORT)" \
-		-skip_gameinfo -window -resolution 1100x720 \
+		-skip_gameinfo -window -resolution 1100x720 -nothrottle \
 		-autoboot_script $(CURDIR)/mame_siob_console_test.lua
 	@if [ -f /tmp/siob_console_server.pid ]; then \
 		kill $$(cat /tmp/siob_console_server.pid) 2>/dev/null; \

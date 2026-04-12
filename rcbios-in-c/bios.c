@@ -755,7 +755,7 @@ static void serial_conout(byte c) {
     port_out(sio_b_ctrl, 0x05);
     port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
     port_out(sio_b_ctrl, 0x01);
-    port_out(sio_b_ctrl, 0x07);    /* TX int, ext status, status affects vector */
+    port_out(sio_b_ctrl, 0x1F);    /* Rx int all + TX int + ext status + status affects vector */
     port_out(sio_b_data, c);
     hal_ei();
 }
