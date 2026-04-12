@@ -92,15 +92,19 @@ RAMEN ports (0x18-0x1B) behave identically.
 
 The RC702 supports two PROMs (see hardware manual page 17): PROM0 at 0x0000 (ROA375 autoload PROM) and an optional PROM1 at 0x2000 (line program ROM). Both are mapped into the Z80's address space at power-on. Writing any value to port 0x18 (RAMEN) disables both PROM mappings, allowing the full 64KB RAM to be linearly accessible.
 
-The PCB schematic (see `docs/PROM_SCHEMATICS.PNG`) shows a solder bridge option that connects address line A11 to the PROM sockets. When open (factory default), A11 is tied low, limiting PROMs to 2KB (2716-type). When closed, A11 is active, enabling 4KB PROMs (2732-type). This needs confirmation by physical inspection or testing with a cable on actual hardware.
+The PCB schematic (see `docs/PROM_SCHEMATICS.PNG`) shows a solder bridge option that connects address line A11 to the PROM sockets. When open (factory default), A11 is tied low, limiting PROMs to 2KB (2716-type). When closed, A11 is active, enabling 4KB PROMs (2732-type).
+
+**Confirmed from test program documentation:** The RC702 test system comes in two PROM versions:
+- **PROM system 1 (2×2KB)**: ROB361 in PROM0 + ROB362 in PROM1. For MIC702 and MIC703.
+- **PROM system 2 (1×4KB)**: ROB363 in PROM0 only. For MIC703 with print modification, and MIC704.
+
+The 4KB option requires a print board modification that is NOT applicable to standard MIC702 boards. **The 2KB-per-socket limit is hard for RC702 (MIC702).** The autoload PROM (ROA375) uses only PROM0 (2KB).
 
 ### Memory Layout During Boot
 
 ```
 0x0000-0x07FF   PROM0: 2KB Boot ROM (ROA375) - disabled by OUT to RAMEN
-                (0x0000-0x0FFF with A11 solder bridge closed: 4KB)
-0x2000-0x27FF   PROM1: Optional line program ROM - disabled by OUT to RAMEN
-                (0x2000-0x2FFF with A11 solder bridge closed: 4KB)
+0x2000-0x27FF   PROM1: Optional 2KB line program ROM - disabled by OUT to RAMEN
 0x0000-0xFFFF   64KB RAM (fully accessible after PROMs disabled)
 0x7800-0x7FFF   CRT display buffer (2K, 80x24 characters)
 0xA000-0xBFFF   Bootstrap code copied from ROM

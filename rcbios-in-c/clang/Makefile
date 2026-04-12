@@ -51,7 +51,8 @@ bios.cim: $(PARENT)/builddate.h $(OBJS) rc700_bios.ld
 	$(RUN) $(B)/ld.lld --gc-sections --defsym BIOSAD=$(BIOSAD) \
 		-T clang/rc700_bios.ld $(addprefix clang/,$(OBJS)) -o clang/bios.elf
 	$(RUN) $(B)/llvm-objcopy -O binary clang/bios.elf clang/bios.cim
-	$(RUN) $(B)/llvm-objdump -d --triple=z80 clang/bios.elf > bios.lis
+	# Note: add -l for file:line references (clickable in terminal, not in editor)
+	$(RUN) $(B)/llvm-objdump -d -S --triple=z80 clang/bios.elf > bios.lis
 	@echo "clang BIOS: $$(wc -c < bios.cim | tr -d ' ') bytes"
 	@SIG=$$(dd if=bios.cim bs=1 skip=8 count=6 2>/dev/null); \
 	if [ "$$SIG" != " RC702" ]; then \

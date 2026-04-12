@@ -155,16 +155,17 @@ static volatile word wboot_vec, bdos_vec;
 #define IOBYTE_PUN(io)  (((io) >> 4) & 0x03)
 #define IOBYTE_LST(io)  (((io) >> 6) & 0x03)
 
-#define IOB_TTY  0      /* CON:TTY/RDR:TTY/PUN:TTY/LST:TTY → SIO-A serial */
-#define IOB_CRT  1      /* CON:CRT/RDR:PTR/PUN:PTP/LST:CRT */
-#define IOB_BAT  2      /* CON:BAT/RDR:UR1/PUN:UP1/LST:LPT */
-#define IOB_UC1  3      /* CON: keyboard+serial joined (RC702 extension) */
+#define IOB_TTY  0      /* CON:SIO-B / RDR:SIO-A / PUN:SIO-A / LST:SIO-B */
+#define IOB_CRT  1      /* CON:CRT   / RDR:SIO-A / PUN:SIO-A / LST:CRT   */
+#define IOB_BAT  2      /* CON:batch / RDR:SIO-B / PUN:SIO-B / LST:SIO-A  */
+#define IOB_UC1  3      /* CON: SIO-B+CRT joined (RC702 extension) */
 
-/* Default: CON:=UC1(3) joined (keyboard + serial both work).
- * UC1 was historically "user-defined ch.1" — repurposed here for joined
- * keyboard+serial input. TTY=serial only, CRT=keyboard only.
- * RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2). */
-#define IOBYTE_DEFAULT  0x97  /* CON:=UC1(3) joined, RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
+/* IOBYTE presets.
+ * SIO-B is the control/console port (terminal interface).
+ * SIO-A is dedicated to RDR:/PUN: (data transfer).
+ * RDR:=PTR(1)=SIO-A, PUN:=PTP(1)=SIO-A, LST:=LPT(2)=SIO-A in both. */
+#define IOBYTE_CON_JOINED  0x97  /* CON:=UC1(3) SIO-B+CRT, RDR:=PTR, PUN:=PTP, LST:=LPT */
+#define IOBYTE_CON_LOCAL   0x95  /* CON:=CRT(1) display only, RDR:=PTR, PUN:=PTP, LST:=LPT */
 
 /* Warm-boot state: variables zeroed on every warm boot.
  * Grouped in a struct so warm boot can memset them with one LDIR. */
@@ -193,6 +194,17 @@ extern volatile WarmBootState wb;
 #define hstact   wb.hstact
 #define hstwrt   wb.hstwrt
 #define erflag   wb.erflag
+
+/* SIO-B baud rate (compile-time, from CONFI defaults in boot_confi.c).
+ * The 614400 Hz baud rate clock is generated in hardware by dividing
+ * the 19.6608 MHz memory clock by 32 (two cascaded 74LS393 dividers).
+ * CTC ch1 count = 1, SIO-B WR4 = 0x44 (×16 clock).
+ * Formula: 614400 / (CTC_count × SIO_clock_mode). */
+#define BAUD_CLOCK      614400
+#define SIOB_CTC_COUNT  1
+#define SIOB_SIO_CLKDIV 16
+#define SIOB_BAUD       (BAUD_CLOCK / (SIOB_CTC_COUNT * SIOB_SIO_CLKDIV))
+#define SIOB_BAUD_STR   "38400"
 
 /* Ring buffer parameters (REL30) */
 #define RXBUFSZ     256         /* SIO ring buffer size (page-aligned) */

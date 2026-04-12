@@ -615,8 +615,16 @@ void bios_boot_c(void)
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
-    /* Set IOBYTE before first console output */
-    iobyte = IOBYTE_DEFAULT;
+    /* Detect remote host on SIO-B: check DCD (RR0 bit 3).
+     * Z80-SIO RR0 bit 3 is INVERTED: bit set = DCD asserted = host present.
+     * If connected, use UC1 (joined CRT+serial). Otherwise CRT only. */
+    {
+        byte rr0 = port_in(sio_b_ctrl);
+        if (!(rr0 & 0x08))             /* DCD deasserted — no host */
+            iobyte = IOBYTE_CON_LOCAL;
+        else
+            iobyte = IOBYTE_CON_JOINED;
+    }
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
@@ -627,6 +635,14 @@ void bios_boot_c(void)
            "sdcc "
 #endif
            BUILDDATE "\r\n");
+
+    /* If SIO-B host detected, announce the console serial port.
+     * TODO: make this a runtime switch indicator (e.g. DIP switch or
+     * key held during boot) instead of auto-detect. */
+    if (IOBYTE_CON(iobyte) == IOB_UC1)
+        puts_p("Console also on serial port B at "
+               SIOB_BAUD_STR " 8N1\r\n");
+
     cdisk = 0;
     __builtin_memset((void *)&wb, 0, sizeof(wb));
     readi();
@@ -708,32 +724,40 @@ void bios_wboot(void) __naked
  * Console I/O — IOBYTE-redirectable (CP/M 2.2 Table 6-4)
  *
  * CON: field (bits 1:0):
- *   0=TTY: SIO-A serial   1=CRT: keyboard+display
- *   2=BAT: RDR→in,LST→out 3=UC1: parked
+ *   0=TTY: SIO-B serial   1=CRT: keyboard+display
+ *   2=BAT: RDR→in,LST→out 3=UC1: SIO-B + CRT joined
+ *
+ * SIO-A is dedicated to RDR:/PUN: (data transfer).
+ * SIO-B is the control/console port (terminal interface).
  * ---------------------------------------------------------------- */
 
-/* Serial (SIO-A) console primitives for IOBYTE TTY: mode */
+/* Serial (SIO-B) console primitives for IOBYTE TTY/UC1 modes */
 static byte serial_const(void) {
-    return (rxtail_a != rxhead_a) ? 0xFF : 0x00;
+    return (rxtail_b != rxhead_b) ? 0xFF : 0x00;
 }
 static byte serial_conin(void) {
-    /* Ensure RTS is asserted so host can send.  RTS may be de-asserted
-     * if the RCA ISR throttled a previous burst.  bios_reader_body only
-     * reasserts when the buffer drains to empty, but if we're called
-     * with an empty buffer and RTS=0 (e.g. after warm boot), we'd block
-     * forever.  readi() unconditionally arms RTS + receiver interrupts. */
-    if (rxtail_a == rxhead_a)
-        readi();
-    return bios_reader_body();
+    while (rxtail_b == rxhead_b)
+        ;
+    byte new_tail = (rxtail_b + 1) & RXMASK;
+    byte ch = rxbuf_b[rxtail_b];
+    rxtail_b = new_tail;
+    return ch;
 }
 static void serial_conout(byte c) {
-    /* Non-blocking: if SIO-A TX not ready (e.g. no host connected,
+    /* Non-blocking: if SIO-B TX not ready (e.g. no host connected,
      * CTS deasserted), skip.  CRT echo still shows the character. */
     byte timeout = 255;
-    while (!ptpflg && --timeout)
+    while (!prtflg && --timeout)
         ;
     if (!timeout) return;
-    bios_punch_body(c);
+    hal_di();
+    prtflg = 0;
+    port_out(sio_b_ctrl, 0x05);
+    port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
+    port_out(sio_b_ctrl, 0x01);
+    port_out(sio_b_ctrl, 0x1F);    /* Rx int all + TX int + ext status + status affects vector */
+    port_out(sio_b_data, c);
+    hal_ei();
 }
 
 /* Read one byte from the keyboard buffer. Caller must ensure kbtail!=kbhead. */
@@ -746,12 +770,13 @@ static byte kbd_dequeue(void)
 }
 
 /* Console input modes (CON field of IOBYTE):
- *   TTY (0): serial port (SIO-A) only — for headless / remote operation
+ *   TTY (0): SIO-B serial only — for headless / remote operation
  *   CRT (1): keyboard only — for pure local operation
- *   BAT (2): serial only (CP/M batch mode reads from RDR, treated as serial)
- *   UC1 (3): JOINED — both keyboard AND serial work simultaneously, so a
- *            local user can type while a remote driver also sends data.
- *            Default mode (IOBYTE_DEFAULT).
+ *   BAT (2): batch (BDOS routes to RDR:/LST:, BIOS treats as serial)
+ *   UC1 (3): JOINED — both keyboard AND SIO-B serial work simultaneously.
+ *            Default mode (IOBYTE_CON_JOINED).
+ *
+ * SIO-A is NOT used for console — it is dedicated to RDR:/PUN:.
  *
  * Encoding: keyboard is allowed when (con & 1) — true for CRT and UC1.
  *           serial is allowed when (con != 1) — true for TTY/BAT/UC1. */
@@ -768,7 +793,7 @@ byte bios_conin(void)
     byte con = IOBYTE_CON(iobyte);
     for (;;) {
         if ((con & 1) && kbtail != kbhead) return kbd_dequeue();
-        if ((con != 1) && rxtail_a != rxhead_a) return serial_conin();
+        if ((con != 1) && rxtail_b != rxhead_b) return serial_conin();
         hal_halt();
     }
 }
@@ -1288,7 +1313,7 @@ void bios_conout_c(byte c)
         bios_list_body(c);
         break;
     case IOB_UC1:
-        /* Joined: send to both serial and CRT, like TTY mode. */
+        /* Joined: send to both SIO-B serial and CRT. */
         serial_conout(c);
         usession = c;
         if (xflg != 0) xyadd();
@@ -1298,7 +1323,7 @@ void bios_conout_c(byte c)
     }
 }
 
-/* LIST: transmit character on SIO Channel B (printer).
+/* LIST: transmit character to list device.
  * CP/M passes char in C register; sdcccall(1) expects A.
  * __naked shim translates, then falls through to body. */
 void bios_list(void) __naked
@@ -1307,31 +1332,32 @@ void bios_list(void) __naked
             "jp _bios_list_body    \n"); /* explicit tail call */
 }
 
+/* LPT: send via SIO-A (data/printer port) */
 static void list_lpt(byte c)
 {
-    while (!prtflg)
+    while (!ptpflg)
         ;                       /* wait for TX ready */
     hal_di();
-    prtflg = 0;                 /* mark busy */
-    port_out(sio_b_ctrl, 0x05);    /* select WR5 */
-    port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
-    port_out(sio_b_ctrl, 0x01);    /* select WR1 */
-    port_out(sio_b_ctrl, 0x07);    /* TX int, ext status, status affects vector */
-    port_out(sio_b_data, c);
+    ptpflg = 0;                 /* mark busy */
+    port_out(sio_a_ctrl, 0x05);    /* select WR5 */
+    port_out(sio_a_ctrl, wr5a + 0x8A);  /* DTR=1, TX enable, RTS=1 */
+    port_out(sio_a_ctrl, 0x01);    /* select WR1 */
+    port_out(sio_a_ctrl, 0x1B);    /* RX, TX, ext status ints */
+    port_out(sio_a_data, c);
     hal_ei();
 }
 
 void bios_list_body(byte c)
 {
     switch (IOBYTE_LST(iobyte)) {
-    case IOB_TTY:  serial_conout(c); break;
-    case IOB_CRT:  bios_conout_c(c); break;
-    case IOB_BAT:  list_lpt(c);      break;  /* LPT: SIO-B */
+    case IOB_TTY:  serial_conout(c); break;  /* TTY: SIO-B (console) */
+    case IOB_CRT:  bios_conout_c(c); break;  /* CRT: display */
+    case IOB_BAT:  list_lpt(c);      break;  /* LPT: SIO-A (data port) */
     default:       break;
     }
 }
 
-/* PUNCH: transmit character on SIO Channel A (serial).
+/* PUNCH: transmit character on SIO Channel A (data port).
  * CP/M passes char in C; sdcccall(1) expects A.
  * HL preserved for SNIOS (CP/NET). */
 void bios_punch(void) __naked
@@ -1369,7 +1395,7 @@ void bios_punch_body(byte c)
     }
 }
 
-/* READER: read character from SIO Channel A ring buffer with RTS flow control.
+/* READER: read character from SIO Channel A (data port) ring buffer with RTS flow control.
  * CP/M expects return in A; also copies to C.
  * HL preserved for SNIOS (CP/NET). */
 void bios_reader(void) __naked
@@ -1622,9 +1648,9 @@ byte bios_write_c(byte wt)
 byte bios_listst(void)
 {
     switch (IOBYTE_LST(iobyte)) {
-    case IOB_TTY:  return ptpflg;   /* SIO-A TX ready */
+    case IOB_TTY:  return prtflg;   /* SIO-B TX ready (console) */
     case IOB_CRT:  return 0xFF;     /* CRT always ready */
-    case IOB_BAT:  return prtflg;   /* LPT: SIO-B TX ready */
+    case IOB_BAT:  return ptpflg;   /* LPT: SIO-A TX ready */
     default:       return 0;        /* UL1: parked */
     }
 }

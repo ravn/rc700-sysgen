@@ -315,6 +315,99 @@ siob-test: bios
 		|| (echo "=== SIO-B direct test FAILED ==="; exit 1)
 
 # ================================================================
+# BIOS deploy via dual serial (SIO-B console + SIO-A data)
+# Uploads Intel HEX, runs MLOAD+verify+SYSGEN, hard resets, verifies banner.
+# Requires: cpm56_original.com, MLOAD.COM (assembled from cpm-utils/mload/)
+# ================================================================
+
+DEPLOY_CON_PORT ?= 4324
+DEPLOY_DAT_PORT ?= 4325
+MLOAD_COM = $(CURDIR)/../cpm-utils/mload/zout/mload.cim
+
+clang-bios: builddate.h
+	$(MAKE) -C clang bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+
+sdcc-bios: builddate.h
+	$(MAKE) -C sdcc bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+
+deploy-serial: clang-bios sdcc-bios
+	@echo "=== BIOS deploy via serial (SDCC→clang) ==="
+	@echo "  Disk boots with SDCC BIOS, clang BIOS deployed over serial"
+	python3 mk_sysgen_hex.py clang/bios.cim cpm56.hex
+	@# BDOSCCP.COM: padding (0x0100-0x08FF) + CCP+BDOS (0x0900-0x44FF), no BIOS
+	python3 -c "d=open('cpm56_original.com','rb').read(); open('/tmp/bdosccp.com','wb').write(d[:0x4400])"
+	cp $(IMG_MAXI) /tmp/bios_deploy.imd
+	$(PATCH) /tmp/bios_deploy.imd sdcc/bios.cim
+	@# Put MLOAD.COM and BDOSCCP.COM on disk for overlay
+	cpmcp -f rc702-8dd /tmp/bios_deploy.imd $(MLOAD_COM) 0:MLOAD.COM
+	cpmcp -f rc702-8dd /tmp/bios_deploy.imd /tmp/bdosccp.com 0:BDOSCCP.COM
+	@# Convert to MFI so MAME can write to disk (SYSGEN needs this)
+	rm -f /tmp/bios_deploy.mfi
+	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_deploy.imd /tmp/bios_deploy.mfi >/dev/null 2>&1
+	rm -f /tmp/bios_deploy.imd
+	@rm -f /tmp/siob_deploy_trigger /tmp/siob_deploy_done /tmp/siob_deploy_result
+	@echo "Starting deploy server..."
+	@python3 -u siob_deploy_server.py cpm56.hex $(DEPLOY_CON_PORT) $(DEPLOY_DAT_PORT) \
+		> /tmp/siob_deploy_server.log 2>&1 & echo $$! > /tmp/siob_deploy_server.pid
+	@sleep 0.5
+	-INITIAL_BANNER="C-bios/sdcc" EXPECTED_BANNER="C-bios/clang" \
+		$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_deploy.mfi \
+		-bitb1 "socket.localhost:$(DEPLOY_DAT_PORT)" \
+		-bitb2 "socket.localhost:$(DEPLOY_CON_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 -nothrottle \
+		-autoboot_script $(CURDIR)/mame_siob_deploy_test.lua
+	@if [ -f /tmp/siob_deploy_server.pid ]; then \
+		kill $$(cat /tmp/siob_deploy_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_deploy_server.pid; \
+	fi
+	@echo ""
+	@echo "--- Deploy server log ---"
+	@cat /tmp/siob_deploy_server.log 2>/dev/null || echo "(no log)"
+	@echo ""
+	@echo "--- Result ---"
+	@cat /tmp/siob_deploy_result 2>/dev/null || (echo "(no result)"; exit 1)
+	@head -1 /tmp/siob_deploy_result | grep -q '^PASS' \
+		&& echo "=== DEPLOY TEST PASSED ===" \
+		|| (echo "=== DEPLOY TEST FAILED ==="; exit 1)
+
+# ================================================================
+# SIO-B serial console integration test
+# Sends DIR / ASM FILEX / TYPE FILEX.PRN via serial, verifies output
+# appears on both CRT display and serial port.
+# ================================================================
+
+CONSOLE_PORT ?= 4324
+
+siob-console-test: bios
+	@echo "=== SIO-B serial console test ==="
+	cp $(IMG_MAXI) /tmp/bios_c_console.imd
+	$(PATCH) /tmp/bios_c_console.imd $(COMPILER)/bios.cim
+	@rm -f /tmp/siob_console_done /tmp/siob_console_result /tmp/siob_console_serial.txt /tmp/siob_console_crt.txt /tmp/siob_console_trigger
+	@echo "Starting console server on port $(CONSOLE_PORT) ..."
+	@python3 -u siob_console_server.py $(CONSOLE_PORT) \
+		> /tmp/siob_console_server.log 2>&1 & echo $$! > /tmp/siob_console_server.pid
+	@sleep 0.5
+	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_console.imd \
+		-bitb2 "socket.localhost:$(CONSOLE_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 -nothrottle \
+		-autoboot_script $(CURDIR)/mame_siob_console_test.lua
+	@if [ -f /tmp/siob_console_server.pid ]; then \
+		kill $$(cat /tmp/siob_console_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_console_server.pid; \
+	fi
+	@echo ""
+	@echo "--- Server log ---"
+	@cat /tmp/siob_console_server.log 2>/dev/null || echo "(no log)"
+	@echo ""
+	@echo "--- Result ---"
+	@cat /tmp/siob_console_result 2>/dev/null || (echo "(no result)"; exit 1)
+	@head -1 /tmp/siob_console_result | grep -q '^PASS' \
+		&& echo "=== SERIAL CONSOLE TEST PASSED ===" \
+		|| (echo "=== SERIAL CONSOLE TEST FAILED ==="; exit 1)
+
+# ================================================================
 # SIO-B baud rate experiment
 # Usage: make siob-baud BAUD_IDX=0  (38400, baseline)
 #        make siob-baud BAUD_IDX=1  (76800, x1 mode)

@@ -55,8 +55,27 @@ Documented in `RC702_HARDWARE_TECHNICAL_REFERENCE.md` (CTC section + new
 - New todo: redundant `XOR A,A` across consecutive BSS stores (3B in bios_boot_c)
 - New todo: collect all bugs for upstream jacobly0/llvm-z80 issue filing
 
+## SIO Role Swap (branch: iobyte-swap-sio)
+
+Swapped SIO channel roles:
+- **SIO-B** → console/control port (CON:=TTY/UC1, LST:=TTY)
+- **SIO-A** → data port only (RDR:=PTR, PUN:=PTP, LST:=LPT)
+- IOBYTE_DEFAULT unchanged (0x97): same user experience, different wiring
+
+Auto-detect host on SIO-B via DCD (RR0 bit 3, inverted in Z80-SIO):
+- Host present → IOBYTE_CON_JOINED (0x97), banner printed
+- No host → IOBYTE_CON_LOCAL (0x95), no serial delay
+
+Source-annotated listing: `llvm-objdump -d -S` in Makefile.
+
+Clang: 6069 bytes (+70B from SIO-B TX inline + banner string + DCD check).
+
+Filed: ravn/llvm-z80#70 (-fverbose-asm not implemented for Z80).
+
 ## Problems Found
 
+- **DCD polarity**: Z80-SIO RR0 bit 3 is inverted — set = asserted.
+  Initial code had the check backwards, resulting in no detection.
 - **CLion ninja path**: ninja is bundled at
   `/Applications/CLion.app/Contents/bin/ninja/mac/aarch64/ninja`,
   not on PATH. Found via CMakeCache.txt `CMAKE_MAKE_PROGRAM`.

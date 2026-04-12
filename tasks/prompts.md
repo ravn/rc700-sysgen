@@ -42,3 +42,32 @@
 - it should be only the "increment pointer" that needs to know the size of the buffer
 - todo later: Collect all bugs found and prepare them as issues with thorough tests against upstream llvm-z80
 - automatically investigate problems in session found creating tasks and issues as necessary
+
+## Session 19 continued — SIO role swap + DCD detection
+
+- i want to revert serial port a back to the old behavior of only being rdr: and pun:...
+- where is BAT behavior defined?
+- this looks good. please implement in a new branch
+- does clang support -fverbose-asm?
+- file an issue about adding this
+- can the .loc lines be postprocessed to include the c source
+- does clion support this?
+- does the test need extra time to detect?
+- i want the baud calculated at compile time, not boot time
+- please add that 614400 is generated in hardware by dividing memclock by 32
+- rename IOBYTE_DEFAULT to something indicating the mapping, and make 0x95 a constant
+- todo later: Make this a switch indicator
+- i have not seen the print statement, please rerun mame and let me see
+- i want you to change the test when a serial connection is present (future task)
+- can llvm-objdump keep the source references and resolve them too?
+- rebuild bios.lis
+- what is bios.c.lis and what is bios.lis
+- so sdcc generates a list file for each input file, and clang for the whole program?
+- can sdcc generate the same?
+- does the asm file association in clion support hyperlinks?
+- are there any editors in clion that support hyperlinks?
+- undo the -l but keep a note
+- console output is slowed by serial output by default. Can we see at boot time if a remote host is attached...
+- does the test need extra time to detect?
+- i want an extra line added to the boot banner if so
+- the bios is old
