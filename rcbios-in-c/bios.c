@@ -1399,25 +1399,15 @@ void bios_reader(void) __naked
 byte bios_reader_body(void)
 {
     byte ch, new_tail;
-    /* Use a local variable for the switch discriminant to avoid a clang
-     * Z80 codegen bug where the register holding the switch value is
-     * clobbered before the second case comparison (see #siob-debug). */
-    byte rdr = IOBYTE_RDR(iobyte);
 
-    if (rdr == IOB_BAT) {
-        /* UR1: SIO-B (no RTS flow control) */
-        while (rxtail_b == rxhead_b)
-            ;
-        new_tail = (rxtail_b + 1) & RXMASK;
-        ch = rxbuf_b[rxtail_b];
-        rxtail_b = new_tail;
-        return ch;
-    }
-
-    if (rdr == IOB_TTY || rdr == IOB_CRT) {
-        /* PTR: SIO-A */
+    switch (IOBYTE_RDR(iobyte)) {
+    case IOB_TTY:
+    case IOB_CRT:  /* PTR: SIO-A */
+        /* wait for data in ring buffer */
         while (rxtail == rxhead)
             ;
+
+        /* read character and advance tail */
         new_tail = (rxtail + 1) & RXMASK;
         ch = rxbuf[rxtail];
         rxtail = new_tail;
@@ -1429,10 +1419,18 @@ byte bios_reader_body(void)
             port_out(sio_a_ctrl, wr5a + 0x8A); /* DTR=1, TX enable, RTS=1 */
         }
         return ch;
-    }
 
-    /* UR2: parked */
-    return 0x1A;               /* EOF */
+    case IOB_BAT:  /* UR1: SIO-B (no RTS flow control) */
+        while (rxtail_b == rxhead_b)
+            ;
+        new_tail = (rxtail_b + 1) & RXMASK;
+        ch = rxbuf_b[rxtail_b];
+        rxtail_b = new_tail;
+        return ch;
+
+    default:       /* UR2: parked */
+        return 0x1A;               /* EOF */
+    }
 }
 
 /* READS (DA4D): Reader status.
@@ -1449,12 +1447,15 @@ void bios_reads(void) __naked
 
 byte bios_reads_body(void)
 {
-    byte rdr = IOBYTE_RDR(iobyte);
-    if (rdr == IOB_BAT)
-        return (rxtail_b != rxhead_b) ? 0xFF : 0x00;
-    if (rdr == IOB_TTY || rdr == IOB_CRT)
+    switch (IOBYTE_RDR(iobyte)) {
+    case IOB_TTY:
+    case IOB_CRT:  /* PTR: SIO-A */
         return (rxtail != rxhead) ? 0xFF : 0x00;
-    return 0;
+    case IOB_BAT:  /* UR1: SIO-B */
+        return (rxtail_b != rxhead_b) ? 0xFF : 0x00;
+    default:       /* UR2: parked */
+        return 0;
+    }
 }
 
 void bios_home(void)

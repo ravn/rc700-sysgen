@@ -19,9 +19,9 @@ READER  equ     BIOS + 15h      ; returns A = byte from RDR:
 READS   equ     BIOS + 4Dh      ; returns A = FF if data ready, 0 if not
 
 ; BIOS BSS addresses for direct ring buffer access (from nm bios.elf)
-RXHEAD_B equ    0ECF2h          ; _rxhead_b
-RXTAIL_B equ    0ECF3h          ; _rxtail_b
-RXBUF_B  equ    0ECFCh          ; _rxbuf_b (256 bytes)
+RXHEAD_B equ    0ECF0h          ; _rxhead_b
+RXTAIL_B equ    0ECF1h          ; _rxtail_b
+RXBUF_B  equ    0EDFAh          ; _rxbuf_b (256 bytes)
 
 ; CP/M
 BDOS    equ     0005h

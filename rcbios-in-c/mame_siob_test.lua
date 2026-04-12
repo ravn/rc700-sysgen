@@ -106,7 +106,16 @@ local function configure_serial()
             end
         end
     end
-    log("null_modem: using driver defaults (38400 8N1)")
+    -- Force rs232b baud to 38400 in case a previous baud experiment left
+    -- a stale user_value (MAME persists ioport overrides).
+    for tag, port in pairs(ports) do
+        if tag:find("rs232b") and (tag:find("RS232_TXBAUD") or tag:find("RS232_RXBAUD")) then
+            for _, field in pairs(port.fields) do
+                field.user_value = 0x0b  -- RS232_BAUD_38400
+            end
+        end
+    end
+    log("null_modem: forced rs232b to 38400 8N1")
 end
 
 local trigger_sent = false
