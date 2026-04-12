@@ -17,5 +17,17 @@ builddate.inc
 # MAME auto-generated config (stale ioport overrides cause bugs)
 cfg/
 
+# MAME socket error artifacts (created when bitb sockets unavailable after hard_reset)
+socket.localhost:*
+
+# Build artifacts
+*.elf
+*.tmp
+cpm56.com
+cpm56.hex
+cpm56_cr.hex
+memmove_test
+memmove_test_CODE.bin
+
 # Test disk images
 /tmp/

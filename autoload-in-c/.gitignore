@@ -17,3 +17,6 @@ roa375_sccz80
 roa375_debug.cmd
 build_stamp.h
 boot_entry.c.i
+rom.c.i
+clang/*.elf
+clang/banner.h
