@@ -1,5 +1,28 @@
 # Lessons Learned
 
+## 2026-04-12: Use `-print-after-all` to trace codegen bugs to the responsible pass
+
+**Context**: The switch discriminant was correctly allocated to register D
+after the register allocator, but missing in the final assembly. Tracing
+with `llc -print-after-all` showed that `Z80 Late Optimizations` was the
+pass that erased the `LD D,A` instruction.
+
+**Lesson**: When a register value is "lost" between regalloc and final
+output, dump intermediate MIR with `-print-after-all` and diff consecutive
+passes. The pass name in the header tells you exactly where to look in the
+source. Much faster than guessing which pass is responsible.
+
+## 2026-04-12: MAME persists ioport overrides across runs
+
+**Context**: A baud rate experiment set `field.user_value = 23` (76800 baud)
+on rs232b via Lua. Subsequent runs (using a different Lua script that did NOT
+set baud) still had `user_value = 23` even after deleting all cfg files.
+
+**Lesson**: MAME ioport `user_value` changes from Lua persist in ways that
+are hard to clear. Always force-set critical ioport values in Lua scripts
+rather than relying on defaults. The siob_test Lua now explicitly sets
+rs232b baud to 38400.
+
 ## 2026-04-12: BIOS calls clobber registers — save/restore in test programs
 
 **Context**: SIO-B test program used DJNZ (register B) as loop counter, but
