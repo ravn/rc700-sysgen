@@ -155,16 +155,16 @@ static volatile word wboot_vec, bdos_vec;
 #define IOBYTE_PUN(io)  (((io) >> 4) & 0x03)
 #define IOBYTE_LST(io)  (((io) >> 6) & 0x03)
 
-#define IOB_TTY  0      /* CON:TTY/RDR:TTY/PUN:TTY/LST:TTY → SIO-A serial */
-#define IOB_CRT  1      /* CON:CRT/RDR:PTR/PUN:PTP/LST:CRT */
-#define IOB_BAT  2      /* CON:BAT/RDR:UR1/PUN:UP1/LST:LPT */
-#define IOB_UC1  3      /* CON: keyboard+serial joined (RC702 extension) */
+#define IOB_TTY  0      /* CON:SIO-B / RDR:SIO-A / PUN:SIO-A / LST:SIO-B */
+#define IOB_CRT  1      /* CON:CRT   / RDR:SIO-A / PUN:SIO-A / LST:CRT   */
+#define IOB_BAT  2      /* CON:batch / RDR:SIO-B / PUN:SIO-B / LST:SIO-A  */
+#define IOB_UC1  3      /* CON: SIO-B+CRT joined (RC702 extension) */
 
-/* Default: CON:=UC1(3) joined (keyboard + serial both work).
- * UC1 was historically "user-defined ch.1" — repurposed here for joined
- * keyboard+serial input. TTY=serial only, CRT=keyboard only.
- * RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2). */
-#define IOBYTE_DEFAULT  0x97  /* CON:=UC1(3) joined, RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
+/* Default: CON:=UC1(3) joined (keyboard + SIO-B serial both work).
+ * SIO-B is the control/console port (terminal interface).
+ * SIO-A is dedicated to RDR:/PUN: (data transfer).
+ * RDR:=PTR(1)=SIO-A, PUN:=PTP(1)=SIO-A, LST:=LPT(2)=SIO-A. */
+#define IOBYTE_DEFAULT  0x97  /* CON:=UC1(3), RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
 
 /* Warm-boot state: variables zeroed on every warm boot.
  * Grouped in a struct so warm boot can memset them with one LDIR. */
