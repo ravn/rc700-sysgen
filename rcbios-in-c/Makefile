@@ -316,25 +316,43 @@ siob-test: bios
 
 # ================================================================
 # BIOS deploy via dual serial (SIO-B console + SIO-A data)
-# Uploads Intel HEX, runs LOAD+SYSGEN, hard resets, verifies banner.
+# Uploads Intel HEX, runs MLOAD+verify+SYSGEN, hard resets, verifies banner.
+# Requires: cpm56_original.com, MLOAD.COM (assembled from cpm-utils/mload/)
 # ================================================================
 
 DEPLOY_CON_PORT ?= 4324
 DEPLOY_DAT_PORT ?= 4325
+MLOAD_COM = $(CURDIR)/../cpm-utils/mload/zout/mload.cim
 
-deploy-serial: bios
-	@echo "=== BIOS deploy via serial ==="
-	python3 mk_cpm56.py cpm56_original.com $(COMPILER)/bios.cim cpm56
+clang-bios: builddate.h
+	$(MAKE) -C clang bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+
+sdcc-bios: builddate.h
+	$(MAKE) -C sdcc bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+
+deploy-serial: clang-bios sdcc-bios
+	@echo "=== BIOS deploy via serial (SDCC→clang) ==="
+	@echo "  Disk boots with SDCC BIOS, clang BIOS deployed over serial"
+	python3 mk_sysgen_hex.py clang/bios.cim cpm56.hex
+	@# BDOSCCP.COM: padding (0x0100-0x08FF) + CCP+BDOS (0x0900-0x44FF), no BIOS
+	python3 -c "d=open('cpm56_original.com','rb').read(); open('/tmp/bdosccp.com','wb').write(d[:0x4400])"
 	cp $(IMG_MAXI) /tmp/bios_deploy.imd
-	$(PATCH) /tmp/bios_deploy.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_deploy.imd sdcc/bios.cim
+	@# Put MLOAD.COM and BDOSCCP.COM on disk for overlay
+	cpmcp -f rc702-8dd /tmp/bios_deploy.imd $(MLOAD_COM) 0:MLOAD.COM
+	cpmcp -f rc702-8dd /tmp/bios_deploy.imd /tmp/bdosccp.com 0:BDOSCCP.COM
+	@# Convert to MFI so MAME can write to disk (SYSGEN needs this)
+	rm -f /tmp/bios_deploy.mfi
+	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_deploy.imd /tmp/bios_deploy.mfi >/dev/null 2>&1
+	rm -f /tmp/bios_deploy.imd
 	@rm -f /tmp/siob_deploy_trigger /tmp/siob_deploy_done /tmp/siob_deploy_result
 	@echo "Starting deploy server..."
 	@python3 -u siob_deploy_server.py cpm56.hex $(DEPLOY_CON_PORT) $(DEPLOY_DAT_PORT) \
 		> /tmp/siob_deploy_server.log 2>&1 & echo $$! > /tmp/siob_deploy_server.pid
 	@sleep 0.5
-	-EXPECTED_BANNER="C-bios/clang" \
+	-INITIAL_BANNER="C-bios/sdcc" EXPECTED_BANNER="C-bios/clang" \
 		$(MAME_BIN) rc702 -rompath $(MAME)/roms \
-		-flop1 /tmp/bios_deploy.imd \
+		-flop1 /tmp/bios_deploy.mfi \
 		-bitb1 "socket.localhost:$(DEPLOY_DAT_PORT)" \
 		-bitb2 "socket.localhost:$(DEPLOY_CON_PORT)" \
 		-skip_gameinfo -window -resolution 1100x720 -nothrottle \

@@ -137,13 +137,19 @@ IOBYTE fully implemented. SIO roles swapped:
 - [x] Auto-detect host on SIO-B via DCD at boot
 - [x] Banner: "Console also on serial port B at 38400 8N1"
 - [x] Source-annotated listing (llvm-objdump -d -S)
+- [x] Serial console MAME test (siob-console-test): DIR/ASM/TYPE via SIO-B
+- [x] BIOS deploy via dual serial (deploy-serial): SIO-B commands + SIO-A data
+  - PIP CPM56.HEX=RDR: → MLOAD CPM56.COM=BDOSCCP.COM,CPM56.HEX → CPM56 (verify) → SYSGEN
+  - Test boots SDCC BIOS, deploys clang BIOS, hard resets, verifies banner change
+  - MAME driver: RTS flow control on SIO-A, DCD wired for both channels
+  - MFI disk format for writable SYSGEN, MLOAD.COM via cpmcp
 
 ### Remaining
-- [ ] Serial console MAME test: send DIR/ASM/TYPE via bitb2 socket,
-  verify output on both CRT display and serial. Replaces natkeyboard.
 - [ ] Test with generic Kermit-80 in MAME (Kermit uses IOBYTE flipping)
 - [ ] Refactor serial_conout to share TX code with list_lpt (−~20B)
 - [ ] Make DCD detection a switch indicator (TODO in bios.c)
+- [ ] Full CCP+BDOS+BIOS download mode (user can provide replacement CCP/BDOS)
+- [ ] Clean up cfg/ stale overrides in Makefile (delete before MAME runs)
 
 ## Upstream bug reports for jacobly0/llvm-z80
 

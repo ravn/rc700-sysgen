@@ -5,11 +5,11 @@
 --   SIO-A (bitb1): data — sends Intel HEX for PIP
 --
 -- Flow:
---   1. Boot, verify serial console banner
---   2. Trigger server to run PIP + HEX transfer + LOAD + SYSGEN
+--   1. Boot with INITIAL_BANNER BIOS (e.g. sdcc), verify it
+--   2. Trigger server to run PIP + HEX transfer + MLOAD + verify + SYSGEN
 --   3. Wait for server "done" signal
---   4. Hard reset to boot with new BIOS
---   5. Verify new BIOS banner on CRT
+--   4. Hard reset to boot with new BIOS (MFI disk is writable)
+--   5. Verify EXPECTED_BANNER on CRT (e.g. clang)
 
 local FPS = 50
 local frame = 0
@@ -17,12 +17,16 @@ local done = false
 local state = "boot"
 local wait_frames = 0
 
+local INITIAL_BANNER  = os.getenv("INITIAL_BANNER")  or "C-bios/sdcc"
 local EXPECTED_BANNER = os.getenv("EXPECTED_BANNER") or "C-bios/clang"
 
 local function log(msg) print("[deploy] " .. msg) end
 
 local function mem_read(addr)
-    return manager.machine.devices[":maincpu"].spaces["program"]:read_u8(addr)
+    local ok, val = pcall(function()
+        return manager.machine.devices[":maincpu"].spaces["program"]:read_u8(addr)
+    end)
+    if ok then return val else return 0 end
 end
 
 local function screen_text()
@@ -76,11 +80,16 @@ end
 emu.register_frame_done(function()
     if done then return end
     frame = frame + 1
-    if frame > FPS * 600 then finish(false, "GLOBAL TIMEOUT"); return end
+    if frame > FPS * 900 then finish(false, "GLOBAL TIMEOUT"); return end
 
     if state == "boot" then
         if frame > FPS * 5 and screen_contains("Console also on serial port B") then
-            log("Boot complete, serial console active")
+            -- Verify we booted with the INITIAL banner (e.g. sdcc)
+            if not screen_contains(INITIAL_BANNER) then
+                finish(false, "Initial boot has wrong banner — expected '" .. INITIAL_BANNER .. "'")
+                return
+            end
+            log("Boot complete with " .. INITIAL_BANNER .. ", serial console active")
             local f = io.open("/tmp/siob_deploy_trigger", "w")
             f:write("go\n")
             f:close()
@@ -101,14 +110,13 @@ emu.register_frame_done(function()
             log("Performing hard reset to boot with new BIOS...")
             state = "reset"
             wait_frames = 0
-        elseif wait_frames > FPS * 300 then
+        elseif wait_frames > FPS * 600 then
             finish(false, "TIMEOUT waiting for deploy")
         end
 
     elseif state == "reset" then
         wait_frames = wait_frames + 1
         if wait_frames == FPS then
-            -- Hard reset the machine
             manager.machine:hard_reset()
             log("Hard reset triggered")
             state = "verify"
@@ -118,7 +126,7 @@ emu.register_frame_done(function()
     elseif state == "verify" then
         wait_frames = wait_frames + 1
         if wait_frames > FPS * 5 and screen_contains(EXPECTED_BANNER) then
-            finish(true, "New BIOS banner verified: " .. EXPECTED_BANNER)
+            finish(true, "Deploy verified: " .. INITIAL_BANNER .. " -> " .. EXPECTED_BANNER)
         elseif wait_frames > FPS * 30 then
             log("CRT after reset:")
             log(screen_text())

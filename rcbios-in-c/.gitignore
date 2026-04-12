@@ -14,5 +14,8 @@ zcc_opt.def
 builddate.h
 builddate.inc
 
+# MAME auto-generated config (stale ioport overrides cause bugs)
+cfg/
+
 # Test disk images
 /tmp/

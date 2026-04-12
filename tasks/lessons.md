@@ -321,3 +321,63 @@ can bloat a scanned PDF 6×. For the 5.5 MB RCSL manual the sequence
 searchable text layer.
 
 **Files**: `rc702-test-v1.2/Dockerfile.ocrmypdf-dan`.
+
+## 2026-04-12: MAME cfg stale overrides corrupt serial data
+
+**Context**: SIO-A data transfer produced garbled hex. TYPE showed control
+characters instead of hex digits. Root cause: `rcbios-in-c/cfg/rc702.cfg`
+had `RS232_STOPBITS value="0"` (zero stop bits!) left over from a previous
+MAME session. The null_modem transmitted with 0 stop bits while the SIO
+expected 1 — framing mismatch garbled every byte.
+
+**Lesson**: Before debugging serial data corruption, check and delete stale
+MAME cfg files in the working directory's `cfg/` folder. MAME auto-generates
+these and any manual ioport changes persist. The `cfg/` directory should be
+in `.gitignore` and deleted before automated tests.
+
+## 2026-04-12: MAME null_modem RTS flow control must be explicitly enabled
+
+**Context**: HEX transfer via SIO-A was truncated (430/468 records). The
+BIOS correctly deasserts RTS when the ring buffer is nearly full, but the
+MAME null_modem has `FLOW_CONTROL=0x00` (off) by default — it ignores RTS
+and keeps sending, causing buffer overflow.
+
+**Fix**: Set `FLOW_CONTROL` to `0x01` (RTS) in the MAME driver's
+`rs232a_defaults`. The null_modem then pauses when `m_rts` is deasserted.
+
+**Lesson**: MAME null_modem flow control is off by default. For any
+interrupt-driven receive with ring buffer + RTS, enable RTS flow control in
+the driver's DEVICE_INPUT_DEFAULTS.
+
+## 2026-04-12: MAME IMD images are read-only — use MFI for writable disks
+
+**Context**: SYSGEN wrote the new BIOS to disk, but after hard_reset the
+old BIOS banner appeared. MAME loads IMD files read-only — writes go to an
+in-memory copy that's discarded on reset.
+
+**Fix**: Convert IMD to MFI using `floptool flopconvert auto mfi`. MFI is
+MAME's native writable format. SYSGEN writes persist across hard_reset.
+
+**Lesson**: Any MAME test that writes to the floppy (SYSGEN, PIP, SAVE)
+must use MFI, not IMD. Pattern: `cp image.imd /tmp/test.imd && floptool
+flopconvert auto mfi /tmp/test.imd /tmp/test.mfi && rm /tmp/test.imd`.
+
+## 2026-04-12: Use MLOAD instead of LOAD for multi-file hex overlay
+
+**Context**: CP/M's standard LOAD.COM can't merge a base .COM file with a
+hex overlay. MLOAD can: `MLOAD CPM56.COM=BDOSCCP.COM,CPM56.HEX` loads
+BDOSCCP.COM as the base image and overlays the hex records on top.
+
+**Lesson**: For BIOS deploy, transfer only the BIOS hex (390 records, 17KB)
+instead of the full CCP+BDOS+BIOS (779 records, 60KB). MLOAD merges it with
+the CCP+BDOS base already on disk. Half the transfer time.
+
+## 2026-04-12: Lua pcall protects against transient MAME state during hard_reset
+
+**Context**: After `manager.machine:hard_reset()`, the Lua frame_done callback
+still fires but `manager.machine.devices[":maincpu"].spaces["program"]` is
+temporarily nil. This caused "attempt to index a nil value" errors and an
+infinite reset loop.
+
+**Fix**: Wrap `mem_read` in `pcall`: `local ok, val = pcall(function() ... end)`.
+Return 0 on failure. The next frame after reset completes will succeed normally.
