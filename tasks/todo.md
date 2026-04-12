@@ -129,42 +129,21 @@ Workflow to install C BIOS onto a disk using standard CP/M tools:
 - [ ] USB video grabber for monitoring physical machine
 - [ ] Test on real RC702 hardware
 
-## Next: IOBYTE + Kermit for CP/M-80
+## Done: IOBYTE routing + SIO role swap (branch: iobyte-swap-sio)
 
-Implement IOBYTE support in the C BIOS so stock generic Kermit-80 can use
-the serial port for file transfer.
+IOBYTE fully implemented. SIO roles swapped:
+- [x] SIO-B = console/control port (CON:=TTY/UC1, LST:=TTY)
+- [x] SIO-A = data port (RDR:=PTR/TTY, PUN:=PTP/TTY, LST:=LPT)
+- [x] Auto-detect host on SIO-B via DCD at boot
+- [x] Banner: "Console also on serial port B at 38400 8N1"
+- [x] Source-annotated listing (llvm-objdump -d -S)
 
-### How Kermit uses IOBYTE ("IOBYTE flipping")
-
-Kermit flips the IOBYTE byte at 0x0003 to remap CON: between the keyboard/
-display and the serial port, then uses BIOS CONIN/CONOUT/CONST for all I/O.
-(Source: [cpxsy2.asm](https://github.com/FozzTexx/Kermit-CPM/blob/master/cpxsy2.asm) `IF iobyt` sections)
-
-Two values:
-- `defio = 0x95` (console mode): CON=CRT, LST=LPT, RDR=PTR, PUN=PTP
-- `batio = 0x56` (serial mode):  CON=BAT, LST=CRT, RDR=PTR, PUN=PTP
-
-When CON=BAT (IOBYTE bits 1-0 = 10), CP/M convention is:
-- CONIN reads from the current RDR: device
-- CONOUT writes to the current LST: device
-
-`selmdm` stores batio at 0x0003, `selcon` stores defio. `inpmdm` calls BIOS
-CONST+CONIN directly. `outmdm` calls BDOS PUNCH.
-
-### BIOS changes needed
-
-The variable exists (`iobyte` at 0x0003, initialized to 0). Only routing
-logic is missing. The original RC702 BIOS explicitly did NOT support IOBYTE.
-
-- [ ] CONIN: if bits 1-0 = 10 (BAT), call bios_reader_body() instead of keyboard
-- [ ] CONOUT: if bits 1-0 = 10 (BAT), call bios_list_body() instead of display
-- [ ] CONST: if bits 1-0 = 10 (BAT), check serial RX status instead of keyboard
-- [ ] READER: route based on bits 3-2 (TTY=keyboard, PTR=SIO-A)
-- [ ] PUNCH: route based on bits 5-4 (TTY=display, PTP=SIO-A)
-- [ ] LIST: route based on bits 7-6 (TTY=display, LPT=SIO-B)
-- [ ] LISTST: return status of actual LST: device
-- [ ] Test with generic Kermit-80 in MAME
-- [ ] Verify file transfer over serial
+### Remaining
+- [ ] Serial console MAME test: send DIR/ASM/TYPE via bitb2 socket,
+  verify output on both CRT display and serial. Replaces natkeyboard.
+- [ ] Test with generic Kermit-80 in MAME (Kermit uses IOBYTE flipping)
+- [ ] Refactor serial_conout to share TX code with list_lpt (−~20B)
+- [ ] Make DCD detection a switch indicator (TODO in bios.c)
 
 ## Upstream bug reports for jacobly0/llvm-z80
 
