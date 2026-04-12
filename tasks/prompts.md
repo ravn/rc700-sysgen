@@ -19,3 +19,26 @@
 - what would synchronous mode imply
 - i have full control of the other end of the serial connection. Currently it is a FDTI usb device. Can my current cable work with this?
 - automatically investigate problems in session found creating tasks and issues as necessary. summarize your work and findings in the project, and commit
+
+## Session 19 (2026-04-12) — Compiler fix #69 + warmboot memset
+
+- 4 (fix clang switch codegen)
+- never ever search my home directory! Why did you do that???
+- i dont know, search your memory (where is ninja)
+- found it. On page 89 (labelled 85) two 74ls393 are cascaded... (baud clock source)
+- please summarize your findings in the project
+- new task: why is this section necessary if bss is zeroed at start? (warm boot vars)
+- when compiled, A is repeatedly set to zero even if it already is. Why? (redundant XOR A,A)
+- yes (add to upstream bug list)
+- can you group variables together that needs to be set to zero at warm boot so they can be just memset?
+- do this in a branch
+- i think all the entries might need to be volatile. what do you think?
+- i want the serial port a routines to be suffixed with _a
+- i saw "rxtail_a_b" did you catch that?
+- test
+- there are now three queues... can the code be made more generic and still be compact?
+- but if the struct is constant and the index is constant wouldn't it resolve to an absolute address?
+- is there a faster way to add an 8 bit value to hl?
+- it should be only the "increment pointer" that needs to know the size of the buffer
+- todo later: Collect all bugs found and prepare them as issues with thorough tests against upstream llvm-z80
+- automatically investigate problems in session found creating tasks and issues as necessary

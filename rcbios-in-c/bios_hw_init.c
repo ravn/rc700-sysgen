@@ -62,7 +62,8 @@ extern DPH dpbase[];
 extern byte dirbf[];
 extern const DPB dpb8;
 extern byte chk0[], chk1[], all0[], all1[];
-extern byte hstact, hstwrt, unacnt, erflag, cform, lstdsk;
+extern byte unacnt, cform, lstdsk;
+/* hstact, hstwrt, erflag are accessed via wb macros from bios.h */
 
 /* ================================================================
  * Interrupt vector table — function pointer array

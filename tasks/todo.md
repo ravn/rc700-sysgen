@@ -166,6 +166,21 @@ logic is missing. The original RC702 BIOS explicitly did NOT support IOBYTE.
 - [ ] Test with generic Kermit-80 in MAME
 - [ ] Verify file transfer over serial
 
+## Upstream bug reports for jacobly0/llvm-z80
+
+Collect all codegen bugs found during BIOS/PROM work and file them as
+issues against the upstream jacobly0/llvm-z80 with thorough test cases
+(XFAIL lit tests). Do NOT submit pull requests — some bugs may be
+side-effects of less-researched features and a fresh fix effort by the
+upstream maintainer will likely produce better code.
+
+Known bugs to file:
+- [ ] #69: Comparison reversal peephole erases live-out register (fixed in ravn fork)
+- [ ] #65: PostRACompareMerge wrongly treats CP variants as setsZForA
+- [ ] #67: Pre-existing lit test failures (cmp-eq-regpressure, fib, interrupt, shift-opt, spill-regclass)
+- [ ] Redundant XOR A,A when A already holds 0 across consecutive BSS stores (3B in bios_boot_c)
+- [ ] Audit ravn/llvm-z80 issues list for others that affect upstream
+
 ## Parked (not working on now)
 - [ ] 58K rel.1.4: 4 ISR-specific auto-labels remain in BIOS_58K_14.MAC (sub_e43dh, lee8ah, lee8bh, lf421h)
 - [ ] VERIFY.COM disassembly: Pascal-compiled disk verification utility (10KB). VERIFY.MAC in RC702E BIOS is a related but separate compilation (4KB app block, missing runtime). Low value — compiler output won't produce readable source.

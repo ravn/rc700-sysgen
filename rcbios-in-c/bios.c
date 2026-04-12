@@ -124,20 +124,20 @@ word trkoff[] = { 2, 2, 0, 0, 0, 0, 0, 0 };
 
 word sp_sav;                  /* saved SP during ISR stack switch */
 
+/* Variables zeroed on every warm boot.  Grouped in a struct so the warm
+ * boot path can memset them in one LDIR instead of 10 individual stores.
+ * cdisk (0x0004) is a CP/M fixed-address variable and stays separate. */
+volatile WarmBootState wb;
+
 /* Keyboard ring buffer (REL30) */
 static byte kbbuf[KBBUFSZ];
-static volatile byte kbhead;   /* write index (ISR updates) */
-static volatile byte kbtail;   /* read index (CONIN updates) */
-static volatile byte kbstat;   /* 0xFF if buffer non-empty, 0x00 if empty */
 static volatile byte cur_dirty; /* non-zero: cursor position needs ISR update */
 
 /* SIO serial ring buffer (REL30)
  * 256-byte page-aligned buffer for SIO Ch.A receiver.
  * Page alignment lets the ISR use H=page, L=index for O(1) addressing.
  * RTS flow control: deassert at RXTHHI used, reassert at RXTHLO used. */
-static byte rxbuf[RXBUFSZ];
-static volatile byte rxhead;   /* write index (RCA ISR updates) */
-static volatile byte rxtail;   /* read index (READER updates) */
+static byte rxbuf_a[RXBUFSZ];
 
 /* SIO Ch.B ring buffer (test console mode).
  * volatile on rxbuf_b: the RX ISR is the only writer in this TU and
@@ -146,8 +146,6 @@ static volatile byte rxtail;   /* read index (READER updates) */
  * dropped.  SDCC's sio_a_rx escapes this because its __naked inline
  * asm store is opaque to the optimizer. */
 static volatile byte rxbuf_b[RXBUFSZ];
-static volatile byte rxhead_b;   /* write index (SIO-B RX ISR updates) */
-static volatile byte rxtail_b;   /* read index (consumer updates) */
 
 /* SIO status flags (0xFF = ready/not busy, 0x00 = busy) */
 static volatile byte prtflg = 0xFF;  /* printer (Ch.B TX) ready */
@@ -186,9 +184,7 @@ static word lsttrk;
 /* Intermediate: seksec >> secshf */
 static byte sekhst;
 
-/* Buffer status */
-byte  hstact;     /* 0=empty, 1=valid */
-byte  hstwrt;     /* 0=clean, 1=dirty */
+/* Buffer status — hstact/hstwrt/erflag are in the wb struct */
 
 /* Unallocated sector tracking */
 byte  unacnt;
@@ -197,8 +193,7 @@ static word unatrk;
 static word unasec;
 static byte  unamsk;
 
-/* I/O operation control */
-byte  erflag;
+/* I/O operation control — erflag is in the wb struct */
 static byte  rsflag;
 static byte  readop;
 static byte  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
@@ -632,18 +627,8 @@ void bios_boot_c(void)
            "sdcc "
 #endif
            BUILDDATE "\r\n");
-    /* todo: single block, easy zero */
     cdisk = 0;
-    hstact = 0;
-    erflag = 0;
-    hstwrt = 0;
-    kbhead = 0;
-    kbtail = 0;
-    kbstat = 0;
-    rxhead = 0;
-    rxtail = 0;
-    rxhead_b = 0;
-    rxtail_b = 0;
+    __builtin_memset((void *)&wb, 0, sizeof(wb));
     readi();
 
     wboot_c();
@@ -729,7 +714,7 @@ void bios_wboot(void) __naked
 
 /* Serial (SIO-A) console primitives for IOBYTE TTY: mode */
 static byte serial_const(void) {
-    return (rxtail != rxhead) ? 0xFF : 0x00;
+    return (rxtail_a != rxhead_a) ? 0xFF : 0x00;
 }
 static byte serial_conin(void) {
     /* Ensure RTS is asserted so host can send.  RTS may be de-asserted
@@ -737,7 +722,7 @@ static byte serial_conin(void) {
      * reasserts when the buffer drains to empty, but if we're called
      * with an empty buffer and RTS=0 (e.g. after warm boot), we'd block
      * forever.  readi() unconditionally arms RTS + receiver interrupts. */
-    if (rxtail == rxhead)
+    if (rxtail_a == rxhead_a)
         readi();
     return bios_reader_body();
 }
@@ -783,7 +768,7 @@ byte bios_conin(void)
     byte con = IOBYTE_CON(iobyte);
     for (;;) {
         if ((con & 1) && kbtail != kbhead) return kbd_dequeue();
-        if ((con != 1) && rxtail != rxhead) return serial_conin();
+        if ((con != 1) && rxtail_a != rxhead_a) return serial_conin();
         hal_halt();
     }
 }
@@ -1404,17 +1389,17 @@ byte bios_reader_body(void)
     case IOB_TTY:
     case IOB_CRT:  /* PTR: SIO-A */
         /* wait for data in ring buffer */
-        while (rxtail == rxhead)
+        while (rxtail_a == rxhead_a)
             ;
 
         /* read character and advance tail */
-        new_tail = (rxtail + 1) & RXMASK;
-        ch = rxbuf[rxtail];
-        rxtail = new_tail;
+        new_tail = (rxtail_a + 1) & RXMASK;
+        ch = rxbuf_a[rxtail_a];
+        rxtail_a = new_tail;
 
         /* reassert RTS only when buffer is empty — ensures the sender
          * pauses long enough for PIP to complete disk writes */
-        if (new_tail == rxhead) {
+        if (new_tail == rxhead_a) {
             port_out(sio_a_ctrl, 0x05);        /* select WR5 */
             port_out(sio_a_ctrl, wr5a + 0x8A); /* DTR=1, TX enable, RTS=1 */
         }
@@ -1450,7 +1435,7 @@ byte bios_reads_body(void)
     switch (IOBYTE_RDR(iobyte)) {
     case IOB_TTY:
     case IOB_CRT:  /* PTR: SIO-A */
-        return (rxtail != rxhead) ? 0xFF : 0x00;
+        return (rxtail_a != rxhead_a) ? 0xFF : 0x00;
     case IOB_BAT:  /* UR1: SIO-B */
         return (rxtail_b != rxhead_b) ? 0xFF : 0x00;
     default:       /* UR2: parked */
@@ -2168,16 +2153,16 @@ void isr_sio_a_rx(void) __naked
 
         ch = port_in(sio_a_data);       /* read char (clears interrupt) */
 
-        new_head = (rxhead + 1) & RXMASK;
+        new_head = (rxhead_a + 1) & RXMASK;
 
-        if (new_head == rxtail)
+        if (new_head == rxtail_a)
             goto rts_off;            /* buffer full — deassert RTS */
 
-        rxbuf[rxhead] = ch;
-        rxhead = new_head;
+        rxbuf_a[rxhead_a] = ch;
+        rxhead_a = new_head;
 
         /* check if buffer is nearly full */
-        used = (new_head - rxtail) & RXMASK;
+        used = (new_head - rxtail_a) & RXMASK;
         if (used < RXTHHI)
             goto done;               /* plenty of room */
 
@@ -2198,8 +2183,8 @@ void isr_sio_a_spec(void) __critical __interrupt(15)
     port_out(sio_a_ctrl, 0x01);   /* select RR1 */
     rr1_a = port_in(sio_a_ctrl);  /* read RR1 */
     port_out(sio_a_ctrl, 0x30);   /* error reset */
-    rxhead = 0;                 /* flush ring buffer */
-    rxtail = 0;
+    rxhead_a = 0;                 /* flush ring buffer */
+    rxtail_a = 0;
 }
 
 /* PIO ch.B (parallel output) ISR — not used on RC702 */
