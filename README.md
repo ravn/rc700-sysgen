@@ -7,6 +7,11 @@ Work in progress!
 
 
 ---
+
+2026-04-12: C-bios now supports IOBYTE.   If a serial terminal connection is present on the printer port, the console is mirrored to that.  This allows for remote controlling while using the terminal port to transfer data.  Both are configured to 38400 baud 8N1.
+
+Claude Code has orchestrated that MAME boots on the z88dk sdcc compiled bios, downloads the clang compiled bios and boots on that.  Both include a build time stamp that is verified from the console output character stream.
+
 2026-03-31: AUTOLOAD and BIOS now compiles with llvm-z80 and boots in MAME.
 
 2026-03-21:  AUTOLOAD and BIOS now in pure C with inline assembly and boots in MAME.  Initial support for working in CLion (non-commercial version).
