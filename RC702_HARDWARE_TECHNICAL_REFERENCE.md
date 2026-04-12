@@ -146,6 +146,25 @@ The PCB schematic (see `docs/PROM_SCHEMATICS.PNG`) shows a solder bridge option 
 0x0F  CTCCH3     - Channel 3 (Floppy controller interrupt)
 ```
 
+**CTC Clock Sources:**
+- **Ch 0, Ch 1 (TRG0/TRG1):** 0.6144 MHz baud rate clock, derived from the
+  19.6608 MHz memory clock by two cascaded 74LS393 dividers (÷2 → 9.8304 MHz,
+  then ÷16 → 0.6144 MHz; ÷32 total). See RC702tech.pdf page 89 (labelled 85).
+  These two channels generate SIO-A and SIO-B baud rate clocks respectively.
+  The same 0.6144 MHz signal also drives the keyboard beep duration timer.
+- **Ch 2 (TRG2):** 8275 CRT controller VRTC (vertical retrace) interrupt.
+- **Ch 3 (TRG3):** µPD765 FDC INTRQ (floppy interrupt).
+
+**Baud rate formula:** `baud = 614400 / (CTC_divisor × SIO_clock_mode)`
+
+With SIO ×16 mode, maximum baud rate = 614400 / (1 × 16) = **38400 baud**.
+SIO ×1 mode is not viable for async (no oversampling for bit-center sampling).
+
+A hardware modification to tap the ÷16 output instead of ÷32 (one wire change
+on the 74LS393 chain) would double the clock to 1.2288 MHz, giving 76800 max,
+but would also require doubling all CONFI baud rate divisors and would change
+the beep pitch.
+
 **CTC Programming Values:**
 - `0x10` - CTC interrupt vector base (Display=0x14, Floppy=0x16)
 - `0xD7` - Mode = interrupt after one count
@@ -855,6 +874,23 @@ serial ports are used for peripherals.
 The system does **not** support the IOBYTE function or the modification of
 logical-physical device assignments via the STAT command.  The system does
 not include the MOVCPM program.
+
+### Serial Baud Rate Limits
+
+Both SIO channels share the same 0.6144 MHz baud rate clock (see CTC section).
+With the CONFI utility, users can select baud rates from 50 to 19200 baud by
+adjusting the CTC divisor and SIO clock mode (×16 or ×64).
+
+The BIOS C rewrite uses CTC count=1 with SIO ×16 for **38400 baud** on both
+channels — the maximum achievable rate with this hardware.
+
+Higher rates are not possible without hardware modification:
+- SIO ×1 mode is not viable for async (no oversampling for start bit detection)
+- Synchronous mode would require a clock wire not present on the RS-232 connector
+- DMA-assisted serial is not possible (SIO has no DREQ output to the Am9517A)
+- The 0.6144 MHz clock could be doubled to 1.2288 MHz by tapping the 74LS393
+  divider chain one stage earlier (÷16 instead of ÷32), but this requires a
+  PCB modification and changes all CONFI baud rate divisors
 
 ### Peripheral Handshake
 
