@@ -172,8 +172,8 @@ typedef struct {
     byte kbhead;               /* keyboard write index */
     byte kbtail;               /* keyboard read index */
     byte kbstat;               /* keyboard status */
-    byte rxhead;               /* SIO-A RX write index */
-    byte rxtail;               /* SIO-A RX read index */
+    byte rxhead_a;             /* SIO-A RX write index */
+    byte rxtail_a;             /* SIO-A RX read index */
     byte rxhead_b;             /* SIO-B RX write index */
     byte rxtail_b;             /* SIO-B RX read index */
     byte hstact;               /* disk cache valid */
@@ -186,8 +186,8 @@ extern volatile WarmBootState wb;
 #define kbhead   wb.kbhead
 #define kbtail   wb.kbtail
 #define kbstat   wb.kbstat
-#define rxhead   wb.rxhead
-#define rxtail   wb.rxtail
+#define rxhead_a wb.rxhead_a
+#define rxtail_a wb.rxtail_a
 #define rxhead_b wb.rxhead_b
 #define rxtail_b wb.rxtail_b
 #define hstact   wb.hstact
