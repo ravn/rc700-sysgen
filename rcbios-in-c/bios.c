@@ -615,8 +615,16 @@ void bios_boot_c(void)
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
-    /* Set IOBYTE before first console output */
-    iobyte = IOBYTE_DEFAULT;
+    /* Detect remote host on SIO-B: check DCD (RR0 bit 3).
+     * Z80-SIO RR0 bit 3 is INVERTED: bit set = DCD asserted = host present.
+     * If connected, use UC1 (joined CRT+serial). Otherwise CRT only. */
+    {
+        byte rr0 = port_in(sio_b_ctrl);
+        if (!(rr0 & 0x08))             /* DCD deasserted — no host */
+            iobyte = IOBYTE_CON_LOCAL;
+        else
+            iobyte = IOBYTE_CON_JOINED;
+    }
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
@@ -627,6 +635,14 @@ void bios_boot_c(void)
            "sdcc "
 #endif
            BUILDDATE "\r\n");
+
+    /* If SIO-B host detected, announce the console serial port.
+     * TODO: make this a runtime switch indicator (e.g. DIP switch or
+     * key held during boot) instead of auto-detect. */
+    if (IOBYTE_CON(iobyte) == IOB_UC1)
+        puts_p("Console also on serial port B at "
+               SIOB_BAUD_STR " 8N1\r\n");
+
     cdisk = 0;
     __builtin_memset((void *)&wb, 0, sizeof(wb));
     readi();
@@ -758,7 +774,7 @@ static byte kbd_dequeue(void)
  *   CRT (1): keyboard only — for pure local operation
  *   BAT (2): batch (BDOS routes to RDR:/LST:, BIOS treats as serial)
  *   UC1 (3): JOINED — both keyboard AND SIO-B serial work simultaneously.
- *            Default mode (IOBYTE_DEFAULT).
+ *            Default mode (IOBYTE_CON_JOINED).
  *
  * SIO-A is NOT used for console — it is dedicated to RDR:/PUN:.
  *
