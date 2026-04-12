@@ -315,6 +315,42 @@ siob-test: bios
 		|| (echo "=== SIO-B direct test FAILED ==="; exit 1)
 
 # ================================================================
+# SIO-B serial console integration test
+# Sends DIR / ASM FILEX / TYPE FILEX.PRN via serial, verifies output
+# appears on both CRT display and serial port.
+# ================================================================
+
+CONSOLE_PORT ?= 4324
+
+siob-console-test: bios
+	@echo "=== SIO-B serial console test ==="
+	cp $(IMG_MAXI) /tmp/bios_c_console.imd
+	$(PATCH) /tmp/bios_c_console.imd $(COMPILER)/bios.cim
+	@rm -f /tmp/siob_console_done /tmp/siob_console_result /tmp/siob_console_serial.txt /tmp/siob_console_crt.txt
+	@echo "Starting console server on port $(CONSOLE_PORT) ..."
+	@python3 -u siob_console_server.py $(CONSOLE_PORT) \
+		> /tmp/siob_console_server.log 2>&1 & echo $$! > /tmp/siob_console_server.pid
+	@sleep 0.5
+	-$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_console.imd \
+		-bitb2 "socket.localhost:$(CONSOLE_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-autoboot_script $(CURDIR)/mame_siob_console_test.lua
+	@if [ -f /tmp/siob_console_server.pid ]; then \
+		kill $$(cat /tmp/siob_console_server.pid) 2>/dev/null; \
+		rm -f /tmp/siob_console_server.pid; \
+	fi
+	@echo ""
+	@echo "--- Server log ---"
+	@cat /tmp/siob_console_server.log 2>/dev/null || echo "(no log)"
+	@echo ""
+	@echo "--- Result ---"
+	@cat /tmp/siob_console_result 2>/dev/null || (echo "(no result)"; exit 1)
+	@head -1 /tmp/siob_console_result | grep -q '^PASS' \
+		&& echo "=== SERIAL CONSOLE TEST PASSED ===" \
+		|| (echo "=== SERIAL CONSOLE TEST FAILED ==="; exit 1)
+
+# ================================================================
 # SIO-B baud rate experiment
 # Usage: make siob-baud BAUD_IDX=0  (38400, baseline)
 #        make siob-baud BAUD_IDX=1  (76800, x1 mode)
