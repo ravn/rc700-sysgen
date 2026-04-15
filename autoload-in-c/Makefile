@@ -110,8 +110,15 @@ CLANG_CFLAGS = --target=z80 -Oz -nostdlib \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -Xclang -target-feature -Xclang +shadow-regs \
 	       -mllvm -disable-lsr \
-	       -Iclang -I. -Wno-gcc-compat -Wno-return-type \
-	       -Wimplicit-int-conversion
+	       -Iclang -I. \
+	       -Weverything \
+	       -Wno-unsafe-buffer-usage \
+	       -Wno-c23-extensions \
+	       -Wno-reserved-macro-identifier \
+	       -Wno-reserved-identifier \
+	       -Wno-gcc-compat \
+	       -Wno-declaration-after-statement \
+	       -Wno-pre-c11-compat
 
 CLANG_OBJS = clang/boot.o clang/intvec.o clang/rom.o clang/runtime.o
 
@@ -121,9 +128,9 @@ clang/prom.bin: $(CLANG_OBJS) clang/rc700_prom.ld
 	$(RUN) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf > clang/prom.lis
 
 clang/banner.h:
-	@STAMP=" CL $$(date '+%Y-%m-%d %H.%M')/$$(whoami) "; \
-	 BANNER=$$(printf "%-42.42s" " RC700$$STAMP"); \
-	 echo "#define CLANG_BANNER \"$$BANNER\"" > $@
+	@BANNER=" RC700 CL $$(date '+%Y-%m-%d %H.%M')/$$(whoami)"; \
+	 echo "#define BUILD_BANNER \"$$BANNER\"" > $@; \
+	 echo "#define BUILD_BANNER_LENGTH $${#BANNER}" >> $@
 
 clang/boot.o: boot_rom.c rom.h clang/banner.h $(CLANG_COMPILER)
 	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -c $< -o $@
@@ -186,8 +193,8 @@ ZLFLAGS = -m --list -create-app -Cz"--org 0" $(ZLIB)
 sdcc/prom.bin: sdcc/sections.asm rom.c rom.h boot_rom.c intvec.c sdcc/peephole.def
 	@mkdir -p sdcc
 	$(Z88DK_DOCKER) sh -c '\
-	STAMP=" ROA375 $$(date "+%Y-%m-%d %H.%M")/$$(whoami) " && \
-	printf '"'"'#define BUILD_STAMP_STR "\\"%s\\""\n#define BUILD_STAMP "%s"\n'"'"' "$$STAMP" "$$STAMP" > sdcc/build_stamp.h && \
+	BANNER=" RC700 ROA375 $$(date "+%Y-%m-%d %H.%M")/$$(whoami)" && \
+	printf '"'"'#define BUILD_BANNER "%s"\n#define BUILD_BANNER_LENGTH %d\n'"'"' "$$BANNER" $${#BANNER} > sdcc/build_stamp.h && \
 	zcc $(ZFLAGS) -Cs"--codeseg BOOT" -c boot_rom.c -o sdcc/boot_rom.o && \
 	zcc $(ZFLAGS) -c intvec.c -o sdcc/intvec.o && \
 	cd sdcc && zcc $(ZFLAGS) $(ZLFLAGS) -o prom0 sections.asm intvec.o ../rom.c boot_rom.o'

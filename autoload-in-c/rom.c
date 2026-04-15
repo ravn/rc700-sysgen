@@ -222,19 +222,21 @@ static void load_chargen(void)
     }
 }
 
-/* banner_string is raw bytes in BOOT, referenced here via extern. */
-
-
-/* Banner string lives in BOOT section (boot_rom.c) to fill padding.
- * The length must match: " RC700 ROA375" (13) + BUILD_STAMP (29) = 42 */
-#define BANNER_LENGTH 42
-extern void banner_string(void);  /* address of raw bytes in BOOT */
+/* Banner string lives in BOOT section (boot_rom.c). */
+#ifdef __SDCC
+#include "sdcc/build_stamp.h"
+#else
+#include "clang/banner.h"
+#endif
+#define BANNER_LENGTH BUILD_BANNER_LENGTH
+extern const char banner_string[];
+#define BANNER_PTR ((const byte *)banner_string)
 
 /* Copy banner from BOOT ROM to display and start CRT controller.
  * Programs DMA ch2 with display address before starting CRT so the
  * first frame renders immediately without waiting for the ISR. */
 static void display_banner_and_start_crt(void) {
-    memcpy(dspstr, (const byte *)&banner_string, BANNER_LENGTH);
+    memcpy(dspstr, BANNER_PTR, BANNER_LENGTH);
     /* Pre-program DMA ch2 for first frame (ISR takes over for subsequent frames) */
     dma_mask(2);                     /* disable ch2 during programming */
     dma_clear_bp();                  /* reset byte pointer flip-flop */
@@ -532,7 +534,7 @@ fdc_command_block fdc_cmd = {0};
 volatile byte floppy_operation_completed_flag = 0;
 byte is_mini = 0;
 byte is_mfm = 0;
-byte is_double_sided = 0;
+static byte is_double_sided = 0;
 byte disk_type = 0;
 byte more_tracks_to_read = 0;
 byte retry_count = 0;
@@ -541,18 +543,14 @@ word dma_transfer_size = 0;
 word bytes_left_to_read = 0;
 byte error_saved = 0;
 
-/* Error/status message strings (non-static for assembly access) */
-const char msg_rc702[] = " RC702";
+static const char msg_rc702[] = " RC702";
 
 /* Infinite loop — never returns.
  * Disable floppy interrupt (CTC ch3) to prevent the floppy ISR from
  * blocking the CRT refresh ISR with its delay loop.
  * Mask DMA ch1 (floppy) to stop stray DMA transfers.
  * Then enable interrupts so the CRT DMA ISR keeps refreshing. */
-#ifdef __clang__
-__attribute__((noreturn))
-#endif
-void halt_forever(void) {
+NORETURN void halt_forever(void) {
     ctc3_write(0x03);   /* disable CTC ch3 interrupt, reset */
     dma_mask(1);
     intrinsic_ei();
@@ -621,7 +619,7 @@ void error_display_halt(byte code) {
  * File-scope global (boot_dir) avoids IX frame pointer. */
 static byte *boot_dir;
 
-void boot_floppy_or_prom(void) {
+static NORETURN void boot_floppy_or_prom(void) {
     if (compare_6bytes((const byte *) RC700_SIG_OFF, (const byte *) " RC700") == 0) {
         boot_dir = (byte *) BOOT_DIR_OFF;
         while ((word) boot_dir < 0x0D00) {
@@ -834,7 +832,13 @@ void syscall(word addr, word de) {
 
 /* ================================================================
  * 6. Interrupt service routines
+ *
+ * Forward declarations here (not in rom.h) because SDCC requires
+ * __interrupt(n) on declarations to match definitions exactly.
  * ================================================================ */
+void nothing_int(void) __interrupt(0);
+void refresh_crt_dma_50hz_interrupt(void) __critical __interrupt(1);
+void floppy_completed_operation_interrupt(void) __critical __interrupt(2);
 
 /* Dummy ISR for unused interrupt vectors (generates EI + RETI). */
 void nothing_int(void) __interrupt(0) {
@@ -880,7 +884,13 @@ void floppy_completed_operation_interrupt(void) __critical __interrupt(2) {
 
 /* Post-relocation entry point.  Called from start() after LDIR copy.
  * Sets SP, I register, IM2, then calls init_peripherals() + main().
- * __naked because we set SP mid-function. */
+ * __naked because we set SP mid-function.
+ * Not marked NORETURN: __naked functions ignore the attribute, and on the
+ * call-site in start() it would prevent the tail-call JP optimization. */
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-noreturn"
+#endif
 void main_relocated(void) __naked
 {
     SET_SP(ROM_STACK);
@@ -898,6 +908,9 @@ void main_relocated(void) __naked
     // ReSharper disable once CppDFAEndlessLoop
     for (;;);  // halt if ever getting back here.
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 
 /* ================================================================

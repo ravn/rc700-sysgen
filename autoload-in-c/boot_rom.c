@@ -25,12 +25,15 @@ extern void main_relocated(void);
 extern char _code_load[], _code_start[], _code_size[];
 extern char _bss_start[], _bss_size[];
 
-/* Banner string — 42 bytes, referenced by display_banner in CODE. */
+/* Banner string — NUL-terminated, referenced by display_banner in CODE.
+ * memcpy copies exactly BUILD_BANNER_LENGTH bytes; the NUL is not transferred. */
 #include "clang/banner.h"
 #ifdef __ELF__
 __attribute__((section(".pagezero.data"), used))
 #endif
-const char banner_string[42] = CLANG_BANNER;
+const char banner_string[] = BUILD_BANNER;
+_Static_assert(sizeof(banner_string) - 1 == BUILD_BANNER_LENGTH, "banner length mismatch");
+_Static_assert(BUILD_BANNER_LENGTH <= 80, "banner must fit in one display line");
 
 /* NMI handler — placed at 0x0066 by linker script (.nmi section). */
 __asm__(
@@ -79,7 +82,9 @@ extern const byte code_end;
 #ifdef __ELF__
 __attribute__((section(".pagezero.text")))
 #endif
-void start(void) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-noreturn"
+void start(void) {  /* not marked noreturn: allows tail-call JP to main_relocated */
     // Executing at 0x0000 - be very careful about library routines
     intrinsic_di();
     SET_SP(ROM_STACK);
@@ -90,6 +95,7 @@ void start(void) {
     // Jump to relocated code.
     main_relocated();
 }
+#pragma clang diagnostic pop
 
 /* ================================================================
  * SDCC-only: banner and NMI padding
@@ -97,12 +103,9 @@ void start(void) {
 
 #ifdef __SDCC
 
-/* Banner string */
+/* Banner string — normal NUL-terminated C string in BOOT section */
 #include "sdcc/build_stamp.h"
-void banner_string(void) __naked {
-    __asm__("DEFM \" RC700\"\n"
-            "DEFM " BUILD_STAMP_STR "\n");
-}
+const char banner_string[] = BUILD_BANNER;
 
 /* Pad to NMI vector at 0x0066 */
 void pad_to_nmi_retn(void) __naked {

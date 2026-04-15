@@ -26,13 +26,17 @@
 #define __interrupt(n) __attribute__((interrupt))
 #define __critical
 #define __naked
-#elif !defined(__SDCC)
+#define NORETURN __attribute__((noreturn))
+#elif defined(__SDCC)
+#define NORETURN
+#else
 /* Host compiler / IDE — no-op SDCC keywords */
 #define __sfr volatile unsigned char
 #define __at(x)
 #define __interrupt(x)
 #define __critical
 #define __naked
+#define NORETURN __attribute__((noreturn))
 #endif
 
 typedef uint8_t  byte;
@@ -344,10 +348,17 @@ byte fdc_detect_sector_size_and_density(void);
 void error_display_halt(byte code);
 void floppy_legacy_boot(void);
 void prom1_if_present(void);
-void halt_forever(void);
+NORETURN void halt_forever(void);
 byte compare_6bytes(const byte *a, const byte *b);
 byte check_sysfile(const byte *dir, const char *pattern);
 void syscall(word addr, word de);
 
+/* entry points and linker-visible symbols */
+void start(void);
+void main_relocated(void);
+extern const byte code_end;
+#if defined(__z80__)
+extern const char banner_string[];
+#endif
 
 #endif /* ROM_H */
