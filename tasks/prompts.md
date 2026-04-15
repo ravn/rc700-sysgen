@@ -1,11 +1,23 @@
 
-## Session 18 (2026-04-13/15) — Clean room BIOS Q&A + implementation guide
+## Session 18 (2026-04-13/15) — Clean room BIOS Q&A + CP/NET roadmap
 
 - Answer FDC driver questions for another Claude instance doing clean room reimplementation
 - Do not provide code, only behavioral descriptions
-- Questions covered: MSR polling, SEEK vs implied seek, CTC Ch.3 interrupt delivery, DMA flip-flop race condition, ISR register saves, DPB/DPH layout, deblocking parameters, MAME configuration
-- Analyze SPECIFICATION_FEEDBACK.md from the other instance, identify errors
-- Create CLEAN_ROOM_IMPLEMENTATION_GUIDE.md with verified answers and corrections
+- Questions covered: MSR polling, SEEK vs implied seek, CTC Ch.3 interrupt delivery,
+  DMA flip-flop race condition (root cause of intermittent hangs), ISR register saves
+  (AF/BC/DE/HL only, not IX/IY), DPB/DPH layout, deblocking parameters, MAME config
+- Key finding: DMA byte-pointer flip-flop is global — display ISR clearing it during
+  mainline FDC DMA programming corrupts channel 1 address/count.  Fix: DI/EI around
+  all DMA programming.
+- Analyze SPECIFICATION_FEEDBACK.md — identified errors: CTC Ch.3 doesn't need
+  re-arming (auto-reload works), __critical __interrupt(N) is fine with the N parameter,
+  ISR doesn't read DMA status register
+- Create docs/CLEAN_ROOM_IMPLEMENTATION_GUIDE.md with verified answers and corrections
+- Clean room reimplementation on hold
+- New plan: CP/NET on SIO-A (data) with console on SIO-B, test against z80pack MP/M
+  server via TCP in MAME, then physical hardware, then parallel port, then CP/NOS in PROM
+- z80pack already forked at ravn/z80pack with NETWRKIF bug fixes
+- Created tasks/cpnet-next-steps.md with phased plan (A through E)
 
 ## Session 17 (2026-04-11/12) — SIO-B receive + baud rate experiments
 
