@@ -1,4 +1,12 @@
 
+## Session 18 (2026-04-13/15) — Clean room BIOS Q&A + implementation guide
+
+- Answer FDC driver questions for another Claude instance doing clean room reimplementation
+- Do not provide code, only behavioral descriptions
+- Questions covered: MSR polling, SEEK vs implied seek, CTC Ch.3 interrupt delivery, DMA flip-flop race condition, ISR register saves, DPB/DPH layout, deblocking parameters, MAME configuration
+- Analyze SPECIFICATION_FEEDBACK.md from the other instance, identify errors
+- Create CLEAN_ROOM_IMPLEMENTATION_GUIDE.md with verified answers and corrections
+
 ## Session 17 (2026-04-11/12) — SIO-B receive + baud rate experiments
 
 - do sio-b in mame
