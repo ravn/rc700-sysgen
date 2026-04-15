@@ -207,7 +207,7 @@ byte  drno;        /* highest drive number */
 
 /* Physical disk control */
 static byte  dskno;       /* drive + head select bits */
-static word dskad;       /* DMA address for FDC */
+static byte *dskad;      /* DMA address for FDC */
 static byte  actra;       /* actual track */
 static byte  acsec;       /* actual sector (1-based) */
 static byte  repet;       /* retry counter */
@@ -369,7 +369,7 @@ static void flp_dma_setup(void)
         ? DMA_MODE_MEM2IO(DMA_CH_FLOPPY)   /* disk write: mem→FDC */
         : DMA_MODE_IO2MEM(DMA_CH_FLOPPY)); /* disk read:  FDC→mem */
     port_out(dma_clbp, 0);
-    hal_dma_flp_addr(dskad);
+    hal_dma_flp_addr((word)dskad);
     hal_dma_flp_wc(dma_count);
     port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_FLOPPY));
     hal_ei();
@@ -414,7 +414,7 @@ static void chktrk(void)
     tp = trantb;
     acsec = tp[sec];
     actra = (byte)hsttrk;
-    dskad = (word)&hstbuf[0];
+    dskad = &hstbuf[0];
 
     /* check if seek needed */
     if (hstdsk == lstdsk && hsttrk == lsttrk)
