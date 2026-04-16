@@ -200,10 +200,78 @@ a BSS debug buffer (dbg_idx at 0xDFE1, dbg_buf at 0xDFE2, 252 bytes / 63 entries
       verify_skew.py, checking CP/M TCAP field layout matches manual §7.2.
 
 ### Build CCP+BDOS from source and inject on track 1
-- [ ] Assemble `cpm/OS2CCP.ASM` (CCP) and `cpm/OS3BDOS.ASM` (BDOS)
-      from DRI CP/M 2.2 sources. Reference: https://www.jbox.dk/rc702/index.shtm
-      Pick an assembler that matches DRI syntax (zmac --dri, MAC, or m80)
-      and figure out the origin flags: CCP origin = 0xC400, BDOS follows.
+- [x] Assemble `cpm/OS2CCP.ASM` (CCP) and `cpm/OS3BDOS.ASM` (BDOS)
+      from DRI CP/M 2.2 sources. Reference: https://www.jbox.dk/rc702/cpm.shtm
+      Assembler: zmac `-8 --dri` (MAC-compatible, 8080 mnemonics).
+      Origin: CCP at 0xC400, BDOS at 0xCC00.
+
+**Two zmac bugs found and fixed** (patch file: `zmac/zmac_dri_fixes.patch`):
+  - `!` after `;` was treated as comment content; DRI MAC treats it
+    as a statement separator that ends the comment.  Without this
+    fix, `nosub: ;no submit file! call del$sub` (OS2CCP line 229)
+    silently drops the `call del$sub`, causing ~14B drift through
+    the rest of the file.
+  - Continuation lines after `!` could start at column 0 with no
+    whitespace before the mnemonic, making zmac parse the mnemonic
+    as a label.  Fix: prepend a space to continuation lines in
+    `--dri` mode.  Triggered by `cmp b!inx h` (OS3BDOS line 1688).
+
+**OS3BDOS.ASM now includes `patch1 equ on`** — the well-known DRI
+  CP/M 2.2 Patch #1 (optional blocking/deblocking BIOS).  Required
+  to match RC702 system disks byte-for-byte.  See
+  https://github.com/brouhaha/cpm22/blob/main/bdos.asm for the
+  conditional-assembly reference.
+
+**Result**: CCP+BDOS assembled from `cpm/*.ASM` matches SW1711-I8.imd's
+  track-1 CCP+BDOS byte-for-byte EXCEPT for the 6-byte DRI serial
+  stamp (3 bytes at CCP offset 0x328 / mem 0xC728 + 3 bytes at BDOS
+  start / mem 0xCC00).
+
+### Decoded DRI serial format (confirmed on 14 RC702/RC703 disks)
+
+6-byte layout per CCP's `serialize:` check (OS2CCP.ASM line 273):
+```
+  byte 0:   manufacturer code, low byte
+  byte 1:   version code (0x16 = CP/M 2.2)
+  byte 2:   manufacturer code, high byte
+  bytes 3-5: per-disk serial, 24-bit big-endian
+```
+
+Regnecentralen's DRI-assigned manufacturer code is `0x08D5 = 2261`.
+(Not in the public retrotechnology.com registry — this is a new
+data point for CP/M-serial research.)
+
+The 6-byte stamp appears in TWO places (CCP `serial:` field at
+0xC728 and BDOS start at 0xCC00) and MUST match between them.
+CCP's `userfunc` calls `serialize` before running any `.COM`,
+which byte-compares the two stamps and halts the machine via
+`di! hlt` (badserial handler, OS2CCP line 477) if they differ.
+Built-in commands (DIR, ERA, TYPE, SAVE, REN, USER) don't trigger
+the check.
+
+**Survey data** (bytes 3-5 per disk, big-endian decimal = printed serial):
+```
+  SW1711-I8                  00 00 00   →      0   (master, label "2773")
+  SW1311-I8 Piccolo 703      00 0A 07   →   2567
+  Compas 2.13DK (SW7803/2)   00 02 EA   →    746
+  CPM rel 2.1 (MINI)         00 05 EA   →   1514
+  CPM rel 2.2 (MINI)         00 00 00   →      0   (master)
+  CPM med COMAL80            00 00 01   →      1
+  SW1711-I5 r1.4             00 03 7C   →    892   label "0892" ✓
+  SW1711-I5 r2.0             00 00 00   →      0   (master)
+  SW1711-I5 r2.1             00 0B 9C   →   2972   label "2972" ✓
+  SW1711-I5 r2.2             00 0E 14   →   3604   label "3604" ✓
+  SW1711-I5 r2.3             00 10 9C   →   4252
+  SW1711-I5 copy             00 0B D6   →   3030
+  RC703 r1.2                 00 13 89   →   5001
+```
+(COMAL_v1.07_SYSTEM_RC702 had all-zero bytes including manufacturer
+— anomalous, possibly not a standard CP/M install.)
+
+**Masters** are the four disks with serial 0 (no per-copy stamp).
+They're templates RC kept to press duplicates from.
+
+- [ ] Figure out the RC702 track-1 layout for CCP+BDOS (the bytes
 - [ ] Figure out the RC702 track-1 layout for CCP+BDOS (the bytes
       that the warm-boot BIOS reads back into 0xC400-0xD9FF — 44
       sectors × 128 bytes = 5632 bytes per current BIOS).

@@ -1,0 +1,36 @@
+--- /tmp/zmac_pristine/src/zmac.y	2022-10-18 11:34:38
++++ /Users/ravn/z80/rc700-gensmedet/zmac/download/src/zmac.y	2026-04-16 21:58:21
+@@ -5807,8 +5807,16 @@
+ 		mc_quote = '*';
+ 
+ 	mc_first = 0;
+-	if (ch == separator && mc_quote < 0)
++	/* DRI MAC.COM: '!' always terminates a comment and starts a new
++	 * statement.  Without this, input like
++	 *     nosub: ;no submit file! call del$sub
++	 * drops the second statement, producing different byte counts
++	 * than MAC produces.  See OS2CCP.ASM line 229 for an example. */
++	if (ch == separator && (mc_quote < 0 || (driopt && mc_quote == ';'))) {
++		if (mc_quote == ';')
++			mc_quote = -1;
+ 		return 1;
++	}
+ 
+ 	return 0;
+ }
+@@ -5939,6 +5947,15 @@
+ 	else {
+ 		start_multi_check();
+ 
++		/* DRI MAC: if the previous line ended with a '!' statement
++		 * separator, the continuation shouldn't be parsed as starting
++		 * at column 0 (which would make mnemonics look like labels).
++		 * Prepend a space so "cmp b!inx h" → line "inx h" reads with
++		 * a leading space, same as "cmp b! inx h" would.
++		 * See OS3BDOS.ASM line 1688 for a triggering case. */
++		if (driopt && prev_multiline)
++			*p++ = ' ';
++
+ 		for (;;) {
+ 			ch = nextline_peek != NOPEEK ? nextline_peek : getc(now_file);
+ 			nextline_peek = NOPEEK;

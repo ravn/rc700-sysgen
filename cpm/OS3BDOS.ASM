@@ -22,6 +22,19 @@
 on	equ	0ffffh
 off	equ	00000h
 test	equ	off
+;  patch1: enable "CP/M V2.2 patch 1" (optional blocking/deblocking
+;  support at diskwr2).  Replaces the record-count dcr/jnz sequence
+;  with nop/nop/lxi h,0 so a blocking/deblocking BIOS controls record
+;  accounting.  Required to match the byte layout of standard RC702
+;  system disks (e.g. SW1711-I8.imd).
+;
+;  Reference: brouhaha's cpm22 repo carries the patch1 conditional
+;  verbatim from DRI's CP/M 2.2 Alteration Guide:
+;    https://github.com/brouhaha/cpm22/blob/main/bdos.asm
+;  The RC702 BIOS is a blocking/deblocking BIOS (128B CP/M logical
+;  sectors packed into 256B/512B physical sectors), so patch1=on
+;  is the correct configuration for this project.
+patch1	equ	on
 ;
 	if	test
 	org	0dc00h
@@ -1701,7 +1714,14 @@ diskwrite:	;(may enter here from seqdiskwrite above)
 		mvi c,2 ;mark as record count incremented
 	diskwr2:
 	;A has vrecord, C=2 if new block or new record#
+	if	patch1
+	;  CP/M V2.2 patch 1 for optional blocking/deblocking BIOS:
+	;  the BIOS handles record accounting, so skip the dcr/jnz.
+	;  https://github.com/brouhaha/cpm22/blob/main/bdos.asm
+	nop! nop! lxi h,0
+	else
 	dcr c! dcr c! jnz noupdate
+	endif
 		push psw ;save vrecord value
 		call getmodnum ;HL=.fcb(modnum), A=fcb(modnum)
 		;reset the file write flag to mark as written fcb
