@@ -14,8 +14,41 @@
 - [ ] Enable RTS flow control
 
 ### MINI (5.25") support
-- [ ] Currently 513 bytes over MINI limit (6657 vs 6144)
-- [ ] Optimize code size or conditionally exclude features
+
+**Status: not functional.** Two independent blockers:
+
+1. **BIOS too big for MINI ROM slot.** Current BIOS is 6657 bytes, MINI
+   limit is 6144 — over by 513 bytes. Needs code-size reduction or
+   conditional feature exclusion before MINI builds are viable.
+2. **`dpb_mini_512` primitives are wrong for MINI data tracks.**
+   Discovered 2026-04-16 while introducing the DISKDEF macro. The current
+   primitives `DISKDEF(26, 128, 1, 1024, 243, 64, 1, 0)` describe an
+   FM-128B 26-spt single-sided format — matches an 8"-style track 0
+   layout but NOT the real 5.25" MINI data tracks (which are
+   `9 sectors × 512 B/S × 2 sides = 72 CP/M sectors/track`, likely
+   BLS=2048). Reaching this DPB via `fd0[drive] = 0x10` and reading a
+   data track would misbehave — either report wrong capacity, mis-
+   translate sectors, or read garbage.
+
+**Selection mechanism (for reference):** `fspa[(fd0[drive] >> 3) & 3]`
+maps format codes to FSPA entries. `fd0 = 0x10` selects FSPA[2] which
+holds `dpb_mini_512`. Default CONFI (boot_confi.c) has fd0 = {0x08,
+0x08, 0x20, 0xFF, ...} — so dpb_mini_512 is **never reached with the
+shipped CONFI**, only when MAME boots the `rc702mini` target with a
+MINI-system disk whose embedded CONFI has 0x10 entries.
+
+**Todo for when MINI is unblocked:**
+- [ ] Shrink the BIOS by 513 bytes (see `tasks/bios-size-issues.md`)
+- [ ] Replace `dpb_mini_512` primitives with real MINI data-track
+      geometry. Rough sketch: `DISKDEF(9, 512, 2, 2048, ??, 64, 1, 0)`.
+      DSM computation needs the actual MINI data-track count (34 tracks
+      × 9 spt × 512 / 2048 = 76.5 blocks/track × 34 = hmm, depends on
+      exact disk geometry — verify from the RC702 manual before
+      committing numbers).
+- [ ] Verify MAME `rc702mini` boot with a real MINI system disk once
+      both blockers are resolved.
+- [ ] Reconcile the existing comment "5.25" DD 512 B/S (MINI)" in
+      bios.c with whatever the final primitives turn out to be.
 
 ### Integration testing — BUG: TYPE/STAT/ASM produce no output
 - [x] DIR works correctly (lists files on maxi 8" disk)
