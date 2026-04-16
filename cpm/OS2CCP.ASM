@@ -399,6 +399,13 @@ intvec:
 	db	'REN '
         db      'USER'
 	intlen equ ($-intvec)/4 ;intrinsic function length
+	;  DRI CP/M 2.2 serial stamp.  Zero default — CCP's serialize
+	;  routine compares this field byte-for-byte against the 6
+	;  bytes at the start of BDOS (0xCC00); both sides being zero
+	;  pass the check (0 == 0) so the raw build boots and runs.
+	;  The serial.hex overlay produced by ../cpm/Makefile stamps the
+	;  real serial (Regnecentralen vendor code + per-disk serial)
+	;  when composed with MLOAD.
 	serial: db 0,0,0,0,0,0
 ;
 ;
