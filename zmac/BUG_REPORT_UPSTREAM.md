@@ -1,5 +1,8 @@
 # Bug report for zmac upstream
 
+**Send to:** george -at- 48k.ca (zmac maintainer)
+**Project home:** http://48k.ca/zmac.html
+
 **Title:** `--dri` mode: silent byte drift when assembling DRI CP/M 2.2
 sources (OS2CCP, OS3BDOS)
 
