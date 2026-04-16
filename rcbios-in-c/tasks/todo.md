@@ -233,3 +233,25 @@ trusting (the original was written long ago, not reviewed since).
 - ZCPR3 installation manual: https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/zcpr3_installation_manual.pdf
 - ZCPR 3.3 User's Guide (Jay Sage): http://gaby.de/ftp/pub/cpm/znode51/specials/manuals/zcpr3.pdf
 - Z-System downloads (Gaby): http://www.gaby.de/edownf.htm
+
+## Parked ideas (rough notes, no detail)
+
+These lived as Claude memory entries but the detail files have been lost over
+time — only the one-line summaries survive. Recorded here so the ideas don't
+vanish entirely.
+
+### z88dk `regnecentralen` library additions
+TODO: SEM702 chargen, serial parameter helpers, cursor control helpers,
+extended BIOS call wrappers. (Index description only; detail lost.)
+
+### CP/NET client in PROM
+CP/NET over the parallel port → diskless CP/NOS client in the autoload PROM.
+Roadmap sketch only; detail lost.
+
+## Deferred (do not resume until the user says so)
+
+### Circular DMA scroll (zero-copy via ch2/ch3 split)
+Postponed because MAME testing showed flickering. The current memcpy_z80
+scroll (16× LDI Duff's device) stays in use. The zero-copy approach needs
+validation on real RC700 hardware before being worth reviving — MAME's
+timing model may not faithfully reproduce the 8275 DRQ interaction.

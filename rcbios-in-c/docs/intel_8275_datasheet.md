@@ -646,3 +646,29 @@ Status Read (A0=1):  0  IE  IR  LP  IC  VE  DU  FO
 
 8275: max CCLK = 2.08 MHz (480 ns period)
 8275-2: max CCLK = 3.125 MHz (320 ns period)
+
+## References and cross-references
+
+### Alternate datasheet PDF mirrors (in case one goes down)
+- bitsavers 1984: https://bitsavers.org/components/intel/8275/1984_8275.pdf (primary — this transcription)
+- bitsavers 1979: https://bitsavers.org/components/intel/8275/1979_8275.pdf
+- bitsavers 1981 design guide: https://bitsavers.org/components/intel/8275/1981_8275_design.pdf
+- elektronikjk.pl mirror: http://www.elektronikjk.pl/elementy_czynne/IC/8275.pdf
+- jbox.dk (RC702 hardware archive): https://www.jbox.dk/rc702/hardware/intel-8275.pdf
+
+All are scanned image PDFs. Use Docker poppler to render for transcription:
+```
+docker run --rm -v /tmp:/data minidocks/poppler pdftoppm -png -r 300 /data/file.pdf /data/out
+```
+
+### CP/M 2.2 Manual (for BIOS interaction context)
+- PDF: http://www.cpm.z80.de/manuals/cpm22-m.pdf
+- Browsable HTML: https://www.cpm.z80.de/manuals/archive/cpm22htm/
+
+### Where the 8275 is used in this codebase
+- `bios.h:481-504` — ConfiBlock `par1-par4` bit field documentation (reset parameters)
+- `roa375/roa375.asm:428-436` — 8275 reset parameter bytes with comments (original ROA375 PROM)
+- `rcbios/ANALYSIS.md:613-631` — PAR1-PAR4 field table from the reverse-engineered BIOS
+
+### External writeups
+- eeeguide.com overview: https://www.eeeguide.com/internal-architecture-of-8275-crt-controller/
