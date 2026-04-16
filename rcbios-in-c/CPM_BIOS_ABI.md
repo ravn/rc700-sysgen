@@ -25,7 +25,7 @@ The BIOS always receives the character in **C**, never in E.
 | 6 | PUNCH   | +12h   | C = character                      | none                             |
 | 7 | READER  | +15h   | none                               | A = character (or 1Ah if none)   |
 | 8 | HOME    | +18h   | none                               | none                             |
-| 9 | SELDSK  | +1Bh   | C = drive (0-15), E bit0 = login   | HL = DPH address (0 = error)     |
+| 9 | SELDSK  | +1Bh   | C = drive (0-15), E bit0 = login   | HL = disk_parameter_header address (0 = error)     |
 |10 | SETTRK  | +1Eh   | BC = track number (16-bit)         | none                             |
 |11 | SETSEC  | +21h   | BC = translated sector (16-bit)    | none                             |
 |12 | SETDMA  | +24h   | BC = DMA address (16-bit)          | none                             |

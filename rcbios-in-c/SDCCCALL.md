@@ -130,7 +130,7 @@ uint16_t bios_seldsk_c(uint8_t drive);
 /* __z88dk_fastcall: returns in HL — matches CP/M directly */
 uint16_t seldsk_fc(uint8_t drive) __z88dk_fastcall {
     /* drive arrives in L, return value goes in HL */
-    return dpbase_addr;   /* HL = DPH pointer, matches CP/M */
+    return dpbase_addr;   /* HL = disk_parameter_header pointer, matches CP/M */
 }
 ```
 
@@ -154,7 +154,7 @@ that return 8-bit status — use normal sdcccall(1) which returns in A.
 | `bios_settrk` | BC→var | none | Yes (BC≠HL) |
 | `bios_setsec` | BC→var | none | Yes (BC≠HL) |
 | `bios_setdma` | BC→var | none | Yes (BC≠HL) |
-| `bios_seldsk` | C=drive | HL=DPH | Yes (BC param + HL return) |
+| `bios_seldsk` | C=drive | HL=disk_parameter_header | Yes (BC param + HL return) |
 | `bios_sectran` | BC=sec | HL=sec | Yes (BC→HL identity) |
 | `bios_read` | none | A | Stack switch needed |
 | `bios_write` | C=type | A | Stack switch needed |
@@ -170,9 +170,9 @@ matching CP/M. But `bios_const` needs volatile access patterns and `bios_listst`
 Of 14 `__naked` BIOS entry points, the reasons for asm break down as:
 
 **BC parameter mismatch (4 functions)** — would be pure C if sdcccall accepted BC:
-- `bios_settrk` — `{ sektrk = track; }` (currently `ld (sektrk),bc; ret`)
-- `bios_setsec` — `{ seksec = sector; }` (currently `ld (seksec),bc; ret`)
-- `bios_setdma` — `{ dmaadr = addr; }` (currently `ld (dmaadr),bc; ret`)
+- `bios_settrk` — `{ cpm_track = track; }` (currently `ld (cpm_track),bc; ret`)
+- `bios_setsec` — `{ cpm_sector = sector; }` (currently `ld (cpm_sector),bc; ret`)
+- `bios_setdma` — `{ cpm_dma_addr = addr; }` (currently `ld (cpm_dma_addr),bc; ret`)
 - `bios_sectran` — `{ return sector; }` (currently `ld h,b; ld l,c; ret`)
 
 **Stack switch required (5 functions)** — must run on BIOS stack (0xF500), not
@@ -310,9 +310,9 @@ call sites, whether it's on a hot path (disk I/O), and net size impact.
 
 | Function | Body | Calls | Why not |
 |----------|------|-------|---------|
-| `clfit` | 7B | 11 | 3 instructions (DI, store, EI). 11 call sites × ~4B = +44B for negligible speed gain — not on a tight loop. |
-| `watir` | 5B | 3 | Busy-wait on `fl_flg`. Only 3 calls, but the wait itself dominates — saving 27T on entry is meaningless vs thousands of loops. |
-| `wfitr` | 6B | 8 | Calls `watir` + `clfit`. Inlining would expand both, compounding size cost. |
+| `fdc_irq_arm` | 7B | 11 | 3 instructions (DI, store, EI). 11 call sites × ~4B = +44B for negligible speed gain — not on a tight loop. |
+| `fdc_irq_wait` | 5B | 3 | Busy-wait on `fdc_irq_fired`. Only 3 calls, but the wait itself dominates — saving 27T on entry is meaningless vs thousands of loops. |
+| `fdc_irq_wait_rearm` | 6B | 8 | Calls `fdc_irq_wait` + `fdc_irq_arm`. Inlining would expand both, compounding size cost. |
 | `fdstop` | 8B | 1 | Called once — no benefit from inlining. |
 | `fdc_recalibrate` | ~20B | 2 | Too large to inline, and not called in the sector read/write hot path. |
 | `fdc_sense_int` | ~30B | 2 | Too large, contains a loop. |

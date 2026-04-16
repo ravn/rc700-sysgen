@@ -32,7 +32,7 @@ else
   CLANG_BIN = $(LLVM_Z80)/build/bin/clang
 endif
 
-CFLAGS = --target=z80 -Oz -g -nostdlib -ffreestanding \
+CFLAGS = --target=z80 -Oz -g -nostdlib -ffreestanding -std=c23 \
 	 -ffunction-sections -fdata-sections \
 	 -Xclang -target-feature -Xclang +static-stack \
 	 -mllvm -disable-lsr \

@@ -130,7 +130,7 @@ differences on 64-bit, unused functions in `#ifndef HOST_TEST` blocks).
 - `bios_boot` / `bios_wboot` (2) — set SP then JP, no return
 - `bios_settrk` / `bios_setsec` / `bios_setdma` (3) — CP/M passes value in BC, single `ld (var),bc` + ret
 - `bios_sectran` (1) — return BC in HL, single instruction + ret
-- `bios_wfitr` tail (1) — load rstab[0]→B, rstab[1]→C for CP/M ABI
+- `bios_wfitr` tail (1) — load fdc_result[0]→B, fdc_result[1]→C for CP/M ABI
 - `bios_linsel` entry (1) — store A→ls_port, B→ls_line (ABI bridge)
 - SIO init (1) — OTIR to ports 0x0A/0x0B (no C equivalent for OTIR)
 
@@ -156,10 +156,10 @@ Analysis of remaining raw pointer patterns that could use cleaner C constructs:
 are contiguous in z88dk_section_layout.asm. Declaring as `extern byte ctc_config[8]` allows
 `ctc_config[2]` indexing.
 
-**Priority 2 — DPH struct** (`bios_hw_init` lines 663-672, `bios_seldsk` lines 1434-1438):
-`dpbase[d * 8]` with magic offsets 0-7 could be a proper CP/M DPH struct:
+**Priority 2 — disk_parameter_header struct** (`bios_hw_init` lines 663-672, `bios_seldsk` lines 1434-1438):
+`dph_table[d * 8]` with magic offsets 0-7 could be a proper CP/M disk_parameter_header struct:
 ```c
-typedef struct { word xlt, scratch[3], dirbf, dpb, chk, alv; } DPH;
+typedef struct { word xlt, scratch[3], dirbf, disk_parameter_block, chk, alv; } disk_parameter_header;
 ```
 Eliminates magic numbers; compile-time layout checking.
 
@@ -201,7 +201,7 @@ relocation, and JP table; everything else is C.
   tables (384 bytes), included as BINARY directives at disk offset 0x080.
 - **bios.c**: All BIOS entry points, ISRs, IVT (C function pointer array), and disk
   data tables
-- **bios.h**: Constants, memory layout (MSIZE-derived), `WorkArea`/`JTVars`/`DPB`/
+- **bios.h**: Constants, memory layout (MSIZE-derived), `WorkArea`/`JTVars`/`disk_parameter_block`/
   `FSPA`/`FDF`/`ConfiBlock` structs, `byte`/`word` typedefs
 - **hal.h**: Hardware abstraction (`__sfr __at` port I/O, `hal_di`/`hal_ei`/`hal_halt` macros)
 - **peephole.def**: SDCC peephole optimizer rules
@@ -425,11 +425,11 @@ avoid linker placement errors.
 
 ### Disk data tables
 
-Translation tables (`tran0`–`tran24`), Disk Parameter Blocks (`dpb0`–`dpb24`),
+Translation tables (`xlt_maxi_128`–`xlt_identity`), Disk Parameter Blocks (`dpb_maxi_128`–`dpb_maxi_256`),
 Floppy Disk Format descriptors (`fdf[4]`), Floppy System Parameters (`fspa[4]`),
 and track offsets (`trkoff[]`) are defined as typed C arrays/structs in bios.c.
-The `form` pointer (`const FDF *`) provides struct-based access to FDF fields
-(`form->dma_count`, `&form->mf`), replacing raw byte offset arithmetic.
+The `current_format` pointer (`const FDF *`) provides struct-based access to FDF fields
+(`current_format->dma_count`, `&current_format->mf`), replacing raw byte offset arithmetic.
 
 ## Testing
 

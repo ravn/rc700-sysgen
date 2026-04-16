@@ -37,7 +37,7 @@ void bios_conout_c(byte c);
 void bios_list_body(byte c);
 void bios_punch_body(byte c);
 byte bios_reader_body(void);
-DPH *bios_seldsk_c(byte drv);
+disk_parameter_header *bios_seldsk_c(byte drv);
 static byte xread(void);
 void bios_home(void);
 
@@ -69,50 +69,45 @@ void isr_pio_par(void) __interrupt(17);
  * Disk data tables
  * ================================================================ */
 
-/* Sector translation tables */
-const byte tran0[] = {                  /* 8" SS 128 B/S, skew 6 */
-    1,7,13,19, 25,5,11,17, 23,3,9,15,
-    21,2,8,14, 20,26,6,12, 18,24,4,10, 16,22
+/* Sector translation (interleave) tables.
+ * Entry i (0-based) = physical sector for logical sector i (1-based result).
+ * Verified against the CP/M skew algorithm by verify_skew.py on every build. */
+const byte xlt_maxi_128[] = {    /* spt=26, skew=6 — 8" FM 128 B/S (boot track) */
+     1,  7, 13, 19, 25,  5, 11, 17, 23,  3,  9, 15, 21,
+     2,  8, 14, 20, 26,  6, 12, 18, 24,  4, 10, 16, 22
 };
-const byte tran8[] = {                  /* 8" DD 512 B/S, skew 4 */
-    1,5,9,13, 2,6,10,14, 3,7,11,15, 4,8,12
+const byte xlt_maxi_512[] = {    /* spt=15, skew=4 — 8" DD 512 B/S (data area) */
+     1,  5,  9, 13,  2,  6, 10, 14,  3,  7, 11, 15,  4,  8, 12
 };
-const byte tran16[] = {                 /* 5.25" DD 512 B/S, skew 2 */
-    1,3,5,7, 9,2,4,6, 8
+const byte xlt_mini_512[] = {   /* spt=9,  skew=2 — 5.25" DD 512 B/S */
+     1,  3,  5,  7,  9,  2,  4,  6,  8
 };
-const byte tran24[] = {                 /* 8" DD 256 B/S, no translation */
-    1,2,3,4, 5,6,7,8, 9,10,11,12,
-    13,14,15,16, 17,18,19,20, 21,22,23,24, 25,26
-};
-
-/* Disk Parameter Blocks */
-const DPB dpb0 = {                      /* 8" SS 128 B/S (IBM standard) */
-    26, 3, 7, 0, 242, 63, 192, 0, 16, 2
-};
-const DPB dpb8 = {                      /* 8" DD 512 B/S (data area) */
-    120, 4, 15, 0, 449, 127, 192, 0, 32, 2
-};
-const DPB dpb16 = {                     /* 5.25" DD 512 B/S */
-    26, 3, 7, 0, 242, 63, 192, 0, 16, 0
-};
-const DPB dpb24 = {                     /* 8" DD 256 B/S (track 0 side 1) */
-    104, 4, 15, 0, 471, 127, 192, 0, 32, 0
+const byte xlt_identity[] = {   /* spt=26, skew=1 — identity (8" DD 256 t0 side 1, MINI t0) */
+     1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13,
+    14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26
 };
 
-/* Floppy Disk Format descriptors */
+/* Disk Parameter Blocks — one per supported format.
+ * Fields (per CP/M 2.2): spt, bsh, blm, exm, dsm, drm, al0, al1, cks, off */
+const disk_parameter_block dpb_maxi_128  = {  26, 3,  7, 0, 242,  63, 192, 0, 16, 2 };  /* 8" FM  128 B/S (IBM std)      */
+const disk_parameter_block dpb_maxi_512  = { 120, 4, 15, 0, 449, 127, 192, 0, 32, 2 };  /* 8" DD  512 B/S (MAXI data)    */
+const disk_parameter_block dpb_mini_512 = {  26, 3,  7, 0, 242,  63, 192, 0, 16, 0 };  /* 5.25" DD 512 B/S (MINI)       */
+const disk_parameter_block dpb_maxi_256 = { 104, 4, 15, 0, 471, 127, 192, 0, 32, 0 };  /* 8" DD  256 B/S (t0 side 1)    */
+
+/* Floppy Disk Format descriptors — one per FDC-level track format. */
 const FDF fdf[4] = {
-    { 26, 127,  0, 0, 26,  7, 77 },    /* 8" SS 128 B/S (FM) */
-    { 30, 511, 64, 2, 15, 27, 77 },    /* 8" DD 512 B/S (MFM) */
-    { 26, 127,  0, 0, 26,  7, 77 },    /* 8" SS 128 B/S (T0 S0) */
-    { 52, 255, 64, 1, 26, 14, 77 },    /* 8" DD 256 B/S (T0 S1) */
+    { 26, 127,  0, 0, 26,  7, 77 },    /* 8" SS 128 B/S (FM)        */
+    { 30, 511, 64, 2, 15, 27, 77 },    /* 8" DD 512 B/S (MFM)       */
+    { 26, 127,  0, 0, 26,  7, 77 },    /* 8" SS 128 B/S (T0 S0)     */
+    { 52, 255, 64, 1, 26, 14, 77 },    /* 8" DD 256 B/S (T0 S1)     */
 };
 
 /* Floppy System Parameters (16 bytes each) */
 const FSPA fspa[4] = {
-    { &dpb0,   8,  26, 0, 1, tran0,  128, 0, {0} },
-    { &dpb8,  16, 120, 3, 3, tran8,  255, 0, {0} },
-    { &dpb16,  8,  26, 0, 1, tran24, 128, 0, {0} },
-    { &dpb24,  8, 104, 1, 2, tran24, 255, 0, {0} },
+    { &dpb_maxi_128,   8,  26, 0, 1, xlt_maxi_128,  128, 0, {0} },
+    { &dpb_maxi_512,  16, 120, 3, 3, xlt_maxi_512,  255, 0, {0} },
+    { &dpb_mini_512,  8,  26, 0, 1, xlt_identity, 128, 0, {0} },
+    { &dpb_maxi_256,  8, 104, 1, 2, xlt_identity, 255, 0, {0} },
 };
 
 /* Track offset table (2 floppy drives + 6 reserved for harddisk) */
@@ -168,80 +163,80 @@ byte all0[71], chk0[32];
 byte all1[71], chk1[32];
 
 /* CP/M requested disk/track/sector (set by BDOS calls) */
-static byte  sekdsk;
-word sektrk;
-word seksec;
+static byte  cpm_disk;
+word cpm_track;
+word cpm_sector;
 
 /* Host buffer state (what's cached in hstbuf) */
-static byte  hstdsk;
-static word hsttrk;
-static byte hstsec;
+static byte  hostbuf_disk;
+static word hostbuf_track;
+static byte hostbuf_sector;
 
 /* Last seek position (skip redundant FDC seeks) */
-byte  lstdsk;
-static word lsttrk;
+byte  last_seek_disk;
+static word last_seek_track;
 
-/* Intermediate: seksec >> secshf */
-static byte sekhst;
+/* Intermediate: cpm_sector >> deblock_shift */
+static byte cpm_sector_as_host;
 
 /* Buffer status — hstact/hstwrt/erflag are in the wb struct */
 
 /* Unallocated sector tracking */
-byte  unacnt;
-static byte  unadsk;
-static word unatrk;
-static word unasec;
-static byte  unamsk;
+byte  unalloc_count;
+static byte  unalloc_disk;
+static word unalloc_track;
+static word unalloc_sector;
+static byte  unalloc_mask;
 
 /* I/O operation control — erflag is in the wb struct */
-static byte  rsflag;
-static byte  readop;
-static byte  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
+static byte  need_pre_read;
+static byte  is_read;
+static byte  write_type;  /* renamed to avoid conflict with WRTYPE macro */
 
 /* DMA and format state */
-byte *dmaadr;        /* CP/M DMA address */
-static const FDF *form;  /* pointer to current FDF entry */
-byte  cform;   /* current format index */
-static byte  eotv;        /* sectors per side on track 0 */
-byte  drno;        /* highest drive number */
+byte *cpm_dma_addr;        /* CP/M DMA address */
+static const FDF *current_format;  /* pointer to current FDF entry */
+byte  current_format_idx;   /* current format index */
+static byte  track0_sectors_per_side;        /* sectors per side on track 0 */
+byte  max_drive_num;        /* highest drive number */
 
 /* Physical disk control */
-static byte  dskno;       /* drive + head select bits */
-static byte *dskad;      /* DMA address for FDC */
-static byte  actra;       /* actual track */
-static byte  acsec;       /* actual sector (1-based) */
-static byte  repet;       /* retry counter */
-/* FDC result bytes.  After Read Data / Read ID:
- *   st0, st1, st2, cylinder, head, sector, size_code, (pad)
- * After Sense Drive Status: st0 contains ST3.
- * After Sense Interrupt: st0=ST0, st1=PCN. */
+static byte  fdc_unit_head;       /* drive + head select bits */
+static byte *fdc_dma_addr;      /* DMA address for FDC */
+static byte  fdc_track;       /* actual track */
+static byte  fdc_sector;       /* actual sector (1-based) */
+/* FDC result block — 8 bytes read from the uPD765 after each command.
+ * Interpretation depends on the command issued — see fdc_read_result()
+ * for the full per-command breakdown and ST0/ST1/ST2/ST3 bit layouts. */
 typedef struct {
-    byte st0;
-    byte st1;
-    byte st2;
-    byte cylinder;
-    byte head;
-    byte sector;
-    byte size_code;
-    byte pad;
+    byte st0;        /* Status Register 0 (or ST3 after Sense Drive Status) */
+    byte st1;        /* Status Register 1 (or PCN after Sense Interrupt)    */
+    byte st2;        /* Status Register 2                                   */
+    byte cylinder;   /* C — cylinder at end of operation                    */
+    byte head;       /* H — head                                            */
+    byte sector;     /* R — record (sector) number                          */
+    byte size_code;  /* N — sector size (0=128, 1=256, 2=512, 3=1024 bytes) */
+    byte pad;        /* unused — always 0xFF in practice                    */
 } fdc_result_block;
 
-volatile fdc_result_block rstab;           /* FDC result */
-static volatile byte fl_flg;      /* floppy completion flag */
+/* FDC register bit definitions (FDC_MSR_*, FDC_ST0_*) live in bios.h. */
 
-/* FSPA working copy (set by SELDSK) */
-static const DPB *dpblck;      /* DPB pointer (set by SELDSK per format) */
-static byte  cpmrbp;      /* records per block */
-static word cpmspt;      /* CP/M sectors per track */
-static byte  secmsk;      /* sector mask */
-static byte  secshf;      /* sector shift count */
-static const byte *trantb;     /* sector translation table pointer */
-static byte  dtlv;        /* data length value */
-static byte  dsktyp;      /* 0=floppy, 0xFF=HD */
+volatile fdc_result_block fdc_result;          /* 8 result bytes read after each FDC cmd       */
+static volatile byte      fdc_irq_fired;       /* set by isr_floppy when FDC signals completion */
+
+/* FSPA working copy (set by SELDSK for currently selected format) */
+static const disk_parameter_block *current_dpb;           /* DPB for selected format                   */
+static byte        records_per_alloc_block;               /* CP/M records (128B) per allocation block  */
+static word        cpm_sectors_per_track;                 /* logical 128B sectors per track            */
+static byte        deblock_mask;                          /* cpm_sector & mask = offset in host buffer */
+static byte        deblock_shift;                         /* cpm_sector >> shift = host-sector index   */
+static const byte *sector_xlate;                          /* sector translation table (interleave)     */
+static byte        fdc_data_length;                       /* uPD765 READ/WRITE data-length byte        */
+static byte        is_hard_disk;                          /* 0 = floppy, 0xFF = hard disk              */
 
 /* Disk Parameter Headers — one per drive, returned by SELDSK.
  * BSS-zeroed at boot; dpb pointer updated by SELDSK per format. */
-DPH dpbase[2];
+disk_parameter_header dph_table[2];
 
 /* Motor control */
 static void fdstop(void)
@@ -286,7 +281,7 @@ static void fdstar(void)
 /* Wait for FDC ready, then write command/parameter byte (RQM=1, DIO=0) */
 void fdc_write(byte val)
 {
-    while ((port_in(fdc_status) & 0b11000000) != 0b10000000)  /* RQM+DIO mask */
+    while ((port_in(fdc_status) & (FDC_MSR_RQM | FDC_MSR_DIO)) != FDC_MSR_RQM)  /* ready for CPU->FDC */
         ;
     port_out(fdc_data, val);
 }
@@ -294,7 +289,7 @@ void fdc_write(byte val)
 /* Wait for FDC result byte available (RQM=1, DIO=1), return data */
 static byte fdc_read(void)
 {
-    while ((port_in(fdc_status) & 0b11000000) != 0b11000000)  /* RQM+DIO mask */
+    while ((port_in(fdc_status) & (FDC_MSR_RQM | FDC_MSR_DIO)) != (FDC_MSR_RQM | FDC_MSR_DIO))  /* ready for FDC->CPU */
         ;
     return port_in(fdc_data);
 }
@@ -302,60 +297,139 @@ static byte fdc_read(void)
 static void fdc_recalibrate(void)
 {
     fdc_write(0x07);            /* RECALIBRATE */
-    fdc_write(dskno & 3);      /* drive */
+    fdc_write(fdc_unit_head & 3);      /* drive */
 }
 
 static void fdc_sense_int(void)
 {
     fdc_write(0x08);            /* SENSE INTERRUPT STATUS */
-    rstab.st0 = fdc_read();
-    if ((rstab.st0 & 0b11000000) != 0b10000000)
-        rstab.st1 = fdc_read();
+    fdc_result.st0 = fdc_read();
+    /* Sense Interrupt returns 2 bytes (ST0 + PCN) unless the command was
+     * flagged invalid — then only ST0 is returned. */
+    if ((fdc_result.st0 & FDC_ST0_INTERRUPT_CODE) != FDC_ST0_IC_INVALID_CMD)
+        fdc_result.st1 = fdc_read();
 }
 
 static void fdc_seek(void)
 {
     fdc_write(0x0F);            /* SEEK */
-    fdc_write(dskno & 3);      /* drive + head */
-    fdc_write(actra);          /* cylinder */
+    fdc_write(fdc_unit_head & 3);      /* drive + head */
+    fdc_write(fdc_track);          /* cylinder */
 }
 
-static void fdc_result(void)
+/* Read the FDC result phase into the fdc_result block.
+ *
+ * Called after a command whose result phase is signaled by MSR.CB remaining
+ * set. Reads up to 8 bytes, stopping as soon as MSR.CB clears (the uPD765
+ * signals end-of-result by dropping CB after the final byte).
+ *
+ * The tiny delay loop after each byte matches the original ROA375 timing —
+ * the FDC needs a few microseconds between result reads at 4 MHz.
+ *
+ * =========================================================================
+ * fdc_result block layout by command:
+ * =========================================================================
+ *
+ * Read Data / Read Deleted Data / Write Data / Write Deleted Data /
+ * Read ID / Read Track / Format Track / Scan Equal/High/Low — 7 result bytes:
+ *   [0] st0       Status Register 0
+ *   [1] st1       Status Register 1
+ *   [2] st2       Status Register 2
+ *   [3] cylinder  C — cylinder at end of op (may differ if multi-track / EOC)
+ *   [4] head      H — head
+ *   [5] sector    R — record/sector number reached
+ *   [6] size_code N — sector size code (0=128 .. 3=1024 bytes)
+ *
+ * Sense Interrupt Status — 2 result bytes:
+ *   [0] st0       ST0 with IC field set per latest interrupt
+ *   [1] st1       PCN — Present Cylinder Number (drive's current track)
+ *   (remaining bytes are whatever stale data is in the block)
+ *
+ * Sense Drive Status — 1 result byte, placed in [0]:
+ *   [0] st0 *holds ST3*, not ST0 — see ST3 layout below.
+ *
+ * Recalibrate / Seek / Specify — no result phase.
+ *   fdc_read_result() should NOT be called for these commands;
+ *   use fdc_sense_int() to retrieve ST0+PCN after the interrupt fires.
+ *
+ * =========================================================================
+ * Status register bit layouts (uPD765 datasheet):
+ * =========================================================================
+ *
+ * ST0 — Status Register 0 (see FDC_ST0_* defines in bios.h):
+ *   bit 7,6  IC  Interrupt Code (00=normal, 01=abnormal,
+ *                                 10=invalid cmd, 11=abn.polling)
+ *   bit 5    SE  Seek End (Recalibrate/Seek completed)
+ *   bit 4    EC  Equipment Check (drive FAULT asserted)
+ *   bit 3    NR  Not Ready (drive selected but not ready)
+ *   bit 2    HD  Head Address (active head at termination)
+ *   bit 1,0  US  Unit Select (active drive number 0..3)
+ *
+ * ST1 — Status Register 1:
+ *   bit 7    EN  End of Cylinder (tried to access sector past EOT)
+ *   bit 6    --  reserved
+ *   bit 5    DE  Data Error (CRC mismatch in ID or data field)
+ *   bit 4    OR  Over Run (CPU/DMA failed to keep up with FDC)
+ *   bit 3    --  reserved
+ *   bit 2    ND  No Data (sector not found, or Read ID found no address mark)
+ *   bit 1    NW  Not Writable (write protected disk during a write)
+ *   bit 0    MA  Missing Address mark (no ID address mark after 2 revolutions)
+ *
+ * ST2 — Status Register 2:
+ *   bit 7    --  reserved
+ *   bit 6    CM  Control Mark (encountered deleted data mark when reading)
+ *   bit 5    DD  Data Error in Data field (CRC mismatch in data payload)
+ *   bit 4    WC  Wrong Cylinder (ID cyl does not match commanded cyl)
+ *   bit 3    SH  Scan Equal Hit (Scan command matched)
+ *   bit 2    SN  Scan Not satisfied (Scan command had no match)
+ *   bit 1    BC  Bad Cylinder (ID cylinder byte = 0xFF)
+ *   bit 0    MD  Missing address mark in Data field
+ *
+ * ST3 — Status Register 3 (Sense Drive Status only — lands in result[0]):
+ *   bit 7    FT  Fault line from drive
+ *   bit 6    WP  Write Protected
+ *   bit 5    RY  Ready line from drive
+ *   bit 4    T0  Track 0 line from drive
+ *   bit 3    TS  Two Sided (drive has two heads)
+ *   bit 2    HD  Head Address (currently-selected head)
+ *   bit 1,0  US  Unit Select (currently-selected drive)
+ */
+static void fdc_read_result(void)
 {
-    byte *p = (byte *)&rstab;
+    byte *p = (byte *)&fdc_result;
     byte n = 7;
     do {
         byte delay;
         *p++ = fdc_read();
         for (delay = 4; delay; delay--)
             ;
-        if (!(port_in(fdc_status) & 0b00010000))  /* CB: more result bytes? */
+        if (!(port_in(fdc_status) & FDC_MSR_CB))  /* CB clear: no more result bytes */
             return;
     } while (--n);
 }
 
-/* Interrupt flag */
-static void clfit(void)
+/* FDC interrupt flag primitives: arm (clear), wait (spin), wait+rearm. */
+static void fdc_irq_arm(void)
 {
     hal_di();
-    fl_flg = 0;
+    fdc_irq_fired = 0;
     hal_ei();
 }
 
-static void watir(void)
+static void fdc_irq_wait(void)
 {
-    while (!fl_flg)
+    while (!fdc_irq_fired)
         ;
 }
 
-void wfitr(void)
+void fdc_irq_wait_rearm(void)
 {
-    watir();
-    clfit();
+    fdc_irq_wait();
+    fdc_irq_arm();
 }
 
 /* DMA setup for FDC transfers (channel 1)
- * CHKTRK sets dskad = HSTBUF address before calling sec_rw.
+ * CHKTRK sets fdc_dma_addr = HSTBUF address before calling sec_rw.
  * write=1 means FDC reads from memory (FLPR), write=0 means FDC writes to memory (FLPW)
  */
 static word dma_count;      /* parameter: byte count for DMA */
@@ -369,7 +443,7 @@ static void flp_dma_setup(void)
         ? DMA_MODE_MEM2IO(DMA_CH_FLOPPY)   /* disk write: mem→FDC */
         : DMA_MODE_IO2MEM(DMA_CH_FLOPPY)); /* disk read:  FDC→mem */
     port_out(dma_clbp, 0);
-    hal_dma_flp_addr((word)dskad);
+    hal_dma_flp_addr((word)fdc_dma_addr);
     hal_dma_flp_wc(dma_count);
     port_out(dma_smsk, DMA_MASK_CLR(DMA_CH_FLOPPY));
     hal_ei();
@@ -383,14 +457,14 @@ static void fdc_general_cmd(byte cmd, const byte *fdfp)
 {
     hal_di();
     fdc_write(cmd + fdfp[0]);       /* command + MF flag */
-    fdc_write(dskno);              /* drive + head */
-    fdc_write(actra);              /* cylinder */
-    fdc_write((dskno >> 2) & 3);   /* head number */
-    fdc_write(acsec);              /* sector */
+    fdc_write(fdc_unit_head);              /* drive + head */
+    fdc_write(fdc_track);              /* cylinder */
+    fdc_write((fdc_unit_head >> 2) & 3);   /* head number */
+    fdc_write(fdc_sector);              /* sector */
     fdc_write(fdfp[1]);            /* N (sector size code) */
     fdc_write(fdfp[2]);            /* EOT (final sector) */
     fdc_write(fdfp[3]);            /* gap length */
-    fdc_write(dtlv);               /* data length */
+    fdc_write(fdc_data_length);               /* data length */
     hal_ei();
 }
 
@@ -400,45 +474,45 @@ static void chktrk(void)
     byte sec, ev;
     const byte *tp;
 
-    sec = (byte)hstsec;
-    ev = eotv;
-    dskno = hstdsk;
+    sec = (byte)hostbuf_sector;
+    ev = track0_sectors_per_side;
+    fdc_unit_head = hostbuf_disk;
 
     if (sec >= ev) {
         /* head 1 (track 0 side 1, or beyond EOTV) */
-        dskno |= 4;
+        fdc_unit_head |= 4;
         sec -= ev;
     }
 
     /* sector translation */
-    tp = trantb;
-    acsec = tp[sec];
-    actra = (byte)hsttrk;
-    dskad = &hstbuf[0];
+    tp = sector_xlate;
+    fdc_sector = tp[sec];
+    fdc_track = (byte)hostbuf_track;
+    fdc_dma_addr = &hstbuf[0];
 
     /* check if seek needed */
-    if (hstdsk == lstdsk && hsttrk == lsttrk)
+    if (hostbuf_disk == last_seek_disk && hostbuf_track == last_seek_track)
         return;
 
     /* need to seek */
-    lstdsk = hstdsk;
-    lsttrk = hsttrk;
-    clfit();
+    last_seek_disk = hostbuf_disk;
+    last_seek_track = hostbuf_track;
+    fdc_irq_arm();
     fdc_seek();
-    wfitr();
+    fdc_irq_wait_rearm();
 
-    /* check seek completion */
-    if (rstab.st0 == ((dskno & 3) | 0b00100000))
+    /* Seek succeeded iff ST0 == SeekEnd | current drive (IC=00, all error bits clear). */
+    if (fdc_result.st0 == (FDC_ST0_SEEK_END | (fdc_unit_head & 3)))
         return;
 
     /* seek failed — recalibrate and retry */
-    clfit();
+    fdc_irq_arm();
     fdc_recalibrate();
-    wfitr();
+    fdc_irq_wait_rearm();
     fdc_sense_int();
-    clfit();
+    fdc_irq_arm();
     fdc_seek();
-    wfitr();
+    fdc_irq_wait_rearm();
     fdc_sense_int();
 }
 
@@ -455,10 +529,10 @@ static void wrthst(void)
 /* Read host buffer from disk */
 static void rdhst(void)
 {
-    if (unamsk)
-        ;                   /* force pre-read if unamsk set */
+    if (unalloc_mask)
+        ;                   /* force pre-read if unalloc_mask set */
     else
-        unacnt = 0;
+        unalloc_count = 0;
     chktrk();
     sec_rw(6, 0);               /* READ DATA, FDC→mem */
 }
@@ -468,43 +542,38 @@ static void rdhst(void)
  * cmd: 6=READ DATA, 5=WRITE DATA.  dma_dir: 0=read(FDC→mem), 1=write(mem→FDC). */
 static void sec_rw(byte cmd, byte dma_dir)
 {
-    static byte s_cmd, s_dma_dir;
+    static byte s_cmd, s_dma_dir, repet;
     s_cmd = cmd;
     s_dma_dir = dma_dir;
-    repet = 10;
-    for (;;) {
-        fdstar();
-        clfit();
 
-        dma_count = form->dma_count;
+    for (repet = 10; repet != 0; repet--) {
+        fdstar();
+        fdc_irq_arm();
+
+        dma_count = current_format->dma_count;
 
         dma_write = s_dma_dir;
         flp_dma_setup();
-        fdc_general_cmd(s_cmd, &form->mf);
-        watir();
+        fdc_general_cmd(s_cmd, &current_format->mf);
+        fdc_irq_wait();
 
-        if (!(rstab.st0 & 0b11111000))
-            return;                     /* success */
+        if (!(fdc_result.st0 & FDC_ST0_ANY_ERROR))
+            return;                     /* command completed normally */
 
-        if (rstab.st0 & 0b00001000)            /* write protected — no retry */
-            goto fail;
+        if (fdc_result.st0 & FDC_ST0_NOT_READY) /* drive not ready — retry won't help */
+            break;
 
-        if (--repet == 0)
-            goto fail;
-
-        if (repet == 5) {
-            /* recalibrate and retry */
-            clfit();
+        if (repet == 6) {               /* halfway (5 failures): recalibrate before retry */
+            fdc_irq_arm();
             fdc_recalibrate();
-            wfitr();
+            fdc_irq_wait_rearm();
             fdc_sense_int();
-            clfit();
+            fdc_irq_arm();
             fdc_seek();
-            wfitr();
+            fdc_irq_wait_rearm();
             fdc_sense_int();
         }
     }
-fail:
     hstact = 0;
     erflag = 1;
 }
@@ -513,14 +582,14 @@ fail:
 /* Core blocking/deblocking algorithm (DRI standard) */
 static byte rwoper(void)
 {
-    /* compute host sector: sekhst = seksec >> (secshf-1)
-     * secshf=3 → 2 shifts (divide by 4, for 512B sectors).
-     * secshf=1 → 0 shifts (128B sectors, no deblocking). */
-    sekhst = seksec >> (byte)(secshf - 1);
+    /* compute host sector: cpm_sector_as_host = cpm_sector >> (deblock_shift-1)
+     * deblock_shift=3 → 2 shifts (divide by 4, for 512B sectors).
+     * deblock_shift=1 → 0 shifts (128B sectors, no deblocking). */
+    cpm_sector_as_host = (byte)(cpm_sector >> (byte)(deblock_shift - 1));
 
     /* check if host buffer is active and matches */
     if (hstact) {
-        if (sekdsk == hstdsk && hsttrk == sektrk && sekhst == hstsec)
+        if (cpm_disk == hostbuf_disk && hostbuf_track == cpm_track && cpm_sector_as_host == hostbuf_sector)
             goto match;
         /* not matching — flush if dirty */
         if (hstwrt)
@@ -529,25 +598,25 @@ static byte rwoper(void)
 
     /* fill host buffer */
     hstact = 1;
-    hstdsk = sekdsk;
-    hsttrk = sektrk;
-    hstsec = sekhst;
-    if (rsflag)
+    hostbuf_disk = cpm_disk;
+    hostbuf_track = cpm_track;
+    hostbuf_sector = cpm_sector_as_host;
+    if (need_pre_read)
         rdhst();
     hstwrt = 0;
 
 match:
-    /* Inline hstbuf offset + dmaadr in each memcpy call rather than storing
+    /* Inline hstbuf offset + cpm_dma_addr in each memcpy call rather than storing
      * in static src/dst variables.  sdcc stores statics to memory then
      * immediately reloads them — inlining lets the compiler keep values
      * in registers, saving 10 bytes despite the duplicated expression. */
-    if (readop) {
+    if (is_read) {
         /* read: copy from host buffer to DMA area */
-        memcpy(dmaadr, &hstbuf[(word)(seksec & secmsk) << 7], 128);
+        memcpy(cpm_dma_addr, &hstbuf[(word)(cpm_sector & deblock_mask) << 7], 128);
     } else {
         /* write: copy from DMA area to host buffer */
         hstwrt = 1;
-        memcpy(&hstbuf[(word)(seksec & secmsk) << 7], dmaadr, 128);
+        memcpy(&hstbuf[(word)(cpm_sector & deblock_mask) << 7], cpm_dma_addr, 128);
     }
 
     /* post-processing */
@@ -555,7 +624,7 @@ match:
         hstact = 0;
     }
 
-    if (wrtype == WRDIR && !erflag) {
+    if (write_type == WRDIR && !erflag) {
         /* directory write: flush immediately */
         hstwrt = 0;
         wrthst();
@@ -657,28 +726,28 @@ void wboot_c(void)
     hal_ei();
     bios_seldsk_c(0);
 
-    unacnt = 0;
+    unalloc_count = 0;
     /* iobyte NOT reset here — preserve STAT CON:=TTY: across warm boots */
-    dskno = 0;
+    fdc_unit_head = 0;
 
     bios_home();
 
     /* Load CCP+BDOS from track 1 into CCP_BASE */
-    dmaadr = CCP_BASE;
-    sektrk = 1;
+    cpm_dma_addr = CCP_BASE;
+    cpm_track = 1;
 
     for (sec = 0; sec < NSECTS; sec++) {
-        seksec = sec;
+        cpm_sector = sec;
         if (xread()) {
             puts_p("\r\nDisk read error - reset\r\n");
             // ReSharper disable once CppDFAEndlessLoop
             for (;;)
                 hal_halt();
         }
-        dmaadr += 128;
+        cpm_dma_addr += 128;
     }
 
-    dmaadr = BDOS_DMAADDR;
+    cpm_dma_addr = BDOS_DMAADDR;
 
     /* Set up JP vectors at page zero */
 #ifndef HOST_TEST
@@ -1323,6 +1392,9 @@ void bios_conout_c(byte c)
         else if (usession < 32) specc();
         else displ();
         break;
+    default:
+        /* IOBYTE_CON is a 2-bit field; cases 0-3 are exhaustive. */
+        break;
     }
 }
 
@@ -1480,15 +1552,15 @@ void bios_home(void)
         hstact = 0;
     }
     fdstar();
-    dskno = sekdsk;
-    lstdsk = sekdsk;
-    lsttrk = 0;
-    clfit();
+    fdc_unit_head = cpm_disk;
+    last_seek_disk = cpm_disk;
+    last_seek_track = 0;
+    fdc_irq_arm();
     fdc_recalibrate();
-    wfitr();
+    fdc_irq_wait_rearm();
 }
 
-/* CP/M passes drive in C register, expects DPH in HL.
+/* CP/M passes drive in C register, expects disk_parameter_header in HL.
  * sdcccall(1) returns word in DE, CP/M expects HL. */
 word bios_seldsk(byte disk) __naked
 {
@@ -1502,29 +1574,29 @@ word bios_seldsk(byte disk) __naked
 #endif
 }
 
-DPH *bios_seldsk_c(byte drv)
+disk_parameter_header *bios_seldsk_c(byte drv)
 {
     static byte drive;
     static byte fmt;
 
     drive = drv;
-    if (drive > drno)
-        return 0;               /* invalid drive */
+    if (drive > max_drive_num)
+        return nullptr;         /* invalid drive */
 
-    sekdsk = drive;
+    cpm_disk = drive;
 
     /* look up format from fd0 table */
     fmt = fd0[drive];
 
     /* if format changed, flush dirty buffer */
-    if (fmt != cform) {
+    if (fmt != current_format_idx) {
         if (hstwrt) {
             wrthst();
             hstwrt = 0;
         }
     }
 
-    cform = fmt;
+    current_format_idx = fmt;
 
     /* get format descriptor (FDF) and system parameters (FSPA) */
     {
@@ -1533,97 +1605,97 @@ DPH *bios_seldsk_c(byte drv)
         idx = (fmt >> 3) & 3;
         sp = &fspa[idx];
 
-        form = &fdf[idx];
-        eotv = form->eot;
+        current_format = &fdf[idx];
+        track0_sectors_per_side = current_format->eot;
 
         /* copy FSPA format parameters to working area */
-        dpblck = sp->dpb;
-        cpmrbp = sp->cpmrbp;
-        cpmspt = sp->cpmspt;
-        secmsk = sp->secmsk;
-        secshf = sp->secshf;
-        trantb = sp->trantb;
-        dtlv = sp->dtlv;
-        dsktyp = sp->dsktyp;
+        current_dpb = sp->dpb;
+        records_per_alloc_block = sp->records_per_alloc_block;
+        cpm_sectors_per_track = sp->cpm_sectors_per_track;
+        deblock_mask = sp->deblock_mask;
+        deblock_shift = sp->deblock_shift;
+        sector_xlate = sp->sector_xlate;
+        fdc_data_length = sp->fdc_data_length;
+        is_hard_disk = sp->is_hard_disk;
     }
 
-    /* update DPB pointer in DPH and return DPH address to BDOS */
+    /* Update the DPB pointer in this drive's DPH and return its address to BDOS. */
     {
-        static DPH *dph;
-        dph = &dpbase[drive];
-        dph->dpb = dpblck;
-        return dph;
+        static disk_parameter_header *entry;
+        entry = &dph_table[drive];
+        entry->dpb = current_dpb;
+        return entry;
     }
 }
 
 void bios_settrk(word track) __naked
 {
     (void)track;
-    ASM_VOLATILE("ld (_sektrk), bc       \n"  /* CP/M passes track in BC */
+    ASM_VOLATILE("ld (_cpm_track), bc       \n"  /* CP/M passes track in BC */
             "ret                     \n");
 }
 
 void bios_setsec(word sector) __naked
 {
     (void)sector;
-    ASM_VOLATILE("ld (_seksec), bc       \n"  /* CP/M passes sector in BC */
+    ASM_VOLATILE("ld (_cpm_sector), bc       \n"  /* CP/M passes sector in BC */
             "ret                     \n");
 }
 
 void bios_setdma(word addr) __naked
 {
     (void)addr;
-    ASM_VOLATILE("ld (_dmaadr), bc       \n"  /* CP/M passes DMA address in BC */
+    ASM_VOLATILE("ld (_cpm_dma_addr), bc       \n"  /* CP/M passes DMA address in BC */
             "ret                     \n");
 }
 
 static byte xread(void)
 {
-    unacnt = 0;
-    readop = 1;
-    rsflag = 1;
-    wrtype = WRUAL;
+    unalloc_count = 0;
+    is_read = 1;
+    need_pre_read = 1;
+    write_type = WRUAL;
     return rwoper();
 }
 
 static byte xwrite(byte wt)
 {
-    readop = 0;
-    wrtype = wt;
+    is_read = 0;
+    write_type = wt;
 
     if (wt == WRUAL) {
         /* first write to unallocated block */
-        unacnt = cpmrbp;
-        unadsk = sekdsk;
-        unatrk = sektrk;
-        unasec = seksec;
+        unalloc_count = records_per_alloc_block;
+        unalloc_disk = cpm_disk;
+        unalloc_track = cpm_track;
+        unalloc_sector = cpm_sector;
     }
 
     /* check for continuation of unallocated writes */
-    if (unacnt) {
-        unacnt--;
-        if (sekdsk != unadsk || sektrk != unatrk || seksec != unasec)
+    if (unalloc_count) {
+        unalloc_count--;
+        if (cpm_disk != unalloc_disk || cpm_track != unalloc_track || cpm_sector != unalloc_sector)
             goto alloc;
 
         /* match — advance unalloc pointer */
-        unasec++;
-        if (unasec >= cpmspt) {
-            unasec = 0;
-            unatrk++;
+        unalloc_sector++;
+        if (unalloc_sector >= cpm_sectors_per_track) {
+            unalloc_sector = 0;
+            unalloc_track++;
         }
 
         /* check if pre-read needed */
-        rsflag = 0;
-        if ((seksec & secmsk) == secmsk)
-            unamsk = 1;
+        need_pre_read = 0;
+        if ((cpm_sector & deblock_mask) == deblock_mask)
+            unalloc_mask = 1;
         else
-            unamsk = 0;
+            unalloc_mask = 0;
         return rwoper();
     }
 
 alloc:
-    unacnt = 0;
-    rsflag = secmsk;
+    unalloc_count = 0;
+    need_pre_read = deblock_mask;
     return rwoper();
 }
 
@@ -1687,14 +1759,14 @@ word bios_sectran(word sector) __naked
 
 /* WFITR (DA4A): PROCEDURE WAIT_CLEAR_FD_INTERRUPT
  * Waits for FDC interrupt flag, then returns result status.
- * Returns: B=ST0 (rstab.st0), C=ST1 (rstab.st1).
+ * Returns: B=ST0 (fdc_result.st0), C=ST1 (fdc_result.st1).
  * Used by FORMAT.COM (RC700 FORMAT UTILITY VERS 1.2). */
 void bios_wfitr(void) __naked
 {
-    wfitr();
-    ASM_VOLATILE("ld a, (_rstab)         \n"
+    fdc_irq_wait_rearm();
+    ASM_VOLATILE("ld a, (_fdc_result)         \n"
             "ld b, a                \n"
-            "ld a, (_rstab + 1)     \n"
+            "ld a, (_fdc_result + 1)     \n"
             "ld c, a                \n"
             "ret                    \n");
 }
@@ -2068,11 +2140,11 @@ void isr_floppy(void) __naked
     /* Floppy completion: set flag, read FDC result or sense interrupt */
     {
         byte delay;
-        fl_flg = 0xFF;
+        fdc_irq_fired = 0xFF;
         for (delay = 5; delay; delay--)
             ;
-        if (port_in(fdc_status) & 0b00010000)     /* CB: in result phase */
-            fdc_result();
+        if (port_in(fdc_status) & FDC_MSR_CB)     /* CB set: still in result phase */
+            fdc_read_result();
         else
             fdc_sense_int();
     }

@@ -125,7 +125,7 @@ ret                 ; 1B
 
 **Impact:** 3 bytes per occurrence. SDCC generates `INC (HL)` and `DEC (HL)`
 for in-memory increment/decrement of globals. Used in sec_rw (retry counter),
-bg_clear_from (byte offset), bios_write_c (unacnt).
+bg_clear_from (byte offset), bios_write_c (unalloc_count).
 
 **Note:** `INC (HL)` sets the same flags as `INC A` (Z, H, N, S, P/V — all
 except C), so flag-dependent code after the increment remains valid.

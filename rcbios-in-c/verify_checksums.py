@@ -58,23 +58,23 @@ def find_sector(sectors, cyl, head, sec_id):
             return d
     return None
 
-def compute_track_cksum(sectors, trk, cpmspt, secshf, eotv, trantb):
+def compute_track_cksum(sectors, trk, cpm_sectors_per_track, deblock_shift, track0_sectors_per_side, sector_xlate):
     """Compute track checksum using same logic as BIOS test."""
     cksum = 0
     errors = 0
-    for cpm_sec in range(cpmspt):
-        # Compute host sector: seksec >> (secshf-1)
-        hstsec = cpm_sec >> (secshf - 1)
+    for cpm_sec in range(cpm_sectors_per_track):
+        # Compute host sector: cpm_sector >> (deblock_shift-1)
+        hostbuf_sector = cpm_sec >> (deblock_shift - 1)
         # Determine side and physical sector
-        if hstsec < eotv:
+        if hostbuf_sector < track0_sectors_per_side:
             side = 0
-            phys_sec = trantb[hstsec]
+            phys_sec = sector_xlate[hostbuf_sector]
         else:
             side = 1
-            phys_sec = trantb[hstsec - eotv]
+            phys_sec = sector_xlate[hostbuf_sector - track0_sectors_per_side]
         # Record offset within host sector
-        secmsk = (1 << (secshf - 1)) - 1
-        rec_offset = (cpm_sec & secmsk) * 128
+        deblock_mask = (1 << (deblock_shift - 1)) - 1
+        rec_offset = (cpm_sec & deblock_mask) * 128
         data = find_sector(sectors, trk, side, phys_sec)
         if data is None:
             errors += 1
@@ -93,7 +93,7 @@ def compute_checksums(imd_path):
     print(f"Tracks: {max_cyl + 1}")
 
     # --- Track 0 Side 0: FM 128B (format 16) ---
-    # FSPA16: SPT=26, secshf=1, secmsk=0, trantb=tran24, eotv=26
+    # FSPA16: SPT=26, deblock_shift=1, deblock_mask=0, sector_xlate=xlt_identity, track0_sectors_per_side=26
     cksum, errs = compute_track_cksum(sectors, 0, 26, 1, 26, TRAN24)
     disk_cksum = (disk_cksum + cksum) & 0xFFFF
     total_errors += errs
@@ -101,14 +101,14 @@ def compute_checksums(imd_path):
     print(f"T0S0={cksum:04X}{err_str}", end="")
 
     # --- Track 0 Side 1: MFM 256B (format 24, side 1 only) ---
-    # FSPA24: SPT=104, secshf=2, secmsk=1, trantb=tran24, eotv=26
-    # Only read seksec 52..103 (side 1)
+    # FSPA24: SPT=104, deblock_shift=2, deblock_mask=1, sector_xlate=xlt_identity, track0_sectors_per_side=26
+    # Only read cpm_sector 52..103 (side 1)
     cksum = 0
     errs = 0
     for cpm_sec in range(52, 104):
-        hstsec = cpm_sec >> 1  # secshf-1 = 1
+        hostbuf_sector = cpm_sec >> 1  # deblock_shift-1 = 1
         side = 1
-        phys_sec = TRAN24[hstsec - 26]
+        phys_sec = TRAN24[hostbuf_sector - 26]
         rec_offset = (cpm_sec & 1) * 128
         data = find_sector(sectors, 0, side, phys_sec)
         if data is None:
@@ -122,7 +122,7 @@ def compute_checksums(imd_path):
     print(f" T0S1={cksum:04X}{err_str}")
 
     # --- Tracks 1 through max_cyl: MFM 512B (format 8) ---
-    # FSPA08: SPT=120, secshf=3, secmsk=3, trantb=tran8, eotv=15
+    # FSPA08: SPT=120, deblock_shift=3, deblock_mask=3, sector_xlate=xlt_maxi_512, track0_sectors_per_side=15
     col = 0
     line = ""
     for trk in range(1, max_cyl + 1):

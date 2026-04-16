@@ -96,19 +96,19 @@ _bios_punch_shim:
 	.section .text._bios_settrk_shim,"ax",@progbits
 	.globl	_bios_settrk_shim
 _bios_settrk_shim:
-	ld	(_sektrk), bc
+	ld	(_cpm_track), bc
 	ret
 
 	.section .text._bios_setsec_shim,"ax",@progbits
 	.globl	_bios_setsec_shim
 _bios_setsec_shim:
-	ld	(_seksec), bc
+	ld	(_cpm_sector), bc
 	ret
 
 	.section .text._bios_setdma_shim,"ax",@progbits
 	.globl	_bios_setdma_shim
 _bios_setdma_shim:
-	ld	(_dmaadr), bc
+	ld	(_cpm_dma_addr), bc
 	ret
 
 ; ================================================================
@@ -119,7 +119,7 @@ _bios_setdma_shim:
 	.globl	_bios_seldsk_shim
 _bios_seldsk_shim:
 	; CP/M: drive in C → sdcccall(1): byte in A
-	; Return: DPH pointer in HL (sdcccall(1) returns word in DE)
+	; Return: disk_parameter_header pointer in HL (sdcccall(1) returns word in DE)
 	ld	a, c
 	call	_bios_seldsk_c
 	ex	de, hl		; sdcccall(1) returns pointer in DE → CP/M expects HL
@@ -163,10 +163,10 @@ _bios_reads_shim:
 	.section .text._bios_wfitr_shim,"ax",@progbits
 	.globl	_bios_wfitr_shim
 _bios_wfitr_shim:
-	call	_wfitr
-	ld	a, (_rstab)
+	call	_fdc_irq_wait_rearm
+	ld	a, (_fdc_result)
 	ld	b, a
-	ld	a, (_rstab + 1)
+	ld	a, (_fdc_result + 1)
 	ld	c, a
 	ret
 

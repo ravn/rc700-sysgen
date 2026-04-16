@@ -61,7 +61,7 @@ BIOS_ENTRY = {
 # Internal function addresses (from bios.map)
 INTERNAL = {
     0xE2D7: "secrd",   0xE458: "rdhst",   0xE479: "rwoper",
-    0xE255: "chktrk",  0xE1A0: "clfit",   0xE1AF: "wfitr",
+    0xE255: "chktrk",  0xE1A0: "fdc_irq_arm",   0xE1AF: "fdc_irq_wait_rearm",
     0xEFC0: "isr_floppy",
     0xE1B5: "flp_dma_setup",
     0xE1EE: "fdc_general_cmd",
@@ -69,14 +69,14 @@ INTERNAL = {
 
 # BIOS variable addresses (from bios.map)
 VARS = {
-    "sekdsk":  0xDF83, "sektrk":  0xDF84, "seksec":  0xDF86,
-    "hstdsk":  0xDF88, "hsttrk":  0xDF89, "hstsec":  0xDF8B,
-    "lstdsk":  0xDF8D, "lsttrk":  0xDF8E, "sekhst":  0xDF90,
-    "hstact":  0xDF92, "hstwrt":  0xDF93, "unacnt":  0xDF94,
-    "erflag":  0xDF9B, "rsflag":  0xDF9C, "readop":  0xDF9D,
-    "dmaadr":  0xDF9F, "form":    0xDFA1, "cform":   0xDFA3,
-    "eotv":    0xDFA4, "dskno":   0xDFA6, "actra":   0xDFA9,
-    "acsec":   0xDFAA, "fl_flg":  0xDFB4,
+    "cpm_disk":  0xDF83, "cpm_track":  0xDF84, "cpm_sector":  0xDF86,
+    "hostbuf_disk":  0xDF88, "hostbuf_track":  0xDF89, "hostbuf_sector":  0xDF8B,
+    "last_seek_disk":  0xDF8D, "last_seek_track":  0xDF8E, "cpm_sector_as_host":  0xDF90,
+    "hstact":  0xDF92, "hstwrt":  0xDF93, "unalloc_count":  0xDF94,
+    "erflag":  0xDF9B, "need_pre_read":  0xDF9C, "is_read":  0xDF9D,
+    "cpm_dma_addr":  0xDF9F, "current_format":    0xDFA1, "current_format_idx":   0xDFA3,
+    "track0_sectors_per_side":    0xDFA4, "fdc_unit_head":   0xDFA6, "fdc_track":   0xDFA9,
+    "fdc_sector":   0xDFAA, "fl_flg":  0xDFB4,
     "kbbuf":   0xDC23, "kbhead":  0xDC33, "kbtail":  0xDC34,
 }
 
@@ -355,33 +355,33 @@ class BiosTracer:
 
     def dump_disk_state(self):
         """Print current disk deblocking state."""
-        print(f"       sekdsk={self.read_var8('sekdsk'):02X}"
-              f" sektrk={self.read_var16('sektrk'):04X}"
-              f" seksec={self.read_var16('seksec'):04X}"
-              f" sekhst={self.read_var16('sekhst'):04X}")
-        print(f"       hstdsk={self.read_var8('hstdsk'):02X}"
-              f" hsttrk={self.read_var16('hsttrk'):04X}"
-              f" hstsec={self.read_var16('hstsec'):04X}"
+        print(f"       cpm_disk={self.read_var8('cpm_disk'):02X}"
+              f" cpm_track={self.read_var16('cpm_track'):04X}"
+              f" cpm_sector={self.read_var16('cpm_sector'):04X}"
+              f" cpm_sector_as_host={self.read_var16('cpm_sector_as_host'):04X}")
+        print(f"       hostbuf_disk={self.read_var8('hostbuf_disk'):02X}"
+              f" hostbuf_track={self.read_var16('hostbuf_track'):04X}"
+              f" hostbuf_sector={self.read_var16('hostbuf_sector'):04X}"
               f" hstact={self.read_var8('hstact'):02X}"
               f" hstwrt={self.read_var8('hstwrt'):02X}")
-        print(f"       dmaadr={self.read_var16('dmaadr'):04X}"
+        print(f"       cpm_dma_addr={self.read_var16('cpm_dma_addr'):04X}"
               f" erflag={self.read_var8('erflag'):02X}"
-              f" rsflag={self.read_var8('rsflag'):02X}"
-              f" readop={self.read_var8('readop'):02X}"
-              f" unacnt={self.read_var8('unacnt'):02X}")
+              f" need_pre_read={self.read_var8('need_pre_read'):02X}"
+              f" is_read={self.read_var8('is_read'):02X}"
+              f" unalloc_count={self.read_var8('unalloc_count'):02X}")
         print(f"       fl_flg={self.read_var8('fl_flg'):02X}"
-              f" eotv={self.read_var8('eotv'):02X}"
-              f" cform={self.read_var8('cform'):02X}"
-              f" dskno={self.read_var8('dskno'):02X}"
+              f" track0_sectors_per_side={self.read_var8('track0_sectors_per_side'):02X}"
+              f" current_format_idx={self.read_var8('current_format_idx'):02X}"
+              f" fdc_unit_head={self.read_var8('fdc_unit_head'):02X}"
               f" isr_floppy_count={self.isr_count}")
 
     def dump_fdc_state(self):
         """Print FDC-related state for sector read investigation."""
-        print(f"       actra={self.read_var8('actra'):02X}"
-              f" acsec={self.read_var8('acsec'):02X}"
-              f" lstdsk={self.read_var8('lstdsk'):02X}"
-              f" lsttrk={self.read_var16('lsttrk'):04X}"
-              f" form={self.read_var16('form'):04X}")
+        print(f"       fdc_track={self.read_var8('fdc_track'):02X}"
+              f" fdc_sector={self.read_var8('fdc_sector'):02X}"
+              f" last_seek_disk={self.read_var8('last_seek_disk'):02X}"
+              f" last_seek_track={self.read_var16('last_seek_track'):04X}"
+              f" form={self.read_var16('current_format'):04X}")
 
     def dump_fcb(self, addr=DEFAULT_FCB, label="FCB"):
         """Dump a CP/M FCB (36 bytes)."""
@@ -711,7 +711,7 @@ class BiosTracer:
                     self.gdb.remove_breakpoint(addr)
                 if self.bdos_return_bp:
                     self.gdb.remove_breakpoint(self.bdos_return_bp)
-                # Step past SETDMA (ld (dmaadr),bc = 4 bytes + ret = 1 byte)
+                # Step past SETDMA (ld (cpm_dma_addr),bc = 4 bytes + ret = 1 byte)
                 # Just start single-stepping immediately from SETDMA entry
                 self.single_step_trace(3000)
                 self.phase = "DONE"

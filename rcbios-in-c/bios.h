@@ -13,25 +13,25 @@
 typedef uint8_t  byte;
 typedef uint16_t word;
 
-/* CP/M 2.2 Disk Parameter Header (DPH) — one per logical drive.
+/* CP/M 2.2 Disk Parameter Header (disk_parameter_header) — one per logical drive.
  * Reference: CP/M 2.2 System Interface Guide, section 6.10
  *   http://www.cpm.z80.de/manuals/cpm22-m.pdf page 53
  *
- * The BIOS returns a pointer to the DPH from SELDSK.  The BDOS uses
- * the DPH to locate the translation table, directory buffer, DPB,
+ * The BIOS returns a pointer to the disk_parameter_header from SELDSK.  The BDOS uses
+ * the disk_parameter_header to locate the translation table, directory buffer, disk_parameter_block,
  * check vector, and allocation vector for the selected drive.
  *
  * All fields are 16-bit addresses (pointers) or reserved scratch areas.
  * Total size: 16 bytes (8 words) per drive. */
-struct DPB_s;
+struct disk_parameter_block_s;
 typedef struct {
-    const byte *xlt;         /* +0:  sector translation table (NULL = no translation) */
-    word  scratch[3];        /* +2:  scratch area used by BDOS (3 words) */
-    byte *dirbf;             /* +8:  directory buffer (128 bytes, shared by all drives) */
-    const struct DPB_s *dpb; /* +10: Disk Parameter Block (set by SELDSK) */
-    byte *csv;               /* +12: check vector (removable media change detection) */
-    byte *alv;               /* +14: allocation vector (disk space bitmap) */
-} DPH;
+    const byte                          *xlt;                  /* +0:  sector translation table (NULL = no translation) */
+    word                                 scratch[3];           /* +2:  scratch area used by BDOS (3 words) */
+    byte                                *dirbf;                /* +8:  directory buffer (128 bytes, shared by all drives) */
+    const struct disk_parameter_block_s *dpb;                  /* +10: DPB pointer (set by SELDSK per format) */
+    byte                                *csv;                  /* +12: check vector (removable media change detection) */
+    byte                                *alv;                  /* +14: allocation vector (disk space bitmap) */
+} disk_parameter_header;
 
 /* Display memory: 25 rows × 80 columns at 0xF800, refreshed by 8275 CRT.
  * The array type is the single source of truth for all screen dimensions. */
@@ -148,6 +148,32 @@ static volatile word wboot_vec, bdos_vec;
 #define PORT_FDC        PORT_FDC_STATUS
 #define PORT_FDD        PORT_FDC_DATA
 #define PORT_CRT_DATA   PORT_CRT_PARAM
+
+/* ================================================================
+ * NEC uPD765 FDC register vocabulary.
+ * Used in bios.c and bios_hw_init.c.
+ * ================================================================ */
+
+/* Main Status Register (MSR) -- read from fdc_status port. */
+#define FDC_MSR_RQM            0b10000000  /* Request for Master: FDC ready for data transfer */
+#define FDC_MSR_DIO            0b01000000  /* Data direction: 1=FDC->CPU, 0=CPU->FDC */
+#define FDC_MSR_NDM            0b00100000  /* Non-DMA Mode: execution phase in progress */
+#define FDC_MSR_CB             0b00010000  /* FDC Busy: command or result phase active */
+#define FDC_MSR_DRIVE_SEEKING  0b00001111  /* any of D0B-D3B: a drive is currently seeking */
+
+/* Status Register 0 (ST0) -- first result byte after Read/Write Data. */
+#define FDC_ST0_INTERRUPT_CODE    0b11000000  /* mask for IC field (bits 7,6) */
+#define FDC_ST0_IC_NORMAL         0b00000000  /* IC=00: normal termination */
+#define FDC_ST0_IC_ABNORMAL       0b01000000  /* IC=01: abnormal termination */
+#define FDC_ST0_IC_INVALID_CMD    0b10000000  /* IC=10: invalid command issued */
+#define FDC_ST0_IC_POLL_ABNORMAL  0b11000000  /* IC=11: abnormal during polling */
+#define FDC_ST0_SEEK_END          0b00100000  /* set when a Recalibrate/Seek completes */
+#define FDC_ST0_EQUIPMENT_CHECK   0b00010000  /* drive FAULT line asserted */
+#define FDC_ST0_NOT_READY         0b00001000  /* drive selected but not ready (no disk, door open) */
+
+/* Any of these set after a Read/Write -> command did not complete normally. */
+#define FDC_ST0_ANY_ERROR  (FDC_ST0_INTERRUPT_CODE | FDC_ST0_SEEK_END | \
+                            FDC_ST0_EQUIPMENT_CHECK | FDC_ST0_NOT_READY)
 
 /* IOBYTE device redirection (CP/M 2.2 Table 6-4).
  * STAT CON:=TTY: routes console to SIO-A serial for remote control. */
@@ -349,7 +375,7 @@ extern volatile JTVars _jtvars;
 #define bootd       JT.bootd
 
 /* CP/M Disk Parameter Block */
-typedef struct DPB_s {
+typedef struct disk_parameter_block_s {
     word spt;               /* sectors per track */
     byte  bsh;                  /* block shift factor */
     byte  blm;                  /* block mask */
@@ -359,19 +385,19 @@ typedef struct DPB_s {
     byte  al0, al1;             /* allocation bitmap */
     word cks;               /* check vector size */
     word off;               /* track offset */
-} DPB;
+} disk_parameter_block;
 
-/* Floppy System Parameters (16 bytes each) */
+/* Floppy System Parameters Area (16 bytes per format, one FSPA per FDF) */
 typedef struct {
-    const DPB  *dpb;            /* DPB pointer (read-only table) */
-    byte  cpmrbp;               /* records per block */
-    word cpmspt;            /* CP/M sectors per track */
-    byte  secmsk;               /* sector mask */
-    byte  secshf;               /* sector shift */
-    const byte *trantb;         /* translation table pointer (read-only) */
-    byte  dtlv;                 /* data length value */
-    byte  dsktyp;               /* disk type (0=floppy) */
-    byte  _pad[5];              /* filler to 16 bytes */
+    const disk_parameter_block *dpb;                  /* DPB pointer (read-only) */
+    byte        records_per_alloc_block;              /* records per allocation unit */
+    word        cpm_sectors_per_track;                /* logical 128B sectors/track */
+    byte        deblock_mask;                         /* cpm_sector & mask = hostbuf offset */
+    byte        deblock_shift;                        /* cpm_sector >> shift = host-sector */
+    const byte *sector_xlate;                         /* sector translation table (interleave) */
+    byte        fdc_data_length;                      /* uPD765 READ/WRITE DTL byte */
+    byte        is_hard_disk;                         /* 0 = floppy, 0xFF = hard disk */
+    byte        _pad[5];                              /* filler to 16 bytes */
 } FSPA;
 
 /* Floppy Disk Format descriptor (8 bytes each) */
@@ -386,8 +412,8 @@ typedef struct {
 } FDF;
 
 /* Disk tables (defined in bios.c) */
-extern const byte tran0[], tran8[], tran16[], tran24[];
-extern const DPB dpb0, dpb8, dpb16, dpb24;
+extern const byte xlt_maxi_128[], xlt_maxi_512[], xlt_mini_512[], xlt_identity[];
+extern const disk_parameter_block dpb_maxi_128, dpb_maxi_512, dpb_mini_512, dpb_maxi_256;
 extern const FSPA fspa[4];
 extern const FDF fdf[4];
 extern word trkoff[];

@@ -88,8 +88,14 @@ FORCE:
 # Compiler dispatch: make bios → $(COMPILER)/bios.cim
 # ================================================================
 
-bios: builddate.h
+bios: builddate.h verify-skew
 	$(MAKE) -C $(COMPILER) bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+
+# Verify the hand-written sector skew tables in bios.c match the CP/M
+# skew algorithm (analog of the original DRI assembler XLT macro).
+# Runs before every BIOS build; build fails if tables drift from spec.
+verify-skew:
+	@python3 verify_skew.py bios.c > /dev/null
 
 # SDCC build rules are in sdcc/Makefile
 

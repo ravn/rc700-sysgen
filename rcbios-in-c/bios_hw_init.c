@@ -5,7 +5,7 @@
  * overwritten by CCP after boot — saving ~474 bytes of resident BIOS.
  *
  * All hardware I/O uses __sfr ports (work from any address).
- * References to BSS variables (wr5a, fd0[], dpbase, etc.) use their
+ * References to BSS variables (wr5a, fd0[], dph_table, etc.) use their
  * relocated runtime addresses, which are valid because coldboot has
  * already copied the BIOS to BIOS_BASE before calling bios_hw_init().
  */
@@ -57,12 +57,12 @@ extern void isr_pio_kbd(void);
 extern void fdc_write(byte val);
 
 /* BSS variables in bios.c (at relocated runtime addresses) */
-extern byte drno;
-extern DPH dpbase[];
+extern byte max_drive_num;
+extern disk_parameter_header dph_table[];
 extern byte dirbf[];
-extern const DPB dpb8;
+extern const disk_parameter_block dpb_maxi_512;
 extern byte chk0[], chk1[], all0[], all1[];
-extern byte unacnt, cform, lstdsk;
+extern byte unalloc_count, current_format_idx, last_seek_disk;
 /* hstact, hstwrt, erflag are accessed via wb macros from bios.h */
 
 /* ================================================================
@@ -201,8 +201,8 @@ void bios_hw_init(void)
     port_out(dma_mode, DMA_MODE_MEM2IO(DMA_CH_DISATTR));  /* attributes: mem→CRT */
 
     /* FDC: send SPECIFY command */
-    while (port_in(fdc_status) & 0x1F)
-        ;  /* wait for all drives not seeking and not busy */
+    while (port_in(fdc_status) & (FDC_MSR_CB | FDC_MSR_DRIVE_SEEKING))
+        ;  /* wait until FDC not busy AND no drive is seeking */
     fdc_write(0x03);            /* SPECIFY command */
     fdc_write(0xDF);            /* step rate 3ms, head unload 240ms */
     fdc_write(0x28);            /* head load 40ms, DMA mode */
@@ -242,53 +242,53 @@ void bios_hw_init(void)
         memcpy((void *)fd0, (const void *)CFG.infd, sizeof(fd0));
 
         /* Count configured drives from fd0 table */
-        drno = 0;
+        max_drive_num = 0;
         for (d = 0; d < 16; d++) {
             if (fd0[d] == 0xFF)
                 break;
-            drno = d;
+            max_drive_num = d;
         }
 
-        /* Initialize DPH entries for each drive.
+        /* Initialize disk_parameter_header entries for each drive.
          * Clang accepts link-time constants in static initializers;
          * SDCC does not, so it uses per-field assignment. */
 #ifdef __clang__
         {
-            static const DPH dph0 = {
-                0, {0,0,0}, dirbf, &dpb8, chk0, all0
+            static const disk_parameter_header dph0 = {
+                0, {0,0,0}, dirbf, &dpb_maxi_512, chk0, all0
             };
-            static const DPH dph1 = {
-                0, {0,0,0}, dirbf, &dpb8, chk1, all1
+            static const disk_parameter_header dph1 = {
+                0, {0,0,0}, dirbf, &dpb_maxi_512, chk1, all1
             };
-            dpbase[0] = dph0;
-            if (drno >= 1)
-                dpbase[1] = dph1;
+            dph_table[0] = dph0;
+            if (max_drive_num >= 1)
+                dph_table[1] = dph1;
         }
 #else
         {
-            DPH *dph = &dpbase[0];
-            memset(dph, 0, sizeof(DPH));
-            dph->dirbf = dirbf;
-            dph->dpb   = &dpb8;
-            dph->csv   = chk0;
-            dph->alv   = all0;
+            disk_parameter_header *entry = &dph_table[0];
+            memset(entry, 0, sizeof(*entry));
+            entry->dirbf                = dirbf;
+            entry->dpb = &dpb_maxi_512;
+            entry->csv                  = chk0;
+            entry->alv                  = all0;
         }
-        if (drno >= 1) {
-            DPH *dph = &dpbase[1];
-            memset(dph, 0, sizeof(DPH));
-            dph->dirbf = dirbf;
-            dph->dpb   = &dpb8;
-            dph->csv   = chk1;
-            dph->alv   = all1;
+        if (max_drive_num >= 1) {
+            disk_parameter_header *entry = &dph_table[1];
+            memset(entry, 0, sizeof(*entry));
+            entry->dirbf                = dirbf;
+            entry->dpb = &dpb_maxi_512;
+            entry->csv                  = chk1;
+            entry->alv                  = all1;
         }
 #endif
 
         /* Clear disk state */
         hstact = 0;
         hstwrt = 0;
-        unacnt = 0;
+        unalloc_count = 0;
         erflag = 0;
-        cform = 0xFF;       /* force format reload on first SELDSK */
-        lstdsk = 0xFF;      /* force seek on first access */
+        current_format_idx = 0xFF;       /* force format reload on first SELDSK */
+        last_seek_disk = 0xFF;      /* force seek on first access */
     }
 }

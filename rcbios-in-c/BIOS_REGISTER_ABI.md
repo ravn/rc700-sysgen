@@ -8,7 +8,7 @@ This means BIOS routines are free to clobber all registers (A, BC, DE, HL, IX, I
 The only contract is the documented input/output registers:
 - Input: character in C (CONOUT, LIST, PUNCH), drive in C (SELDSK), etc.
 - Output: status in A (CONST, READ, WRITE), character in A (CONIN, READER),
-  DPH pointer in HL (SELDSK), translated sector in HL (SECTRAN).
+  disk_parameter_header pointer in HL (SELDSK), translated sector in HL (SECTRAN).
 
 ## Official Documentation
 
@@ -58,8 +58,8 @@ Only A is used after the call.
 
 ### SELDSK (`seldskf`) — lines 582-584
 
-Only HL is used after the call (the returned DPH pointer).  The BDOS
-walks the DPH structure entirely through HL/DE, reloading from the
+Only HL is used after the call (the returned disk_parameter_header pointer).  The BDOS
+walks the disk_parameter_header structure entirely through HL/DE, reloading from the
 returned pointer.
 
 ### READ (`readf`) / WRITE (`writef`) — lines 621-632
