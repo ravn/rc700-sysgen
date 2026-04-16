@@ -102,12 +102,49 @@ const FDF fdf[4] = {
     { 52, 255, 64, 1, 26, 14, 77 },    /* 8" DD 256 B/S (T0 S1)     */
 };
 
-/* Floppy System Parameters (16 bytes each) */
+/* Floppy System Parameters (16 bytes each) — one per supported format.
+ * Selected at runtime by SELDSK via (format_code >> 3) & 3. */
 const FSPA fspa[4] = {
-    { &dpb_maxi_128,   8,  26, 0, 1, xlt_maxi_128,  128, 0, {0} },
-    { &dpb_maxi_512,  16, 120, 3, 3, xlt_maxi_512,  255, 0, {0} },
-    { &dpb_mini_512,  8,  26, 0, 1, xlt_identity, 128, 0, {0} },
-    { &dpb_maxi_256,  8, 104, 1, 2, xlt_identity, 255, 0, {0} },
+    {   /* [0] 8" FM 128 B/S (boot track) */
+        .dpb                     = &dpb_maxi_128,
+        .records_per_alloc_block =  8,
+        .cpm_sectors_per_track   = 26,
+        .deblock_mask            =  0,
+        .deblock_shift           =  1,
+        .sector_xlate            = xlt_maxi_128,
+        .fdc_data_length         = 128,
+        .disk_type            =  0,
+    },
+    {   /* [1] 8" DD 512 B/S (MAXI data area) */
+        .dpb                     = &dpb_maxi_512,
+        .records_per_alloc_block = 16,
+        .cpm_sectors_per_track   = 120,
+        .deblock_mask            =  3,
+        .deblock_shift           =  3,
+        .sector_xlate            = xlt_maxi_512,
+        .fdc_data_length         = 255,
+        .disk_type            =  0,
+    },
+    {   /* [2] 5.25" DD 512 B/S (MINI) */
+        .dpb                     = &dpb_mini_512,
+        .records_per_alloc_block =  8,
+        .cpm_sectors_per_track   = 26,
+        .deblock_mask            =  0,
+        .deblock_shift           =  1,
+        .sector_xlate            = xlt_identity,
+        .fdc_data_length         = 128,
+        .disk_type            =  0,
+    },
+    {   /* [3] 8" DD 256 B/S (track 0 side 1) */
+        .dpb                     = &dpb_maxi_256,
+        .records_per_alloc_block =  8,
+        .cpm_sectors_per_track   = 104,
+        .deblock_mask            =  1,
+        .deblock_shift           =  2,
+        .sector_xlate            = xlt_identity,
+        .fdc_data_length         = 255,
+        .disk_type            =  0,
+    },
 };
 
 /* Track offset table (2 floppy drives + 6 reserved for harddisk) */
@@ -232,7 +269,7 @@ static byte        deblock_mask;                          /* cpm_sector & mask =
 static byte        deblock_shift;                         /* cpm_sector >> shift = host-sector index   */
 static const byte *sector_xlate;                          /* sector translation table (interleave)     */
 static byte        fdc_data_length;                       /* uPD765 READ/WRITE data-length byte        */
-static byte        is_hard_disk;                          /* 0 = floppy, 0xFF = hard disk              */
+static byte        disk_type;                             /* FSPA disk-type tag (0 = floppy; 0xFF currently unused) */
 
 /* Disk Parameter Headers — one per drive, returned by SELDSK.
  * BSS-zeroed at boot; dpb pointer updated by SELDSK per format. */
@@ -1616,7 +1653,7 @@ disk_parameter_header *bios_seldsk_c(byte drv)
         deblock_shift = sp->deblock_shift;
         sector_xlate = sp->sector_xlate;
         fdc_data_length = sp->fdc_data_length;
-        is_hard_disk = sp->is_hard_disk;
+        disk_type = sp->disk_type;
     }
 
     /* Update the DPB pointer in this drive's DPH and return its address to BDOS. */

@@ -5,6 +5,8 @@ same approach as `autoload-in-c/` (ROA375 PROM rewrite).
 
 See `rcbios/BIOS_IN_C_PLAN.md` for the full implementation plan.
 
+There is a good explanation of the CP/M data structures and their naming at https://www.idealine.info/sharpmz/dpb.htm. 
+
 TODO:  Rewrite bios routines to use https://www.z88dk.org/wiki/doku.php?id=libnew:intrinsic#intrinsics_-_function_return_value to indicate the return value is in C and not A, and possibly use some of the demo programs to test code generation.
 
 2026-03-10:  BIOS is now feature-complete (except for harddisk support) and boots CP/M to A> on the MAXI 8" disk image. Remaining work is refactoring and size reduction to fit the MINI 5.25" image.  Also making hot paths as fast as possible and move as many pointer operations to standard C idioms working on table structures etc, and then add peep hole optimization to make the generated code sharper.

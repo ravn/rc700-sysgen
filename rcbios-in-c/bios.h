@@ -396,7 +396,7 @@ typedef struct {
     byte        deblock_shift;                        /* cpm_sector >> shift = host-sector */
     const byte *sector_xlate;                         /* sector translation table (interleave) */
     byte        fdc_data_length;                      /* uPD765 READ/WRITE DTL byte */
-    byte        is_hard_disk;                         /* 0 = floppy, 0xFF = hard disk */
+    byte        disk_type;                            /* FSPA disk-type tag (0 = floppy; 0xFF seen in ref BIOS) */
     byte        _pad[5];                              /* filler to 16 bytes */
 } FSPA;
 

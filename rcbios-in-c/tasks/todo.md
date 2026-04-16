@@ -125,10 +125,18 @@ a BSS debug buffer (dbg_idx at 0xDFE1, dbg_buf at 0xDFE2, 252 bytes / 63 entries
       A> prompt, 2685 sectors zero errors
 
 ### Session 17 — open follow-ups
-- [ ] FSPA initializer at bios.c:112-115 still positional. With renamed
-      fields, designated initializers (.dpb = ..., .records_per_alloc_block
-      = ...) would be more self-documenting. Verify SDCC accepts designated
-      init before switching.
+- [x] FSPA initializer migrated to designated initializers (bios.c:106-149).
+      Both clang and SDCC accept designated init for FSPA's struct-of-scalars
+      layout. Size unchanged.
+- [ ] Investigate what `disk_type = 0xFF` actually means in the original
+      RC702 reference BIOS. Current field was named `is_hard_disk` but
+      reverted to `disk_type` because:
+      a) The field has no reader in our code — dead until HD support is
+         implemented, so the semantic is unverified.
+      b) `rc703-div-bios-typer/` (original authored RC703 BIOS) may
+         document the meaning; check there before re-assuming "0xFF = HD".
+      c) boot_confi.c uses format code 0x20 for HD drives in fd0[] — that
+         is a DIFFERENT field from FSPA.disk_type. Relation unclear.
 - [ ] Audit remaining short-name variables for clarity: `drno` (now
       `max_drive_num`) was a good case; are there others like `erflag`,
       `hstact`, `hstwrt`, `prtflg`, `ptpflg`, `cerflg`, `delcnt` that
