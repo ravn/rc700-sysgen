@@ -198,11 +198,12 @@ extern volatile WarmBootState wb;
 /* SIO-B baud rate (compile-time, from CONFI defaults in boot_confi.c).
  * The 614400 Hz baud rate clock is generated in hardware by dividing
  * the 19.6608 MHz memory clock by 32 (two cascaded 74LS393 dividers).
- * CTC ch1 count = 1, SIO-B WR4 = 0x44 (×16 clock).
+ * CTC ch1 count = 16, SIO-B WR4 = 0x04 (×1 clock).
+ * ×1 mode enables switching to 76800/115200 at runtime without changing WR4.
  * Formula: 614400 / (CTC_count × SIO_clock_mode). */
 #define BAUD_CLOCK      614400
-#define SIOB_CTC_COUNT  1
-#define SIOB_SIO_CLKDIV 16
+#define SIOB_CTC_COUNT  16
+#define SIOB_SIO_CLKDIV 1
 #define SIOB_BAUD       (BAUD_CLOCK / (SIOB_CTC_COUNT * SIOB_SIO_CLKDIV))
 #define SIOB_BAUD_STR   "38400"
 
@@ -468,7 +469,7 @@ typedef struct {
     byte sioa[9];           /* +0x08: SIO channel A init sequence
                              *   [0] 0x18: WR0 — channel reset
                              *   [1] 0x04: WR0 — select WR4
-                             *   [2] 0x44: WR4 — ×16 clock, 1 stop bit, no parity
+                             *   [2] 0x04: WR4 — ×1 clock, 1 stop bit, no parity
                              *             (rel.2.1: 0x47 = ×16, 1 stop, even parity)
                              *             (50-300 baud: 0xC4/C7 for ×64 clock)
                              *   [3] 0x03: WR0 — select WR3

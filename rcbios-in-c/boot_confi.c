@@ -17,14 +17,14 @@
  * See ConfiBlock typedef in bios.h for field documentation. */
 const byte confi_on_disk[128] = {
     /* CTC channels 0-3 (ports 0x0C-0x0F) */
-    0x47, 0x01,         /* +0x00: ctc_mode0, ctc_count0 (SIO-A: 38400 baud) */
-    0x47, 0x01,         /* +0x02: ctc_mode1, ctc_count1 (SIO-B: 38400 baud) */
+    0x47, 0x10,         /* +0x00: ctc_mode0, ctc_count0 (SIO-A: 38400 baud, ×1 mode) */
+    0x47, 0x10,         /* +0x02: ctc_mode1, ctc_count1 (SIO-B: 38400 baud, ×1 mode) */
     0xD7, 0x01,         /* +0x04: ctc_mode2, ctc_count2 (CRT refresh) */
     0xD7, 0x01,         /* +0x06: ctc_mode3, ctc_count3 (FDC) */
 
     /* SIO channel A init (serial port), 9 bytes */
     0x18,               /* +0x08: WR0 channel reset */
-    0x04, 0x44,         /* +0x09: WR4 x16 clock, 1 stop, no parity */
+    0x04, 0x04,         /* +0x09: WR4 ×1 clock, 1 stop, no parity */
     0x03, 0xE1,         /* +0x0B: WR3 8-bit, auto enables, Rx enable */
     0x05, 0x60,         /* +0x0D: WR5 8-bit Tx, Tx disabled, RTS off */
     0x01, 0x1B,         /* +0x0F: WR1 Rx/Tx/Ext int enable */
@@ -32,7 +32,7 @@ const byte confi_on_disk[128] = {
     /* SIO channel B init (reader/punch port), 11 bytes */
     0x18,               /* +0x11: WR0 channel reset */
     0x02, 0x10,         /* +0x12: WR2 int vector base 0x10 */
-    0x04, 0x44,         /* +0x14: WR4 x16 clock, 1 stop, no parity (8N1) */
+    0x04, 0x04,         /* +0x14: WR4 ×1 clock, 1 stop, no parity (8N1) */
     0x03, 0xE1,         /* +0x16: WR3 8-bit, auto enables, Rx enable */
     0x05, 0x60,         /* +0x18: WR5 8-bit Tx, Tx disabled */
     0x01, 0x1F,         /* +0x1A: WR1 Rx/Tx/Ext/status affects vector */
