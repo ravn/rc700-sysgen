@@ -37,7 +37,7 @@ void bios_conout_c(byte c);
 void bios_list_body(byte c);
 void bios_punch_body(byte c);
 byte bios_reader_body(void);
-word bios_seldsk_c(byte drv);
+DPH *bios_seldsk_c(byte drv);
 static byte xread(void);
 void bios_home(void);
 
@@ -480,7 +480,7 @@ static void sec_rw(byte cmd, byte dma_dir)
 
         dma_write = s_dma_dir;
         flp_dma_setup();
-        fdc_general_cmd(s_cmd, (byte *)&form->mf);
+        fdc_general_cmd(s_cmd, &form->mf);
         watir();
 
         if (!(rstab.st0 & 0b11111000))
@@ -1502,7 +1502,7 @@ word bios_seldsk(byte disk) __naked
 #endif
 }
 
-word bios_seldsk_c(byte drv)
+DPH *bios_seldsk_c(byte drv)
 {
     static byte drive;
     static byte fmt;
@@ -1552,7 +1552,7 @@ word bios_seldsk_c(byte drv)
         static DPH *dph;
         dph = &dpbase[drive];
         dph->dpb = dpblck;
-        return (word)dph;
+        return dph;
     }
 }
 
