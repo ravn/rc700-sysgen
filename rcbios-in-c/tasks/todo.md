@@ -271,6 +271,28 @@ the check.
 **Masters** are the four disks with serial 0 (no per-copy stamp).
 They're templates RC kept to press duplicates from.
 
+**Timeline**: serials are monotonic across RC's entire product line
+(shared pool — not per-SKU).  Sorted by serial: Compas r1.4 (746)
+→ SW1711-I5 r1.4 (892) → CPM rel 2.1 MINI (1514) → SW1311-I8 r1.0
+(2567) → SW1711-I5 r2.1 (2972) → SW1711-I5 copy (3030) → r2.2
+(3604) → r2.3 (4252) → RC703 r1.2 (5001).  Within each product
+line, newer releases have higher serials.
+
+**The SW1711-I8.imd IMD-header label "2-261-2773" fits precisely
+between SW1311-I8 (2567) and SW1711-I5 r2.1 (2972)** — the slot
+where an SW1711-I8 release 2.1 stamped contemporaneously with the
+other r2.1 disks would belong.  So "2773" isn't a random archivist
+note: it's a real RC ledger number for that master, just never
+written into the bytes (which stay zero because the disk was kept
+as a duplication master, not a customer copy).
+
+Implication for the "new path" deploy pipeline: if we wanted to
+reproduce real RC customer disks byte-exactly, we'd stamp an
+assigned serial into bytes 3-5 of both the CCP and BDOS serial
+fields at build time.  For our reproduction purposes, leaving
+the bytes zero (master convention) is correct and safe — the
+CCP's serialize check passes (0 == 0).
+
 - [ ] Figure out the RC702 track-1 layout for CCP+BDOS (the bytes
 - [ ] Figure out the RC702 track-1 layout for CCP+BDOS (the bytes
       that the warm-boot BIOS reads back into 0xC400-0xD9FF — 44
