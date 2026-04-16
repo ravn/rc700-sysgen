@@ -199,7 +199,7 @@ static byte  readop;
 static byte  wrtype;  /* renamed to avoid conflict with WRTYPE macro */
 
 /* DMA and format state */
-word dmaadr;         /* CP/M DMA address */
+byte *dmaadr;        /* CP/M DMA address */
 static const FDF *form;  /* pointer to current FDF entry */
 byte  cform;   /* current format index */
 static byte  eotv;        /* sectors per side on track 0 */
@@ -543,11 +543,11 @@ match:
      * in registers, saving 10 bytes despite the duplicated expression. */
     if (readop) {
         /* read: copy from host buffer to DMA area */
-        memcpy((byte *)dmaadr, &hstbuf[(word)(seksec & secmsk) << 7], 128);
+        memcpy(dmaadr, &hstbuf[(word)(seksec & secmsk) << 7], 128);
     } else {
         /* write: copy from DMA area to host buffer */
         hstwrt = 1;
-        memcpy(&hstbuf[(word)(seksec & secmsk) << 7], (byte *)dmaadr, 128);
+        memcpy(&hstbuf[(word)(seksec & secmsk) << 7], dmaadr, 128);
     }
 
     /* post-processing */
@@ -678,7 +678,7 @@ void wboot_c(void)
         dmaadr += 128;
     }
 
-    dmaadr = BUFF;
+    dmaadr = BDOS_DMAADDR;
 
     /* Set up JP vectors at page zero */
 #ifndef HOST_TEST
@@ -695,10 +695,13 @@ void wboot_c(void)
 #endif
 }
 
-/* CCP entry point — __at makes the linker resolve the address from
- * the CCP_BASE expression, avoiding a hardcoded hex literal in asm. */
+/* CCP entry point — defined differently per compiler:
+ *   clang: linker script exports _ccp_entry_point = CCP_BASE, so we
+ *          only need a dereferenceable expression for wboot_c().
+ *   sdcc:  __at creates a linker symbol that inline asm in jump_ccp
+ *          references as _ccp_entry_point. */
 #if defined(__clang__)
-#define ccp_entry_point (*(volatile byte *)CCP_BASE)
+#define ccp_entry_point (*(volatile byte *)(CCP_BASE))
 #else
 static volatile byte __at(CCP_BASE) ccp_entry_point;
 #endif

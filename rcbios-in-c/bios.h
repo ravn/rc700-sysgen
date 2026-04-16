@@ -116,10 +116,10 @@ extern volatile ConvTables _convtables;
 #define BIAS        ((MSIZE - 20) * 1024u)
 #define CPMB        (0x3400u + BIAS)        /* CCP base */
 #define CPML        0x1600                  /* CCP + BDOS length */
-#define CCP_BASE    CPMB
+#define CCP_BASE    ((byte *)CPMB)          /* CCP base as pointer */
 #define BDOS_BASE   (CPMB + 0x806)          /* BDOS entry */
 #define BIOS_BASE   (CPMB + CPML)           /* BIOS jump table */
-#define BUFF        0x0080                  /* default DMA buffer */
+#define BDOS_DMAADDR ((byte *)0x0080)  /* CP/M default DMA buffer address (DRI: TBUFF) */
 #define CFG_ADDR    (CPMB + 0x1100)         /* CONFI block temp address (CCP area) */
 #if defined(__SDCC) || defined(__SCCZ80)
 static volatile byte __at(0x0000) wboot_jp;   /* JP opcode */
