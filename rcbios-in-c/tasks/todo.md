@@ -69,3 +69,29 @@ a BSS debug buffer (dbg_idx at 0xDFE1, dbg_buf at 0xDFE2, 252 bytes / 63 entries
 ### Code quality
 - [ ] Audit all BIOS wrappers returning uint16_t for DE→HL sdcccall(1) correctness
 - [ ] Consider replacing assembly interrupt wrappers with __interrupt C functions
+
+### Session 16 (2026-04-15/16) — type correctness and baud prep
+- [x] dskad: word → byte* (−35B clang, partial-constant-fold fix)
+- [x] dmaadr: word → byte* (0B clang, +4B sdcc, semantic cleanup)
+- [x] BUFF → BDOS_DMAADDR with (byte *) type; CCP_BASE typed
+- [x] FSPA/DPH const-correct (void* → typed fields; 6 casts removed)
+- [x] bios_seldsk_c returns DPH* (not word)
+- [x] Default SIO-A and SIO-B to 38400 ×1 (CTC count=16, WR4=0x04)
+      prep for 76800/115200 on real hardware — only CTC count changes
+- [x] siob-baud test harness: auto-extract BSS addresses from bios.elf
+- [x] llvm-z80#71: SRL A → RRCA when followed by AND mask (−13B clang)
+
+### Session 16 — open follow-ups
+- [ ] **Test 76800 / 115200 on physical RC700 hardware**
+      MAME ×1 receive at >38400 fails (null_modem TX sends bytes but
+      Z80-DART doesn't receive them). Real HW should work per Z80-SIO
+      datasheet (×1 up to ~880 kbaud). Needs the FTDI cable.
+- [ ] Investigate MAME Z80-DART ×1 receive at >38400 baud.
+      Null_modem confirmed to transmit at 76800 (22 bytes read from TCP
+      stream), but ring buffer stays empty. Filed upstream? Need to
+      check MAME mailing list / issue tracker before filing.
+- [ ] PROM rom.c: review typed address #defines (BOOT_DIR_OFF, etc.)
+      for same treatment as CCP_BASE/BDOS_DMAADDR — may remove more casts.
+- [ ] ravn/z88dk#2: SDCC uses byte-wise LD a,(nn) for const pointer
+      copies instead of LD rr,(nn) — ~2-4B per site. Consider adding
+      SDCC peephole in z88dk's sdcc fork if small.
