@@ -72,8 +72,8 @@ VARS = {
     "cpm_disk":  0xDF83, "cpm_track":  0xDF84, "cpm_sector":  0xDF86,
     "hostbuf_disk":  0xDF88, "hostbuf_track":  0xDF89, "hostbuf_sector":  0xDF8B,
     "last_seek_disk":  0xDF8D, "last_seek_track":  0xDF8E, "cpm_sector_as_host":  0xDF90,
-    "hstact":  0xDF92, "hstwrt":  0xDF93, "unalloc_count":  0xDF94,
-    "erflag":  0xDF9B, "need_pre_read":  0xDF9C, "is_read":  0xDF9D,
+    "hostbuf_valid":  0xDF92, "hostbuf_dirty":  0xDF93, "unalloc_count":  0xDF94,
+    "disk_error":  0xDF9B, "need_pre_read":  0xDF9C, "is_read":  0xDF9D,
     "cpm_dma_addr":  0xDF9F, "current_format":    0xDFA1, "current_format_idx":   0xDFA3,
     "track0_sectors_per_side":    0xDFA4, "fdc_unit_head":   0xDFA6, "fdc_track":   0xDFA9,
     "fdc_sector":   0xDFAA, "fl_flg":  0xDFB4,
@@ -362,10 +362,10 @@ class BiosTracer:
         print(f"       hostbuf_disk={self.read_var8('hostbuf_disk'):02X}"
               f" hostbuf_track={self.read_var16('hostbuf_track'):04X}"
               f" hostbuf_sector={self.read_var16('hostbuf_sector'):04X}"
-              f" hstact={self.read_var8('hstact'):02X}"
-              f" hstwrt={self.read_var8('hstwrt'):02X}")
+              f" hostbuf_valid={self.read_var8('hostbuf_valid'):02X}"
+              f" hostbuf_dirty={self.read_var8('hostbuf_dirty'):02X}")
         print(f"       cpm_dma_addr={self.read_var16('cpm_dma_addr'):04X}"
-              f" erflag={self.read_var8('erflag'):02X}"
+              f" disk_error={self.read_var8('disk_error'):02X}"
               f" need_pre_read={self.read_var8('need_pre_read'):02X}"
               f" is_read={self.read_var8('is_read'):02X}"
               f" unalloc_count={self.read_var8('unalloc_count'):02X}")

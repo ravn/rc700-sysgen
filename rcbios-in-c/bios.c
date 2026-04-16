@@ -180,8 +180,8 @@ static byte rxbuf_a[RXBUFSZ];
 static volatile byte rxbuf_b[RXBUFSZ];
 
 /* SIO status flags (0xFF = ready/not busy, 0x00 = busy) */
-static volatile byte prtflg = 0xFF;  /* printer (Ch.B TX) ready */
-static volatile byte ptpflg = 0xFF;  /* punch (Ch.A TX) ready */
+static volatile byte sio_b_tx_ready = 0xFF;  /* printer (Ch.B TX) ready */
+static volatile byte sio_a_tx_ready = 0xFF;  /* punch (Ch.A TX) ready */
 
 /* SIO status register snapshots */
 static volatile byte rr0_a, rr1_a;  /* written by SIO ISRs, read by bios_linsel */
@@ -216,7 +216,7 @@ static word last_seek_track;
 /* Intermediate: cpm_sector >> deblock_shift */
 static byte cpm_sector_as_host;
 
-/* Buffer status — hstact/hstwrt/erflag are in the wb struct */
+/* Buffer status — hostbuf_valid/hostbuf_dirty/disk_error are in the wb struct */
 
 /* Unallocated sector tracking */
 byte  unalloc_count;
@@ -225,7 +225,7 @@ static word unalloc_track;
 static word unalloc_sector;
 static byte  unalloc_mask;
 
-/* I/O operation control — erflag is in the wb struct */
+/* I/O operation control — disk_error is in the wb struct */
 static byte  need_pre_read;
 static byte  is_read;
 static byte  write_type;  /* renamed to avoid conflict with WRTYPE macro */
@@ -285,8 +285,8 @@ static void fdstop(void)
 
 static void waitd(word ticks)
 {
-    delcnt = ticks;
-    while (delcnt)
+    delay_ticks = ticks;
+    while (delay_ticks)
         ; // wait for timer to count down (20ms per tick)
 }
 
@@ -611,8 +611,8 @@ static void sec_rw(byte cmd, byte dma_dir)
             fdc_sense_int();
         }
     }
-    hstact = 0;
-    erflag = 1;
+    hostbuf_valid = 0;
+    disk_error = 1;
 }
 
 
@@ -625,22 +625,22 @@ static byte rwoper(void)
     cpm_sector_as_host = (byte)(cpm_sector >> (byte)(deblock_shift - 1));
 
     /* check if host buffer is active and matches */
-    if (hstact) {
+    if (hostbuf_valid) {
         if (cpm_disk == hostbuf_disk && hostbuf_track == cpm_track && cpm_sector_as_host == hostbuf_sector)
             goto match;
         /* not matching — flush if dirty */
-        if (hstwrt)
+        if (hostbuf_dirty)
             wrthst();
     }
 
     /* fill host buffer */
-    hstact = 1;
+    hostbuf_valid = 1;
     hostbuf_disk = cpm_disk;
     hostbuf_track = cpm_track;
     hostbuf_sector = cpm_sector_as_host;
     if (need_pre_read)
         rdhst();
-    hstwrt = 0;
+    hostbuf_dirty = 0;
 
 match:
     /* Inline hstbuf offset + cpm_dma_addr in each memcpy call rather than storing
@@ -652,24 +652,24 @@ match:
         memcpy(cpm_dma_addr, &hstbuf[(word)(cpm_sector & deblock_mask) << 7], 128);
     } else {
         /* write: copy from DMA area to host buffer */
-        hstwrt = 1;
+        hostbuf_dirty = 1;
         memcpy(&hstbuf[(word)(cpm_sector & deblock_mask) << 7], cpm_dma_addr, 128);
     }
 
     /* post-processing */
-    if (erflag) {
-        hstact = 0;
+    if (disk_error) {
+        hostbuf_valid = 0;
     }
 
-    if (write_type == WRDIR && !erflag) {
+    if (write_type == WRDIR && !disk_error) {
         /* directory write: flush immediately */
-        hstwrt = 0;
+        hostbuf_dirty = 0;
         wrthst();
     }
 
     {
-        byte err = erflag;
-        erflag = 0;
+        byte err = disk_error;
+        disk_error = 0;
         return err;
     }
 }
@@ -856,11 +856,11 @@ static void serial_conout(byte c) {
     /* Non-blocking: if SIO-B TX not ready (e.g. no host connected,
      * CTS deasserted), skip.  CRT echo still shows the character. */
     byte timeout = 255;
-    while (!prtflg && --timeout)
+    while (!sio_b_tx_ready && --timeout)
         ;
     if (!timeout) return;
     hal_di();
-    prtflg = 0;
+    sio_b_tx_ready = 0;
     port_out(sio_b_ctrl, 0x05);
     port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
     port_out(sio_b_ctrl, 0x01);
@@ -1447,10 +1447,10 @@ void bios_list(void) __naked
 /* LPT: send via SIO-A (data/printer port) */
 static void list_lpt(byte c)
 {
-    while (!ptpflg)
+    while (!sio_a_tx_ready)
         ;                       /* wait for TX ready */
     hal_di();
-    ptpflg = 0;                 /* mark busy */
+    sio_a_tx_ready = 0;                 /* mark busy */
     port_out(sio_a_ctrl, 0x05);    /* select WR5 */
     port_out(sio_a_ctrl, wr5a + 0x8A);  /* DTR=1, TX enable, RTS=1 */
     port_out(sio_a_ctrl, 0x01);    /* select WR1 */
@@ -1486,10 +1486,10 @@ void bios_punch_body(byte c)
     switch (IOBYTE_PUN(iobyte)) {
     case IOB_TTY:
     case IOB_CRT:  /* PTP: SIO-A */
-        while (!ptpflg)
+        while (!sio_a_tx_ready)
             ;                       /* wait for TX ready */
         hal_di();
-        ptpflg = 0;                 /* mark busy */
+        sio_a_tx_ready = 0;                 /* mark busy */
         port_out(sio_a_ctrl, 0x05);    /* select WR5 */
         port_out(sio_a_ctrl, wr5a + 0x8A);  /* DTR=1, TX enable, RTS=1 */
         port_out(sio_a_ctrl, 0x01);    /* select WR1 */
@@ -1498,7 +1498,7 @@ void bios_punch_body(byte c)
         hal_ei();
         return;
 
-    case IOB_BAT:  /* UP1: SIO-B, shares prtflg with LST:LPT */
+    case IOB_BAT:  /* UP1: SIO-B, shares sio_b_tx_ready with LST:LPT */
         list_lpt(c);
         return;
 
@@ -1583,10 +1583,10 @@ byte bios_reads_body(void)
 
 void bios_home(void)
 {
-    if (hstwrt) {
+    if (hostbuf_dirty) {
         wrthst();
     } else {
-        hstact = 0;
+        hostbuf_valid = 0;
     }
     fdstar();
     fdc_unit_head = cpm_disk;
@@ -1627,9 +1627,9 @@ disk_parameter_header *bios_seldsk_c(byte drv)
 
     /* if format changed, flush dirty buffer */
     if (fmt != current_format_idx) {
-        if (hstwrt) {
+        if (hostbuf_dirty) {
             wrthst();
-            hstwrt = 0;
+            hostbuf_dirty = 0;
         }
     }
 
@@ -1760,9 +1760,9 @@ byte bios_write_c(byte wt)
 byte bios_listst(void)
 {
     switch (IOBYTE_LST(iobyte)) {
-    case IOB_TTY:  return prtflg;   /* SIO-B TX ready (console) */
+    case IOB_TTY:  return sio_b_tx_ready;   /* SIO-B TX ready (console) */
     case IOB_CRT:  return 0xFF;     /* CRT always ready */
-    case IOB_BAT:  return ptpflg;   /* LPT: SIO-A TX ready */
+    case IOB_BAT:  return sio_a_tx_ready;   /* LPT: SIO-A TX ready */
     default:       return 0;        /* UL1: parked */
     }
 }
@@ -2137,8 +2137,8 @@ void isr_crt(void) __naked
     }
 
     /* General delay timer */
-    if (delcnt != 0)
-        delcnt--;
+    if (delay_ticks != 0)
+        delay_ticks--;
 
     isr_exit_full();
 #endif
@@ -2215,7 +2215,7 @@ void isr_hd(void) __interrupt(4) {}
 void isr_sio_b_tx(void) __critical __interrupt(8)
 {
     port_out(sio_b_ctrl, 0x28);   /* reset TX interrupt pending */
-    prtflg = 0xFF;              /* printer ready */
+    sio_b_tx_ready = 0xFF;              /* printer ready */
 }
 
 /* EXTSTB: Ch.B external status change — read and acknowledge */
@@ -2270,7 +2270,7 @@ void isr_sio_b_spec(void) __critical __interrupt(11)
 void isr_sio_a_tx(void) __critical __interrupt(12)
 {
     port_out(sio_a_ctrl, 0x28);   /* reset TX interrupt pending */
-    ptpflg = 0xFF;              /* punch ready */
+    sio_a_tx_ready = 0xFF;              /* punch ready */
 }
 
 /* EXTSTA: Ch.A external status change — read and acknowledge */

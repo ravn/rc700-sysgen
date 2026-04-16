@@ -204,9 +204,9 @@ typedef struct {
     byte rxtail_a;             /* SIO-A RX read index */
     byte rxhead_b;             /* SIO-B RX write index */
     byte rxtail_b;             /* SIO-B RX read index */
-    byte hstact;               /* disk cache valid */
-    byte hstwrt;               /* disk cache dirty */
-    byte erflag;               /* error flag */
+    byte hostbuf_valid;               /* disk cache valid */
+    byte hostbuf_dirty;               /* disk cache dirty */
+    byte disk_error;               /* error flag */
 } WarmBootState;
 
 extern volatile WarmBootState wb;
@@ -218,9 +218,9 @@ extern volatile WarmBootState wb;
 #define rxtail_a wb.rxtail_a
 #define rxhead_b wb.rxhead_b
 #define rxtail_b wb.rxtail_b
-#define hstact   wb.hstact
-#define hstwrt   wb.hstwrt
-#define erflag   wb.erflag
+#define hostbuf_valid   wb.hostbuf_valid
+#define hostbuf_dirty   wb.hostbuf_dirty
+#define disk_error   wb.disk_error
 
 /* SIO-B baud rate (compile-time, from CONFI defaults in boot_confi.c).
  * The 614400 Hz baud rate clock is generated in hardware by dividing
@@ -269,7 +269,7 @@ typedef struct {
     /* --- ISR-modified fields below: must be volatile --- */
     volatile word timer1;   /* 0xFFDF: warm-boot countdown (ISR decrements) */
     volatile word timer2;   /* 0xFFE1: motor stop countdown (ISR decrements) */
-    volatile word delcnt;   /* 0xFFE3: delay counter (ISR decrements) */
+    volatile word delay_ticks;   /* 0xFFE3: delay counter (ISR decrements) */
     word warmjp;            /* 0xFFE5: exit routine JP target address */
     byte  fdtimo_var;       /* 0xFFE7: motor-off timeout reload value */
     byte  _pad2[2];         /* 0xFFE8-0xFFE9: reserved gap */
@@ -306,7 +306,7 @@ extern WorkArea _workarea;
 #define adr0        W.adr0
 #define timer1      W.timer1
 #define timer2      W.timer2
-#define delcnt      W.delcnt
+#define delay_ticks      W.delay_ticks
 #define warmjp      W.warmjp
 #define fdtimo_var  W.fdtimo_var
 #define stptim_var  W.stptim_var

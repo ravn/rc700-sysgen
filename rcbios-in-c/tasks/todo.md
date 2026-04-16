@@ -58,8 +58,8 @@ a BSS debug buffer (dbg_idx at 0xDFE1, dbg_buf at 0xDFE2, 252 bytes / 63 entries
    Both should read the same physical sectors, but the processing differs.
 3. hstbuf might contain stale/wrong data after the track 2 read — need to dump
    hstbuf contents in the Lua script after directory reads.
-4. erflag (disk error flag) might be set, causing hstact=0, which forces re-reads
-   that also fail — need to trace erflag.
+4. disk_error (disk error flag) might be set, causing hostbuf_valid=0, which forces re-reads
+   that also fail — need to trace disk_error.
 
 **Debug infrastructure in bios.c (temporary, remove when done):**
 - `dbg_idx` (uint8_t) and `dbg_buf[252]` (static BSS) — trace ring buffer
@@ -69,6 +69,19 @@ a BSS debug buffer (dbg_idx at 0xDFE1, dbg_buf at 0xDFE2, 252 bytes / 63 entries
 ### Code quality
 - [ ] Audit all BIOS wrappers returning uint16_t for DE→HL sdcccall(1) correctness
 - [ ] Consider replacing assembly interrupt wrappers with __interrupt C functions
+- [ ] Write compile-time validation for DPH and DPB layouts against
+      the CP/M 2.2 spec at https://www.idealine.info/sharpmz/dpb.htm.
+      Use `_Static_assert` (or `static_assert` in C23) on:
+      - `sizeof(disk_parameter_header) == 16`
+      - `sizeof(disk_parameter_block) == 15`
+      - `offsetof(disk_parameter_header, xlt) == 0`
+      - `offsetof(disk_parameter_header, dirbf) == 8`
+      - `offsetof(disk_parameter_header, dpb) == 10`
+      - Similar for DPB field offsets (spt at 0, bsh at 2, ...).
+      Analog of verify_skew.py but checked at build time — would catch
+      accidental struct reorderings or field additions that break the
+      BDOS ABI. Most useful when new fields are added for future
+      CP/M 3.x or MP/M compatibility.
 - [ ] **Dynamic disk_parameter_header table size**. Currently `dph_table[2]` is hardcoded (2 drives max
       — see `disk_parameter_header dph_table[2]` and `if (drno >= 1)` guard in bios_hw_init.c). Should
       scale to all configured drives per `fd0[]` (up to 16 entries). Requires:
@@ -138,8 +151,8 @@ a BSS debug buffer (dbg_idx at 0xDFE1, dbg_buf at 0xDFE2, 252 bytes / 63 entries
       c) boot_confi.c uses format code 0x20 for HD drives in fd0[] — that
          is a DIFFERENT field from FSPA.disk_type. Relation unclear.
 - [ ] Audit remaining short-name variables for clarity: `drno` (now
-      `max_drive_num`) was a good case; are there others like `erflag`,
-      `hstact`, `hstwrt`, `prtflg`, `ptpflg`, `cerflg`, `delcnt` that
+      `max_drive_num`) was a good case; are there others like `disk_error`,
+      `hostbuf_valid`, `hostbuf_dirty`, `sio_b_tx_ready`, `sio_a_tx_ready`, `cerflg`, `delay_ticks` that
       should also be renamed?
 - [ ] `rsflag` semantic verification — currently interpreted as
       "pre-read required". Trace through rwoper() to confirm the

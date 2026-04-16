@@ -63,7 +63,7 @@ extern byte dirbf[];
 extern const disk_parameter_block dpb_maxi_512;
 extern byte chk0[], chk1[], all0[], all1[];
 extern byte unalloc_count, current_format_idx, last_seek_disk;
-/* hstact, hstwrt, erflag are accessed via wb macros from bios.h */
+/* hostbuf_valid, hostbuf_dirty, disk_error are accessed via wb macros from bios.h */
 
 /* ================================================================
  * Interrupt vector table — function pointer array
@@ -284,10 +284,10 @@ void bios_hw_init(void)
 #endif
 
         /* Clear disk state */
-        hstact = 0;
-        hstwrt = 0;
+        hostbuf_valid = 0;
+        hostbuf_dirty = 0;
         unalloc_count = 0;
-        erflag = 0;
+        disk_error = 0;
         current_format_idx = 0xFF;       /* force format reload on first SELDSK */
         last_seek_disk = 0xFF;      /* force seek on first access */
     }
