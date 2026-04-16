@@ -347,7 +347,12 @@ if those disks target BIOSes that don't do deblocking.
 - [ ] Verify warm boot from an injected disk image reaches A> prompt
       without errors.
 
-### Replace CCP with ZCPR3.x / Z-System
+### Replace CCP with ZCPR3.x / Z-System  —  PARKED (2026-04-16)
+
+Not on the agenda.  Retained as research notes — the DRI CP/M 2.2
+CCP+BDOS reproduction work (above) is independent of anything ZCPR-
+related and is the active track.  If BDOS/CCP replacement is ever
+revisited, the staged plan below is the starting point.
 
 **Terminology (verified 2026-04-16):**
 - **ZCPR3** — CCP-only replacement. ~2KB, same slot as stock DRI CCP.
