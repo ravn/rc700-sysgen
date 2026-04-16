@@ -23,13 +23,14 @@ typedef uint16_t word;
  *
  * All fields are 16-bit addresses (pointers) or reserved scratch areas.
  * Total size: 16 bytes (8 words) per drive. */
+struct DPB_s;
 typedef struct {
-    void *xlt;       /* +0:  sector translation table (NULL = no translation) */
-    void *scratch[3];/* +2:  scratch area used by BDOS (3 words) */
-    void *dirbf;     /* +8:  directory buffer (128 bytes, shared by all drives) */
-    void *dpb;       /* +10: Disk Parameter Block (set by SELDSK) */
-    void *csv;       /* +12: check vector (removable media change detection) */
-    void *alv;       /* +14: allocation vector (disk space bitmap) */
+    const byte *xlt;         /* +0:  sector translation table (NULL = no translation) */
+    word  scratch[3];        /* +2:  scratch area used by BDOS (3 words) */
+    byte *dirbf;             /* +8:  directory buffer (128 bytes, shared by all drives) */
+    const struct DPB_s *dpb; /* +10: Disk Parameter Block (set by SELDSK) */
+    byte *csv;               /* +12: check vector (removable media change detection) */
+    byte *alv;               /* +14: allocation vector (disk space bitmap) */
 } DPH;
 
 /* Display memory: 25 rows × 80 columns at 0xF800, refreshed by 8275 CRT.
@@ -348,7 +349,7 @@ extern volatile JTVars _jtvars;
 #define bootd       JT.bootd
 
 /* CP/M Disk Parameter Block */
-typedef struct {
+typedef struct DPB_s {
     word spt;               /* sectors per track */
     byte  bsh;                  /* block shift factor */
     byte  blm;                  /* block mask */
@@ -362,12 +363,12 @@ typedef struct {
 
 /* Floppy System Parameters (16 bytes each) */
 typedef struct {
-    DPB  *dpb;                  /* DPB pointer */
+    const DPB  *dpb;            /* DPB pointer (read-only table) */
     byte  cpmrbp;               /* records per block */
     word cpmspt;            /* CP/M sectors per track */
     byte  secmsk;               /* sector mask */
     byte  secshf;               /* sector shift */
-    byte *trantb;               /* translation table pointer */
+    const byte *trantb;         /* translation table pointer (read-only) */
     byte  dtlv;                 /* data length value */
     byte  dsktyp;               /* disk type (0=floppy) */
     byte  _pad[5];              /* filler to 16 bytes */

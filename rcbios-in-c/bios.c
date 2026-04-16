@@ -109,10 +109,10 @@ const FDF fdf[4] = {
 
 /* Floppy System Parameters (16 bytes each) */
 const FSPA fspa[4] = {
-    { (DPB *)&dpb0,   8,  26, 0, 1, (byte *)tran0,  128, 0, {0} },
-    { (DPB *)&dpb8,  16, 120, 3, 3, (byte *)tran8,  255, 0, {0} },
-    { (DPB *)&dpb16,  8,  26, 0, 1, (byte *)tran24, 128, 0, {0} },
-    { (DPB *)&dpb24,  8, 104, 1, 2, (byte *)tran24, 255, 0, {0} },
+    { &dpb0,   8,  26, 0, 1, tran0,  128, 0, {0} },
+    { &dpb8,  16, 120, 3, 3, tran8,  255, 0, {0} },
+    { &dpb16,  8,  26, 0, 1, tran24, 128, 0, {0} },
+    { &dpb24,  8, 104, 1, 2, tran24, 255, 0, {0} },
 };
 
 /* Track offset table (2 floppy drives + 6 reserved for harddisk) */
@@ -230,12 +230,12 @@ volatile fdc_result_block rstab;           /* FDC result */
 static volatile byte fl_flg;      /* floppy completion flag */
 
 /* FSPA working copy (set by SELDSK) */
-static DPB *dpblck;      /* DPB pointer (set by SELDSK per format) */
+static const DPB *dpblck;      /* DPB pointer (set by SELDSK per format) */
 static byte  cpmrbp;      /* records per block */
 static word cpmspt;      /* CP/M sectors per track */
 static byte  secmsk;      /* sector mask */
 static byte  secshf;      /* sector shift count */
-static byte *trantb;     /* sector translation table pointer */
+static const byte *trantb;     /* sector translation table pointer */
 static byte  dtlv;        /* data length value */
 static byte  dsktyp;      /* 0=floppy, 0xFF=HD */
 
@@ -398,7 +398,7 @@ static void fdc_general_cmd(byte cmd, const byte *fdfp)
 static void chktrk(void)
 {
     byte sec, ev;
-    byte *tp;
+    const byte *tp;
 
     sec = (byte)hstsec;
     ev = eotv;
