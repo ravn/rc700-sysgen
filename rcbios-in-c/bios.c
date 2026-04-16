@@ -1721,7 +1721,10 @@ static byte xwrite(byte wt)
             unalloc_track++;
         }
 
-        /* check if pre-read needed */
+        /* Continuing into a fresh block — no pre-read needed (the data
+         * we're about to overwrite is guaranteed-new territory).
+         * unalloc_mask signals "last 128B slot within this physical
+         * sector" so the caller knows the block is now fully populated. */
         need_pre_read = 0;
         if ((cpm_sector & deblock_mask) == deblock_mask)
             unalloc_mask = 1;
@@ -1732,6 +1735,13 @@ static byte xwrite(byte wt)
 
 alloc:
     unalloc_count = 0;
+    /* need_pre_read is used as a boolean (any nonzero triggers rdhst).
+     * Setting it to `deblock_mask` is a code-size trick:
+     *   single-sector formats (deblock_mask==0) → 0 (falsy, skip pre-read)
+     *   multi-sector formats (deblock_mask!=0)  → nonzero (truthy, pre-read)
+     * Pre-read is needed for multi-sector formats because a 128B CP/M
+     * sector is only part of a larger physical sector — the untouched
+     * bytes in that physical sector must be preserved across the write. */
     need_pre_read = deblock_mask;
     return rwoper();
 }
