@@ -108,7 +108,14 @@ end
 
 local trigger_sent = false
 
+-- Ensure null_modem starts at 38400 (baseline) regardless of prior runs
+local init_done = false
 emu.register_frame_done(function()
+    if not init_done then
+        set_baud(11)  -- RS232_BAUD_38400
+        init_done = true
+        log("Initialized null_modem to 38400")
+    end
     if done then return end
     frame = frame + 1
     if frame > FPS * 120 then log("GLOBAL TIMEOUT"); finish(false); return end
@@ -157,6 +164,14 @@ emu.register_frame_done(function()
 
     elseif state == "wait_result" then
         wait_frames = wait_frames + 1
+        -- Periodically log ring buffer state for debugging
+        if wait_frames % (FPS * 5) == 0 then
+            local space = manager.machine.devices[":maincpu"].spaces["program"]
+            local rxhead = space:read_u8(0xed21)
+            local rxtail = space:read_u8(0xed22)
+            log(string.format("  rxhead=%d rxtail=%d (waiting %ds)",
+                rxhead, rxtail, wait_frames / FPS))
+        end
         if new_prompt() then
             log("Test complete")
             log(screen_text())

@@ -13,6 +13,7 @@ bios.def
 zcc_opt.def
 builddate.h
 builddate.inc
+siob_bios_addrs.inc
 
 # MAME auto-generated config (stale ioport overrides cause bugs)
 cfg/

@@ -36,6 +36,9 @@ BIAS  = $(shell echo $$(( ($(MSIZE) - 20) * 1024 )))
 CPMB  = $(shell printf '0x%04X' $$(( 0x3400 + $(BIAS) )))
 BIOSAD = $(shell printf '0x%04X' $$(( 0x3400 + $(BIAS) + 0x1600 )))
 
+# LLVM-Z80 toolchain
+LLVM_Z80 = $(CURDIR)/../../llvm-z80
+
 # Disk image tools
 PATCH = python3 ../rcbios/patch_bios.py
 IMDINFO = python3 ../rcbios/imdinfo.py
@@ -409,22 +412,31 @@ siob-console-test: bios
 
 # ================================================================
 # SIO-B baud rate experiment
-# Usage: make siob-baud BAUD_IDX=0  (38400, baseline)
-#        make siob-baud BAUD_IDX=1  (76800, x1 mode)
-#        make siob-baud BAUD_IDX=2  (115200, x1 mode, 6.7% error)
+# Usage: make siob-baud BAUD_IDX=0  (38400 x16, baseline)
+#        make siob-baud BAUD_IDX=1  (38400 x1, test x1 mode)
+#        make siob-baud BAUD_IDX=2  (76800 x1)
+#        make siob-baud BAUD_IDX=3  (115200 x1, 6.7% error)
 # ================================================================
 
 BAUD_IDX ?= 0
-# Map BAUD_IDX to MAME RS232_BAUD value
+# Map BAUD_IDX to MAME RS232_BAUD value (decimal)
 BAUD_MAME_0 = 11
-BAUD_MAME_1 = 23
-BAUD_MAME_2 = 13
+BAUD_MAME_1 = 11
+BAUD_MAME_2 = 23
 BAUD_MAME_3 = 13
 BAUD_MAME = $(BAUD_MAME_$(BAUD_IDX))
 
 siob-baud: bios
 	@echo "=== SIO-B baud rate test (idx=$(BAUD_IDX)) ==="
-	../zmac/bin/zmac -z siob_baud_test.asm
+	@# Generate address include from current BIOS ELF
+	@WB=$$($(LLVM_Z80)/build-macos/bin/llvm-nm $(COMPILER)/bios.elf | awk '/_wb$$/{print "0x"$$1}'); \
+	 RXBUF=$$($(LLVM_Z80)/build-macos/bin/llvm-nm $(COMPILER)/bios.elf | awk '/_rxbuf_b$$/{print "0x"$$1}'); \
+	 printf '; Auto-generated from %s/bios.elf — do not edit\n' $(COMPILER) > siob_bios_addrs.inc; \
+	 printf 'RXHEAD_B equ %s + 5\n' "$$WB" >> siob_bios_addrs.inc; \
+	 printf 'RXTAIL_B equ %s + 6\n' "$$WB" >> siob_bios_addrs.inc; \
+	 printf 'RXBUF_B  equ %s\n' "$$RXBUF" >> siob_bios_addrs.inc; \
+	 echo "Generated siob_bios_addrs.inc: WB=$$WB RXBUF=$$RXBUF"
+	$(ZMAC) -z siob_baud_test.asm
 	cp $(IMG_MAXI) /tmp/bios_c_siob_baud.imd
 	$(PATCH) /tmp/bios_c_siob_baud.imd $(COMPILER)/bios.cim
 	$(CPMCP) -f rc702-8dd /tmp/bios_c_siob_baud.imd zout/siob_baud_test.cim 0:SIOBBAUD.COM
