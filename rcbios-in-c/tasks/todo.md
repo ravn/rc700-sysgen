@@ -293,6 +293,48 @@ fields at build time.  For our reproduction purposes, leaving
 the bytes zero (master convention) is correct and safe — the
 CCP's serialize check passes (0 == 0).
 
+**Build infrastructure** (`cpm/Makefile`, `cpm/stamp_serial.py`,
+`cpm/verify_against_imd.py`):
+- `make SERIAL=2-261-XXXX` builds stamped CCP + BDOS + concatenated
+  CCP+BDOS.cim (5632 B, padded to proper section sizes)
+- Also emits `stamped/serial.hex` — a tiny 3-record Intel HEX
+  overlay with just the two 6-byte stamps (at 0xC728 and 0xCC00),
+  intended for MLOAD composition with the base CCP+BDOS
+- `make verify REF=<imd>` compares the built output against an
+  IMD's deinterleaved track 1 (handles MAXI 8"/MINI 5.25"/RC703
+  geometries automatically)
+- Default `SERIAL=2-261-0000` (master convention) produces output
+  byte-identical to SW1711-I8.imd (verified 5632/5632)
+- `SERIAL=4252` verifies byte-identical to SW1711-I5 r2.3
+- SERIAL format accepts "2-261-XXXX", bare "XXXX", "2261-XXXX",
+  or raw hex "D5 16 08 00 XX XX"
+
+### DRI Patch #1 varies across RC releases
+
+Surveying the 5-byte `diskwr2:` region (offset 0x12D2 in the
+CCP+BDOS logical image) across all 13 disks in the collection
+reveals Patch #1 is NOT uniformly applied:
+
+```
+  patch1=ON  (our default):  SW1711-I8, rel 2.2 MINI,
+                              SW1711-I5 r2.2, r2.3, RC703 r1.2
+  patch1=OFF (unpatched):     SW1311-I8, rel 2.1 MINI, COMAL80,
+                              SW1711-I5 r2.0, r2.1, I5 copy
+  patch1=OFF but variant:     Compas 2.13DK, SW1711-I5 r1.4
+                              (00 00 21 00 DE — byte 4 is DE not D6,
+                              some other BDOS variation)
+```
+
+Implication: the `patch1 equ on` default in `cpm/OS3BDOS.ASM`
+matches about half the disks.  For the other half, the BDOS
+doesn't have the blocking/deblocking patch — which makes sense
+if those disks target BIOSes that don't do deblocking.
+
+- [ ] Consider adding `PATCH1=on|off` Makefile variable analogous
+      to SERIAL, so reproduction against unpatched disks is
+      possible.  Not urgent — our RC702 BIOS is a deblocking one,
+      so patch1=on is the correct default for our work.
+
 - [ ] Figure out the RC702 track-1 layout for CCP+BDOS (the bytes
 - [ ] Figure out the RC702 track-1 layout for CCP+BDOS (the bytes
       that the warm-boot BIOS reads back into 0xC400-0xD9FF — 44
