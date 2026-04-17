@@ -169,17 +169,13 @@ def main():
 
     # Generate Intel HEX:
     #   1. Validator at 0x0100 (always included)
-    #   2. CCP+BDOS from 0x0900 (zero blocks skipped — not checksummed)
-    #   3. BIOS side 0 + gap + side 1 (ALL bytes emitted — no zero skip)
+    #   2. BIOS side 0 + gap + side 1 (ALL bytes emitted — no zero skip)
+    #
+    # CCP+BDOS is NOT included — MLOAD on the RC700 merges from
+    # BDOSCCP.COM (already on disk): MLOAD CPM56.COM=BDOSCCP.COM,CPM56.HEX
     lines = []
     # Validator
     lines.extend(ihex_data(TPA, list(validator)))
-    # CCP+BDOS: skip zero blocks (not checksummed, saves transfer time)
-    payload_start = LOADP - TPA  # file offset 0x0800
-    for offset in range(payload_start, T0_FILE_OFFSET, 32):
-        chunk = com[offset:offset + 32]
-        if any(b != 0 for b in chunk):
-            lines.append(ihex_record(0x00, TPA + offset, chunk))
     # BIOS region: emit ALL bytes including zeros (checksummed!)
     for offset in range(T0_FILE_OFFSET, len(com), 32):
         chunk = com[offset:offset + 32]

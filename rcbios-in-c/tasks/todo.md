@@ -1,5 +1,24 @@
 # BIOS-in-C Phase Tracker
 
+## Session 17 (Apr 2026) — SIO-B shadow console + baud rate investigation
+
+**Completed:**
+- SIO-B console mode with ENQ probe (`bios_hw_init.c`, `bios.c`, `bios.h`)
+- `IOBYTE_DEFAULT_SIOB = 0x96` (CON:=BAT → kbd + SIO-B + CRT echo)
+- Polled `siob_conout` fixes cold-boot deadlock (was calling interrupt-driven
+  `list_lpt` before EI)
+- Host daemon `siob_daemon.py` + deploy flow
+
+**Key finding:** SIO-A async RX is hard-capped at 38400 by the Z80 SIO's x1
+mode clock recovery. All x1 mitigations (flow control, stop bits, gaps,
+timer vs counter CTC, FTDI adapter upgrade) tested and documented as
+ineffective in `session17-siob-console.md`. TX works at 250000 x1.
+
+**Follow-up tasks spawned:**
+- [ ] `parallel-port-transfer.md` — investigate PIO Ch.A for faster host I/O
+- [ ] `siob-console-dipswitch.md` — replace ENQ probe with DIP switch
+- [ ] `two-port-deploy-script.md` — formalize SIO-B console deploy flow
+
 ## Completed Phases
 - **Phase 1a**: Skeleton (builds, correct binary layout)
 - **Phase 1b**: CRT display refresh ISR and keyboard input

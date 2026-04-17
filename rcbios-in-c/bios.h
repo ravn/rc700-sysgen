@@ -223,14 +223,12 @@ extern volatile WarmBootState wb;
 #define disk_error   wb.disk_error
 
 /* SIO-B baud rate (compile-time, from CONFI defaults in boot_confi.c).
- * The 614400 Hz baud rate clock is generated in hardware by dividing
- * the 19.6608 MHz memory clock by 32 (two cascaded 74LS393 dividers).
- * CTC ch1 count = 16, SIO-B WR4 = 0x04 (×1 clock).
- * ×1 mode enables switching to 76800/115200 at runtime without changing WR4.
+ * Reverted to x16 mode after session 17 proved x1 async RX has inherent
+ * framing errors on continuous data.  CTC ch1 count=1, SIO-B WR4=0x44.
  * Formula: 614400 / (CTC_count × SIO_clock_mode). */
 #define BAUD_CLOCK      614400
-#define SIOB_CTC_COUNT  16
-#define SIOB_SIO_CLKDIV 1
+#define SIOB_CTC_COUNT  1
+#define SIOB_SIO_CLKDIV 16
 #define SIOB_BAUD       (BAUD_CLOCK / (SIOB_CTC_COUNT * SIOB_SIO_CLKDIV))
 #define SIOB_BAUD_STR   "38400"
 
