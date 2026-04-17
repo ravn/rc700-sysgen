@@ -170,7 +170,8 @@ mame-maxi: bios
 	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_maxi.mfi \
 		-flop2 /tmp/bios_c_data.mfi \
-		-skip_gameinfo -window -resolution 1100x720
+		-skip_gameinfo -window -resolution 1100x720 \
+		-autoboot_script $(CURDIR)/mame_enable_siob_debug.lua
 
 # ================================================================
 # Test targets

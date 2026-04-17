@@ -42,3 +42,25 @@ Both SIO-A and SIO-B run at 38400 8N1 regardless of the switch.
   `STAT CON:=TTY:` etc. at any time to override the boot-time choice.
 - Fallback behavior: stock BIOS semantics when switch is off, no other
   fallback needed.
+
+### Banner
+
+On cold boot with the switch enabled the BIOS prints a second banner
+line: `SIO-B debugging enabled (38400 8N1)`.  With the switch off only
+the standard `RC700 56k CP/M 2.2 C-bios/...` signon appears.
+
+### MAME testing
+
+`make mame-maxi` now launches with
+`-autoboot_script mame_enable_siob_debug.lua`, which sets DSW S01 on the
+first frame so MAME boots with the debug banner visible.  The MAME cfg
+file for DIP defaults can't be committed (gitignored to avoid stale
+ioport overrides); the Lua script is the durable way to express the
+intent.
+
+Verified 2026-04-17 in MAME with clang BIOS (6033 B):
+- Switch off → stock banner only, CRT console only
+- Switch on  → "SIO-B debugging enabled" banner, CON on SIO-B + CRT
+
+Screenshots captured at /tmp/mame_snaps/rc702_boot.png (switch off) and
+rc702_debug.png (switch on).
