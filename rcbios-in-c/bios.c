@@ -791,12 +791,9 @@ void bios_boot_c(void)
 #endif
            BUILDDATE "\r\n");
 
-    /* If SIO-B host detected, announce the console serial port.
-     * TODO: make this a runtime switch indicator (e.g. DIP switch or
-     * key held during boot) instead of auto-detect. */
+    /* Announce SIO-B debug console when DIP switch 0 enabled it. */
     if (IOBYTE_CON(iobyte) == IOB_UC1)
-        puts_p("Console also on serial port B at "
-               SIOB_BAUD_STR " 8N1\r\n");
+        puts_p("SIO-B debugging enabled (" SIOB_BAUD_STR " 8N1)\r\n");
 
     cdisk = 0;
     __builtin_memset((void *)&wb, 0, sizeof(wb));
