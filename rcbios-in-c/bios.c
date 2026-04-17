@@ -618,10 +618,8 @@ void bios_boot(void) __naked
 void bios_boot_c(void)
 {
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
-     * coldboot from _conv_tables (boot_confi.c) before we get here. */
-
-    /* Set IOBYTE before first console output */
-    iobyte = IOBYTE_DEFAULT;
+     * coldboot from _conv_tables (boot_confi.c) before we get here.
+     * iobyte was set by bios_hw_init based on the SIO-B console probe. */
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
@@ -722,7 +720,7 @@ void bios_wboot(void) __naked
  *
  * CON: field (bits 1:0):
  *   0=TTY: SIO-A serial   1=CRT: keyboard+display
- *   2=BAT: RDR→in,LST→out 3=UC1: parked
+ *   2=BAT: SIO-B serial   3=UC1: keyboard+SIO-A joined (default)
  * ---------------------------------------------------------------- */
 
 /* Serial (SIO-A) console primitives for IOBYTE TTY: mode */
@@ -759,20 +757,24 @@ static byte kbd_dequeue(void)
 }
 
 /* Console input modes (CON field of IOBYTE):
- *   TTY (0): serial port (SIO-A) only — for headless / remote operation
- *   CRT (1): keyboard only — for pure local operation
- *   BAT (2): serial only (CP/M batch mode reads from RDR, treated as serial)
- *   UC1 (3): JOINED — both keyboard AND serial work simultaneously, so a
- *            local user can type while a remote driver also sends data.
- *            Default mode (IOBYTE_DEFAULT).
+ *   TTY (0): SIO-A only — headless / remote operation
+ *   CRT (1): keyboard only — pure local operation
+ *   BAT (2): keyboard + SIO-B joined — host drives the console on SIO-B
+ *            while local user can also type.  CRT echo on output.
+ *   UC1 (3): keyboard + SIO-A joined — default mode.
  *
- * Encoding: keyboard is allowed when (con & 1) — true for CRT and UC1.
- *           serial is allowed when (con != 1) — true for TTY/BAT/UC1. */
+ * Encoding: keyboard allowed when con != TTY (i.e. CRT, BAT, UC1).
+ *           SIO-A allowed when con is TTY or UC1.
+ *           SIO-B allowed when con is BAT. */
 byte bios_const(void)
 {
     byte con = IOBYTE_CON(iobyte);
-    if ((con & 1) && kbstat)         return 0xFF;
-    if ((con != 1) && serial_const()) return 0xFF;
+    if (con && kbstat)                                return 0xFF;
+    if (con == IOB_BAT) {
+        if (rxtail_b != rxhead_b)                     return 0xFF;
+    } else if (con != IOB_CRT && serial_const()) {
+        return 0xFF;
+    }
     return 0;
 }
 
@@ -780,8 +782,17 @@ byte bios_conin(void)
 {
     byte con = IOBYTE_CON(iobyte);
     for (;;) {
-        if ((con & 1) && kbtail != kbhead) return kbd_dequeue();
-        if ((con != 1) && rxtail != rxhead) return serial_conin();
+        if (con && kbtail != kbhead) return kbd_dequeue();
+        if (con == IOB_BAT) {
+            if (rxtail_b != rxhead_b) {
+                byte new_tail = (rxtail_b + 1) & RXMASK;
+                byte ch = rxbuf_b[rxtail_b];
+                rxtail_b = new_tail;
+                return ch;
+            }
+        } else if (con != IOB_CRT && rxtail != rxhead) {
+            return serial_conin();
+        }
         hal_halt();
     }
 }
@@ -1285,6 +1296,20 @@ void bios_conout(byte c) __naked
             "jp _bios_conout_c     \n"); /* explicit tail call */
 }
 
+/* Polled SIO-B TX for console output.  Unlike list_lpt (interrupt-driven),
+ * this works with interrupts disabled — required because bios_boot_c prints
+ * the signon banner before EI. */
+static void siob_conout(byte c)
+{
+    byte timeout = 255;
+    while (timeout--) {
+        port_out(sio_b_ctrl, 0);
+        if (port_in(sio_b_ctrl) & 0x04) break;     /* RR0 bit 2: TX empty */
+    }
+    if (!timeout) return;
+    port_out(sio_b_data, c);
+}
+
 void bios_conout_c(byte c)
 {
     switch (IOBYTE_CON(iobyte)) {
@@ -1298,7 +1323,12 @@ void bios_conout_c(byte c)
         else displ();
         break;
     case IOB_BAT:
-        bios_list_body(c);
+        siob_conout(c);
+        /* fall through to also display on CRT */
+        usession = c;
+        if (xflg != 0) xyadd();
+        else if (usession < 32) specc();
+        else displ();
         break;
     case IOB_UC1:
         /* Joined: send to both serial and CRT, like TTY mode. */

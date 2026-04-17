@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 COMPILER="${1:-sdcc}"
-PORT="${RC700_PORT:-/dev/ttyUSB1}"
+PORT="${RC700_PORT:-/dev/ttyUSB0}"
 BAUD="${RC700_BAUD:-38400}"
 HEX_FILE=/tmp/cpm56.hex
 
@@ -94,14 +94,21 @@ def send(text, delay=0.3):
     s.flush()
     time.sleep(delay)
 
-# Step 1: Wait for boot
-print("--- Waiting for RC700 boot ---")
-buf = read_until("A>")
-if "A>" not in buf:
-    print("\nERROR: Timeout waiting for A> prompt")
-    s.close()
-    sys.exit(1)
-print("\n--- RC700 booted ---")
+# Step 1: Check if already booted, otherwise wait for boot
+s.reset_input_buffer()
+s.write(b"\r")
+time.sleep(1)
+probe = s.read(s.in_waiting or 1).decode("ascii", errors="replace")
+if "A>" in probe:
+    print("--- RC700 already at A> prompt ---")
+else:
+    print("--- Waiting for RC700 boot ---")
+    buf = read_until("A>")
+    if "A>" not in buf:
+        print("\nERROR: Timeout waiting for A> prompt")
+        s.close()
+        sys.exit(1)
+    print("\n--- RC700 booted ---")
 time.sleep(0.5)
 
 # Step 2: Send SUBMIT B

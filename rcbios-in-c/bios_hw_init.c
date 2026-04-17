@@ -125,6 +125,41 @@ static void setup_ivt(void)
     intrinsic_im_2();
 }
 
+/* SIO-B console probe.  Runs at cold boot, interrupts disabled.  Sends
+ * ENQ (0x05) on SIO-B TX, then polls RR0 for ~300 ms looking for any
+ * reply byte.  Returns 1 if the host responded (→ route CON to SIO-B),
+ * else 0 (→ normal joined keyboard+SIO-A console).
+ *
+ * Bypasses the SIO-B RX ISR because IM2 hasn't been enabled with EI yet
+ * and rxbuf_b is therefore not being filled. */
+static byte siob_console_probe(void)
+{
+    byte status = 0;
+    word timeout;
+
+    /* Wait for SIO-B TX buffer empty (RR0 bit 2). */
+    for (timeout = 0; timeout < 0x0400; timeout++) {
+        port_out(sio_b_ctrl, 0);            /* RR0 pointer */
+        status = port_in(sio_b_ctrl);
+        if (status & 0x04) break;
+    }
+    if (!(status & 0x04))
+        return 0;
+
+    port_out(sio_b_data, 0x05);             /* ENQ */
+
+    /* Poll RR0 bit 0 (Rx char available) for ~300 ms @ 4 MHz. */
+    for (timeout = 0; timeout < 0x8000; timeout++) {
+        port_out(sio_b_ctrl, 0);
+        status = port_in(sio_b_ctrl);
+        if (status & 0x01) {
+            (void)port_in(sio_b_data);      /* drain the reply */
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ================================================================
  * Hardware initialization — called once from coldboot after relocation.
  * Configures PIO, CTC, SIO, DMA, FDC, CRT, display, and disk tables.
@@ -290,4 +325,9 @@ void bios_hw_init(void)
         cform = 0xFF;       /* force format reload on first SELDSK */
         lstdsk = 0xFF;      /* force seek on first access */
     }
+
+    /* Choose the default IOBYTE based on SIO-B presence.  Probe runs here
+     * (not in bios_boot_c) because this code is in BOOT_CODE and gets
+     * overwritten after cold boot — no resident-BIOS cost. */
+    iobyte = siob_console_probe() ? IOBYTE_DEFAULT_SIOB : IOBYTE_DEFAULT;
 }

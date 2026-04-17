@@ -157,14 +157,19 @@ static volatile word wboot_vec, bdos_vec;
 
 #define IOB_TTY  0      /* CON:TTY/RDR:TTY/PUN:TTY/LST:TTY → SIO-A serial */
 #define IOB_CRT  1      /* CON:CRT/RDR:PTR/PUN:PTP/LST:CRT */
-#define IOB_BAT  2      /* CON:BAT/RDR:UR1/PUN:UP1/LST:LPT */
+#define IOB_BAT  2      /* CON:→SIO-B (both directions), RDR:UR1/PUN:UP1/LST:LPT */
 #define IOB_UC1  3      /* CON: keyboard+serial joined (RC702 extension) */
 
-/* Default: CON:=UC1(3) joined (keyboard + serial both work).
+/* Default: CON:=UC1(3) joined (keyboard + SIO-A both work).
  * UC1 was historically "user-defined ch.1" — repurposed here for joined
- * keyboard+serial input. TTY=serial only, CRT=keyboard only.
+ * keyboard+SIO-A input. TTY=SIO-A only, CRT=keyboard only, BAT=SIO-B only.
  * RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2). */
-#define IOBYTE_DEFAULT  0x97  /* CON:=UC1(3) joined, RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
+#define IOBYTE_DEFAULT       0x97  /* CON:=UC1(3) joined, RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
+
+/* Alternate default selected at cold boot when the SIO-B probe detects
+ * a host on the secondary serial port.  Only the CON field differs
+ * (3→2 = UC1→BAT), so RDR:/PUN:/LST: remain routed as IOBYTE_DEFAULT. */
+#define IOBYTE_DEFAULT_SIOB  0x96  /* CON:=BAT(2) SIO-B, RDR:=PTR(1), PUN:=PTP(1), LST:=LPT(2) */
 
 /* Ring buffer parameters (REL30) */
 #define RXBUFSZ     256         /* SIO ring buffer size (page-aligned) */
