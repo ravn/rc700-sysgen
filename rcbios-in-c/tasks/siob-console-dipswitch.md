@@ -1,41 +1,44 @@
-# SIO-B console: DIP switch selection (replace ENQ probe)
+# SIO-B console: DIP switch selection — DONE
 
-## Current behavior
+## Resolution (2026-04-17)
 
-On cold boot, `bios_hw_init()` sends ENQ (0x05) on SIO-B TX and polls for
-~300 ms. If a reply byte arrives, IOBYTE is set to `0x96` (CON:=BAT →
-keyboard + SIO-B + CRT echo). Otherwise falls back to `0x97` (CON:=UC1 →
-keyboard + SIO-A). See `session17-siob-console.md` for full details.
+Implemented on branch `siob-console-dipswitch`.  The post-merge main
+already had a DCD-based probe (not the older ENQ probe); this replaces
+that with a DIP switch read.
 
-## User request
+### What the switch does
 
-Replace the ENQ probe with a DIP switch read, similar to how SW1 #7
-selects mini/maxi floppy density. The switch would directly select SIO-B
-vs SIO-A as console, avoiding:
+Bit 0 of the DIP switch port (SW1 at I/O port 0x14):
 
-- The 300 ms probe delay on every cold boot
-- The dependency on a host being present with a listener running
-- The need to restart the daemon before every RC700 reset
+- **Set** (bit value 1) → `IOBYTE_CON_JOINED` (0x97):
+  - Console input: keyboard + SIO-B RX joined
+  - Console output: SIO-B TX + CRT display
+  - RDR:/PUN: routed to SIO-A as usual
+  - LST: routed to SIO-B (LPT)
 
-## Implementation sketch
+- **Clear** (bit value 0) → `IOBYTE_CON_LOCAL` (0x95):
+  - Console input: keyboard only
+  - Console output: CRT only
+  - RDR:/PUN: routed to SIO-A
+  - LST: routed to SIO-B — SIO-B behaves as printer like the original
+    RC702 BIOS
 
-- Find which DIP switch bit is free (read `~/git/.../docs` or existing
-  `bios_hw_init.c`). SW1 appears to be read from PIO Ch.B input during
-  init — check which bits are already assigned.
-- Replace `siob_console_probe()` call in `bios_hw_init()` end with a DIP
-  switch read:
-  ```c
-  iobyte = (dip_switches & SW_SIOB_CONSOLE)
-           ? IOBYTE_DEFAULT_SIOB : IOBYTE_DEFAULT;
-  ```
-- The probe function and ENQ-reply protocol can then be deleted, saving
-  ~40 bytes of BOOT_CODE (which is overwritten anyway, so no resident
-  BIOS savings).
+With the switch off, the machine presents exactly the same console I/O
+semantics as the stock RC702 BIOS — suitable for normal users who don't
+need remote debug access.
 
-## Open questions
+### Implementation
 
-- [ ] Which DIP switch position should be used?
-- [ ] Should the probe be kept as a fallback when the DIP is off, for
-      backward compatibility with existing scripts?
-- [ ] Does the SIO-B console mode need a runtime toggle (e.g., via STAT
-      CON:=…) independent of the boot-time DIP reading?
+`bios.c` `bios_boot_c()` now reads port 0x14 bit 0 and picks the IOBYTE
+preset accordingly.  No probe, no timeout — instant.  One byte smaller
+in clang than the previous DCD probe (6040 vs 6041).
+
+Both SIO-A and SIO-B run at 38400 8N1 regardless of the switch.
+
+### Questions closed
+
+- Which DIP switch bit: bit 0 (the lowest).
+- Should there be a runtime toggle: not needed — users can still
+  `STAT CON:=TTY:` etc. at any time to override the boot-time choice.
+- Fallback behavior: stock BIOS semantics when switch is off, no other
+  fallback needed.

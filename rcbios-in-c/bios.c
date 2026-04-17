@@ -772,16 +772,14 @@ void bios_boot_c(void)
     /* Conversion tables (outcon/inconv at 0xF680) are initialized by
      * coldboot from _conv_tables (boot_confi.c) before we get here. */
 
-    /* Detect remote host on SIO-B: check DCD (RR0 bit 3).
-     * Z80-SIO RR0 bit 3 is INVERTED: bit set = DCD asserted = host present.
-     * If connected, use UC1 (joined CRT+serial). Otherwise CRT only. */
-    {
-        byte rr0 = port_in(sio_b_ctrl);
-        if (!(rr0 & 0x08))             /* DCD deasserted — no host */
-            iobyte = IOBYTE_CON_LOCAL;
-        else
-            iobyte = IOBYTE_CON_JOINED;
-    }
+    /* DIP switch 0 (port 0x14 bit 0) selects the SIO-B console mode:
+     *   bit 0 set   → UC1 (joined SIO-B + CRT console — debug mode)
+     *   bit 0 clear → CRT only; SIO-B stays as LST: printer (original BIOS)
+     * With the switch off the machine behaves like the stock RC702 BIOS. */
+    if (port_in(sw1) & 0x01)
+        iobyte = IOBYTE_CON_JOINED;
+    else
+        iobyte = IOBYTE_CON_LOCAL;
 
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
