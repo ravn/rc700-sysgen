@@ -8,6 +8,9 @@ Work in progress!
 
 ---
 
+2026-04-17:  Thorough experiments have been made to see if the Z80 SIO-A chip can work reliably at x1 speeds.  Unfortunately it cannot so either a protocol must be used that is reliable against transmission errors or stay at 38400 until a better clock can be provided.  Hardwired to memory speed / 32.
+
+
 2026-04-12: C-bios now supports IOBYTE.   If a serial terminal connection is present on the printer port, the console is mirrored to that.  This allows for remote controlling while using the terminal port to transfer data.  Both are configured to 38400 baud 8N1.
 
 Claude Code has orchestrated that MAME boots on the z88dk sdcc compiled bios, downloads the clang compiled bios and boots on that.  Both include a build time stamp that is verified from the console output character stream.
