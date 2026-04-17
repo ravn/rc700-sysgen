@@ -1,5 +1,12 @@
 # CP/NET Parallel Port Transport (Future)
 
+> **See also `SPLIT_CHANNEL_TRANSPORT.md`** for an alternative that reaches
+> comparable throughput *without* RC702 hardware modifications by using the
+> stock J4 parallel connector for PC → RC702 traffic and the existing SIO-B
+> serial line at 250 kbaud for RC702 → PC traffic. The Mode 2 design below
+> remains viable but requires rewiring per `parallel_host_interface.md` and
+> `docs/schematics/MIC07_pinout.md`.
+
 ## Overview
 
 Use the RC702's Z80-PIO Port A in Mode 2 (bidirectional) for CP/NET transfers,

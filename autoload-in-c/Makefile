@@ -84,8 +84,8 @@ LLVM_Z80 = $(CURDIR)/../../llvm-z80
 NATIVE ?= 1
 
 ifneq ($(NATIVE),0)
-  # Native macOS build — run tools directly
-  CLANG_BUILD = $(LLVM_Z80)/build-macos/bin
+  # Native build — run tools directly (probe Linux first, then macOS, then plain build/)
+  CLANG_BUILD = $(firstword $(wildcard $(LLVM_Z80)/build-linux/bin $(LLVM_Z80)/build-macos/bin $(LLVM_Z80)/build/bin))
   RUN =
   CLANG_COMPILER = $(CLANG_BUILD)/clang
 else

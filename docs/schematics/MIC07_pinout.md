@@ -53,45 +53,56 @@ part and is unambiguous.)
 
 ## J4 — "keyboard" connector (PIO Port A side)
 
-DSUB-25 female on the back of the machine.
+DSUB-25 female on the back of the machine. **Verified 2026-04-17 from
+MIC07 schematic (page 69 of the technical manual PDF).**
 
 | J4 pin | PIO pin | PIO signal | Sheet label |
 |--------|---------|-----------|-------------|
-| 21 | 15 | A0 | KEY 0 |
-| 22 | 14 | A1 | KEY 1 |
-| 23 | 13 | A2 | KEY 2 |
-| 24 | 12 | A3 | KEY 3 |
+| 22 | 15 | A0 | KEY 0 |
+| 23 | 14 | A1 | KEY 1 |
+| 24 | 13 | A2 | KEY 2 |
+| 21 | 12 | A3 | KEY 3 |
 | 17 | 9  | A4 | KEY 4 |
 | 18 | 8  | A5 | KEY 5 |
 | 19 | 7  | A6 | KEY 6 |
 | 20 | 6  | A7 | KEY 7 |
 | 12 | 16 | ASTB | KEYSTROBE (pulled up via R38 15K → +5V) |
-| 1, 25, 3, 13, 14, 15 | — | +5V / 0V (power & ground pins; exact split TBD on next pass) |
+| 1  | — | **0V (GND)** | power ground |
+| 25 | — | **+5V** | logic supply |
+| 3, 13, 14 | — | **+12V** | auxiliary supply (not GND — keyboard pulls its +12V from here) |
+| remaining | — | unused | — |
 
 **ARDY (Z80 PIO pin 28) is NOT wired out to J4.** The original RC702
 firmware only ever needed strobed *input* from the keyboard, so the
 designer left ARDY unconnected on the chip side.
 
+**Caveat for cable work:** J4-3/13/14 carry **+12V**, not ground. A cable
+that shorts those pins to ground (or to a 5 V logic line) could damage
+the supply regulator. Use J4-1 as the ground reference, not pins 3/13/14.
+
 ## J3 — "parallel" connector (PIO Port B side)
 
-DSUB-25 female. Currently unused by the BIOS.
+DSUB-25 female. Currently unused by the BIOS. **Verified 2026-04-17
+from MIC07 schematic (page 69 of the technical manual PDF).**
 
 | J3 pin | PIO pin | PIO signal | Sheet label |
 |--------|---------|-----------|-------------|
 | 22 | 27 | B0 | IN/OUT 0 |
 | 23 | 28 | B1 | IN/OUT 1 |
 | 24 | 29 | B2 | IN/OUT 2 |
-| 25 | 30 | B3 | IN/OUT 3 |
+| **21** | 30 | B3 | IN/OUT 3 |
 | 17 | 31 | B4 | IN/OUT 4 |
 | 18 | 32 | B5 | IN/OUT 5 |
 | 19 | 33 | B6 | IN/OUT 6 |
 | 20 | 34 | B7 | IN/OUT 7 |
-|  ? | 17 | BSTB | STROBE (input, pulled up via R39 15K → +5V) |
-| 12 | 21 | BRDY | REGISTER READY (output) |
+| **2**  | 17 | BSTB | /STROBE (input, pulled up via R39 15K → +5V) |
+| 12 | 21 | BRDY | (B) REGISTER READY (output) |
 | 3, 13, 14 | — | 0V (ground) |
 
-(The BSTB pin number on J3 is partly obscured in the crop — needs a
-second look at MIC07 to confirm.)
+Corrections vs. prior OCR pass:
+- **B3 is on J3-21**, not J3-25 as previously guessed.
+- **BSTB is on J3-2** (the obscured pin number in the earlier crop).
+- J3-25 is unused (no signal shown on the schematic).
 
 ## Implications for the bidirectional host link plan
 
