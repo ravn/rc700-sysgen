@@ -152,6 +152,36 @@ Paths to faster inbound data:
 - Use the parallel PIO port instead of serial
 - Accept 38400 and optimize the protocol (fewer round-trips)
 
+### Inter-character gap experiment
+
+Hypothesis: adding idle gaps between characters gives the SIO x1 mode time
+to cleanly detect the next start bit. Tested by sending one byte at a time
+from Python with busy-wait delays between writes.
+
+Results (4KB, 2 stop bits, SIO auto-RTS, rtscts=True):
+
+| Baud    | Gap    | Errors | vs no-gap | Eff. B/s |
+|---------|--------|--------|-----------|----------|
+| 83333   | 0µs    | 35 (0.9%) | —      | 2156     |
+| 83333   | 200µs  | 18 (0.4%) | 2× better | 1554  |
+| 125000  | 0µs    | 81 (2.0%) | —      | 2396     |
+| 125000  | 50µs   | 26 (0.6%) | 3× better | 2104  |
+| 153600  | 0µs    | 161 (3.9%) | —     | 2491     |
+| 153600  | 100µs  | 75 (1.8%) | 2× better | 1873  |
+| 250000  | 0µs    | 1375 (33%) | —     | 2672     |
+| 250000  | 200µs  | 40 (1.0%) | 34× better | 1554 |
+
+**Finding:** gaps DO reduce x1 errors significantly — confirms the SIO
+resync hypothesis. But per-byte USB writes are capped at ~1000–2700 B/s
+by USB full-speed frame overhead (~1ms per transaction), making all spaced
+results **slower than 38400 x16 continuous** (3840 B/s).
+
+To exploit this, gaps would need to be created at the FTDI wire level, not
+via per-byte USB transactions. Possible approaches not yet tested:
+- Small chunk writes (4–8 bytes per USB transaction, USB frame gap between)
+- FTDI bit-bang mode for precise wire-level timing
+- Custom protocol with CRC/retry to tolerate the ~1% residual errors
+
 ### Standard PC serial port (16550, 1.8432 MHz) — NOT useful
 
 Cannot produce any rate the RC700 uses above 38400. Even the Nuvoton
