@@ -32,3 +32,8 @@ memmove_test_CODE.bin
 
 # Test disk images
 /tmp/
+
+# SDLC experiment — compiled C capture helper + python bytecode
+sdlc_capture
+__pycache__/
+*.pyc

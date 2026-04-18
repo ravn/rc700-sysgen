@@ -52,6 +52,22 @@ This document provides comprehensive technical information about the RC702 hardw
 7. **Intel 8202A** (D8202A) - Dynamic RAM Controller
 8. **Western Digital WDC1002** - Winchester Disk Controller (optional)
 
+### Physical Board Identification (user's unit, 2026-04-18)
+
+- Mainboard silkscreen: **PCB530**. Not documented in either RC702
+  technical manual (both refer to PCB527 designations for MIC702).
+  User's assessment: "strongly suspect it is a MIC702" — behaviour
+  and chip count are consistent with the MIC702 baseline, so treat
+  as MIC702 until proven otherwise.
+- Corollary: synchronous-serial features (OUT 1Eh flip-flop, modem
+  clock on J1, DB-25 pins 15/17) are **not** expected to be present.
+  PCB530 is likely a minor revision of PCB527 rather than a jump to
+  MIC704/705.
+- Note: RC702tech.pdf printed page 83 has a "MIC 702 — PHASE LOCK
+  LOOP — MIC 14" schematic, but that's the **video dot-clock PLL**
+  (locks 11.64 MHz dot clock to 50 Hz VRTC), not a serial DPLL. It
+  does not help with SDLC clock recovery on the SIO.
+
 ### Chip Markings (from physical inspection, 2026-04-18)
 
 | Chip | Marking | Identification |
@@ -66,8 +82,8 @@ This document provides comprehensive technical information about the RC702 hardw
 
 | Connector | Function | Notes |
 |-----------|----------|-------|
-| J1 | Serial port (SIO Channel A) | V.24/RS-232, terminal/modem |
-| J2 | Serial port (SIO Channel B) | V.24/RS-232, printer |
+| J1 | Serial port (SIO Channel A) | V.24/RS-232, terminal/modem — DB-25 DTE, pinout below |
+| J2 | Serial port (SIO Channel B) | V.24/RS-232, printer — DB-25 DTE, pinout below |
 | J3 | Parallel port | PIO-based |
 | J4 | Parallel port | PIO-based |
 | J9 | External floppy | Connector for external floppy drive(s) |
@@ -75,6 +91,46 @@ This document provides comprehensive technical information about the RC702 hardw
 
 (J5-J7, J10+ designations: TBD — check technical manual for keyboard,
 floppy, power, display connectors.)
+
+#### J1 / J2 DB-25 Pinout (SIO-A / SIO-B)
+
+From RC702-RC703 technical manual, Figure 13 (page 23–24). Both ports
+are standard V.24 DTE; only the signals listed below are wired — pins
+15 (TxC DCE→DTE) and 17 (RxC DCE→DTE) are **not connected** on the
+MIC702/MIC703 motherboards.
+
+| Pin | Signal | Direction | Notes |
+|-----|--------|-----------|-------|
+| 1 | Protective Ground | — | Chassis |
+| 2 | TxD (Transmit Data) | Out | SIO TxDA/TxDB |
+| 3 | RxD (Receive Data) | In | SIO RxDA/RxDB |
+| 4 | RTS (Request To Send) | Out | SIO RTS output |
+| 5 | CTS (Clear To Send) | In | SIO CTS input |
+| 7 | Signal Ground | — | |
+| 8 | DCD (Data Carrier Detect) | In | SIO DCD input |
+| 20 | DTR (Data Terminal Ready) | Out | SIO DTR output |
+| 15 | (would be TxC from DCE) | — | **NC on MIC702/MIC703** |
+| 17 | (would be RxC from DCE) | — | **NC on MIC702/MIC703** |
+
+**Implication for synchronous modes:** the stock RC702 cabinet
+(MIC702/MIC703) cannot accept an external bit clock because no clock
+pin is brought out to the DB-25. The Z80-SIO/2 chip itself supports
+SDLC/HDLC, but it has no on-chip DPLL, so its receiver cannot recover
+a clock from RxD data.
+
+Per page 22 of the same manual: synchronous operation is a
+**MIC704/MIC705** feature, not MIC702/MIC703. On those boards:
+
+- Port `IC hex` reads BIT 0/1/2/3 = Calling Indicator A / Data Set
+  Ready A / Calling Indicator B / Data Set Ready B.
+- `OUT (1E hex), A` with bit 1=1 sets a flip-flop that routes the
+  **modem-supplied clock** into SIO channel A. Bit 1=0 resets.
+
+So on MIC702/MIC703, synchronous TX from the RC702 is possible
+(SIO clocked from CTC internally, output stream is SDLC-framed), but
+synchronous RX from an external source is not — the SIO would be
+sampling at its own CTC rate with no phase alignment to the incoming
+bit stream, and the chip has no DPLL to fix that.
 
 ### Mainboard Variants (MIC boards)
 

@@ -559,6 +559,20 @@ siob-baud: bios
 		|| (echo "=== BAUD TEST FAILED ==="; exit 1)
 
 # ================================================================
+# SIO-B SDLC experiment (physical RC702, MIC702 / PCB530)
+# Sends one SDLC frame at 125 kbaud from SIO-B and captures it on
+# FT2232D interface B via async bit-bang + software DPLL.
+# Full flow:  make siob-sdlc
+# ================================================================
+
+sdlc-build:
+	$(ZMAC) -z sioa_sdlc_tx.asm
+	python3 cim_to_hex.py zout/sioa_sdlc_tx.cim /tmp/sioa_sdlc_tx.hex
+
+sdlc: sdlc-build
+	./sdlc_deploy.sh
+
+# ================================================================
 # Host tests (TODO)
 # ================================================================
 
