@@ -43,7 +43,7 @@ This document provides comprehensive technical information about the RC702 hardw
 
 ### I/O Controllers
 
-1. **Zilog Z80-SIO/2** - Serial I/O controller
+1. **Zilog Z80A-SIO/2** (Z8442) - Serial I/O controller (async + SDLC/HDLC sync)
 2. **Zilog Z80-PIO** - Parallel I/O controller
 3. **Zilog Z80-CTC** - Counter and Timer Controller (2 units)
 4. **AMD Am9517A-4** (or Intel 8237-2) - DMA Controller
@@ -155,6 +155,10 @@ The 4KB option requires a print board modification that is NOT applicable to sta
   19.6608 MHz memory clock by two cascaded 74LS393 dividers (÷2 → 9.8304 MHz,
   then ÷16 → 0.6144 MHz; ÷32 total). See RC702tech.pdf page 89 (labelled 85).
   These two channels generate SIO-A and SIO-B baud rate clocks respectively.
+  Each CTC channel output drives **both** the TX and RX clock inputs of its
+  SIO channel (single wire to TxC+RxC on the SIO pin). This means TX and RX
+  on the same SIO channel always run at the same baud rate -- split TX/RX
+  speeds are not possible without hardware modification.
   The same 0.6144 MHz signal also drives the keyboard beep duration timer.
 - **Ch 2 (TRG2):** 8275 CRT controller VRTC (vertical retrace) interrupt.
 - **Ch 3 (TRG3):** µPD765 FDC INTRQ (floppy interrupt).
@@ -231,10 +235,10 @@ ignored.
 ```
 
 **DMA Channel Assignments:**
-- Channel 0: WD1000 Winchester disk controller
+- Channel 0: External debugger / J8 expansion (HD controller, MEM700)
 - Channel 1: NEC uPD765 floppy disk controller
 - Channel 2: Intel 8275 display controller
-- Channel 3: Not used during bootstrap
+- Channel 3: Intel 8275 display controller (second DMA channel)
 
 **DMA Programming Values:**
 - `0x20` - Command value (standard configuration)
@@ -622,11 +626,11 @@ The DMA controller enables high-speed data transfer between memory and I/O devic
 
 The 8237 provides four independent DMA channels that can be programmed individually:
 
-**RC702 Channel Assignment:**
-- **Channel 0:** WD1000 Winchester hard disk controller
-- **Channel 1:** NEC uPD765 floppy disk controller
-- **Channel 2:** Intel 8275 CRT controller (display refresh)
-- **Channel 3:** Available for expansion
+**RC702 Channel Assignment** (per technical manual section 2.3.9):
+- **Channel 0:** External / J8 expansion (DREQ0 via J8-R28, DACK0 back to J8). Used by WD1000 HD controller and MEM700 RAM disk.
+- **Channel 1:** NEC uPD765 floppy disk controller (on motherboard)
+- **Channel 2:** Intel 8275 CRT controller (display refresh, row buffer refill)
+- **Channel 3:** Intel 8275 CRT controller (second DMA channel for display)
 
 #### Transfer Modes
 
@@ -879,6 +883,52 @@ The system does **not** support the IOBYTE function or the modification of
 logical-physical device assignments via the STAT command.  The system does
 not include the MOVCPM program.
 
+### Z80A-SIO/2 Chip Details
+
+**Part number:** Z8442 (Z80A-SIO/2). Confirmed from RC702/RC703
+Microcomputer Technical Manual (RCSL 44-RT2056), section 2.3.4.
+
+**"SIO/2" means bonding option 2**, not a feature version. The SIO comes
+in five bonding variants (SIO/0 through SIO/4) that differ only in which
+Channel B signals are brought out on the 40-pin package:
+- SIO/0: TxCB and RxCB bonded together, all other signals present
+- SIO/1: sacrifices DTRB, keeps TxCB, RxCB, SYNCB
+- **SIO/2: sacrifices SYNCB, keeps TxCB, RxCB, DTRB** (used in RC702)
+- SIO/3, SIO/4: 44-pin packages with all signals
+
+**Register set:** WR0-WR7, RR0-RR2 only. The SIO does **not** have
+WR10-WR15 (DPLL, BRG, NRZI encoding) -- those are features of the
+later Z85C30 SCC (Serial Communications Controller), a different chip.
+Verified from Zilog um0081.pdf (Z80 Family CPU Peripherals User Manual).
+
+**Key pin assignments (SIO/2, 40-pin DIP):**
+
+| Pin | Signal | Channel | Notes |
+|-----|--------|---------|-------|
+| 13 | RxCA | A | Receive clock input (separate pin from TxCA) |
+| 14 | TxCA | A | Transmit clock input (separate pin from RxCA) |
+| 28 | RxCB | B | Receive clock input |
+| 27 | TxCB | B | Transmit clock input |
+| 11 | SYNCA | A | Sync detect output in SDLC mode; general input in async |
+| 16 | DTRA | A | Data Terminal Ready output |
+| 25 | DTRB | B | Data Terminal Ready output (replaces SYNCB in SIO/2) |
+
+Note: TxCA and RxCA are separate physical pins on the chip. The shared
+clock on the RC702 is a **PCB wiring decision** -- the CTC ch0 output
+trace forks to both pins. See CTC section for details.
+
+**Synchronous mode capabilities:**
+- SDLC/HDLC: flag bytes (0x7E), automatic zero-insertion/deletion,
+  CRC-CCITT generation and checking, address field filtering
+- Monosync and bisync: programmable sync characters (WR6/WR7)
+- All sync modes require external clock on TxC/RxC (no internal DPLL)
+- SDLC mode does not use the SYNC pin (uses internal flag detection),
+  so the SIO/2's missing SYNCB pin is not a limitation for SDLC
+
+**MAME emulation:** rc702.cpp originally used `z80dart_device` (Z80-DART,
+async only) instead of `z80sio_device`. Fixed locally, filed as
+ravn/mame#3. The DART variant silently rejects sync mode programming.
+
 ### Serial Baud Rate Limits
 
 Both SIO channels share the same 0.6144 MHz baud rate clock (see CTC section).
@@ -889,12 +939,33 @@ The BIOS C rewrite uses CTC count=1 with SIO ×16 for **38400 baud** on both
 channels — the maximum achievable rate with this hardware.
 
 Higher rates are not possible without hardware modification:
-- SIO ×1 mode is not viable for async (no oversampling for start bit detection)
-- Synchronous mode would require a clock wire not present on the RS-232 connector
+- SIO ×1 mode is not viable for async RX (no oversampling for start bit
+  detection — x1 was designed for synchronous protocols where the clock
+  is phase-aligned by the transmitter). TX works at x1 because the
+  transmitter generates its own timing.
+- Synchronous mode (SDLC/HDLC) should work with the existing CTC clock
+  at x1 — sync mode has no start-bit detection problem, so the x1
+  framing issue doesn't apply. The SIO handles SDLC framing (0x7E flags,
+  zero-insertion, CRC-CCITT) in hardware. At CTC timer mode divisor 1,
+  this gives 250 kbaud SDLC bidirectional. Note: the SIO does NOT have
+  a DPLL or BRG (those are Z85C30 SCC features); "SIO/2" means bonding
+  option 2, not version 2. The host FTDI must match the baud rate exactly.
+  See `cpnet/SPLIT_CHANNEL_TRANSPORT.md` for the CP/NET transport plan.
 - DMA-assisted serial is not possible (SIO has no DREQ output to the Am9517A)
 - The 0.6144 MHz clock could be doubled to 1.2288 MHz by tapping the 74LS393
   divider chain one stage earlier (÷16 instead of ÷32), but this requires a
   PCB modification and changes all CONFI baud rate divisors
+
+**Maximum SIO TxC/RxC clock input:** 4 MHz (250 ns minimum cycle time per
+Z80A SIO datasheet AC characteristics). With ×16 mode this gives a
+theoretical maximum of 250000 baud, but requires a 4 MHz clock source
+routed to TxC/RxC (PCB modification). With the stock 0.6144 MHz
+oscillator, the maximum is 38400 (divisor 1, ×16).
+
+**Alternative fast paths** (no PCB modification required):
+- PIO parallel port (J3/J4) — 8-bit handshaked transfers, ~150-286 KB/s
+- J8 bus expansion connector — polled I/O ~150-286 KB/s, DMA channel 0
+  ~500-1000 KB/s. See `docs/j8_bus_expansion.md` for full analysis.
 
 ### Peripheral Handshake
 

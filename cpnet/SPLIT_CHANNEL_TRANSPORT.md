@@ -237,19 +237,76 @@ starting point.
 6. **Measure**: bulk read, bulk write, directory-heavy workload. Compare
    against serial-only baseline.
 
-## Open questions
+## Open questions (updated 2026-04-18)
 
-- Whether SIO-A TxCA and RxCA are clocked independently on the RC702
-  board, allowing 250 kbaud TX concurrent with 38400 RX. If not, SIO-A
-  RX rate has to match TX rate during CP/NET sessions, and RDR:
-  pass-through would need a CTC swap on session start/end. Schematic
-  read pending; see `rcbios-in-c/tasks/sio-independent-rates.md`.
-- Whether SIO-A RX can stay live at 38400 for ordinary RDR: input from
-  the PC during a CP/NET session, as a third in-band channel. It costs one
-  more Z80 SIO ISR and no hardware.
-- PIO Mode 1 ring buffer size — 256 B is ample for one in-flight packet
+- ~~Whether SIO-A TxCA and RxCA are clocked independently on the RC702
+  board~~ **RESOLVED: they are NOT independent.** CTC channel 0 drives
+  a single wire to both TxCA and RxCA on the SIO (confirmed from
+  MIC 02 schematic, page 59 of the technical manual; also verified in
+  MAME rc702.cpp). This means SIO-A TX and RX always run at the same
+  baud rate. Consequence: if SIO-A is set to 250 kbaud x1 for fast TX,
+  RX at x1 will have the same framing errors documented in session 17.
+  RDR: pass-through at 38400 is not possible concurrently.
+  See `docs/j8_bus_expansion.md` and updated `RC702_HARDWARE_TECHNICAL_REFERENCE.md`.
+- PIO Mode 1 ring buffer size -- 256 B is ample for one in-flight packet
   plus headroom, matches the existing SIO-A pattern.
 - Flow control if the PC parallel driver ever outruns the Z80 ISR: on
   packet boundaries, the server can simply hold the next packet until
   it has seen the expected ACK/response on SIO-A. No out-of-band stop
   bit needed.
+
+## Alternative: SDLC with CTC clock on SIO-A (2026-04-18, revised)
+
+**CORRECTION:** The Z80-SIO/2 does NOT have a DPLL or BRG. Those are
+features of the Z85C30 SCC, a different chip. The "SIO/2" designation
+means "bonding option 2" (sacrifices SYNCB for DTRB), not additional
+features. Verified from Zilog um0081.pdf — the SIO only has WR0-WR7.
+
+**Revised approach — SDLC with external CTC clock:**
+
+The SIO supports SDLC/HDLC framing (flags, zero-insertion, CRC-CCITT)
+in hardware, but requires an external bit clock. The CTC provides this.
+The key insight: **sync mode x1 clock should work** because there are
+no start bits — every clock edge is a data bit. The async x1 framing
+problem (can't re-sync to start bits in continuous stream) does not
+apply to synchronous mode.
+
+CTC timer mode, divisor 1: 250 kHz clock -> 250 kbaud SDLC.
+CTC counter mode, divisor 1: 614.4 kHz -> 614.4 kbaud (needs FT2232H
+for exact baud match; current FT2232C/D has 2.34% error at this rate).
+
+This makes SIO-A a **bidirectional** high-speed link at 250 kbit/s
+(~28 KB/s effective after SDLC overhead), removing the need for the
+parallel port downlink channel. The PIO parallel port could then serve
+as a second independent channel for even higher aggregate throughput,
+or remain free for other uses.
+
+**Advantages over split-channel:**
+- Single cable (existing serial), no custom parallel cable needed
+- Bidirectional — both reads and writes at full speed on one channel
+- HDLC has built-in framing (flag bytes 0x7E) and CRC-16
+- Maps cleanly to CP/NET packet boundaries
+- No NRZI/DPLL needed — plain NRZ encoding with shared fixed clock
+
+**Disadvantages:**
+- Host FTDI must match the CTC clock rate exactly (250 kbaud is exact
+  on both FT2232C/D and FT2232H; 614.4 kbaud needs FT2232H)
+- SIO-A is dedicated to CP/NET while in sync mode (no console use)
+- Needs validation: can the FTDI async UART receive SDLC data as raw
+  bytes at matching baud, or does it need MPSSE/bitbang mode?
+- MAME currently uses `z80dart_device` which rejects sync modes —
+  fixed locally (ravn/mame#3), needs upstream PR
+
+**FTDI baud rate matching (calculated):**
+
+| Target    | FT2232C/D (12 MHz)  | FT2232H (48 MHz)  |
+|-----------|--------------------|--------------------|
+| 614400    | 600000 (2.34% err) | 615385 (0.16%)     |
+| 250000    | **250000 (exact)** | **250000 (exact)** |
+| 125000    | **125000 (exact)** | **125000 (exact)** |
+
+**User goal (2026-04-18):** pursue BOTH approaches — SIO-A SDLC and
+PIO parallel — for best possible CP/NET performance as a remote file
+server. SIO-A is acceptable as a dedicated CP/NET channel. User is
+willing to buy a better FTDI adapter (FT2232H) if needed for 614.4
+kbaud.

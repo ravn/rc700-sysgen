@@ -1,50 +1,37 @@
-# SIO-A split TX/RX rates (deferred)
+# SIO-A split TX/RX rates — RESOLVED: not possible
 
-**Status:** deferred 2026-04-17. Not blocking current work.
+**Status:** resolved 2026-04-18. TxCA and RxCA are tied to the same CTC
+channel output.
 
-## Goal
+## Finding
 
-Run SIO-A with **TX @ 250 kbaud x1** (RC702 → PC, fast uplink) simultaneously
-with **RX @ 38400 x16** (PC → RC702, normal RDR: input). This would give
-the fast uplink that CP/NET split-channel transport wants, while keeping
-the PC→RC702 direction inside the SIO's x1-mode framing-error-free regime.
+CTC channel 0 drives a single wire to **both** TxCA and RxCA on SIO
+channel A. Confirmed from MIC 02 schematic (page 59 of the RC702/RC703
+Microcomputer Technical Manual, RCSL 44-RT2056). Also verified in
+MAME's rc702.cpp driver (CTC1 zc_callback<0> goes to both txca_w and
+rxca_w).
 
-## What's known
+All four CTC channels are allocated:
+- Ch 0 (port 0x0C): SIO-A baud rate (TxCA + RxCA)
+- Ch 1 (port 0x0D): SIO-B baud rate (TxCB + RxCB)
+- Ch 2 (port 0x0E): CRT 8275 VRTC interrupt
+- Ch 3 (port 0x0F): FDC uPD765 interrupt
 
-- **SIO chip supports it natively.** The Z80 SIO (Z8430/Z8470) has separate
-  TxCA and RxCA clock input pins on channel A. `WR4` configures TX and RX
-  clock multipliers (x1/x16/x32/x64) independently.
-- **TX at 250 kbaud x1 is measured working** on SIO-B (session 17,
-  23 KB/s, 0 errors / 8192 B). Same SIO chip, so SIO-A should behave
-  identically.
-- **Zilog datasheet limit:** 0–800 kbit/s at 4 MHz Z80 clock. 250 kbaud is
-  well inside spec.
-- **RC702 has two CTC clock domains available:** CTC0 counter mode from
-  614400 Hz oscillator, CTC1–3 timer mode from 4 MHz CPU /16 (250 kHz
-  base). Two clock families means independent rates are plausible at the
-  system level.
+No spare CTC channel exists to clock TX and RX independently.
 
-## Open question — needs schematic reading
+## Consequence
 
-Are **TxCA and RxCA on channel A fed from separate CTC outputs**, or tied
-to one CTC channel?
+SIO-A TX and RX always run at the same baud rate. The split-channel
+transport cannot have 250 kbaud TX with 38400 RX on the same channel.
+Either both run at 250 kbaud (RX unreliable for continuous async data)
+or both at 38400 (reliable but slow).
 
-- If separate: split rates work.
-- If tied: we're stuck at a single rate per channel.
+## Alternatives identified
 
-Check the RC702 MIC schematic sheet covering the SIO section (not MIC07
-which is PIO). Same technical manual PDF as for the PIO pinout.
-
-## Test plan when resumed
-
-1. Read schematic, confirm TxCA/RxCA wiring on SIO-A.
-2. If independent: reuse session 17's `siob_baud_test` harness retargeted
-   to SIO-A. Confirm 250 kbaud TX holds.
-3. Verify 38400 RX on the same channel still works concurrently with
-   250 kbaud TX.
-4. If tied: document as "not achievable on stock RC702" and defer further.
-
-## Why deferred
-
-Current work is the parallel-port investigation and CP/NET split-channel
-transport. Schedule after those yield a working end-to-end path.
+1. **HDLC/NRZI synchronous mode** on SIO-A with internal DPLL clock
+   recovery. Bidirectional, potentially 250 kbit/s. SIO-A dedicated to
+   CP/NET. See `cpnet/SPLIT_CHANNEL_TRANSPORT.md`.
+2. **PIO parallel port** for the PC->RC702 direction, SIO-A TX-only for
+   RC702->PC. Same split-channel doc.
+3. **J8 bus expansion** with DMA channel 0. ~500-1000 KB/s. Requires
+   external board. See `docs/j8_bus_expansion.md`.

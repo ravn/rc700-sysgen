@@ -138,6 +138,17 @@ Key evidence:
 - Single isolated bytes work at all rates up to 614400 — the SIO hardware
   CAN clock at these speeds, just not for continuous async data
 
+### Split TX/RX baud rates — not possible on RC702
+
+Investigation (2026-04-18) confirmed that each SIO channel's TX and RX
+clock pins are driven by a single CTC channel output (CTC ch0 -> SIO-A
+TxC+RxC, CTC ch1 -> SIO-B TxC+RxC). All four CTC channels are allocated
+(ch0=SIO-A, ch1=SIO-B, ch2=CRT, ch3=FDC), so there is no spare CTC
+channel to clock TX and RX independently. The 250000 baud TX success and
+38400 baud RX ceiling are both at the same clock rate — the asymmetry is
+purely a SIO receiver limitation (x1 mode framing), not a split-speed
+configuration. MAME's rc702.cpp driver correctly models this shared wiring.
+
 ### Conclusion
 
 **38400 x16 is the maximum reliable continuous RX rate** with the RC700's
@@ -146,11 +157,52 @@ adapter change can fix the x1 mode framing problem — it's a fundamental
 limitation of the SIO's x1 async clock recovery.
 
 Paths to faster inbound data:
-- Replace the 614400 Hz oscillator with a higher frequency (hardware mod)
-  so x16 mode gives a higher baud (e.g., 1.2288 MHz → 76800 x16)
-- Use synchronous mode (requires non-UART host interface)
+- Replace the 614400 Hz oscillator with a higher frequency (PCB mod)
+  so x16 mode gives a higher baud (e.g., 1.2288 MHz -> 76800 x16).
+  Max SIO TxC/RxC clock input: 4 MHz (250 ns min cycle, Z80A SIO
+  datasheet AC characteristics) -> 250000 baud x16 theoretical max.
+- Use synchronous mode (see analysis below)
 - Use the parallel PIO port instead of serial
+- J8 bus expansion connector with polled I/O or DMA (see
+  `docs/j8_bus_expansion.md`)
 - Accept 38400 and optimize the protocol (fewer round-trips)
+
+### Synchronous mode analysis (2026-04-18)
+
+The SIO's x1 mode was designed for **synchronous** protocols (SDLC, HDLC,
+bisync) where an external clock wire is phase-aligned to the data by the
+transmitter. No clock recovery is needed — every clock edge = one data
+bit. It also works for async if the clock is phase-locked to the incoming
+data (e.g., via a DPLL or external bit-sync circuit), but the RC702 has
+neither.
+
+**~~SIO built-in DPLL (WR14)~~:** CORRECTION (2026-04-18): the Z80-SIO
+does NOT have a DPLL or BRG. WR10-WR15 are features of the Z85C30
+SCC (Serial Communications Controller), a later and different chip.
+The SIO only has WR0-WR7 and RR0-RR2. The "SIO/2" designation means
+"bonding option 2" (sacrifices SYNCB for DTRB), not "version 2 with
+more features." Verified from Zilog um0081.pdf (Z80 Family CPU
+Peripherals User Manual) which defines no registers beyond WR7.
+
+**Sync mode on the RC702 — the clock wire problem:** the CTC clock output
+drives the SIO's TxC+RxC internally on the motherboard. These clock
+signals are **not routed to the DB-25 RS-232 connectors** (J1/J2). The
+DB-25 carries only TxD, RxD, and handshake lines (DTR/RTS/CTS/DCD).
+There is no way to get a clock signal to or from an external device
+via the serial ports without a PCB modification.
+
+**Revised approach — SDLC with CTC external clock (2026-04-18):**
+Since the SIO has no DPLL, self-clocking NRZI is not possible.
+However, SDLC mode with the existing CTC clock should work at x1
+because synchronous mode has no start-bit detection problem — every
+clock edge is a data bit, no framing ambiguity. The CTC at 250 kHz
+(timer mode, divisor 1) gives 250 kbaud SDLC bidirectional. The SIO
+handles SDLC framing (0x7E flags, zero-insertion, CRC-CCITT) in
+hardware. The host FTDI receives at matching baud rate. See
+`cpnet/SPLIT_CHANNEL_TRANSPORT.md` for the CP/NET transport plan.
+
+MAME fix required: rc702.cpp uses `z80dart_device` but the real
+hardware is Z80A-SIO/2 — filed as ravn/mame#3, fixed locally.
 
 ### Inter-character gap experiment
 
