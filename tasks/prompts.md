@@ -63,6 +63,20 @@
 - todo later: Collect all bugs found and prepare them as issues with thorough tests against upstream llvm-z80
 - automatically investigate problems in session found creating tasks and issues as necessary
 
+## Session 21 (2026-04-18) — SDLC decoder follow-up + FT2232H sourcing
+
+- what was the result of the serial speed investigation
+- please continue looking at the SDLC-mode
+- while we wait for a ft2232h cable, please run a new test
+- what is the problem with the current fdti device. Is the usb cable too slow?
+- please have a closer look
+- what are your findings
+- is a FTDI FT232RL usable?
+- i need you to help me find a retailer for at ft2232h adapter?
+- i need you to help me find a retailer for at ft2232h rs232 adapter usable here?
+- looks like digikey send from the us, i'd prefer a european retailer
+- please analyze and create tasks and issues as needed, then summarize in project and commit.
+
 ## Session 19 continued — SIO role swap + DCD detection
 
 - i want to revert serial port a back to the old behavior of only being rdr: and pun:...

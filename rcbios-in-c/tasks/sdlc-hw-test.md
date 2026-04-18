@@ -256,6 +256,150 @@ SIO: Z8442AB1 = Z80A-SIO/2. Supports SDLC. Bonding option 2 means
 SYNCB pin is replaced by DTRB — SYNCA (channel A) is still available
 if we ever want channel A externally synced.
 
+## Session 21 fresh-capture run (2026-04-18 evening)
+
+Ran `./sdlc_deploy.sh` end-to-end on the physical RC702. Chain fully
+automatic:
+
+- DDT upload of SIOASDLC.COM (343 B, 16.5 s) — verified OK via `D` dump.
+- FTDI C capture on interface A, 3 s at 80 kHz — **97.2% effective
+  rate (77736 Hz), zero drops in the 262 KB buffer**.
+- CP/M triggered SIOASDLC; Z80 printed "Frame sent. Restoring async
+  38400." on SIO-B — transmit completed.
+
+Signal analysis of the clean capture:
+
+- Only ADBUS1 has activity (confirms pin/cable); 96.1% high overall
+  (dominated by idle tail); one active burst from sample 115452 to
+  152365 (= **0.48 s at t=1.49 s after capture start**).
+- 668 transitions in the burst → 1387 transitions/s, consistent with
+  ~5.5 kbaud SDLC flag idle (4 transitions per flag byte).
+- Burst duration (0.48 s) exceeds the theoretical 0.32 s of SIO-A
+  SDLC-mode activity by ~50%, not yet explained — likely a slower
+  CPU clock than 4 MHz, or longer delay-loop execution than expected.
+
+Decoder findings:
+
+- `samples_to_bits`' `round(run/sps)` is too brittle for the real
+  line: 6-ones flag runs (~78 samples at sps=13) get occasionally
+  rounded to 7 ones (abort pattern), killing frame detection.
+- Implemented `dpll_bits` in `sdlc_receiver.py` — sample at bit
+  center, snap phase to each detected transition. Tolerates ~±20%
+  bit-period jitter. Drops into the same pipeline via `decode_with(
+  use_dpll=True)`, now default.
+- On synthetic ideal SDLC the DPLL matches the legacy path (all
+  `test_sdlc_decoder.py` PASS).
+- On the real capture at sps=13: legacy path finds 1 frame candidate;
+  DPLL finds **40**. Still 0 CRC-OK, 0 payload substring matches.
+- Auto-decode now reports best sps ≈ 12.96 (consistent with measured
+  ~6.0 kbaud line rate at 77.7 kHz sampling, CTC CLK ≈ 5 MHz).
+
+Interpretation:
+
+- Decoder logic is sound (verified by synthetic tests, including DPLL).
+- Bit-level flag structure is present in the capture — but the
+  recovered byte streams contain no recognizable payload fragments
+  across any sps/polarity/byte-shift combination.
+- Hypothesis: **signal-integrity smearing on the RS-232 path**.
+  Transition intervals span 1–183 samples at the 77.7 kHz sample
+  rate; at sps≈13, genuine 6-cell flag runs should cluster tightly
+  near 78 samples, but observed 5- and 6-cell runs blur across
+  65–110 samples (≈40% spread). That's consistent with the cheap
+  "USB FAST SERIAL ADAPTER"'s RS-232 receiver having asymmetric
+  slew + noisy threshold, not with a decoder bug.
+- Cannot be confirmed without a scope on TxD of SIO-A. Parked
+  pending FT2232H arrival (better capture) or a scope session.
+
+Artefacts added:
+
+- `sdlc_receiver.py`: `dpll_bits()` function, `decode_with(use_dpll=
+  True)` default.
+- No changes to `sioa_sdlc_tx.asm` — the Z80 side is not suspect.
+
+## Decoder characterization (2026-04-18, session 21)
+
+`test_sdlc_decoder.py` synthesizes an ideal SDLC bit stream
+(HDLC-stuffed, CRC-CCITT, NRZI, flag idle, oversampled) and feeds it
+through `sdlc_receiver.py`'s decode pipeline. Establishes baselines
+without hardware:
+
+| Case | Result |
+|------|--------|
+| Clean @ 8 sps, 30-byte payload (matches sioa_sdlc_tx.asm) | PASS |
+| Clean @ 4 sps (minimum viable oversample) | PASS |
+| All-0xFF payload (stuffer stress) | PASS |
+| All-0x7E payload (flag-byte stuffer stress) | PASS |
+| Long leading idle (MAX_RUN_BITS cap exercise) | PASS |
+| crc_ccitt("123456789") = 0x906E (X.25 reference) | PASS |
+| ±6% sps mismatch | recovers |
+| ≥9% sps mismatch (enc 8, dec 7.3) | fails — six-ones flag run rounds to seven, decoder sees abort |
+| 10% random sample drops @ sps=16 | recovers |
+| ≥20% random sample drops | fails |
+
+**Conclusion.** Decoder logic (samples_to_bits, nrzi_decode,
+find_frames, bits_to_bytes, crc_ccitt) is correct on clean input. The
+CRC failures on real FT2232D captures are not a decoder bug — the
+FT2232D drops ~70-75% of samples at 1 MHz bit-bang (session 20
+measurement), well beyond the ~10% the decoder tolerates. Remedies
+stay as-documented:
+
+- (a) C capture helper — done (`sdlc_capture.c`), lifts effective rate
+      to ~200 kHz sustained; not enough for 125 kbaud @ 8×, but fine
+      for lower line rates.
+- (b) Drop line baud to ~31 kbaud so 1 MHz sampling = 32×/bit; margin
+      survives 50% drops on the decoder side.
+- (c) FT2232H adapter to eliminate the bottleneck.
+
+The sps-drift finding also argues for always using `--auto` in
+`sdlc_receiver.py` on real captures until the CTC CLK rate is settled
+by scope measurement.
+
+## Procurement: FT2232H adapter (session 21)
+
+Goal: replace the cheap "USB FAST SERIAL ADAPTER" (FT2232D + unknown
+RS-232 transceiver, likely source of the 40% bit-period smear that
+prevents payload recovery).
+
+**Chosen part: FTDI USB-COM232-PLUS2** — genuine FTDI dual-channel
+USB-to-RS232 cable built on FT2232H with proper level shifters. Drop-in
+replacement for the current adapter on J1/J2 DB-9 ports. Fixes three
+issues at once:
+
+- USB 2.0 high-speed (vs 1.1 full-speed): ~40× more bulk-IN headroom.
+- 4 KB RX FIFO per channel (vs 384 B): ~10× deeper.
+- Quality FTDI-spec RS-232 transceiver (vs cheap clone): eliminates
+  the prime suspect behind the current decode failure.
+
+### Denmark / EU retailer survey (2026-04-18)
+
+| Retailer | Price (incl. VAT) | Stock | Ship origin | Note |
+|----------|-------------------|-------|-------------|------|
+| [DigiKey DK](https://www.digikey.dk/en/products/detail/ftdi/USB-COM232-PLUS2/2139295) | kr. 309.45 | 64 | **US** (Thief River Falls) | 48 h ship, but US origin; VAT handled at border |
+| [Farnell DK](https://dk.farnell.com/en-DK/ftdi/usb-com232-plus2/module-usb-to-rs232-ft2232h/dp/1817171) | tbd | tbd | EU (UK/DE warehouse) | page slow to fetch via WebFetch |
+| [Newark](https://www.newark.com/ftdi/usb-com232-plus2/module-usb-hs-to-rs232-converter/dp/76R0534) | — | in stock | UK warehouse | 2–4 business days |
+| Mouser DK | tbd | listed | mixed (TX/EU) | check individual item origin |
+| TME | — | 0 | PL | out of stock |
+| Elfa Distrelec | — | — | — | webshop closing 2026-05-18, don't rely on |
+
+User preference: **EU retailer, not US shipping.** Primary pick is
+therefore **Farnell DK** or **Newark UK** — both FT2232H-based
+USB-COM232-PLUS2, EU-based dispatch. Check current DK pricing in the
+browser rather than via WebFetch (Farnell's page timed out against
+the tool).
+
+Avoid the **FT2232H Mini Module** on DigiKey DK — 0 in stock, 38-week
+lead time. It's also TTL-only, which would require soldering to the
+motherboard to bypass the RC702's RS-232 driver; not compatible with
+the current DB-25 cable setup.
+
+### FT232RL considered and rejected (session 21)
+
+FT232RL single-channel USB-UART: same USB 1.1 full-speed as FT2232D,
+*smaller* 256 B FIFO, no MPSSE. Sustained bit-bang likely 150 kHz
+(vs FT2232D's 200 kHz). Sideways move at best. Only useful if paired
+with a TTL-level breakout to probe SIO-A TxD before the RS-232
+driver — a diagnostic detour, not a solution.
+
 ## TODO before any code lands
 
 - [ ] Read RC702 schematic; document DB-25 pin-out for SIO-B.
