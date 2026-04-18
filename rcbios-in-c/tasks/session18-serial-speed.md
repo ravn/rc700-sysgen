@@ -79,9 +79,11 @@ Other possibilities:
 - **Z8441 (SIO/1):** full support, no DTRB (has SYNCB instead).
 - **Z8442 (SIO/2):** full support, no SYNCB (has DTRB). Expected.
 
-The chip is a 40-pin DIP near the DB-25 serial connectors (J1/J2).
-Look for markings like "Z8442", "Z80A SIO/2", or "Z0844204PSC" on top.
-Report the full part number including speed grade suffix (e.g., "04" = 4 MHz).
+**CONFIRMED (2026-04-18):** Physical inspection shows **Z8442AB1**.
+This is a Z80A-SIO/2 — SDLC plan is valid.
+
+Other chips confirmed: CPU = Z8400A P5 (Z80A), PIO = 8420Y (Z80-PIO),
+DMA = P8237-5 (Intel 8237A-5, 5 MHz), DRAM ctrl = Intel D8202A.
 
 ## Implementation Plan (approved)
 

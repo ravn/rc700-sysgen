@@ -44,12 +44,23 @@ This document provides comprehensive technical information about the RC702 hardw
 ### I/O Controllers
 
 1. **Zilog Z80A-SIO/2** (Z8442) - Serial I/O controller (async + SDLC/HDLC sync)
-2. **Zilog Z80-PIO** - Parallel I/O controller
+2. **Zilog Z80-PIO** (Z8420) - Parallel I/O controller
 3. **Zilog Z80-CTC** - Counter and Timer Controller (2 units)
-4. **AMD Am9517A-4** (or Intel 8237-2) - DMA Controller
+4. **Intel 8237A-5** (P8237-5) - DMA Controller
 5. **NEC uPD765** (or Intel 8272) - Floppy Disk Controller
 6. **Intel 8275** - Programmable CRT Controller
-7. **Western Digital WDC1002** - Winchester Disk Controller (optional)
+7. **Intel 8202A** (D8202A) - Dynamic RAM Controller
+8. **Western Digital WDC1002** - Winchester Disk Controller (optional)
+
+### Chip Markings (from physical inspection, 2026-04-18)
+
+| Chip | Marking | Identification |
+|------|---------|---------------|
+| CPU | Z8400A P5 | Zilog Z80A CPU, 4 MHz |
+| SIO | Z8442AB1 | Zilog Z80A-SIO/2, bonding option 2 |
+| PIO | 8420Y | Zilog Z80-PIO |
+| DMA | P8237-5, I1250078 | Intel 8237A-5, 5 MHz DMA controller |
+| DRAM ctrl (chip 37) | Intel D8202A, S454 Y1390009 | Intel 8202A DRAM controller |
 
 ### Mainboard Connectors (PCB527)
 
