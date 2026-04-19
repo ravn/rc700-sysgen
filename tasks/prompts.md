@@ -63,6 +63,25 @@
 - todo later: Collect all bugs found and prepare them as issues with thorough tests against upstream llvm-z80
 - automatically investigate problems in session found creating tasks and issues as necessary
 
+## Session 22 (2026-04-19) — Adapter procurement + project sync
+
+- what now?
+- i've done work on another machine. please update your memory
+- USB-COM232-PLUS2 is expected back in stock in three months at farnell. can you locate another reseller?
+- or another adapter by a european reseller
+- appears amazon.de AYA FT2232H is out of stock
+- i can also use a single port adapter - perhaps a different chip?
+- what is MPSSE?
+- us shipping is very expensive with taxes and vat
+- ebay.co.uk listing is ended
+- i want eu resellers
+- please investigate a suitable MAX3232 module to pair with the Adafruit FT232H
+- i have db 9 cables
+- yes (record in project)
+- please add farnell dk link to project
+- put the sdlc work aside, and set the speed at 38400 8n1 for both ports
+- analyse, raise issues and tasks, summarize and commit
+
 ## Session 21 (2026-04-18) — SDLC decoder follow-up + FT2232H sourcing
 
 - what was the result of the serial speed investigation

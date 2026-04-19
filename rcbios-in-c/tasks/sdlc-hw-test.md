@@ -354,51 +354,100 @@ The sps-drift finding also argues for always using `--auto` in
 `sdlc_receiver.py` on real captures until the CTC CLK rate is settled
 by scope measurement.
 
-## Procurement: FT2232H adapter (session 21)
+## Procurement: FT2232H adapter (session 21, revised session 22)
 
 Goal: replace the cheap "USB FAST SERIAL ADAPTER" (FT2232D + unknown
 RS-232 transceiver, likely source of the 40% bit-period smear that
 prevents payload recovery).
 
-**Chosen part: FTDI USB-COM232-PLUS2** — genuine FTDI dual-channel
-USB-to-RS232 cable built on FT2232H with proper level shifters. Drop-in
-replacement for the current adapter on J1/J2 DB-9 ports. Fixes three
-issues at once:
+### USB-COM232-PLUS2 — unavailable (2026-04-19)
 
-- USB 2.0 high-speed (vs 1.1 full-speed): ~40× more bulk-IN headroom.
-- 4 KB RX FIFO per channel (vs 384 B): ~10× deeper.
-- Quality FTDI-spec RS-232 transceiver (vs cheap clone): eliminates
-  the prime suspect behind the current decode failure.
+Original choice was the FTDI USB-COM232-PLUS2 (genuine dual FT2232H
+RS-232 cable). Surveyed in session 21 but **all EU retailers are out
+of stock** as of 2026-04-19:
 
-### Denmark / EU retailer survey (2026-04-18)
+| Retailer | Status | Note |
+|----------|--------|------|
+| [Farnell DK](https://dk.farnell.com/en-DK/ftdi/usb-com232-plus2/module-usb-to-rs232-ft2232h/dp/1817171) | Out of stock | ~3 months ETA |
+| TME (Poland) | 0 stock | No restock date |
+| Amazon.de (AYA FT2232H) | Out of stock | Was listed but unavailable |
+| eBay UK (AYA FT2232H) | Listing ended | |
+| Botland (FT2232H module) | Temporarily unavailable | |
+| Electrokit (Adafruit FT232H) | Out of stock | ETA 2026-05-15 |
+| Pimoroni (Adafruit FT232H) | Out of stock | |
+| DigiKey DK | 64 in stock | Ships from US — too expensive with tax/VAT |
 
-| Retailer | Price (incl. VAT) | Stock | Ship origin | Note |
-|----------|-------------------|-------|-------------|------|
-| [DigiKey DK](https://www.digikey.dk/en/products/detail/ftdi/USB-COM232-PLUS2/2139295) | kr. 309.45 | 64 | **US** (Thief River Falls) | 48 h ship, but US origin; VAT handled at border |
-| [Farnell DK](https://dk.farnell.com/en-DK/ftdi/usb-com232-plus2/module-usb-to-rs232-ft2232h/dp/1817171) | tbd | tbd | EU (UK/DE warehouse) | page slow to fetch via WebFetch |
-| [Newark](https://www.newark.com/ftdi/usb-com232-plus2/module-usb-hs-to-rs232-converter/dp/76R0534) | — | in stock | UK warehouse | 2–4 business days |
-| Mouser DK | tbd | listed | mixed (TX/EU) | check individual item origin |
-| TME | — | 0 | PL | out of stock |
-| Elfa Distrelec | — | — | — | webshop closing 2026-05-18, don't rely on |
+### Rejected alternatives
 
-User preference: **EU retailer, not US shipping.** Primary pick is
-therefore **Farnell DK** or **Newark UK** — both FT2232H-based
-USB-COM232-PLUS2, EU-based dispatch. Check current DK pricing in the
-browser rather than via WebFetch (Farnell's page timed out against
-the tool).
+- **StarTech ICUSB2322F**: uses **FT2232D** (same chip as current adapter)
+- **Gearmo 2-port**: uses **FT2232D**
+- **FT232RL**: USB 1.1 Full-Speed, smaller 256 B FIFO, no MPSSE — sideways move
+- **FTDI USB-RS232 cable series**: all Full-Speed (FT232R), none use FT232H
 
-Avoid the **FT2232H Mini Module** on DigiKey DK — 0 in stock, 38-week
-lead time. It's also TTL-only, which would require soldering to the
-motherboard to bypass the RC702's RS-232 driver; not compatible with
-the current DB-25 cable setup.
+### Chosen approach: Adafruit FT232H + MAX3232 module (2026-04-19)
 
-### FT232RL considered and rejected (session 21)
+Single-channel FT232H breakout board (USB 2.0 High-Speed, 1 KB FIFO,
+MPSSE capable) paired with a MAX3232 RS-232 level shifter module.
+Two boards, three jumper wires. Total ~€23 from EU retailers.
 
-FT232RL single-channel USB-UART: same USB 1.1 full-speed as FT2232D,
-*smaller* 256 B FIFO, no MPSSE. Sustained bit-bang likely 150 kHz
-(vs FT2232D's 200 kHz). Sideways move at best. Only useful if paired
-with a TTL-level breakout to probe SIO-A TxD before the RS-232
-driver — a diagnostic detour, not a solution.
+**Advantages over USB-COM232-PLUS2:**
+- Actually available in EU
+- MPSSE engine enables synchronous bit-clocked capture at exactly
+  250 kHz — eliminates the async bit-bang + software DPLL chain that
+  failed in sessions 20-21
+- Cheaper (~€23 vs ~€100+)
+- Single channel is sufficient (only SIO-A capture needed)
+
+**Components:**
+
+| Part | Retailer | Price | Stock |
+|------|----------|-------|-------|
+| [Adafruit FT232H Breakout (USB-C)](https://www.antratek.de/ft232h-breakout-general-purpose-usb-to-gpio-spi-i2c) | Antratek.de (EU, has antratek.dk) | €14.95 | In stock |
+| [ANGEEK MAX3232 module 3-pack](https://www.amazon.de/ANGEEK-Serial-Converter-Connector-MAX3232/dp/B07ZDK4BLH) | Amazon.de | ~€8 | In stock |
+
+**Wiring:**
+
+```
+RC702 DB-25 (J1)                MAX3232 module              FT232H breakout
+-----------------               --------------              ---------------
+Pin 2 (TxD out) --DB9 cable-->  DB9 RxD in
+                                TTL TX out  --jumper wire--> D1 (ADBUS1)
+Pin 7 (GND)     --DB9 cable-->  GND
+                                GND         --jumper wire--> GND
+
+Optional (host -> RC702 TX, for future bidirectional use):
+                                TTL RX in  <--jumper wire--  D0 (ADBUS0)
+Pin 3 (RxD in)  <--DB9 cable--  DB9 TxD out
+```
+
+Only RX direction (RC702 -> host) is needed for SDLC capture. The
+MAX3232 converts RS-232 levels from the RC702's DB-25 to 3.3V TTL
+for the FT232H. User already has DB9 cables.
+
+**MPSSE capture strategy (replaces async bit-bang + DPLL):**
+
+Instead of oversampling with async bit-bang and recovering the clock
+in software (which failed due to FT2232D FIFO overflows and sample
+drops), use the FT232H's MPSSE engine to clock-sample D1 at exactly
+250 kHz. Each MPSSE read returns one bit per clock edge — no
+oversampling, no dropped samples, no DPLL needed. The SDLC bit
+stream is read synchronously and fed directly to the existing HDLC
+deframer (flag detection, zero-deletion, CRC-CCITT).
+
+MPSSE clock accuracy: FT232H master clock is 60 MHz, divided to
+target rate. 60 MHz / 240 = 250 kHz exact. For lower test rates
+(e.g. CTC TC=50 producing ~6 kHz on PCB530), 60 MHz / 10000 =
+6 kHz exact.
+
+**FT232H key specs (vs FT2232D):**
+
+| Feature | FT2232D (current) | FT232H (new) |
+|---------|-------------------|--------------|
+| USB speed | Full-Speed 12 Mbps | **High-Speed 480 Mbps** |
+| RX FIFO | 384 B | **1 KB** (+ USB HS headroom) |
+| MPSSE | No | **Yes** (synchronous clocked capture) |
+| Bit-bang ceiling | ~200 kHz sustained | ~6 MHz (MPSSE), ~1 MHz (bit-bang) |
+| Async UART max | ~1 Mbaud | ~12 Mbaud |
 
 ## TODO before any code lands
 

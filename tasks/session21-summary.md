@@ -76,7 +76,12 @@ full-speed; sideways move at best.
 
 ## Open follow-ups
 
-- [ ] Order USB-COM232-PLUS2 from Farnell DK / Newark UK.
+- [ ] ~~Order USB-COM232-PLUS2 from Farnell DK / Newark UK.~~
+      **Revised (2026-04-19):** USB-COM232-PLUS2 out of stock at all EU
+      retailers. Replaced with Adafruit FT232H (€14.95, Antratek.de)
+      + MAX3232 module (~€8, Amazon.de). See `rcbios-in-c/tasks/sdlc-hw-test.md`
+      for wiring and MPSSE capture strategy.
+- [ ] Order Adafruit FT232H from Antratek.de + ANGEEK MAX3232 from Amazon.de.
 - [ ] On arrival: rerun `./sdlc_deploy.sh`, auto-decode, confirm CRC-OK
       frame with "SDLC-TX-TEST..." payload.
 - [ ] If still failing with the new adapter: scope on SIO-A TxD at the
