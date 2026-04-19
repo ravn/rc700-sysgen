@@ -63,11 +63,52 @@
 - todo later: Collect all bugs found and prepare them as issues with thorough tests against upstream llvm-z80
 - automatically investigate problems in session found creating tasks and issues as necessary
 
-## Session 22 (2026-04-19) — Adapter procurement + project sync
+## Session 22 (2026-04-19) — CP/NET bring-up + MAME SIO TX bug hunt
 
 - what now?
 - i've done work on another machine. please update your memory
 - USB-COM232-PLUS2 is expected back in stock in three months at farnell. can you locate another reseller?
+- or another adapter by a european reseller
+- i can also use a single port adapter - perhaps a different chip?
+- what is MPSSE?
+- us shipping is very expensive with taxes and vat
+- i want eu resellers
+- please investigate a suitable MAX3232 module to pair with the Adafruit FT232H
+- i have db 9 cables
+- yes (record in project)
+- please add farnell dk link to project
+- put the sdlc work aside, and set the speed at 38400 8n1 for both ports
+- analyse, raise issues and tasks, summarize and commit
+- now i want cp/net up and running
+- i want it to use the jump table not direct values from the map
+- i want cp/net to use sio-a and you the console on sio-b
+- how much could be saved if you hardcoded the addresses instead of calculating them?
+- please hardcode
+- look very carefully to see if there is more to save? TPA grows downward in chunks of 0x100.
+- we have room for the msgbuf in the bios
+- and support methods. Can the bios support CP/NET directly or does the ABI require lowering the TPA?
+- the screen buffer is at 0xf800
+- working first
+- login failed
+- you can tell lua to snapshot on a regular basis
+- mame didn't launch
+- consult memory for build instructions. you should know this
+- why didn't you pick this up on your own? Please move instructions to where you will see them
+- there are several serial_...py instances running
+- i also want you to keep an eye on the farnell site reminding me to order when it comes back in stock
+- the tcp/ip port may not be wired correctly to sio-a. inspect actual tcp/ip traffic
+- z80pack has worked before
+- revalidate tcp sniff results
+- the old code may have been against your own server, not mpm
+- is the sio configured identically to the dart?
+- the bitb rename may have been because a second serial port was introduced in rc702.cpp
+- mame crashed
+- mame is probably fine but the emulation of the hardware incorrectly wired together
+- three bytes may be the size of the buffer in the sio
+- could there be a compiler bug?
+- i didn't do anything (git stash reverted changes)
+- please investigate thoroughly before continuing
+- analyse, raise issues and tasks, summarize and commit
 - or another adapter by a european reseller
 - appears amazon.de AYA FT2232H is out of stock
 - i can also use a single port adapter - perhaps a different chip?
