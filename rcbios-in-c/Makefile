@@ -173,9 +173,79 @@ mame-maxi: bios
 		-skip_gameinfo -window -resolution 1100x720 \
 		-autoboot_script $(CURDIR)/mame_enable_siob_debug.lua
 
+# mame-siob-debug — boot MAME with SIO-B bridged to an interactive stdio
+# console (DIP S01 set → IOBYTE_CON_JOINED, console I/O mirrored on SIO-B).
+# Python bridge listens on SIOB_DEBUG_PORT; MAME connects via -bitb2.
+SIOB_DEBUG_PORT ?= 4023
+mame-siob-debug: bios
+	@if [ "$(FORCE)" = "1" ] || [ ! -f /tmp/bios_c_maxi.mfi ]; then \
+		cp $(IMG_MAXI) /tmp/bios_c_maxi.imd; \
+		$(PATCH) /tmp/bios_c_maxi.imd $(COMPILER)/bios.cim; \
+		rm -f /tmp/bios_c_maxi.mfi; \
+		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_maxi.imd /tmp/bios_c_maxi.mfi >/dev/null 2>&1; \
+		rm -f /tmp/bios_c_maxi.imd; \
+	fi
+	@echo "=== SIO-B debug console ==="
+	@echo "  Connecting MAME SIO-B to stdio on port $(SIOB_DEBUG_PORT)"
+	@echo "  Type to send; Ctrl-] then q to quit"
+	@python3 -u siob_interactive.py $(SIOB_DEBUG_PORT) & echo $$! > /tmp/siob_interactive.pid; \
+	sleep 0.3; \
+	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
+		-flop1 /tmp/bios_c_maxi.mfi \
+		-rs232b null_modem \
+		-bitb2 "socket.127.0.0.1:$(SIOB_DEBUG_PORT)" \
+		-skip_gameinfo -window -resolution 1100x720 \
+		-autoboot_script $(CURDIR)/mame_enable_siob_debug.lua; \
+	kill $$(cat /tmp/siob_interactive.pid) 2>/dev/null; \
+	rm -f /tmp/siob_interactive.pid
+
 # ================================================================
 # Test targets
 # ================================================================
+
+# sio-echo-test — run 4096-byte bidirectional error-free echo tests on
+# both SIO-A and SIO-B, using BIOS routines directly.  Each test:
+#   - builds a fresh MFI from IMG_MAXI + patched BIOS + echo .COM
+#   - starts a Python feeder that waits for a 0xA5 sync byte from the
+#     program, then sends 4096 bytes (0x00..0xFF repeated 16x) at the
+#     TCP/null_modem rate (throttled at 38400 baud by null_modem)
+#   - CP/M echo program reads each byte via BIOS READER/CONIN, verifies,
+#     echoes back via BIOS PUNCH/LIST; writes result block at 0x180
+#   - PASS criterion: result block shows count=4096 mismatch=0 status=0xAA
+ZMAC_ABS = $(abspath $(ZMAC))
+
+tests/zout/bios_echo_big.cim: tests/bios_echo_big.asm
+	@mkdir -p tests/zout
+	cd /tmp && $(ZMAC_ABS) -c --oo cim $(CURDIR)/tests/bios_echo_big.asm
+	@cp /tmp/zout/bios_echo_big.cim tests/zout/bios_echo_big.cim
+
+tests/zout/bios_echo_siob.cim: tests/bios_echo_siob.asm
+	@mkdir -p tests/zout
+	cd /tmp && $(ZMAC_ABS) -c --oo cim $(CURDIR)/tests/bios_echo_siob.asm
+	@cp /tmp/zout/bios_echo_siob.cim tests/zout/bios_echo_siob.cim
+
+.PHONY: sio-a-echo-test sio-b-echo-test sio-echo-test
+sio-a-echo-test: bios tests/zout/bios_echo_big.cim
+	SIOA_FEED_BYTES="$$(python3 -c 'import sys; sys.stdout.write("".join(f"{i%256:02x}" for i in range(4096)))')" \
+	    SIOA_FEED_SYNC_BYTE=A5 SIOA_FEED_INTERCHAR_MS=0 SIOA_FEED_LISTEN_SECS=20 \
+	    bash tests/run_sioa_rx_test.sh sioa_echo ECHO.COM tests/zout/bios_echo_big.cim 1600
+	@grep -q 'count=4096 mismatch=0 status=0xAA' /tmp/sioa_test/sioa_echo/sioa.csv \
+	    && echo '=== SIO-A 4096-byte echo PASS ===' \
+	    || (echo '=== SIO-A 4096-byte echo FAIL ==='; \
+	        grep '# result' /tmp/sioa_test/sioa_echo/sioa.csv; exit 1)
+
+sio-b-echo-test: bios tests/zout/bios_echo_siob.cim
+	SIOA_FEED_BYTES="$$(python3 -c 'import sys; sys.stdout.write("".join(f"{i%256:02x}" for i in range(4096)))')" \
+	    SIOA_FEED_SYNC_BYTE=A5 SIOA_FEED_INTERCHAR_MS=0 SIOA_FEED_LISTEN_SECS=20 \
+	    PORT=4002 \
+	    bash tests/run_siob_echo_test.sh siob_echo ECHOBB.COM tests/zout/bios_echo_siob.cim 1600
+	@grep -q 'count=4096 mismatch=0 status=0xAA' /tmp/siob_test/siob_echo/trace.csv \
+	    && echo '=== SIO-B 4096-byte echo PASS ===' \
+	    || (echo '=== SIO-B 4096-byte echo FAIL ==='; \
+	        grep '# result' /tmp/siob_test/siob_echo/trace.csv; exit 1)
+
+sio-echo-test: sio-a-echo-test sio-b-echo-test
+	@echo '=== Both SIO-A and SIO-B 4096-byte echo tests PASSED ==='
 
 # CONOTEST.COM — display control code exercise (CP/M program, built with SDCC)
 conotest: conout_test.c builddate.h

@@ -741,7 +741,12 @@ static void puts_p(const char *s)
 }
 
 
-/* Arm SIO Channel A receiver: enable RTS, DTR, TX, and interrupts */
+/* Arm both SIO channels: enable RTS, DTR, TX, and interrupts.
+ *
+ * Called once at cold boot.  After this, WR5/WR1 must not be rewritten
+ * on the TX hot path (list_lpt / bios_punch_body / serial_conout) — doing
+ * so would clobber the RX ISR's RTS-deassert on buffer-near-full and
+ * defeat flow control. */
 static void readi(void)
 {
     hal_di();
@@ -749,6 +754,11 @@ static void readi(void)
     port_out(sio_a_ctrl, wr5a + 0x8A);     /* DTR=1, TX enable, RTS=1 */
     port_out(sio_a_ctrl, 0x01);            /* select WR1 */
     port_out(sio_a_ctrl, 0x1B);            /* enable RX, TX, ext status ints */
+
+    port_out(sio_b_ctrl, 0x05);            /* select WR5 */
+    port_out(sio_b_ctrl, wr5b + 0x8A);     /* DTR=1, TX enable, RTS=1 */
+    port_out(sio_b_ctrl, 0x01);            /* select WR1 */
+    port_out(sio_b_ctrl, 0x1F);            /* Rx/TX/ext/status-affects-vector */
     hal_ei();
 }
 
@@ -781,6 +791,14 @@ void bios_boot_c(void)
     else
         iobyte = IOBYTE_CON_LOCAL;
 
+    /* Arm both SIO channels and enable interrupts BEFORE printing banner,
+     * so the signon text actually reaches SIO-B in debug mode.  Previously
+     * readi() ran after the banner, so cold-boot banner bytes were lost on
+     * SIO-B (TX disabled + interrupts off → sio_b_tx_ready never restored). */
+    cdisk = 0;
+    __builtin_memset((void *)&wb, 0, sizeof(wb));
+    readi();
+
     /* Cold boot: print signon, init state, then warm boot */
     puts_p("\x0C"                       /* form feed = clear screen */
            "RC700 " MSIZE_STR "k CP/M 2.2 C-bios/"
@@ -794,10 +812,6 @@ void bios_boot_c(void)
     /* Announce SIO-B debug console when DIP switch 0 enabled it. */
     if (IOBYTE_CON(iobyte) == IOB_UC1)
         puts_p("SIO-B debugging enabled (" SIOB_BAUD_STR " 8N1)\r\n");
-
-    cdisk = 0;
-    __builtin_memset((void *)&wb, 0, sizeof(wb));
-    readi();
 
     wboot_c();
 }
@@ -896,21 +910,20 @@ static byte serial_conin(void) {
     byte new_tail = (rxtail_b + 1) & RXMASK;
     byte ch = rxbuf_b[rxtail_b];
     rxtail_b = new_tail;
+    /* Reassert RTS-B when ring empties — symmetric to bios_reader/SIO-A. */
+    if (new_tail == rxhead_b) {
+        port_out(sio_b_ctrl, 0x05);
+        port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
+    }
     return ch;
 }
 static void serial_conout(byte c) {
-    /* Non-blocking: if SIO-B TX not ready (e.g. no host connected,
-     * CTS deasserted), skip.  CRT echo still shows the character. */
-    byte timeout = 255;
-    while (!sio_b_tx_ready && --timeout)
+    /* WR5/WR1 are programmed once at boot by readi(); do NOT rewrite per
+     * byte or we'd clobber the RX ISR's RTS-deassert. */
+    while (!sio_b_tx_ready)
         ;
-    if (!timeout) return;
     hal_di();
     sio_b_tx_ready = 0;
-    port_out(sio_b_ctrl, 0x05);
-    port_out(sio_b_ctrl, wr5b + 0x8A);  /* DTR=1, TX enable, RTS=1 */
-    port_out(sio_b_ctrl, 0x01);
-    port_out(sio_b_ctrl, 0x1F);    /* Rx int all + TX int + ext status + status affects vector */
     port_out(sio_b_data, c);
     hal_ei();
 }
@@ -1490,17 +1503,17 @@ void bios_list(void) __naked
             "jp _bios_list_body    \n"); /* explicit tail call */
 }
 
-/* LPT: send via SIO-A (data/printer port) */
+/* LPT: send via SIO-A (data/printer port).
+ *
+ * WR5/WR1 are programmed once at boot by readi() and must NOT be rewritten
+ * per byte here: doing so clobbers the RX ISR's RTS-deassert (bit 1 of WR5)
+ * and defeats RX flow control on sustained bidirectional traffic. */
 static void list_lpt(byte c)
 {
     while (!sio_a_tx_ready)
         ;                       /* wait for TX ready */
     hal_di();
     sio_a_tx_ready = 0;                 /* mark busy */
-    port_out(sio_a_ctrl, 0x05);    /* select WR5 */
-    port_out(sio_a_ctrl, wr5a + 0x8A);  /* DTR=1, TX enable, RTS=1 */
-    port_out(sio_a_ctrl, 0x01);    /* select WR1 */
-    port_out(sio_a_ctrl, 0x1B);    /* RX, TX, ext status ints */
     port_out(sio_a_data, c);
     hal_ei();
 }
@@ -1531,15 +1544,13 @@ void bios_punch_body(byte c)
 {
     switch (IOBYTE_PUN(iobyte)) {
     case IOB_TTY:
-    case IOB_CRT:  /* PTP: SIO-A */
+    case IOB_CRT:  /* PTP: SIO-A.  WR5/WR1 already set by readi(); do NOT
+                     rewrite WR5 here — it would clobber the RX ISR's
+                     RTS-deassert on buffer-near-full. */
         while (!sio_a_tx_ready)
             ;                       /* wait for TX ready */
         hal_di();
         sio_a_tx_ready = 0;                 /* mark busy */
-        port_out(sio_a_ctrl, 0x05);    /* select WR5 */
-        port_out(sio_a_ctrl, wr5a + 0x8A);  /* DTR=1, TX enable, RTS=1 */
-        port_out(sio_a_ctrl, 0x01);    /* select WR1 */
-        port_out(sio_a_ctrl, 0x1B);    /* RX, TX, ext status ints */
         port_out(sio_a_data, c);
         hal_ei();
         return;
@@ -2290,17 +2301,26 @@ void isr_sio_b_ext(void) __critical __interrupt(9)
  */
 void isr_sio_b_rx(void) __critical __interrupt(10)
 {
-    byte ch, new_head;
+    byte ch, new_head, used;
 
     ch = port_in(sio_b_data);       /* read char (clears interrupt) */
 
     new_head = (rxhead_b + 1) & RXMASK;
 
-    if (new_head != rxtail_b) {
-        rxbuf_b[rxhead_b] = ch;
-        rxhead_b = new_head;
-    }
-    /* no RTS flow control on SIO-B for now */
+    if (new_head == rxtail_b)
+        goto rts_off_b;              /* buffer full — deassert RTS, drop */
+
+    rxbuf_b[rxhead_b] = ch;
+    rxhead_b = new_head;
+
+    used = (new_head - rxtail_b) & RXMASK;
+    if (used < RXTHHI)
+        return;                      /* plenty of room */
+
+rts_off_b:
+    /* deassert RTS-B to pause sender (symmetric to isr_sio_a_rx) */
+    port_out(sio_b_ctrl, 0x05);
+    port_out(sio_b_ctrl, wr5b + 0x88);  /* DTR=1, TX enable, RTS=0 */
 }
 
 /* SPECB: Ch.B special receive condition — read error, reset */

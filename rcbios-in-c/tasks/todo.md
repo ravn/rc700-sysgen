@@ -1,5 +1,29 @@
 # BIOS-in-C Phase Tracker
 
+## Session 23 (2026-04-19/20) — SIO flow control bug + integration test
+
+**Completed:** See `tasks/session23-sio-flow-control.md` for the full story.
+
+- RTS flow-control bug: per-byte WR5/WR1 rewrites in `list_lpt`,
+  `bios_punch_body`, `serial_conout` were clobbering the RX ISR's
+  RTS-deassert.  Fixed.
+- `readi()` now arms both SIO channels and runs before cold-boot banner.
+- SIO-B got symmetric RTS flow control (ISR + reassert in serial_conin).
+- MAME rc702.cpp: `rs232b_defaults` `FLOW_CONTROL` 0x00 → 0x01.
+- New integration test: `make sio-echo-test` — 4096-byte bidirectional
+  error-free echo on both SIOs via direct BIOS calls.  Currently passes.
+- BIOS size: 6013 → 6002 B.
+
+**Follow-ups:**
+- [ ] Use `RXTHLO=240` for RX ring hysteresis (currently unused —
+      reassert happens only at buffer-empty, which causes long pauses).
+- [ ] Retest session-22 CP/NET bring-up: the RTS-clobber fix may have
+      removed whatever was triggering the "4 bytes then hang" pattern.
+      If it still hangs, the remaining cause lives elsewhere (SNIOS
+      reentrancy, CFGTBL, etc.).
+- [ ] Make the integration test exit on completion-marker detection
+      instead of a 30 s wall-clock kill.
+
 ## Session 17 (Apr 2026) — SIO-B shadow console + baud rate investigation
 
 **Completed:**
