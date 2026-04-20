@@ -23,6 +23,7 @@ CCP_BASE == 0xC9 as evidence that FNC=3 landed data at the right VMA.
 Usage:  python3 netboot_server.py [PORT]   (default PORT=9000)
 """
 
+import datetime
 import os
 import socket
 import struct
@@ -153,9 +154,10 @@ def handle(c):
 
     # Multi-line banner the client prints via CONOUT — verifies the
     # CR/LF + scroll path before CCP/NDOS ever gets handed control.
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     banner = (
-        b'\x0c'                              # Ctrl-L: clear screen, home cursor
-        b'\n cpnos-rom netboot (session 30)\n'
+        b'\x0c'                               # Ctrl-L: clear screen, home cursor
+        b'\n cpnos-rom netboot - ' + now.encode('ascii') + b'\n'
         b'\n Console via BIOS CONOUT:\n'
         b'   - 8275 CRT (80x25, auto-init DMA)\n'
         b'   - SIO-B null-modem (polled, 38400)\n'
