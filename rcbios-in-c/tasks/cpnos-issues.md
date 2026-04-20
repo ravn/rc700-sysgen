@@ -123,6 +123,13 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
       C↔asm shared data: C source should NOT start identifiers with
       underscore or the asm name ends up double-prefixed.
 
+- [ ] **MAME lua probe hardcodes CFGTBL address.** `mame_boot_test.lua`
+      has `cfg_addr = 0xF4BC` baked in; every time the resident layout
+      shifts, the constant needs manual update (last shifted from
+      0xF4B3 -> 0xF4BC when `snios_ntwkin()` call landed).  Fix:
+      either resolve the symbol from the ELF at test time, or
+      memory-scan for the SLAVEID+16-zero-drives pattern.
+
 - [ ] **Init stack 0xF200 vs netboot DMA.** Stack pointer init moved
       to 0xF200, grows down into 0xF1FF..0xF000.  If netboot ever
       receives payload with SIZ+DMA landing in 0xF000..0xF1FF, stack
