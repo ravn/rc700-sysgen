@@ -38,11 +38,12 @@ DEFAULT_PORT = 9000
 DMA = 0xDB80
 ENTRY = 0xDB80
 
-# Path to NDOS.SPR in the cpnet-z80 reference tree.
-NDOS_SPR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
+# Paths to CP/NET SPR modules in the cpnet-z80 reference tree.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+NDOS_SPR = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
+CCP_SPR  = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ccp.spr')
 NDOS_BASE = 0xE300
+CCP_BASE  = 0xD900
 
 
 def checksum(msg):
@@ -80,21 +81,31 @@ def recv_msg(c):
 def spr_relocate(spr_bytes, base_addr):
     """Apply DRI SPR page-relocation.
 
-    Format: 128B header (byte 1..2 = code_len LE, byte 4..5 = data_len LE),
-    then code_len bytes linked at origin 0x0000, then data_len bytes,
-    then code_len/8 bytes of relocation bitmap (MSB-first, 1 bit per
-    code byte).  A set bit means "add base_page (high byte of runtime
-    base) to this code byte" — 8-bit ADD, no carry, so base must be
-    page-aligned.
+    File layout (per cpnetldr.asm:530-644):
+      [0..128)                 parameter sector (hdr[1..2]=code_len LE,
+                               hdr[4..5]=data_len LE)
+      [128..256)               ignored sector — loader does CALL OSREAD
+                               then discards the result (cpnetldr.asm:566).
+                               Always zero in modules we've seen.
+      [256..256+code_len)      code image linked at origin 0x0000
+      [..)                     data_len bytes (no relocation applied)
+      [..)                     code_len/8 bytes relocation bitmap,
+                               MSB-first: bit (7-(i&7)) of bitmap[i>>3]
+                               flags code byte i for +base_page 8-bit ADD.
+
+    Base must be page-aligned (low byte 0) because relocation is a plain
+    8-bit add with no carry into the low byte.
     """
     assert base_addr & 0xFF == 0, f"SPR base 0x{base_addr:04x} not page-aligned"
     base_page = (base_addr >> 8) & 0xFF
     code_len = spr_bytes[1] | (spr_bytes[2] << 8)
     data_len = spr_bytes[4] | (spr_bytes[5] << 8)
     HDR = 128
-    code = bytearray(spr_bytes[HDR:HDR + code_len])
-    data = spr_bytes[HDR + code_len:HDR + code_len + data_len]
-    bm_off = HDR + code_len + data_len
+    IGNORED = 128          # undocumented DRI quirk, see docstring
+    code_off = HDR + IGNORED
+    code = bytearray(spr_bytes[code_off:code_off + code_len])
+    data = spr_bytes[code_off + code_len:code_off + code_len + data_len]
+    bm_off = code_off + code_len + data_len
     bitmap = spr_bytes[bm_off:bm_off + code_len // 8]
     assert len(bitmap) == code_len // 8, \
         f"bitmap short: {len(bitmap)} != {code_len // 8}"
@@ -145,12 +156,22 @@ def handle(c):
     ack = recv_msg(c)
     print(f"<- ack: {ack.hex()}")
 
+    # CCP streaming is parked: CCP at 0xD900..0xE2FF would overlap the
+    # resident scratch_bss (0xE000..0xE217) where rx_buf/msgbuf live,
+    # and stomp critical state before resident_entry runs.  Next step is
+    # to move scratch_bss out of that range, then re-enable CCP.  See
+    # cpnos-issues.md session-26 entry.
+
     # Stream relocated NDOS to NDOS_BASE.  24 x 128B = 3072B code.
+    # Entry: NDOS_BASE+0 = JMP NDOSE (BDOS dispatch),
+    #        NDOS_BASE+3 = JMP COLDST.
     with open(NDOS_SPR, 'rb') as f:
         spr = f.read()
     ndos = spr_relocate(spr, NDOS_BASE)
     print(f"NDOS.SPR relocated to 0x{NDOS_BASE:04x}: "
-          f"{len(ndos)}B, first16={ndos[:16].hex()}")
+          f"{len(ndos)}B, first8={ndos[:8].hex()} "
+          f"(NDOSE={ndos[1] | (ndos[2]<<8):#06x}, "
+          f"COLDST={ndos[4] | (ndos[5]<<8):#06x})")
     stream_payload(c, client_sid, NDOS_BASE, ndos, 'NDOS')
 
     # RET stub at CCP_BASE for the FNC=4 execute handoff — keeps the

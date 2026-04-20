@@ -182,7 +182,7 @@ cpnos-netboot: cpnos-install
 	@sleep 0.3
 	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	    -nothrottle -window -skip_gameinfo \
-	    -seconds_to_run 20 \
+	    -seconds_to_run 30 \
 	    -rs232a null_modem \
 	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
 	    -autoboot_script mame_boot_test.lua

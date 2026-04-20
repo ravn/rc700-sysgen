@@ -97,6 +97,39 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 
 ## Session 24 (SNIOS port) — new issues
 
+## Session 26 (SPR relocator correction, CCP blocker) — new issues
+
+- [x] **SPR format: ignored sector between header and code (resolved).**
+      The DRI SPR file layout carries a 128B "ignored" sector after the
+      128B parameter sector and before the code image.  The loader
+      `cpnetldr.asm:566` reads it with `CALL OSREAD ;GET DATA & IGNORE`
+      and discards the buffer.  Session #25's relocator missed this and
+      was reading 128B of zero padding as the start of code — shifting
+      every byte offset by 128.  The NDOS smoke check at 0xE702/0xE705
+      passed coincidentally because both the "code" and the "bitmap" I
+      was reading were shifted together and the particular bit arithmetic
+      happened to produce the right delta.  Real NDOS entry after fix:
+      **0xE300 = JP 0xE571 (NDOSE)**, **0xE303 = JP 0xE4F6 (COLDST)**.
+
+- [ ] **CCP placement stomps scratch_bss.** CCP is 2560B at 0xD900, so
+      it ends at 0xE2FF — directly on top of `.scratch_bss` (0xE000..
+      0xE217) which holds `rx_buf` (261B), `msgbuf` (262B), and other
+      BIOS BSS.  Streaming CCP before resident_entry runs corrupts all
+      of this, causing PC to wander (observed PC=0x826F, SP=0xE1FB).
+      Decide: (a) move `.scratch_bss` to above CCP (e.g. 0xF000..0xF1FF,
+      below BIOS base), (b) shrink/split scratch usage so both fit in
+      the gap 0xE300..0xF1FF (with NDOS at 0xE300..0xEEFF that's only
+      0xEF00..0xF1FF = 768B), or (c) re-layout CCP+NDOS+BSS so BSS sits
+      above CCP end.  Option (a) cleanest; requires linker-script shift
+      and re-sizing.  Blocks CCP streaming + cold-boot handoff.
+
+- [ ] **Update memory-map documentation.**  The runtime map in
+      cpnos-rom-plan.md still shows CCP at 0xDB80 (2KB) and NDOS at
+      0xE380 (3.5KB).  Real fit is CCP 0xD900..0xE2FF (2.5KB) + NDOS
+      0xE300..0xEEFF (3KB).  Both now must be page-aligned (SPR
+      requirement) and bases were chosen "lower than needed to be
+      safe" with later tightening planned.
+
 ## Session 25 (NDOS SPR streaming) — new issues
 
 - [ ] **CCP streaming + real cold-boot handoff.**  NDOS is in RAM at
