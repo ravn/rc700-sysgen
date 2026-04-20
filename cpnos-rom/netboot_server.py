@@ -185,6 +185,41 @@ def sniosro_handshake(c):
     print("-> ACK (final)")
     print("SNIOS: SNDMSG round-trip complete")
 
+    # Master -> slave RCVMSG round-trip.  Client has called
+    # snios_rcvmsg_c() and is waiting for an ENQ from us.
+    sniosro_send(c, fmt=0x01, did=hdr[2], sid=0x00, fnc=0x05,
+                 data=bytes([0x42]))
+
+
+def sniosro_send(c, fmt, did, sid, fnc, data):
+    """Send one DRI frame (master -> slave).
+
+    Mirror of the client's SNDMSG: ENQ/ACK, SOH+header+HCS/ACK,
+    STX+data+ETX+CKS+EOT/ACK.  Data length on the wire is len(data)
+    (clipped to >=1), SIZ field carries len-1 per DRI "0 means 1".
+    """
+    c.sendall(bytes([ENQ]))
+    print("-> ENQ")
+    ack = recv_byte(c)
+    print(f"<- ACK 0x{ack:02x}" + ("" if ack == ACK else " [WARN]"))
+
+    siz = max(len(data), 1) - 1
+    header = bytes([fmt, did, sid, fnc, siz])
+    run = (SOH + sum(header)) & 0xFF
+    hcs = (-run) & 0xFF
+    c.sendall(bytes([SOH]) + header + bytes([hcs]))
+    print(f"-> SOH {header.hex()} HCS=0x{hcs:02x}")
+    ack = recv_byte(c)
+    print(f"<- ACK 0x{ack:02x}" + ("" if ack == ACK else " [WARN]"))
+
+    run = (STX + sum(data) + ETX) & 0xFF
+    cks = (-run) & 0xFF
+    c.sendall(bytes([STX]) + data + bytes([ETX, cks, EOT]))
+    print(f"-> STX DAT={data.hex()} ETX CKS=0x{cks:02x} EOT")
+    ack = recv_byte(c)
+    print(f"<- ACK 0x{ack:02x} (final)" + ("" if ack == ACK else " [WARN]"))
+    print("SNIOS: RCVMSG round-trip complete")
+
 
 def run(port):
     srv = socket.socket()

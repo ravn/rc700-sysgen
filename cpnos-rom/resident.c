@@ -34,6 +34,12 @@ typedef void (*fn_t)(void);
  * around the DRI SNDMSG (BC arg) — see snios.s for the wrapper. */
 extern uint8_t snios_ntwkin(void);
 extern uint8_t snios_sndmsg_c(void *msgbuf);
+extern uint8_t snios_rcvmsg_c(void *msgbuf);
+
+/* Scratch buffer for the RCVMSG round-trip test.  Lives in .bss
+ * (scratch RAM at 0xE000..).  Sized for worst-case DRI frame
+ * (5 header + 256 data). */
+static uint8_t rx_buf[261];
 
 /* Pointer to the outbound message area inside CFGTBL.  Layout is
  * fixed by cfgtbl.c (FMT at +39..MSGBUF at +45 of the CP/NET CFGTBL
@@ -70,6 +76,13 @@ RESIDENT
      * in SID from CFGTBL+1.  Result code in A (0=OK, 0xFF=error)
      * parked in a BSS byte so the MAME probe can inspect it. */
     *(volatile uint8_t *)0xE210 = snios_sndmsg_c(MSGTX);
+
+    /* Matching RCVMSG: the master (server) now sends a canned response
+     * frame; we receive + checksum-verify it via the full DRI framing.
+     * Result code at 0xE211, received DAT[0] at 0xE212 so the MAME
+     * probe can assert the bytes arrived uncorrupted. */
+    *(volatile uint8_t *)0xE211 = snios_rcvmsg_c(rx_buf);
+    *(volatile uint8_t *)0xE212 = rx_buf[5];    /* first data byte */
 
     /* If netboot delivered an entry point, hand off to it.  From here
      * on, the ROM is gone; we can't go back. */
