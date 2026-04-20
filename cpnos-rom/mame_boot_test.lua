@@ -59,23 +59,23 @@ local function finish(result, space)
     f:write(hex_dump(space, 0x0000, 48) .. "\n")
     f:write("\n--- 0xDB80 (netboot RET stub / FNC=4 execute target) ---\n")
     f:write(hex_dump(space, 0xDB80, 16) .. "\n")
-    f:write("\n--- 0xD900 (CCP module entry, JP ccpstart / JP ccpclear) ---\n")
-    f:write(hex_dump(space, 0xD900, 16) .. "\n")
-    f:write("\n--- 0xE300 (NDOS module entry, JP NDOSE / JP COLDST) ---\n")
-    f:write(hex_dump(space, 0xE300, 16) .. "\n")
+    f:write("\n--- 0xD800 (CCP module entry, JP ccpstart / JP ccpclear) ---\n")
+    f:write(hex_dump(space, 0xD800, 16) .. "\n")
+    f:write("\n--- 0xE200 (NDOS module entry, JP NDOSE / JP COLDST) ---\n")
+    f:write(hex_dump(space, 0xE200, 16) .. "\n")
     -- Module offset 0 is `c3 <lo> <hi>` with hi = base_page after reloc.
-    -- Expected entry bytes: CCP 0xD900 = c3 e9 dc (JP 0xDCE9 ccpstart);
-    -- NDOS 0xE300 = c3 71 e5 (JP 0xE571 NDOSE).
-    local ccp0 = space:read_u8(0xD900)
-    local ccp2 = space:read_u8(0xD902)
-    local ndos0 = space:read_u8(0xE300)
-    local ndos2 = space:read_u8(0xE302)
+    -- Expected entry bytes: CCP 0xD800 = c3 e9 db (JP 0xDBE9 ccpstart);
+    -- NDOS 0xE200 = c3 71 e4 (JP 0xE471 NDOSE).
+    local ccp0 = space:read_u8(0xD800)
+    local ccp2 = space:read_u8(0xD802)
+    local ndos0 = space:read_u8(0xE200)
+    local ndos2 = space:read_u8(0xE202)
     f:write(string.format(
-        "CCP[0xD900..2]=%02x ?? %02x (want c3 ?? dc), "
-        .. "NDOS[0xE300..2]=%02x ?? %02x (want c3 ?? e5)\n",
+        "CCP[0xD800..2]=%02x ?? %02x (want c3 ?? db), "
+        .. "NDOS[0xE200..2]=%02x ?? %02x (want c3 ?? e4)\n",
         ccp0, ccp2, ndos0, ndos2))
-    f:write("\n--- 0xEF00 (breadcrumbs — moved out of CCP range in session #26) ---\n")
-    f:write(hex_dump(space, 0xEF00, 32) .. "\n")
+    f:write("\n--- 0xEE00 (breadcrumbs — moved out of CCP range in session #26) ---\n")
+    f:write(hex_dump(space, 0xEE00, 32) .. "\n")
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")
@@ -85,11 +85,11 @@ local function finish(result, space)
     f:write(string.format("SLAVEID = 0x%02x (want 0x70)\n", slaveid))
     local netst = space:read_u8(cfg_addr + 0)
     f:write(string.format("NETST   = 0x%02x (want 0x10 after NTWKIN)\n", netst))
-    local sndres = space:read_u8(0xEF10)
+    local sndres = space:read_u8(0xEE10)
     f:write(string.format("SNDMSG  = 0x%02x (want 0x00 after round-trip)\n", sndres))
-    local rcvres = space:read_u8(0xEF11)
+    local rcvres = space:read_u8(0xEE11)
     f:write(string.format("RCVMSG  = 0x%02x (want 0x00 after round-trip)\n", rcvres))
-    local rcvdat = space:read_u8(0xEF12)
+    local rcvdat = space:read_u8(0xEE12)
     f:write(string.format("RCVDAT0 = 0x%02x (want 0x42 from server)\n", rcvdat))
 
     f:write("\n--- 0xF200 (resident VMA) ---\n")
@@ -126,19 +126,19 @@ emu.register_frame_done(function()
         end
         -- CCP + NDOS SPR relocation + streaming check.  Module offset 0
         -- is `c3 <lo> <hi>` = JP entry; after page-reloc hi = base_page.
-        local cpo = space:read_u8(0xD900)
-        local cph = space:read_u8(0xD902)   -- hi byte, should be 0xDC
-        local npo = space:read_u8(0xE300)
-        local nph = space:read_u8(0xE302)   -- hi byte, should be 0xE5
-        if cpo ~= 0xC3 or cph ~= 0xDC then
+        local cpo = space:read_u8(0xD800)
+        local cph = space:read_u8(0xD802)   -- hi byte, should be 0xDB
+        local npo = space:read_u8(0xE200)
+        local nph = space:read_u8(0xE202)   -- hi byte, should be 0xE4
+        if cpo ~= 0xC3 or cph ~= 0xDB then
             finish(string.format(
-                "FAIL: CCP entry reloc mismatch at 0xD900 (got %02x .. %02x, want c3 .. dc)",
+                "FAIL: CCP entry reloc mismatch at 0xD800 (got %02x .. %02x, want c3 .. db)",
                 cpo, cph), space)
             return
         end
-        if npo ~= 0xC3 or nph ~= 0xE5 then
+        if npo ~= 0xC3 or nph ~= 0xE4 then
             finish(string.format(
-                "FAIL: NDOS entry reloc mismatch at 0xE300 (got %02x .. %02x, want c3 .. e5)",
+                "FAIL: NDOS entry reloc mismatch at 0xE200 (got %02x .. %02x, want c3 .. e4)",
                 npo, nph), space)
             return
         end

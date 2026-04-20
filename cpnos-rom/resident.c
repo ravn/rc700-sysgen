@@ -75,14 +75,14 @@ RESIDENT
      * CFGTBL seeds FMT=0, DID=0, FNC=5, SIZ=0, DAT=[0]; SNDMSG fills
      * in SID from CFGTBL+1.  Result code in A (0=OK, 0xFF=error)
      * parked in a BSS byte so the MAME probe can inspect it. */
-    *(volatile uint8_t *)0xEF10 = snios_sndmsg_c(MSGTX);
+    *(volatile uint8_t *)0xEE10 = snios_sndmsg_c(MSGTX);
 
     /* Matching RCVMSG: the master (server) now sends a canned response
      * frame; we receive + checksum-verify it via the full DRI framing.
      * Result code at 0xE211, received DAT[0] at 0xE212 so the MAME
      * probe can assert the bytes arrived uncorrupted. */
-    *(volatile uint8_t *)0xEF11 = snios_rcvmsg_c(rx_buf);
-    *(volatile uint8_t *)0xEF12 = rx_buf[5];    /* first data byte */
+    *(volatile uint8_t *)0xEE11 = snios_rcvmsg_c(rx_buf);
+    *(volatile uint8_t *)0xEE12 = rx_buf[5];    /* first data byte */
 
     /* Indirect call to `entry` is parked: clang lowers `((fn_t)entry)()`
      * to `CALL __call_iy` where __call_iy lives in PROM0 at 0x0009.  But
@@ -98,13 +98,13 @@ RESIDENT
     (void)entry;
 
     /* Fallback diagnostic banner (no server, or loaded code returned). */
-    *(volatile uint8_t *)0xEF00 = 0xA5;
+    *(volatile uint8_t *)0xEE00 = 0xA5;
     DISPLAY[0] = 'C';
     DISPLAY[1] = 'P';
     DISPLAY[2] = 'N';
     DISPLAY[3] = 'O';
     DISPLAY[4] = 'S';
-    *(volatile uint8_t *)0xEF01 = 0x5A;
+    *(volatile uint8_t *)0xEE01 = 0x5A;
 
     /* Serial proof-of-life (no-op until SIO init lands next turn). */
     console_putc('C');

@@ -141,15 +141,13 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
             doesn't return anyway.
       Likely (c) is smallest and cleanest — needs a small asm trampoline.
 
-- [ ] **Stack space narrowed to 232B.**  BSS top is now at 0xF118, SP
-      starts at 0xF200 per reset.s.  Current peak stack usage fits
-      comfortably (SNIOS SNDMSG/RCVMSG + nested transport calls land
-      well under 100B), but there is no longer margin for adding a
-      second nested protocol.  If call depth grows (e.g. CCP+NDOS
-      nested through SNIOS), move BSS lower by shrinking the gap
-      between CCP and NDOS — currently both are page-aligned-safe at
-      0xD900/0xE300, but we're 0x100 higher on each than strictly
-      needed.
+- [x] **Stack space narrowed to 232B (resolved via lower bases).**
+      Shifted CCP 0xD900 -> 0xD800 and NDOS 0xE300 -> 0xE200 (one page
+      each).  BSS window above NDOS widens from 768B to 1KB; BSS itself
+      stays 540B at new origin 0xEE00.  Stack headroom doubles from
+      232B to 488B (0xF200 - 0xF018).  TPA drops 0.1KB (54.6 -> 54.5KB)
+      — still within the 55KB+ band.  Layout recorded in cpnos_rom.ld
+      header and probe comments.
 
 - [ ] **Update memory-map documentation.**  The runtime map in
       cpnos-rom-plan.md still shows CCP at 0xDB80 (2KB) and NDOS at

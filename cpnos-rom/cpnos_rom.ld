@@ -38,11 +38,13 @@ MEMORY {
      concrete memory map when revisiting TPA numbers. */
   RESIDENT (rwx) : ORIGIN = 0xF200, LENGTH = 0x600
   /* Scratch RAM for BSS (netboot msgbuf, SNIOS rx_buf, diag breadcrumbs).
-   * Session #26: moved from 0xE000..0xEFFF so that CCP (0xD900..0xE2FF)
-   * and NDOS (0xE300..0xEEFF) streaming does not stomp scratch_bss.
-   * Available window is 0xEF00..0xF1FF (768 B) between NDOS top and
-   * BIOS_BASE. */
-  SCRATCH (rwx) : ORIGIN = 0xEF00, LENGTH = 0x300
+   * Session #26: CCP and NDOS bases shifted down one page each so the
+   * window above NDOS grows from 768 B to 1 KB.  Layout:
+   *   CCP   0xD800..0xE1FF   (2.5KB)
+   *   NDOS  0xE200..0xEDFF   (3KB)
+   *   BSS   0xEE00..0xF1FF   (1KB window, 540 B used)
+   *   STACK 0xF200 down      (~489 B before colliding with BSS end) */
+  SCRATCH (rwx) : ORIGIN = 0xEE00, LENGTH = 0x400
 }
 
 SECTIONS {
