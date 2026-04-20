@@ -54,10 +54,17 @@ SECTIONS {
 
   .resident 0xF580 : AT(__prom0_end) {
     __resident_start = .;
+    /* BIOS jump table MUST come first — its entries are the BIOS's
+     * public ABI (BOOT at +0, WBOOT at +3, CONST at +6, ...). */
+    KEEP(*(.resident.jumptable))
     *(.resident)
     *(.resident.*)
     __resident_end = .;
   } > RESIDENT
+
+  ASSERT(_bios_boot == 0xF580, "BIOS jump table must start at 0xF580")
+  ASSERT(_bios_conout - _bios_boot == 12, "BIOS CONOUT offset must be +12")
+  ASSERT(_bios_sectran - _bios_boot == 48, "BIOS SECTRAN offset must be +48")
 
   __resident_lma = LOADADDR(.resident);
   __resident_size = __resident_end - __resident_start;

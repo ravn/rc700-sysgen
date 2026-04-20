@@ -48,8 +48,8 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
 
 ASFLAGS = --target=z80
 
-OBJS = clang/reset.o clang/runtime.o clang/cpnos_main.o clang/resident.o \
-       clang/init.o clang/transport_sio.o clang/netboot.o
+OBJS = clang/reset.o clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
+       clang/resident.o clang/init.o clang/transport_sio.o clang/netboot.o
 LDSCRIPT = cpnos_rom.ld
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
@@ -65,6 +65,10 @@ clang/reset.o: reset.s
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 clang/runtime.o: runtime.s
+	@mkdir -p clang
+	$(CC) $(ASFLAGS) -c $< -o $@
+
+clang/bios_jt.o: bios_jt.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 

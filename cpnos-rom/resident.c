@@ -74,3 +74,62 @@ RESIDENT
 
     for (;;) { }
 }
+
+/* -------------------------------------------------------------------
+ * BIOS jump-table implementations.
+ *
+ * Targets of the `jp nn` entries in bios_jt.s.  Names follow the
+ * pattern `impl_<entry>` so the linker resolves the asm references.
+ * Phase 1 skeleton: CONOUT is real (SIO-B), CONST/CONIN are SIO-B
+ * polled, disk entries are stubs because NDOS bypasses BIOS for
+ * network drives.  Full NDOS hook-up comes with CFGTBL in a later
+ * increment.
+ * ------------------------------------------------------------------- */
+
+RESIDENT
+void bios_stub_ret(void) { }
+
+RESIDENT
+[[noreturn]] void impl_boot(void) {
+    /* Cold-start entry once CCP+BDOS are loaded; not used by our own
+     * init path (cpnos_main tail-calls resident_entry directly). If
+     * something ever calls through the jump table at cold boot, land
+     * in the banner path so it's obvious we got here. */
+    resident_entry(0);
+}
+
+RESIDENT
+[[noreturn]] void impl_wboot(void) {
+    /* Warm boot in NOS mode re-requests CCP from the server. Not
+     * wired yet — fall into BOOT for now. */
+    resident_entry(0);
+}
+
+RESIDENT
+uint8_t impl_const(void) {
+    return (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) ? 0xFF : 0x00;
+}
+
+RESIDENT
+uint8_t impl_conin(void) {
+    while ((_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) == 0) { }
+    return _port_in(PORT_SIO_B_DATA);
+}
+
+RESIDENT
+void impl_conout(uint8_t c) {
+    console_putc(c);
+}
+
+RESIDENT
+uint16_t impl_seldsk_null(void) {
+    /* No DPH — CP/M treats HL=0 as "drive not present". NDOS intercepts
+     * SELDSK for network drives before this stub is reached. */
+    return 0;
+}
+
+RESIDENT
+uint8_t impl_disk_err(void) {
+    /* READ/WRITE error. Not expected to be called in NOS-only mode. */
+    return 1;
+}
