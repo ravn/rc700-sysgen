@@ -14,6 +14,11 @@
 
 static volatile uint8_t * const DISPLAY = (volatile uint8_t *)0xF800;
 
+RESIDENT
+static void disable_proms(void) {
+    _port_out(PORT_RAMEN, 0x00);
+}
+
 /* Busy-wait SIO-B transmit.  No hardware init yet — this is skeleton
  * code verifying that clang lowers to the expected IN/OUT sequence.
  * Next turn adds CTC+SIO init so this actually transmits. */
@@ -25,13 +30,23 @@ static void console_putc(uint8_t c) {
 
 RESIDENT
 void resident_entry(void) {
-    /* Display proof-of-life (works even without CRT init — MAME just
-     * shows whatever bytes are at 0xF800 if CRT is configured). */
+    /* We are at VMA 0xF580 (RAM), PROMs still mapped at 0x0000/0x2000.
+     * First act: disable PROMs.  Safe here because we execute from RAM. */
+    disable_proms();
+
+    /* Breadcrumb marker in plain RAM (outside display area).  If this
+     * byte lands at 0xE100 we know resident_entry executed. */
+    *(volatile uint8_t *)0xE100 = 0xA5;
+
+    /* Display writes (may or may not stick depending on CRT state). */
     DISPLAY[0] = 'C';
     DISPLAY[1] = 'P';
     DISPLAY[2] = 'N';
     DISPLAY[3] = 'O';
     DISPLAY[4] = 'S';
+
+    /* Second breadcrumb after display writes, before serial. */
+    *(volatile uint8_t *)0xE101 = 0x5A;
 
     /* Serial proof-of-life (no-op until SIO init lands next turn). */
     console_putc('C');

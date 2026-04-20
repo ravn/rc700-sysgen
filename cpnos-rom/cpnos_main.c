@@ -16,12 +16,6 @@
 
 #include <stdint.h>
 
-#define __io __attribute__((address_space(2)))
-
-static inline void out_ramen(uint8_t v) {
-    *(volatile __io uint8_t *)(uint8_t)0x18 = v;
-}
-
 /* Linker symbols — clang Z80 prepends one underscore, so C "_x" maps to
  * asm "__x" which matches the linker script's "__x" definitions. */
 extern uint8_t _resident_lma[];
@@ -43,11 +37,10 @@ void cpnos_main(void) {
         *dst++ = *src++;
     }
 
-    /* Disable both PROMs.  Past this point, addresses 0x0000-0x07FF and
-     * 0x2000-0x27FF are plain RAM.  We already copied what we needed. */
-    out_ramen(0x00);
-
-    /* Jump to the resident copy at VMA 0xF580. */
+    /* Jump to resident_entry at VMA 0xF580 WITH PROMs STILL MAPPED.
+     * Resident code performs OUT (0x18) itself — doing it from ROM
+     * leaves the next instruction fetch in a newly-exposed RAM region
+     * (all zeros / NOP sled), losing control flow. */
     resident_entry();
 
     for (;;) { }

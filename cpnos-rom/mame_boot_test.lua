@@ -28,11 +28,42 @@ local function match_at(space, addr, str)
     return true
 end
 
+local function hex_dump(space, base, len)
+    local lines = {}
+    for i = 0, len - 1, 16 do
+        local row = string.format("  %04X: ", base + i)
+        local ascii = ""
+        for j = 0, 15 do
+            if i + j < len then
+                local b = space:read_u8(base + i + j)
+                row = row .. string.format("%02x ", b)
+                ascii = ascii .. (b >= 0x20 and b < 0x7F and string.char(b) or ".")
+            end
+        end
+        lines[#lines + 1] = row .. " " .. ascii
+    end
+    return table.concat(lines, "\n")
+end
+
 local function finish(result, space)
     local f = io.open(RESULT_FILE, "w")
     f:write(result .. "\n")
     f:write(string.format("frame=%d (%.1fs emulated)\n", frame, frame / 50.0))
-    f:write("\n--- display (0xF800) ---\n")
+
+    -- Program counter and CPU state
+    local pc = manager.machine.devices[":maincpu"].state["PC"].value
+    local sp = manager.machine.devices[":maincpu"].state["SP"].value
+    f:write(string.format("PC=%04X  SP=%04X\n", pc, sp))
+
+    f:write("\n--- 0x0000 (reset vector / PROM0 shadow) ---\n")
+    f:write(hex_dump(space, 0x0000, 48) .. "\n")
+    f:write("\n--- 0xE100 (breadcrumbs) ---\n")
+    f:write(hex_dump(space, 0xE100, 16) .. "\n")
+    f:write("\n--- 0xF580 (resident VMA) ---\n")
+    f:write(hex_dump(space, 0xF580, 80) .. "\n")
+    f:write("\n--- 0xF800 (display row 0) ---\n")
+    f:write(hex_dump(space, 0xF800, 80) .. "\n")
+    f:write("\n--- display textual ---\n")
     f:write(screen_text(space, DSPSTR) .. "\n")
     f:close()
     done = true

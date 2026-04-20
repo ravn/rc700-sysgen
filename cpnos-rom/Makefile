@@ -132,6 +132,17 @@ cpnos-mame: cpnos-install
 	@cat /tmp/cpnos_boot_result.txt
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
+# CPU trace: captures every executed instruction to /tmp/cpnos_trace.log.
+# Use for debugging control-flow issues.  Pipe through tail or head to
+# avoid filling the disk (per project memory).
+cpnos-trace: cpnos-install
+	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 2 \
+	    -autoboot_script mame_boot_test.lua \
+	    -debug -debugscript trace.dbg
+	@echo "trace written to /tmp/cpnos_trace.log"
+
 # Source-interleaved disassembly (requires -g, enabled in CFLAGS).
 # The -S flag interleaves the original C lines with emitted Z80 asm.
 cpnos-lis: clang/cpnos.elf
