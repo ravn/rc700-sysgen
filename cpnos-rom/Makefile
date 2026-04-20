@@ -23,7 +23,7 @@ OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
 OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 NM      = $(CLANG_BUILD)/llvm-nm
 
-CFLAGS = --target=z80 -Oz -nostdlib \
+CFLAGS = --target=z80 -Oz -nostdlib -g \
          -ffunction-sections -fdata-sections \
          -Xclang -target-feature -Xclang +static-stack \
          -mllvm -disable-lsr \
@@ -104,6 +104,12 @@ cpnos-burn: clang/cpnos.bin
 
 cpnos-disasm: clang/cpnos.elf
 	$(OBJDUMP) -d --triple=z80 $<
+
+# Source-interleaved disassembly (requires -g, enabled in CFLAGS).
+# The -S flag interleaves the original C lines with emitted Z80 asm.
+cpnos-lis: clang/cpnos.elf
+	$(OBJDUMP) -d -S --triple=z80 $< > clang/cpnos.lis
+	@echo "wrote clang/cpnos.lis"
 
 cpnos-map: clang/cpnos.elf
 	$(NM) --numeric-sort $<
