@@ -23,7 +23,12 @@ MEMORY {
   PROM0 (rx) : ORIGIN = 0x0000, LENGTH = 2048
   PROM1 (rx) : ORIGIN = 0x2000, LENGTH = 2048
   /* Runtime-resident BIOS lands here after cold boot copies it out of ROM. */
-  RESIDENT (rwx) : ORIGIN = 0xF580, LENGTH = 0x100
+  /* Resident grows up to just below conv_tables (0xF780 in the planned
+     memory map — see rcbios-in-c/tasks/cpnos-rom-plan.md). Phase 1 has
+     no IVT or 8275 DMA chain yet, so the region that eventually hosts
+     those (0xF680..0xF7FF) is temporarily available. Tighten this once
+     the IVT lands. */
+  RESIDENT (rwx) : ORIGIN = 0xF580, LENGTH = 0x200
   /* Scratch RAM for init-only variables used before PROM disable. */
   SCRATCH (rwx) : ORIGIN = 0xE000, LENGTH = 0x1000
 }
@@ -59,6 +64,7 @@ SECTIONS {
     KEEP(*(.resident.jumptable))
     *(.resident)
     *(.resident.*)
+    KEEP(*(.resident.data))
     __resident_end = .;
   } > RESIDENT
 
@@ -71,7 +77,7 @@ SECTIONS {
 
   /* Guard: resident code must not overflow the RESIDENT region (below
      display RAM at 0xF800; really below conv_tables at 0xF680). */
-  ASSERT(__resident_end <= 0xF680, "Resident chunk overflowed into conv_tables/display!")
+  ASSERT(__resident_end <= 0xF780, "Resident chunk overflowed into conv_tables/display!")
 
   .scratch_bss (NOLOAD) : {
     *(.bss*)

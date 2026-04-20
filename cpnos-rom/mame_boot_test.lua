@@ -63,6 +63,12 @@ local function finish(result, space)
     f:write(hex_dump(space, 0xE200, 16) .. "\n")
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
+    f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")
+    local cfg_addr = 0xF667
+    f:write(hex_dump(space, cfg_addr, 48) .. "\n")
+    local slaveid = space:read_u8(cfg_addr + 1)
+    f:write(string.format("SLAVEID = 0x%02x (want 0x70)\n", slaveid))
+
     f:write("\n--- 0xF580 (resident VMA) ---\n")
     f:write(hex_dump(space, 0xF580, 80) .. "\n")
     f:write("\n--- 0xF800 (display row 0) ---\n")
