@@ -82,6 +82,16 @@ emu.register_frame_done(function()
     local space = manager.machine.devices[":maincpu"].spaces["program"]
 
     if match_at(space, DSPSTR, "CPNOS") then
+        -- Before declaring PASS, confirm PROMs were actually disabled.
+        -- reset.s starts with `di` (0xF3); if PROM0 is still mapped,
+        -- reads of 0x0000 return that opcode. After OUT (0x18) the
+        -- underlying RAM (zero at power-on, never written by our code)
+        -- is exposed instead.
+        local b0 = space:read_u8(0x0000)
+        if b0 == 0xF3 then
+            finish("FAIL: PROM0 still mapped at 0x0000 (OUT 0x18 didn't stick)", space)
+            return
+        end
         finish("PASS", space)
         return
     end
