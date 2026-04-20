@@ -44,6 +44,8 @@ NDOS_SPR = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
 CCP_SPR  = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ccp.spr')
 NDOS_BASE = 0xE200
 CCP_BASE  = 0xD800
+# FNC=4 execute target: CCP ccpstart at module offset 0.
+ENTRY_ADDR = CCP_BASE
 
 
 def checksum(msg):
@@ -181,27 +183,19 @@ def handle(c):
           f"COLDST={ndos[4] | (ndos[5]<<8):#06x})")
     stream_payload(c, client_sid, NDOS_BASE, ndos, 'NDOS')
 
-    # RET stub at CCP_BASE for the FNC=4 execute handoff — keeps the
-    # existing smoke path intact until CCP streaming + real cold-boot
-    # handoff lands.
-    payload_block = b'\xc9' + b'\x00' * 127
-    stream_payload(c, client_sid, DMA, payload_block, 'RET stub')
-
+    # Execute at CCP ccpstart.  resident_entry will write the BDOS
+    # vector at 0x0005 + run NTWKIN before jumping here via the
+    # _jump_to trampoline (tail-call JP (HL)).
     msg = make_msg(0xB1, client_sid, 0x00, 4,
-                   bytes([ENTRY & 0xFF, ENTRY >> 8]))
-    print(f"-> FNC=4 (execute 0x{ENTRY:04x}): {msg.hex()}")
+                   bytes([ENTRY_ADDR & 0xFF, ENTRY_ADDR >> 8]))
+    print(f"-> FNC=4 (execute 0x{ENTRY_ADDR:04x}): {msg.hex()}")
     c.sendall(msg)
 
-    # After FNC=4, the client jumps to CCP_BASE (RET) and falls back into
-    # resident_entry, which calls NTWKIN then SNDMSG.  Switch to the
-    # DRI SNIOS framing and service one SNDMSG round-trip.
-    try:
-        sniosro_handshake(c)
-    except Exception as e:
-        print(f"  snios exchange error: {e}")
-
-    # Drain any remaining post-handshake bytes so MAME doesn't SIGPIPE.
-    print("post-SNIOS: draining client writes until MAME closes")
+    # From here CCP runs, calls NDOS for BDOS services, NDOS drives
+    # SNIOS for network I/O.  No more one-shot SNDMSG/RCVMSG probe —
+    # whatever the client asks for, we either respond or let it time out.
+    # For this bring-up the server just drains until MAME closes.
+    print("post-boot: draining client writes until MAME closes")
     c.settimeout(2.0)
     try:
         while True:

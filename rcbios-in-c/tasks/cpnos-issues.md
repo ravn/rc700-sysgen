@@ -97,6 +97,48 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 
 ## Session 24 (SNIOS port) — new issues
 
+## Session 27 (real CCP cold-boot handoff) — new issues
+
+- [x] **JP (HL) trampoline for real CCP handoff (resolved).**  Added
+      `_jump_to` in `snios.s` (single `JP (HL)`), lives in .resident so
+      it survives PROM disable.  `resident_entry` calls it after
+      writing the BDOS vector at 0x0005 (`JP 0xE206`) and running
+      SNIOS NTWKIN.  MAME confirms PC lands inside NDOS (PC=0xEA35)
+      after the jump, SP inside CCP/NDOS region — handoff is live.
+
+- [ ] **CCP expects BSS beyond its code_len.** Observed SP=0xE399
+      after ccpstart's `LXI SP, stack`, which is past the 2560 B we
+      stream for CCP (CCP ends at 0xE1FF).  The CCP source has `ds 84`
+      (stack) and other uninit variables declared at link offsets
+      beyond the SPR-reported code_len.  cpnetldr.asm presumably
+      allocates that extra space via its RAM top calculation; our
+      netboot server only streams code_len bytes and leaves whatever
+      was there before.  Currently those bytes happen to overlap NDOS
+      at 0xE200+, so CCP's stack grows into NDOS code.  No crash yet
+      because CCP pushes less than 0x200 bytes before calling into
+      NDOS, but this is brittle.  Fix: either (a) stream code_len +
+      pad-to-module-top bytes of zeros, (b) reserve BSS via a
+      post-code memset in the client, or (c) measure CCP's true
+      extent and move NDOS_BASE up.
+
+- [ ] **CCP/NDOS stuck at PC=0xEA35.**  Handoff works but control
+      settles inside NDOS and never emits a console prompt.  No wire
+      traffic after FNC=4 (server log shows only "client closed" at
+      timeout).  Likely causes: (a) NDOS's CNFTBL query is returning
+      a value that makes it loop, (b) NDOS is waiting on a BIOS entry
+      we don't implement correctly (bios_stub_ret returns but without
+      setting expected registers), (c) NDOS needs a specific
+      MSGBUF pre-initialisation we haven't done.  Next step:
+      instruction-trace from 0xE206 forward to find the hang.  0xEA35
+      is at NDOS offset 0x835; map to source in ndos.asm for context.
+
+- [ ] **Server no longer probes SNIOS SNDMSG/RCVMSG.**  Removed the
+      one-shot `sniosro_handshake()` from `netboot_server.py` because
+      NDOS, not resident_entry, now drives SNIOS after FNC=4.  The
+      wire-protocol regression test (round-trip verify) is therefore
+      parked.  When we return to SNIOS work, bring it back under a
+      flag or a separate test harness that bypasses CCP.
+
 ## Session 26 (SPR relocator correction, CCP blocker) — new issues
 
 - [x] **SPR format: ignored sector between header and code (resolved).**

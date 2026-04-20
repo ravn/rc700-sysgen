@@ -28,76 +28,51 @@ static void console_putc(uint8_t c) {
     _port_out(PORT_SIO_B_DATA, c);
 }
 
-typedef void (*fn_t)(void);
+/* Resident tail-call trampoline: `JP (HL)` from snios.s, survives
+ * PROM disable unlike clang's PROM-resident __call_iy helper. */
+extern void jump_to(uint16_t addr) __attribute__((noreturn));
 
-/* SNIOS entries.  `snios_sndmsg_c` is the C-ABI wrapper (HL arg)
- * around the DRI SNDMSG (BC arg) — see snios.s for the wrapper. */
+/* SNIOS NTWKIN is still called from the cold path as a sanity touch of
+ * CFGTBL before NDOS takes over.  SNDMSG/RCVMSG smoke calls are gone —
+ * NDOS drives the wire now. */
 extern uint8_t snios_ntwkin(void);
-extern uint8_t snios_sndmsg_c(void *msgbuf);
-extern uint8_t snios_rcvmsg_c(void *msgbuf);
-
-/* Scratch buffer for the RCVMSG round-trip test.  Lives in .bss
- * (scratch RAM at 0xE000..).  Sized for worst-case DRI frame
- * (5 header + 256 data). */
-static uint8_t rx_buf[261];
-
-/* Pointer to the outbound message area inside CFGTBL.  Layout is
- * fixed by cfgtbl.c (FMT at +39..MSGBUF at +45 of the CP/NET CFGTBL
- * struct); declared here as an extern byte to avoid dragging the
- * struct definition into this file. */
-extern uint8_t cfgtbl[];
-#define MSGTX (&cfgtbl[39])
 
 RESIDENT
 [[noreturn]] void resident_entry(uint16_t entry) {
     /* We are at VMA 0xF200 (RAM), PROMs still mapped at 0x0000/0x2000.
-     * First act: disable the PROMs.  Safe here because we execute from
-     * RAM — the next instruction fetch is at 0xF58x+ which is not
-     * shadowed by either PROM. */
+     * First act: disable the PROMs so 0x0000..0x07FF and 0x2000..0x27FF
+     * are RAM.  Safe because we execute from 0xF200+. */
     disable_proms();
 
-    /* PROM-disable proof: write two distinct sentinels to 0x0000/0x0001.
-     * If PROM is still mapped, writes are dropped and reads return the
-     * reset-vector bytes (0xF3 0x31 ...).  The MAME boot test reads
-     * these addresses back and fails on mismatch.  We don't gate the
-     * banner on this — the test harness is the oracle. */
+    /* PROM-disable proof sentinels (checked by MAME probe). */
     *(volatile uint8_t *)0x0000 = 0xA5;
     *(volatile uint8_t *)0x0001 = 0x5A;
 
-    /* Exercise SNIOS NTWKIN: drains the SIO RX buffer, seeds NETST with
-     * ACTIVE, clears the SIZ field.  After the call the test harness
-     * checks CFGTBL.netst == 0x10.  No wire traffic — this is a glue
-     * test for SNIOS → transport → CFGTBL. */
+    /* BDOS vector at 0x0005: `JP <NDOS_BASE+6>`.  NDOS's COLDST reads
+     * BDOS+1 (the 16-bit operand of this JP) and caches it as BDOSE for
+     * internal use — see ndos.asm:196.  The +6 offset lands on NDOS's
+     * second `JMP NDOSE` block (ndos.asm:86-88), matching CP/M's
+     * "BDOS entry = module_base + 6" convention that leaves a 6-byte
+     * preamble for the self-JPs and version/ID bytes. */
+    *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
+    *(volatile uint8_t *)0x0006 = 0x06;     /* lo(NDOS_BASE + 6) */
+    *(volatile uint8_t *)0x0007 = 0xE2;     /* hi(NDOS_BASE + 6) — NDOS at 0xE200 */
+
+    /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
+     * own NTWKIN may re-run this; that's fine (idempotent). */
     snios_ntwkin();
 
-    /* Send one LIST-device message via the DRI framing — exercises
-     * the full SNDMSG path (ENQ/ACK/SOH/HCS/STX/ETX/CKS/EOT/ACK).
-     * CFGTBL seeds FMT=0, DID=0, FNC=5, SIZ=0, DAT=[0]; SNDMSG fills
-     * in SID from CFGTBL+1.  Result code in A (0=OK, 0xFF=error)
-     * parked in a BSS byte so the MAME probe can inspect it. */
-    *(volatile uint8_t *)0xEE10 = snios_sndmsg_c(MSGTX);
+    /* Hand off to CCP ccpstart (or whatever netboot delivered via
+     * FNC=4).  CCP's prologue does `LXI SP,stack` so it resets SP;
+     * we don't need to preserve our stack.  Never returns.
+     *
+     * Fallback: if entry is zero (no netboot), fall through to the
+     * diagnostic banner — useful when running without a server. */
+    if (entry != 0) {
+        jump_to(entry);
+    }
 
-    /* Matching RCVMSG: the master (server) now sends a canned response
-     * frame; we receive + checksum-verify it via the full DRI framing.
-     * Result code at 0xE211, received DAT[0] at 0xE212 so the MAME
-     * probe can assert the bytes arrived uncorrupted. */
-    *(volatile uint8_t *)0xEE11 = snios_rcvmsg_c(rx_buf);
-    *(volatile uint8_t *)0xEE12 = rx_buf[5];    /* first data byte */
-
-    /* Indirect call to `entry` is parked: clang lowers `((fn_t)entry)()`
-     * to `CALL __call_iy` where __call_iy lives in PROM0 at 0x0009.  But
-     * disable_proms() above just unmapped the PROMs, so 0x0009 is RAM
-     * (zero), and the CALL walks through RAM as NOPs until it stumbles
-     * into CCP code which does `LXI SP,stack` — observed PC wander with
-     * SP landing inside CCP (~0xE1FB).  Real CCP handoff needs either
-     * a resident-section copy of __call_iy or an inline-asm JP (HL).
-     * For now, entry is always 0xDB80 (RET stub), so calling it is a
-     * no-op anyway.  Fall through to the fallback banner.
-     * See cpnos-issues.md session-26 "indirect-call-through-PROM"
-     * follow-up. */
-    (void)entry;
-
-    /* Fallback diagnostic banner (no server, or loaded code returned). */
+    /* Fallback diagnostic banner (reached only when entry==0). */
     *(volatile uint8_t *)0xEE00 = 0xA5;
     DISPLAY[0] = 'C';
     DISPLAY[1] = 'P';
@@ -106,7 +81,6 @@ RESIDENT
     DISPLAY[4] = 'S';
     *(volatile uint8_t *)0xEE01 = 0x5A;
 
-    /* Serial proof-of-life (no-op until SIO init lands next turn). */
     console_putc('C');
     console_putc('P');
     console_putc('N');

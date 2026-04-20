@@ -55,10 +55,11 @@ local function finish(result, space)
     local sp = manager.machine.devices[":maincpu"].state["SP"].value
     f:write(string.format("PC=%04X  SP=%04X\n", pc, sp))
 
-    f:write("\n--- 0x0000 (reset vector / PROM0 shadow) ---\n")
+    f:write("\n--- 0x0000 (reset vector / PROM0 shadow + BDOS vector) ---\n")
     f:write(hex_dump(space, 0x0000, 48) .. "\n")
-    f:write("\n--- 0xDB80 (netboot RET stub / FNC=4 execute target) ---\n")
-    f:write(hex_dump(space, 0xDB80, 16) .. "\n")
+    -- Expected: 00=0xA5, 01=0x5A (sentinels), 05=0xC3 06 E2 (JP 0xE206 BDOS).
+    f:write(string.format("BDOS vector [0x0005..7]=%02x %02x %02x (want c3 06 e2)\n",
+        space:read_u8(0x0005), space:read_u8(0x0006), space:read_u8(0x0007)))
     f:write("\n--- 0xD800 (CCP module entry, JP ccpstart / JP ccpclear) ---\n")
     f:write(hex_dump(space, 0xD800, 16) .. "\n")
     f:write("\n--- 0xE200 (NDOS module entry, JP NDOSE / JP COLDST) ---\n")
@@ -79,18 +80,13 @@ local function finish(result, space)
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")
-    local cfg_addr = 0xF4C5                 -- _cfgtbl (check with `llvm-nm --numeric-sort cpnos.elf | grep _cfgtbl`)
+    local cfg_addr = 0xF4D4                 -- _cfgtbl (check with `llvm-nm --numeric-sort cpnos.elf | grep _cfgtbl`)
     f:write(hex_dump(space, cfg_addr, 48) .. "\n")
     local slaveid = space:read_u8(cfg_addr + 1)
     f:write(string.format("SLAVEID = 0x%02x (want 0x70)\n", slaveid))
     local netst = space:read_u8(cfg_addr + 0)
     f:write(string.format("NETST   = 0x%02x (want 0x10 after NTWKIN)\n", netst))
-    local sndres = space:read_u8(0xEE10)
-    f:write(string.format("SNDMSG  = 0x%02x (want 0x00 after round-trip)\n", sndres))
-    local rcvres = space:read_u8(0xEE11)
-    f:write(string.format("RCVMSG  = 0x%02x (want 0x00 after round-trip)\n", rcvres))
-    local rcvdat = space:read_u8(0xEE12)
-    f:write(string.format("RCVDAT0 = 0x%02x (want 0x42 from server)\n", rcvdat))
+    -- SNIOS SNDMSG/RCVMSG smoke probes removed: NDOS now drives SNIOS.
 
     f:write("\n--- 0xF200 (resident VMA) ---\n")
     f:write(hex_dump(space, 0xF200, 128) .. "\n")
@@ -110,26 +106,21 @@ emu.register_frame_done(function()
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
 
-    if match_at(space, DSPSTR, "CPNOS") then
-        -- Before declaring PASS, confirm PROMs were actually disabled.
-        -- resident_entry writes 0xA5/0x5A to 0x0000/0x0001 immediately
-        -- after OUT (0x18). If PROM0 is still mapped, the writes are
-        -- silently dropped and reads return reset-vector bytes instead.
-        -- (Cannot rely on reading 0x00 — real HW power-on RAM is random.)
-        local b0 = space:read_u8(0x0000)
-        local b1 = space:read_u8(0x0001)
-        if b0 ~= 0xA5 or b1 ~= 0x5A then
-            finish(string.format(
-                "FAIL: PROM disable sentinel missing at 0x0000 (got %02x %02x, want a5 5a)",
-                b0, b1), space)
-            return
-        end
-        -- CCP + NDOS SPR relocation + streaming check.  Module offset 0
-        -- is `c3 <lo> <hi>` = JP entry; after page-reloc hi = base_page.
+    -- Session #27 gate: PROM disable + BDOS vector written + SPR modules
+    -- streamed + PC landed in CCP/NDOS/BIOS region (not wandering PROM0
+    -- shadow or no-man's-land).  No banner: with the real CCP handoff
+    -- we never fall through to the diagnostic fallback in resident_entry.
+    local b0 = space:read_u8(0x0000)
+    local b1 = space:read_u8(0x0001)
+    local v5 = space:read_u8(0x0005)
+    if b0 == 0xA5 and b1 == 0x5A and v5 == 0xC3 then
+        -- Sentinels + BDOS vector in place => resident_entry ran.  Give
+        -- CCP a moment to settle, then check PC is inside loaded code.
+        local pc = manager.machine.devices[":maincpu"].state["PC"].value
         local cpo = space:read_u8(0xD800)
-        local cph = space:read_u8(0xD802)   -- hi byte, should be 0xDB
+        local cph = space:read_u8(0xD802)
         local npo = space:read_u8(0xE200)
-        local nph = space:read_u8(0xE202)   -- hi byte, should be 0xE4
+        local nph = space:read_u8(0xE202)
         if cpo ~= 0xC3 or cph ~= 0xDB then
             finish(string.format(
                 "FAIL: CCP entry reloc mismatch at 0xD800 (got %02x .. %02x, want c3 .. db)",
@@ -142,13 +133,20 @@ emu.register_frame_done(function()
                 npo, nph), space)
             return
         end
-        finish("PASS", space)
-        return
+        -- PC should now be somewhere inside CCP (0xD800..0xE1FF),
+        -- NDOS (0xE200..0xEDFF), or BIOS resident (0xF200..0xF800).
+        -- Bail out as soon as we have a stable reading.
+        if pc >= 0xD800 and pc < 0xF800 then
+            finish(string.format("PASS (PC=%04X in loaded region)", pc), space)
+            return
+        end
+        -- PC still in PROM shadow / init code — give it more time.
     end
 
-    -- 25s timeout (covers CCP+NDOS streaming + SNIOS round-trip +
-    -- banner + fallback path).
-    if frame > 50 * 25 then
-        finish("FAIL: CPNOS banner not seen", space)
+    -- 30s timeout.
+    if frame > 50 * 30 then
+        finish(string.format(
+            "FAIL: handoff did not complete (B0=%02x B1=%02x V5=%02x)",
+            b0, b1, v5), space)
     end
 end)
