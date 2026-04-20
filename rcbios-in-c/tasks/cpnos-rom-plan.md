@@ -247,3 +247,373 @@ CLAUDE.md corrections.
 
 Session summaries go in `rc700-gensmedet/tasks/` as
 `sessionNN-cpnos-*.md`. This plan lives here and is updated per session.
+
+---
+
+# Detailed design notes
+
+## Concrete runtime memory map
+
+### NOS-only build (ENABLE_FDC=0), target ~55.5 KB TPA
+
+| Region | Addr | Size | Notes |
+|---|---|---|---|
+| Z80 vectors / CP/M zero page | 0x0000–0x00FF | 256B | WBOOT, IOBYTE, CDISK, BDOS entry |
+| TPA | 0x0100–0xDF7F | 56,960B / **55.6 KB** | user programs |
+| CCP | 0xDF80–0xE77F | 2KB | loaded from server at cold boot |
+| BDOS (NDOS) | 0xE786–0xF57F | 3.5KB | NDOS from `cpnet-z80/dist/src/ndos.asm` |
+| BIOS jump table | 0xF580 | ~60B | 20 × `jp nn` entries |
+| BIOS resident code | 0xF5C0–0xF5FF | 64B | thin stubs → SNIOS |
+| Stack (grows down from here) | 0xF600 | 128B | shared with post-boot BIOS stack |
+| IVT (slim) | 0xF600–0xF6FF | 256B | only active vectors; rest → spurious_isr |
+| conv_tables | 0xF680–0xF7FF | 384B | kept, Comal80 compat + CRT |
+| Display | 0xF800–0xFFCF | 2000B | **locked** |
+| Work area | 0xFFD0–0xFFFF | 48B | **locked** |
+
+Runtime-resident BIOS footprint: ~60 + 64 + 128 + 256 + 384 = **~900B below display**.
+With SNIOS (900B) also resident, total ~1.8KB → BIOS base at ~0xF580.
+
+### NOS + 8" DSDD build (ENABLE_FDC=1), target ~52 KB TPA
+
+Adds to runtime-resident:
+- FDC driver: ~450B
+- Deblocking logic: ~170B
+- 512B deblock sector buffer (BSS)
+- DPH/DPB/SECTRAN for 8" DSDD: ~90B
+- ALV/CSV for 2 drives: ~120B (BSS, one block vector per drive)
+
+Extra resident: ~1.3KB → BIOS base shifts down to ~0xD000, CCP at ~0xC400,
+TPA = 0x0100–0xC3FF = **49.75 KB** (same as current BIOS!).
+
+**Revision:** diskette build's "extra ~3KB cost vs NOS-only" means it matches
+the current BIOS TPA — not a regression. NOS-only is the one that gains.
+
+## Netboot wire protocol (from `cpnet-z80/src/netboot.asm`)
+
+### Message framing (DRI)
+
+All messages use the standard 5-byte header + payload + checksum:
+
+```
+Offset  Byte     Meaning
+------  ----     --------------------------------------
+ 0      FMT      Format: 0xB0 = request, 0xB1 = response
+ 1      DID      Destination ID (master = 0x00)
+ 2      SID      Source ID (client SLAVEID, e.g. 0x70)
+ 3      FNC      Function code
+ 4      SIZ      Data size (0–255)
+ 5..    DAT      Payload (SIZ bytes)
+ N      CKS      8-bit checksum of header+data
+```
+
+### Client state machine
+
+```
+START:  send FMT=0xB0, FNC=0 (boot request)
+        DID=0x00, SID=SLAVEID, SIZ=0, DAT=empty
+        → wait for response
+
+LOOP:   receive FMT=0xB1, dispatch on FNC:
+          FNC=1 (load text): echo DAT to console (banner)
+                             → send ACK, loop
+          FNC=2 (set DMA):   next 2 bytes of DAT = target address
+                             → store as current DMA, send ACK, loop
+          FNC=3 (load data): copy SIZ bytes from DAT to DMA address
+                             → advance DMA, send ACK, loop
+          FNC=4 (execute):   JP to entry point (first byte of CCP, 0xDF80)
+
+ERROR:  timeout/checksum → send NAK, server re-transmits last block
+        10 NAKs → abort, display error, halt
+```
+
+### Server-side handler (z80pack cpmsim or cpnet-z80 MP/M)
+
+Must respond to FNC=0 boot request with:
+1. FNC=1: signon banner ("CP/NOS loading...")
+2. FNC=2: DMA=0xDF80 (CCP base) — build-time constant, client tells server
+3. FNC=3 × N: stream CCP+BDOS (NDOS) image, 128B blocks
+4. FNC=4: entry=0xDF80 (CCP cold start)
+
+Z80pack cpmsim MP/M extension required: add a netboot slave responder that
+reads a file (e.g., `CPNOS.IMG`) and streams it via the above sequence.
+Python prototype first (`cpnet/server.py` extension), then port to Z80 on
+the MP/M master.
+
+## BIOS jump table entries (17 standard + 3 extended)
+
+Offsets relative to BIOS base (0xF580 in NOS-only build):
+
+| Off | Entry | NOS-only | NOS+FDC (for local B:) |
+|---|---|---|---|
+| +0 | BOOT | reset vector (unused after cold boot) | same |
+| +3 | WBOOT | re-enter CCP from server (re-netboot) | same, local fallback |
+| +6 | CONST | SIO-B rx-ready check | same |
+| +9 | CONIN | SIO-B rx byte | same |
+| +12 | CONOUT | SIO-B tx byte | same |
+| +15 | LIST | → SNIOS LST: function | same |
+| +18 | PUNCH | → SNIOS PUN: function | same |
+| +21 | READER | → SNIOS RDR: function | same |
+| +24 | HOME | stub (return NOS routes via NDOS) | set track=0 for B: |
+| +27 | SELDSK | return DPH pointer from table | real selection |
+| +30 | SETTRK | store in SCB | store in FCB |
+| +33 | SETSEC | store in SCB | store in FCB |
+| +36 | SETDMA | store in SCB | store in FCB |
+| +39 | READ | stub: error (NDOS bypasses us) | real FDC read |
+| +42 | WRITE | stub: error | real FDC write |
+| +45 | LISTST | → SNIOS LST status | same |
+| +48 | SECTRAN | identity map | 8" DSDD xlt table |
+| +51 | (extended, may map to SNIOS entry points 0xDA12/15/4D equivalents for app compat) | | |
+
+## Transport vtable (parallel-port drop-in prep)
+
+```c
+struct transport {
+    void (*init)(void);
+    uint8_t (*send_byte)(uint8_t b);   // returns status
+    uint8_t (*recv_byte)(uint16_t timeout_ms);  // 0xFF = timeout
+    // Optional block-mode hooks (parallel can bulk-handshake):
+    void (*send_block)(const uint8_t *p, uint8_t n);
+    void (*recv_block)(uint8_t *p, uint8_t n);
+};
+
+extern const struct transport t_sio_a;      // SIO-A async 38400
+// extern const struct transport t_parallel;  // reserved, parked
+
+#define TRANSPORT (&t_sio_a)  // compile-time, no indirection cost if only one
+```
+
+If only one transport is linked in, the compiler can fold indirect calls to
+direct calls. Parallel port adds a build-time switch
+`-DTRANSPORT=t_parallel` without code restructuring.
+
+## File layout (`cpnos-rom/`)
+
+| File | Purpose | Est. size | Notes |
+|---|---|---|---|
+| `Makefile` | build, size check, prom0/prom1 split | — | adapt from `autoload-in-c/Makefile` |
+| `cpnos_rom.ld` | linker script | — | 4KB ROM @ 0x0000, RESIDENT VMA @ BIOS_BASE |
+| `reset.s` | reset vector (0x0000 → init entry), NMI stub | 16B | |
+| `init.c` | hardware init (SIO/CTC/PIO, IVT stub) | 260B | ROM-only, discarded |
+| `coldboot.c` | orchestrates: netboot → copy resident → OUT 0x18 → CCP | 180B | ROM-only |
+| `netboot.asm` | DRI netboot client (FNC 0→4 state machine) | 250B | ROM-only, port from cpnet-z80 |
+| `transport_sio.c` | SIO-A driver: init, send_byte, recv_byte, RTS/CTS | 280B | resident |
+| `transport.h` | vtable struct | — | header only |
+| `snios.asm` | DRI SNIOS message layer | 900B | resident, port from cpnet/ |
+| `console.c` | CONIN/CONOUT/CONST on SIO-B | 200B | resident |
+| `bios_jt.s` | 20-entry `jp nn` jump table | 60B | resident |
+| `bios_stubs.c` | disk-entry stubs (NOS) | 40B | resident (both configs) |
+| `cfgtbl.c` | CFGTBL, DPH list, network DPH | 90B | resident |
+| `fdc.c` | #if ENABLE_FDC: driver + ISR | 450B | resident when enabled |
+| `deblock.c` | #if ENABLE_FDC: 512B↔128B deblocking | 170B | resident when enabled |
+| `dpb_maxi.c` | #if ENABLE_FDC: 8" DSDD DPB + SECTRAN | 90B | resident when enabled |
+| `banner.c` | one-time boot messages | 80B | ROM-only |
+| `build_id.h` | generated: timestamp, SLAVEID, config flags | — | depends on `builddate.h` pattern |
+
+## Build targets (Makefile)
+
+```
+make cpnos                          # default: ENABLE_FDC=0, clang
+make cpnos ENABLE_FDC=1             # with diskette support
+make cpnos-mame                     # build + boot in MAME against cpmsim
+make cpnos-mame ENABLE_FDC=1        # NOS+FDC variant
+make cpnos-burn                     # produce prom0.bin + prom1.bin ready for burner
+make cpnos-size                     # size breakdown by section, check ≤ 4096
+make cpnos-disasm                   # llvm-objdump -d for review
+make cpnos-map                      # show linker map with addresses
+make cpnos-clean                    # clean build artifacts
+```
+
+## Test strategy per phase
+
+### Phase 0 (scaffolding)
+- `make cpnos-size` passes: empty image ≤ 4096B
+- `make cpnos-burn` produces two files of exactly 2048B each
+- Linker placement test: resident section lands at expected BIOS_BASE
+
+### Phase 1 (netboot MVP)
+- Lit tests for any clang codegen bugs hit during port
+- Unit test: netboot state machine, synthetic server responses
+  (Python-side: `test_netboot_server.py` replays canned FNC=1/2/3/4)
+- MAME integration: boot to `A>`, run `DIR`, `TYPE readme.txt`
+- Measure actual ROM size, update budget in this file
+- Record in `tasks/cpnos-phase1-results.md`
+
+### Phase 2 (diskette)
+- MAME with both NOS + 8" DSDD floppy image
+- `A:DIR` (network), `B:DIR` (local) both work
+- Read a known file from B:, verify byte-exact
+- Write a file to B:, re-read, verify (tests deblocking write path)
+
+### Phase 3 (benchmark)
+- Time `A:COPY FOO.COM RAM` vs `B:COPY FOO.COM RAM` for identical 4KB file
+- Record in `tasks/cpnos-benchmarks.md`
+
+### Phase 4 (real HW)
+- Burn EPROMs, plug in
+- Verify banner matches build_id.h timestamp
+- Boot, `DIR`, Comal80 load test
+
+## z80pack MP/M server setup
+
+Working directory: `/Users/ravn/git/z80pack/cpmsim/`.
+
+Two integration options:
+
+**A. Python bridge (Phase 1 default, faster iteration):**
+- `cpnet/server.py` (existing) extended with netboot handler
+- MAME SIO-A null-modem → named pipe → Python script
+- Python pretends to be the MP/M master for the boot protocol
+- Good for rapid protocol debug; not representative of real MP/M
+
+**B. Real MP/M on z80pack (Phase 1 end-state):**
+- Add netboot slave handler to MP/M running on z80pack cpmsim
+- Configure cpmsim to expose a serial port to MAME via PTY
+- Full round-trip through actual MP/M BDOS / CP/NET master
+- Document cpmsim config in `docs/cpnos-server.md`
+
+Suggested sequence: start with A, switch to B once FNC=0/1/2/3/4 protocol
+is wire-compatible.
+
+## Debug & iteration workflow
+
+- **Build + boot cycle:** `make cpnos-mame ENABLE_FDC=0` — full rebuild + MAME
+  boot test with banner check (like existing `autoload-in-c/` workflow).
+- **Symbol view in MAME:** generate `.sym` from ELF (existing pattern),
+  inject as `comadd` commands into MAME debugger for source-level breakpoints.
+- **Protocol trace:** Python server logs every FMT/FNC/SIZ for each message;
+  saves transcript to `/tmp/cpnos-trace.log`.
+- **Size regression check:** `make cpnos-size` fails build if > 4096B or
+  if any resident symbol drifts from expected address (SNIOS entry points).
+- **Lit tests:** any clang codegen issues hit go into `llvm-z80/llvm/test/
+  CodeGen/Z80/` as XFAIL then FIX (per project policy).
+
+## Error handling strategy
+
+| Condition | Response |
+|---|---|
+| Server no-response at cold boot | retry 5× with 2s timeout, then show "NO SRV" + halt |
+| Bad checksum during netboot | NAK, server re-sends last block (up to 10 retries) |
+| Checksum retry exhausted | show "BOOT FAIL" + halt (cold reset required) |
+| SIO-A RX overrun during runtime | log via SCB, SNIOS layer retries |
+| SELDSK on unconfigured drive | return 0 (no DPH), CCP prints `BDOS err` |
+| FDC failure (NOS+FDC build) | return error to BDOS, drive B: marked offline |
+
+All error messages are 8 chars max (display line space) and stored in
+init-only ROM — discarded after boot, so they don't cost runtime RAM.
+
+## Compiler-bug test strategy (extensive)
+
+A 4KB ROM leaves no margin for clang codegen bloat or subtle miscompiles.
+Every clang bug that could affect this ROM must be caught **before** it
+lands in a build, ideally as a lit test and as a size/codegen regression
+check.
+
+### Layers of testing
+
+1. **Lit tests (`llvm/test/CodeGen/Z80/`)** — per-feature, per-bug.
+   - For every clang Z80 bug encountered during Phase 1/2, add an XFAIL
+     lit test first (documents the bug), then fix the compiler, then
+     flip XFAIL → PASS (per project memory: `feedback_test_before_fix`,
+     `feedback_compiler_bug_test`).
+   - Categories to pre-cover:
+     - Port I/O (inline asm `in`/`out` patterns used in `init.c`)
+     - IM2 interrupt vector code (must not use IX/IY spills in ISR)
+     - ROM-resident `const` data (must NOT be rewritten via peepholes
+       that assume RAM)
+     - Function-pointer calls (transport vtable)
+     - Packed struct access (message framing)
+     - 8-bit loop counters (SNIOS retry / receive loops → DJNZ)
+     - 16-bit multiply/divide (SECTRAN arithmetic)
+     - memcpy/memset to fixed addresses (→ LDIR)
+     - volatile BSS access (ring buffers, ISR-shared state)
+     - asm-called-from-C with sdcccall(0) and sdcccall(1) ABIs
+
+2. **Byte-exact codegen snapshots.**
+   - `tests/cpnos_codegen_snapshots/` — per-function `.golden.s` files
+     capturing expected asm output for hot paths (SIO send, SIO recv,
+     netboot loop, deblocking inner loop, disk-entry stubs).
+   - `make cpnos-snapshot-check`: regenerates asm, diffs against golden.
+     Any diff = investigate (either clang regression or intentional
+     improvement that needs a golden refresh).
+   - Covers: "same code, same bytes" across compiler rebuilds.
+
+3. **Size regression gates.**
+   - `make cpnos-size` fails if total image > 4096B.
+   - `tests/cpnos_size_budget.json` — per-section expected sizes with
+     tolerance (e.g., `netboot.asm: 250±10B`). Build fails if a section
+     grows beyond tolerance, forcing explicit acknowledgement.
+   - Aggregates published in `tasks/cpnos-size-history.md` after each
+     session.
+
+4. **Differential testing vs SDCC.**
+   - Where feasible, compile the same C source with both clang and SDCC
+     (via existing `autoload-in-c/` dual-build infrastructure).
+   - Compare behavior — not byte output (ABIs differ) — via integration:
+     both builds run the netboot + SNIOS path, both must produce identical
+     protocol traces.
+   - `tests/cpnos_dual_compiler.sh` — runs MAME+Python-server for each
+     build, diffs protocol logs.
+
+5. **Runtime invariants checked in code.**
+   - `_Static_assert` at every opportunity:
+     - Jump-table offsets match expected (CONIN at +9 etc.)
+     - Struct sizes (netboot msg header = 5B)
+     - DPB packing (15 bytes exact)
+     - Resident code base ≤ display_start − resident_size
+   - Build fails if codegen changes break these.
+
+6. **Protocol replay tests (compiler-agnostic, catches bugs that
+   bypass static checks).**
+   - `tests/cpnos_netboot_replay.py` — canned server that replays known
+     good FNC=1/2/3/4 sequences including edge cases:
+     - 0-byte payloads
+     - Maximum 255B payloads
+     - Deliberately-corrupted checksums (expect NAK)
+     - Out-of-order retransmissions
+     - Timeout in the middle of a block
+   - Run under MAME against the built ROM. Any hang/crash/wrong response
+     = test fails. Catches bugs that only manifest at runtime (e.g.,
+     wrong register save in ISR).
+
+7. **Undocumented-instruction grep.**
+   - Per existing memory (`feedback_undoc_check`): grep final `.s` for
+     `IXH|IXL|IYH|IYL|SLL|OUT (C),0` — must be empty unless
+     `+undocumented` is explicitly set. Part of `make cpnos-size`.
+
+8. **Static-stack / no-recursion audit.**
+   - `clang -Xclang -analyze` or a small Python pass over the map file:
+     no function may use more stack than declared budget (128B total).
+     Catches clang deciding to spill something unexpected.
+
+9. **Fuzzer on the wire (long-game).**
+   - Python-side fuzzer sends random-but-well-formed DRI packets.
+     Build must never hang or overwrite its own code. Detects whole
+     classes of range/overflow bugs in the SNIOS layer.
+
+### Test matrix summary
+
+| Test | Catches | Runs when |
+|---|---|---|
+| Lit tests | compiler regressions | every LLVM build |
+| Codegen snapshots | silent clang diffs | every ROM build |
+| Size gates | bloat | every ROM build |
+| Dual-compiler diff | logic-level clang bugs | Phase 1+, weekly |
+| `_Static_assert` | layout drift | every ROM build |
+| Netboot replay | runtime/ISR bugs | Phase 1+, every build |
+| Undoc grep | toolchain surprises | every ROM build |
+| Stack audit | spill surprises | every ROM build |
+| Wire fuzzer | edge cases | Phase 2+, nightly |
+
+### Git commit discipline
+
+Every commit that touches llvm-z80 and every commit to cpnos-rom runs the
+full check. CI script (local, no GitHub Actions needed):
+
+```bash
+make -C cpnos-rom cpnos-check  # size + snapshots + asserts + undoc + stack
+make -C cpnos-rom cpnos-mame   # MAME boot + netboot replay
+cd llvm-z80 && build/bin/llvm-lit llvm/test/CodeGen/Z80/
+```
+
+Any red light = revert or fix before continuing. The 4KB budget makes
+this discipline non-negotiable.
