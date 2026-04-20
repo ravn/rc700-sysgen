@@ -1,6 +1,6 @@
 /* cpnos-rom resident chunk (Phase 1 seed)
  *
- * Code here lands in .resident: VMA at 0xF580, LMA packed into PROM0
+ * Code here lands in .resident: VMA at 0xF200, LMA packed into PROM0
  * after init code.  The cold-boot path memcpys LMA->VMA, then jumps.
  *
  * Phase 1 grows this to contain: BIOS jump table, console I/O, SNIOS
@@ -32,7 +32,7 @@ typedef void (*fn_t)(void);
 
 RESIDENT
 [[noreturn]] void resident_entry(uint16_t entry) {
-    /* We are at VMA 0xF580 (RAM), PROMs still mapped at 0x0000/0x2000.
+    /* We are at VMA 0xF200 (RAM), PROMs still mapped at 0x0000/0x2000.
      * First act: disable the PROMs.  Safe here because we execute from
      * RAM — the next instruction fetch is at 0xF58x+ which is not
      * shadowed by either PROM. */

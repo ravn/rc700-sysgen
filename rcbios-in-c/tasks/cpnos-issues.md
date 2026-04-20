@@ -82,6 +82,53 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
       `netboot.asm` means clang must link DRI-style asm. Check
       `autoload-in-c/` for precedent — current autoloader does C+asm mix.
 
+## Session 24 (SNIOS port) — new issues
+
+- [ ] **NDOS/BIOS memory collision.** BIOS_BASE moved to 0xF200 to fit
+      SNIOS in the resident region; NDOS loaded at 0xE786 (size ~3.5KB)
+      now reaches ~0xF585, overlapping the new BIOS area (~900B of
+      overlap). Harmless today because `netboot_server.py` streams
+      only a single RET byte, but must be resolved before real NDOS
+      bytes hit the wire. Options: (a) push CCP down by ~0x400 and
+      NDOS follows (costs ~1KB TPA), (b) shrink SNIOS further, (c)
+      split SNIOS off into PROM1 and keep only a jump-table trampoline
+      resident.  Decide once we have real NDOS bytes to measure.
+
+- [ ] **SNIOS jump table not yet wired to NDOS.** `_snios_jt` is
+      exposed at 0xF233 but nothing references it.  Once the server
+      starts streaming real NDOS, the cold-boot handoff has to tell
+      NDOS where SNIOS lives (typical DRI convention: a BIOS entry
+      returns the SNIOS address, or the address is baked into NDOS at
+      server-side link time).  Wiring TBD when real NDOS lands.
+
+- [ ] **SNIOS NTWKDR drain timeout.** Per-poll `transport_recv_byte`
+      timeout hard-coded to 64 ticks.  Fine for MAME but may miss
+      trailing stale bytes on real hardware if the SIO buffer drains
+      slowly.  Measure on real HW before declaring NTWKIN reliable.
+
+- [ ] **SNIOS CHKACK `AND 7FH` mask.** Carried over from the DRI
+      original, which targeted 7-bit async links.  Redundant on our
+      8N1 transport but harmless — costs 2B.  Remove if we need the
+      space.
+
+- [ ] **SNIOS not protocol-tested yet.** Smoke test verified jump
+      table placement and CFGTBL data only.  Need `cpnet/server.py`
+      brought up against SNIOS on cpnos-rom to confirm wire format
+      round-trips (ENQ/ACK/SOH header/STX data path).  Blocker for
+      Phase 1 end state.
+
+- [ ] **CFGTBL symbol naming.** Renamed `_cfgtbl` → `cfgtbl` in
+      `cfgtbl.c` so the asm-visible symbol is `_cfgtbl` (clang Z80
+      prefixes one underscore). Document the convention for future
+      C↔asm shared data: C source should NOT start identifiers with
+      underscore or the asm name ends up double-prefixed.
+
+- [ ] **Init stack 0xF200 vs netboot DMA.** Stack pointer init moved
+      to 0xF200, grows down into 0xF1FF..0xF000.  If netboot ever
+      receives payload with SIZ+DMA landing in 0xF000..0xF1FF, stack
+      would corrupt or be corrupted.  Add an assert in netboot or a
+      comment pinning the DMA range before real NDOS lands here.
+
 ## Decisions to defer until we have numbers
 
 - [ ] **Single or dual network DPH (A: only, or A: + extra drives).**

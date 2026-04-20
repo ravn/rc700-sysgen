@@ -184,3 +184,13 @@
 - and the rom is disabled before track 0 is read
 - use the z80pack mp/m server and pick up fresh
 - analyse, raise issues and tasks, summarize and commit
+
+## Session 24 (continued, 2026-04-20) — SNIOS port into cpnos-rom
+
+- this session is about snios.asm
+- the next step in the plan
+- direct call
+- did you compile with -g
+- yes
+- b
+- go

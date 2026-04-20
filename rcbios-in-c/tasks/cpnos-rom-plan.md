@@ -198,6 +198,40 @@ This is feasible because we don't need to write RAM at 0x0000-0x07FF
 budget but not in the runtime RAM footprint. Slight TPA uplift vs the
 earlier assumption that everything had to be copied up. Measure in Phase 1.
 
+## Session 24 update — SNIOS ported
+
+SNIOS lifted from `cpnet/snios.asm` into `cpnos-rom/snios.s` (GNU-as
+syntax, clang integrated asm).  Character I/O goes direct to the C
+transport layer (`_transport_send_byte` / `_transport_recv_byte`)
+instead of the old BIOS READER/PUNCH/READS vectors — simpler than a
+shim layer, and the ring-buffered BIOS reader doesn't exist in
+cpnos-rom anyway.
+
+SNIOS size after port: 24B jump table + 436B body + 3B scratch = 463B
+(DRI original was ~900B; ours is leaner because the transport
+abstraction handles what READER/READS did, and the original's
+verbatim CFGTBL inline bytes now live in `cfgtbl.c` only).
+
+**Layout shift**: BIOS_BASE moved from 0xF580 → 0xF200, RESIDENT
+region 0x200 → 0x600.  SNIOS + BIOS jump table + stubs + CFGTBL =
+867B, doesn't fit in the original 512B window.  Init stack moved from
+0xF580 → 0xF200 in step.  Files touched: `cpnos_rom.ld`, `reset.s`,
+`bios_jt.s` (comment), `mame_boot_test.lua` (cfgtbl probe address),
+plus comments in `cpnos_main.c` / `resident.c`.
+
+**Known follow-up**: real NDOS load address (0xE786..0xF585 per the
+original plan) now collides with the new BIOS region starting at
+0xF200.  Harmless for Phase 1 because `netboot_server.py` currently
+only streams a single RET byte, not a real NDOS.  Before the server
+starts sending real NDOS, either drop NDOS lower (costs ~900B of TPA)
+or trim SNIOS further.  Current TPA remains ~55KB in theory; exact
+number depends on how much NDOS headroom we reserve.
+
+**Tested**: `make cpnos-netboot` PASSes — RC702 boots in MAME,
+PROM-disable sentinel intact at 0x0000, FNC=3 lands RET at 0xDF80,
+CFGTBL at 0xF4B3 shows SLAVEID=0x70 / SID=0xFF / FNC=5, SNIOS jump
+table at 0xF233 visible (8 JP entries).
+
 ## Decisions locked in (end of planning session)
 
 - **Project layout**: new directory `rc700-gensmedet/cpnos-rom/` (created,

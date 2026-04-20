@@ -4,7 +4,7 @@
  * responsibilities (this file grows to meet them):
  *   1. HW init: SIO-A/B, CTC, PIO, IVT stub
  *   2. Netboot: request CCP+BDOS from server, load into RAM
- *   3. Copy resident chunk from ROM (LMA) to RAM (VMA 0xF580)
+ *   3. Copy resident chunk from ROM (LMA) to RAM (VMA 0xF200)
  *   4. OUT (0x18),A  — disable both PROMs
  *   5. Jump to resident_entry() (or to CCP cold start once netboot works)
  *
@@ -30,7 +30,7 @@ extern uint16_t netboot(void);              /* netboot.c, ROM-only */
     /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
     init_hardware();
 
-    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF580+)
+    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF200+)
      * BEFORE netboot: netboot's transport functions live there. */
     uint8_t *src = _resident_lma;
     uint8_t *dst = _resident_start;
@@ -43,7 +43,7 @@ extern uint16_t netboot(void);              /* netboot.c, ROM-only */
     uint16_t entry = netboot();
 
     /* Hand off to resident code.  It disables the PROMs (safe from
-     * 0xF580 — execution continues from RAM) and either jumps to the
+     * 0xF200 — execution continues from RAM) and either jumps to the
      * loaded entry or falls back to a diagnostic banner.  cpnos_main
      * never runs again after this; the PROM is gone and so is the
      * init code that lives underneath it. */

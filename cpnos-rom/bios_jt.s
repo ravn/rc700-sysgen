@@ -1,11 +1,12 @@
 ; cpnos-rom BIOS jump table (Phase 1 skeleton)
 ;
-; Standard CP/M 2.2 BIOS 17-entry table, placed at BIOS_BASE (0xF580).
-; CCP+BDOS (and in NOS mode, NDOS) call these offsets; the addresses
-; are the BIOS's public ABI and must not drift between builds.
+; Standard CP/M 2.2 BIOS 17-entry table, placed at BIOS_BASE (0xF200
+; since session #24; was 0xF580).  CCP+BDOS (and in NOS mode, NDOS) call
+; these offsets; the addresses are the BIOS's public ABI and must not
+; drift between builds.
 ;
 ; The linker script KEEPs section .resident.jumptable at the very start
-; of the .resident region (VMA 0xF580), so `_bios_boot` equals BIOS_BASE.
+; of the .resident region (VMA 0xF200), so `_bios_boot` equals BIOS_BASE.
 ;
 ; Most entries in the NOS-only build are thin stubs: CP/NOS routes disk
 ; I/O through NDOS -> SNIOS, so SELDSK/READ/WRITE never get called for

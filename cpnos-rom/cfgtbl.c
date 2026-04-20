@@ -57,7 +57,7 @@ static_assert(__builtin_offsetof(struct cfgtbl, sid) == 41, "SID @ +41");
 static_assert(__builtin_offsetof(struct cfgtbl, msgbuf) == 45, "MSGBUF @ +45");
 
 RESIDENT_DATA
-struct cfgtbl _cfgtbl = {
+struct cfgtbl cfgtbl = {
     .netst   = 0x00,            /* offline until NDOS brings us up */
     .slaveid = RC702_SLAVEID,
     .drive   = { LOCAL, LOCAL, LOCAL, LOCAL,

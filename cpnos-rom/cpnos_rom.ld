@@ -4,12 +4,15 @@
  *   PROM0 at 0x0000, 2KB
  *   PROM1 at 0x2000, 2KB
  * Both are disabled by a single OUT (0x18,A) executed from runtime code
- * that has already been copied into high RAM at 0xF580+.
+ * that has already been copied into high RAM at 0xF200+ (was 0xF580
+ * before session #24; moved down to fit SNIOS within the resident chunk).
  *
  * Runtime RAM layout (after PROM disable):
- *   0xF580  BIOS jump table
- *   0xF5C0  BIOS resident code (stubs into SNIOS)
- *   ... stack, IVT, conv_tables, display, workarea untouched
+ *   0xF200  BIOS jump table
+ *   0xF233  SNIOS jump table + body
+ *   0xF40E  BIOS resident code (stubs into SNIOS, console I/O)
+ *   0xF4B3  CFGTBL
+ *   ... display, workarea (0xF800+) untouched
  *
  * Phase 0 skeleton: everything fits in PROM0, PROM1 is 0xFF-padded by
  * the Makefile.  Subsequent phases will place runtime-resident code in
@@ -28,7 +31,12 @@ MEMORY {
      no IVT or 8275 DMA chain yet, so the region that eventually hosts
      those (0xF680..0xF7FF) is temporarily available. Tighten this once
      the IVT lands. */
-  RESIDENT (rwx) : ORIGIN = 0xF580, LENGTH = 0x200
+  /* BIOS_BASE moved from 0xF580 to 0xF200 in session #24 to fit SNIOS
+     (~460B) alongside BIOS jump table + stubs.  Costs ~0x380 of TPA
+     headroom relative to the original plan; acceptable given Phase 1 is
+     still well under the 56KB TPA target.  Update cpnos-rom-plan.md
+     concrete memory map when revisiting TPA numbers. */
+  RESIDENT (rwx) : ORIGIN = 0xF200, LENGTH = 0x600
   /* Scratch RAM for init-only variables used before PROM disable. */
   SCRATCH (rwx) : ORIGIN = 0xE000, LENGTH = 0x1000
 }
@@ -57,18 +65,20 @@ SECTIONS {
   __prom1_end = .;
   ASSERT(__prom1_end <= 0x2800, "PROM1 code overflowed 2KB!")
 
-  .resident 0xF580 : AT(__prom0_end) {
+  .resident 0xF200 : AT(__prom0_end) {
     __resident_start = .;
     /* BIOS jump table MUST come first — its entries are the BIOS's
      * public ABI (BOOT at +0, WBOOT at +3, CONST at +6, ...). */
     KEEP(*(.resident.jumptable))
+    KEEP(*(.resident.snios_jt))
+    KEEP(*(.resident.snios))
     *(.resident)
     *(.resident.*)
     KEEP(*(.resident.data))
     __resident_end = .;
   } > RESIDENT
 
-  ASSERT(_bios_boot == 0xF580, "BIOS jump table must start at 0xF580")
+  ASSERT(_bios_boot == 0xF200, "BIOS jump table must start at 0xF200")
   ASSERT(_bios_conout - _bios_boot == 12, "BIOS CONOUT offset must be +12")
   ASSERT(_bios_sectran - _bios_boot == 48, "BIOS SECTRAN offset must be +48")
 
@@ -77,7 +87,7 @@ SECTIONS {
 
   /* Guard: resident code must not overflow the RESIDENT region (below
      display RAM at 0xF800; really below conv_tables at 0xF680). */
-  ASSERT(__resident_end <= 0xF780, "Resident chunk overflowed into conv_tables/display!")
+  ASSERT(__resident_end <= 0xF800, "Resident chunk overflowed into display RAM!")
 
   .scratch_bss (NOLOAD) : {
     *(.bss*)
