@@ -20,6 +20,10 @@
     .global _reset
 _reset:
     di
-    ld sp, #0xE000              ; temporary stack in scratch RAM
+    ld sp, #0xF580              ; init stack below resident; grows down
+                                ; into free RAM (0xF000..0xF57F). Must
+                                ; NOT overlap netboot DMA targets, which
+                                ; may land anywhere below 0xE000 (and
+                                ; previously clobbered a stack at 0xDFxx).
     call _cpnos_main
 1:  jr 1b                       ; hang if main returns
