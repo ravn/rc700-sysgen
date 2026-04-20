@@ -24,11 +24,22 @@ extern uint8_t _resident_end[];
 
 extern void resident_entry(void);    /* defined in resident.c, at VMA 0xF580 */
 extern void init_hardware(void);     /* defined in init.c, runs from ROM */
+extern uint16_t netboot(void);       /* defined in netboot.c, ROM-only */
+
+typedef void (*fn_t)(void);
 
 void cpnos_main(void) {
-    /* Bring up CTC + SIO-B so console_putc can transmit.  Full HW init
-     * (SIO-A for netboot, PIO, IVT) lands here in later slices. */
+    /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
     init_hardware();
+
+    /* Try to netboot.  If a server is present it streams CCP+BDOS into
+     * RAM and returns an entry point; if not, we fall through to the
+     * resident "CPNOS" banner so the CPU state is still observable. */
+    uint16_t entry = netboot();
+
+    /* Record netboot result at a breadcrumb so MAME tests can see it. */
+    *(volatile uint8_t *)0xE202 = (uint8_t)(entry & 0xFF);
+    *(volatile uint8_t *)0xE203 = (uint8_t)(entry >> 8);
 
     /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF580+). */
     uint8_t *src = _resident_lma;
@@ -37,10 +48,15 @@ void cpnos_main(void) {
         *dst++ = *src++;
     }
 
-    /* Jump to resident_entry at VMA 0xF580 WITH PROMs STILL MAPPED.
-     * Resident code performs OUT (0x18) itself — doing it from ROM
-     * leaves the next instruction fetch in a newly-exposed RAM region
-     * (all zeros / NOP sled), losing control flow. */
+    if (entry != 0) {
+        /* Netboot succeeded.  Jump to loaded CCP entry point.  NB:
+         * PROM disable still needs to happen; today the resident chunk
+         * does it.  We'll move it to happen *before* the CCP jump once
+         * netboot is wired end-to-end. */
+        ((fn_t)entry)();
+    }
+
+    /* No server: fall back to resident banner (diagnostics). */
     resident_entry();
 
     for (;;) { }

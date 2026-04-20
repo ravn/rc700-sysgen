@@ -35,8 +35,8 @@ void resident_entry(void) {
     disable_proms();
 
     /* Breadcrumb marker in plain RAM (outside display area).  If this
-     * byte lands at 0xE100 we know resident_entry executed. */
-    *(volatile uint8_t *)0xE100 = 0xA5;
+     * byte lands at 0xE200 we know resident_entry executed. */
+    *(volatile uint8_t *)0xE200 = 0xA5;
 
     /* Display writes (may or may not stick depending on CRT state). */
     DISPLAY[0] = 'C';
@@ -46,7 +46,7 @@ void resident_entry(void) {
     DISPLAY[4] = 'S';
 
     /* Second breadcrumb after display writes, before serial. */
-    *(volatile uint8_t *)0xE101 = 0x5A;
+    *(volatile uint8_t *)0xE201 = 0x5A;
 
     /* Serial proof-of-life (no-op until SIO init lands next turn). */
     console_putc('C');

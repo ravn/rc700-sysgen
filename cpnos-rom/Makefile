@@ -34,19 +34,23 @@ CFLAGS = --target=z80 -Oz -nostdlib -g \
 
 ASFLAGS = --target=z80
 
-OBJS = clang/reset.o clang/cpnos_main.o clang/resident.o clang/init.o \
-       clang/transport_sio.o
+OBJS = clang/reset.o clang/runtime.o clang/cpnos_main.o clang/resident.o \
+       clang/init.o clang/transport_sio.o clang/netboot.o
 LDSCRIPT = cpnos_rom.ld
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
 
 all: cpnos
 
-cpnos: clang/cpnos.bin cpnos-size cpnos-asm
+cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
 # ---- Compile ------------------------------------------------------
 
 clang/reset.o: reset.s
+	@mkdir -p clang
+	$(CC) $(ASFLAGS) -c $< -o $@
+
+clang/runtime.o: runtime.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 
@@ -63,6 +67,10 @@ clang/init.o: init.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/transport_sio.o: transport_sio.c transport.h hal.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/netboot.o: netboot.c transport.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -133,6 +141,8 @@ cpnos-mame: cpnos-install
 	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	    -nothrottle -window -skip_gameinfo \
 	    -seconds_to_run 8 \
+	    -rs232a null_modem \
+	    -bitb1 /tmp/cpnos_sioa.raw \
 	    -autoboot_script mame_boot_test.lua
 	@cat /tmp/cpnos_boot_result.txt
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
@@ -157,20 +167,10 @@ cpnos-lis: clang/cpnos.elf
 cpnos-map: clang/cpnos.elf
 	$(NM) --numeric-sort $<
 
-# Per-TU annotated assembly from the compiler itself (-S -fverbose-asm).
-# Produces clang/<name>.s for every C source.  Includes compiler-level
-# annotations (register allocation hints, original variable names as
-# comments next to each instruction, high-level intent per line).
-CSRCS = $(wildcard *.c)
-CASMS = $(CSRCS:%.c=clang/%.s)
-
-clang/%.s: %.c
-	@mkdir -p clang
-	$(CC) $(CFLAGS) -fverbose-asm -S $< -o $@
-
-cpnos-asm: $(CASMS)
-	@echo "--- per-TU annotated asm ---"
-	@ls -1 $(CASMS)
+# Note: per-TU listings from .o files don't work reliably because
+# unlinked object files have incomplete DWARF (relocations unresolved
+# until link).  The linked-ELF listing from cpnos-lis gives the same
+# C-source-interleaved output for the whole program; see it there.
 
 # ---- Clean --------------------------------------------------------
 
