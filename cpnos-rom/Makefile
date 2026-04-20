@@ -95,7 +95,7 @@ clang/netboot.o: netboot.c transport.h
 # ---- Link ---------------------------------------------------------
 
 clang/cpnos.elf: $(OBJS) $(LDSCRIPT)
-	$(LD) --gc-sections -T $(LDSCRIPT) $(OBJS) -o $@
+	$(LD) --gc-sections --emit-relocs -T $(LDSCRIPT) $(OBJS) -o $@
 
 # The linker puts PROM0 at 0x0000 (2KB) and PROM1 at 0x2000 (2KB) with a
 # 6KB hole between them.  objcopy -O binary produces a 10KB file with
@@ -200,8 +200,8 @@ cpnos-trace: cpnos-install
 # Source-interleaved disassembly (requires -g, enabled in CFLAGS).
 # The -S flag interleaves the original C lines with emitted Z80 asm.
 cpnos-lis: clang/cpnos.elf
-	$(OBJDUMP) -d -S --triple=z80 $< > clang/cpnos.lis
-	@echo "wrote clang/cpnos.lis"
+	$(OBJDUMP) -d -S -r --symbolize-operands --triple=z80 $< > clang/cpnos.lis
+	@echo "wrote clang/cpnos.lis (with C source + symbol-resolved operands)"
 
 cpnos-map: clang/cpnos.elf
 	$(NM) --numeric-sort $<
