@@ -130,6 +130,30 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
       requirement) and bases were chosen "lower than needed to be
       safe" with later tightening planned.
 
+- [ ] **BDOS vector layout at 0x0005 for CP/NOS.**  NDOS's COLDST at
+      ndos.asm:196 reads BDOS+1 (i.e. 0x0006, the 16-bit operand of the
+      JP at 0x0005) and caches it as BDOSE.  So cold-boot has to write
+      `JP 0xE306` at 0x0005 — the `+6` hits NDOS's *second* JMP NDOSE
+      block (ndos.asm lines 82-88 have two back-to-back `jmp NDOSE;
+      jmp COLDST` groups, so offsets 0/3 and 6/9 both work, and the +6
+      pattern matches the standard CP/M "BDOS entry = base+6" convention
+      that leaves a 6-byte ID/JMP preamble at the module base).
+
+- [ ] **SPR relocator: round bitmap length up for non-multiple-of-8
+      code_len.**  Current code uses `code_len // 8`; if some future
+      module has `code_len = 3073`, the last few bits of the bitmap
+      would be silently truncated.  ndos.spr (0x0C00) and ccp.spr
+      (0x0A00) are both clean multiples so we're safe today.  Fix:
+      `(code_len + 7) // 8` + assert file size accommodates it.
+
+- [ ] **Secondary smoke check: NDOS copyright string.**  `ndos.asm:94`
+      embeds the literal `"COPYRIGHT (C) 1980-82, DIGITAL RESEARCH "`.
+      Bytes are ASCII and are *not* relocated, so they land verbatim
+      at their module offset after streaming.  A grep at a stable
+      offset (TBD once we dump the module layout) is a nice independent
+      check that streaming transferred the body intact, independent of
+      relocation correctness.
+
 ## Session 25 (NDOS SPR streaming) — new issues
 
 - [ ] **CCP streaming + real cold-boot handoff.**  NDOS is in RAM at
