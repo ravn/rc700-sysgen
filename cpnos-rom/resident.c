@@ -10,7 +10,18 @@
 #include <stdint.h>
 #include "hal.h"
 
+/* Gate the section attribute on ELF output.  The Z80 cross-compiler
+ * produces ELF — the attribute applies and RESIDENT code lands in
+ * .resident at VMA 0xF200.  macOS system clang drives the editor's
+ * LSP and produces Mach-O, which rejects a plain ELF section name;
+ * leave the attribute off there so the IDE stops warning.  Code
+ * sections are only consulted at link time, which always uses the
+ * Z80 toolchain. */
+#ifdef __ELF__
 #define RESIDENT __attribute__((section(".resident"), used))
+#else
+#define RESIDENT
+#endif
 
 static volatile uint8_t * const DISPLAY = (volatile uint8_t *)0xF800;
 
@@ -53,21 +64,27 @@ RESIDENT
      * are RAM.  Safe because we execute from 0xF200+. */
     disable_proms();
 
-    /* Zero-page setup.  Session #28 debug aid: **self-loop at 0x0000**
-     * (`JP 0x0000` = C3 00 00) so any stray null jump stays visible
-     * at PC=0x0000 instead of walking forward through NOPs and doing
-     * unpredictable damage.  CP/M normally puts `JP _bios_wboot` here,
-     * but until null-jump hazards are root-caused the trap is more
-     * valuable than the CP/M convention.  NDOS's COLDST reads TOP+1
-     * (= lo byte of this JP's operand = 0x00); it will compute a bogus
-     * BIOS base and mis-walk the BIOS JT, but that's fine for now —
-     * we want to see where it lands, not pretend everything works.
+    /* CP/M 2.2 zero page:
+     *   0x0000..0x0002  JP _bios_wboot   (c3 03 f2)
+     *   0x0003          IOBYTE (default 0 = all TTY)
+     *   0x0004          current drive/user (default 0 = A:, user 0)
+     *   0x0005..0x0007  JP NDOS+6        (c3 06 de)
      *
-     * The JP opcode at 0x0000 also doubles as the PROM-disable proof
-     * (would read back 0xF3 if PROM were still mapped). */
+     * Session #28's null-trap (JP 0x0000) was a diagnostic that
+     * worked, but NDOS's COLDST reads TOP+1 and uses it as the BIOS
+     * base for its TLBIOS-walk that patches intercepts into BIOS JT.
+     * With TOP+1=0x0000 the walk scribbled wrapper addresses across
+     * page 0 and clobbered our BDOS vector at 0x0005.  Real JP
+     * _bios_wboot makes TOP+1=0xF203; NDOS walks the BIOS JT at
+     * 0xF200+ where the intercepts belong.
+     *
+     * The 0xC3 opcode at 0x0000 also doubles as the PROM-disable
+     * proof (would read back 0xF3 if PROM were still mapped). */
     *(volatile uint8_t *)0x0000 = 0xC3;     /* JP opcode */
-    *(volatile uint8_t *)0x0001 = 0x00;     /* lo(0x0000) — self-loop */
-    *(volatile uint8_t *)0x0002 = 0x00;     /* hi(0x0000) */
+    *(volatile uint8_t *)0x0001 = 0x03;     /* lo(_bios_wboot) */
+    *(volatile uint8_t *)0x0002 = 0xF2;     /* hi(_bios_wboot) = BIOS 0xF203 */
+    *(volatile uint8_t *)0x0003 = 0x00;     /* IOBYTE */
+    *(volatile uint8_t *)0x0004 = 0x00;     /* current drive/user */
     *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
     *(volatile uint8_t *)0x0006 = 0x06;     /* lo(NDOS_BASE + 6) */
     *(volatile uint8_t *)0x0007 = 0xDE;     /* hi(NDOS_BASE + 6) — NDOS at 0xDE00 */

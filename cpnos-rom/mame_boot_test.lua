@@ -106,25 +106,31 @@ emu.register_frame_done(function()
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
 
-    -- Session #28 gate: zero-page vectors written + SPR modules
-    -- streamed + PC stable (either inside loaded region OR caught by
-    -- the null-jump trap at 0x0000).  Zero page:
-    --   0x0000..0x0002 = JP 0x0000  (c3 00 00) — null-jump trap
-    --   0x0005..0x0007 = JP NDOS+6  (c3 06 de) — BDOS vector
-    -- JP at 0x0000 also doubles as PROM-disable proof.
+    -- Session #29 gate: real CP/M zero-page vectors written + SPR
+    -- modules streamed + PC inside loaded region.  Zero page:
+    --   0x0000..0x0002 = JP _bios_wboot  (c3 03 f2)
+    --   0x0005..0x0007 = JP NDOS+6       (c3 06 de) — BDOS vector
+    -- With TOP+1 = 0xF203, NDOS's TLBIOS-walk patches BIOS JT at
+    -- 0xF200+ and doesn't touch the BDOS vector.  Previous null-trap
+    -- (c3 00 00) caused the walk to scribble low memory instead.
     local b0 = space:read_u8(0x0000)
-    local b1 = space:read_u8(0x0001)
     local b2 = space:read_u8(0x0002)
     local v5 = space:read_u8(0x0005)
+    local v6 = space:read_u8(0x0006)
     local v7 = space:read_u8(0x0007)
-    if b0 == 0xC3 and b1 == 0x00 and b2 == 0x00 and v5 == 0xC3 and v7 == 0xDE then
+    if b0 == 0xC3 and b2 == 0xF2
+       and v5 == 0xC3 and v6 == 0x06 and v7 == 0xDE then
         -- Sentinels + BDOS vector in place => resident_entry ran.  Give
         -- CCP a moment to settle, then check PC is inside loaded code.
         local pc = manager.machine.devices[":maincpu"].state["PC"].value
         local cpo = space:read_u8(0xD000)
         local cph = space:read_u8(0xD002)
-        local npo = space:read_u8(0xDE00)
-        local nph = space:read_u8(0xDE02)
+        -- NDOS+0..+5 are overwritten by NDOS COLDST (ndos.asm:204-212
+        -- copies 6 bytes from MSGDAT into NDOS+0..+5 as internal
+        -- scratch).  Check the duplicate dispatch at NDOS+6 instead,
+        -- which stays intact and is what our BDOS vector points at.
+        local npo = space:read_u8(0xDE06)
+        local nph = space:read_u8(0xDE08)
         if cpo ~= 0xC3 or cph ~= 0xD3 then
             finish(string.format(
                 "FAIL: CCP entry reloc mismatch at 0xD000 (got %02x .. %02x, want c3 .. d3)",
@@ -133,7 +139,7 @@ emu.register_frame_done(function()
         end
         if npo ~= 0xC3 or nph ~= 0xE0 then
             finish(string.format(
-                "FAIL: NDOS entry reloc mismatch at 0xDE00 (got %02x .. %02x, want c3 .. e0)",
+                "FAIL: NDOS dispatch reloc mismatch at 0xDE06 (got %02x .. %02x, want c3 .. e0)",
                 npo, nph), space)
             return
         end
