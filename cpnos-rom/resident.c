@@ -38,6 +38,14 @@ RESIDENT
      * shadowed by either PROM. */
     disable_proms();
 
+    /* PROM-disable proof: write two distinct sentinels to 0x0000/0x0001.
+     * If PROM is still mapped, writes are dropped and reads return the
+     * reset-vector bytes (0xF3 0x31 ...).  The MAME boot test reads
+     * these addresses back and fails on mismatch.  We don't gate the
+     * banner on this — the test harness is the oracle. */
+    *(volatile uint8_t *)0x0000 = 0xA5;
+    *(volatile uint8_t *)0x0001 = 0x5A;
+
     /* If netboot delivered an entry point, hand off to it.  From here
      * on, the ROM is gone; we can't go back. */
     if (entry != 0) {

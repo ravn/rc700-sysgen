@@ -83,13 +83,16 @@ emu.register_frame_done(function()
 
     if match_at(space, DSPSTR, "CPNOS") then
         -- Before declaring PASS, confirm PROMs were actually disabled.
-        -- reset.s starts with `di` (0xF3); if PROM0 is still mapped,
-        -- reads of 0x0000 return that opcode. After OUT (0x18) the
-        -- underlying RAM (zero at power-on, never written by our code)
-        -- is exposed instead.
+        -- resident_entry writes 0xA5/0x5A to 0x0000/0x0001 immediately
+        -- after OUT (0x18). If PROM0 is still mapped, the writes are
+        -- silently dropped and reads return reset-vector bytes instead.
+        -- (Cannot rely on reading 0x00 — real HW power-on RAM is random.)
         local b0 = space:read_u8(0x0000)
-        if b0 == 0xF3 then
-            finish("FAIL: PROM0 still mapped at 0x0000 (OUT 0x18 didn't stick)", space)
+        local b1 = space:read_u8(0x0001)
+        if b0 ~= 0xA5 or b1 ~= 0x5A then
+            finish(string.format(
+                "FAIL: PROM disable sentinel missing at 0x0000 (got %02x %02x, want a5 5a)",
+                b0, b1), space)
             return
         end
         finish("PASS", space)
