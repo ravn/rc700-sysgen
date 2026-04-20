@@ -30,6 +30,11 @@ static void console_putc(uint8_t c) {
 
 typedef void (*fn_t)(void);
 
+/* SNIOS jump table, published by snios.s.  Declared as a function so
+ * clang emits a plain CALL — clang Z80 prepends one underscore, which
+ * matches snios.s's `_snios_ntwkin` symbol. */
+extern uint8_t snios_ntwkin(void);
+
 RESIDENT
 [[noreturn]] void resident_entry(uint16_t entry) {
     /* We are at VMA 0xF200 (RAM), PROMs still mapped at 0x0000/0x2000.
@@ -45,6 +50,12 @@ RESIDENT
      * banner on this — the test harness is the oracle. */
     *(volatile uint8_t *)0x0000 = 0xA5;
     *(volatile uint8_t *)0x0001 = 0x5A;
+
+    /* Exercise SNIOS NTWKIN: drains the SIO RX buffer, seeds NETST with
+     * ACTIVE, clears the SIZ field.  After the call the test harness
+     * checks CFGTBL.netst == 0x10.  No wire traffic — this is a glue
+     * test for SNIOS → transport → CFGTBL. */
+    snios_ntwkin();
 
     /* If netboot delivered an entry point, hand off to it.  From here
      * on, the ROM is gone; we can't go back. */

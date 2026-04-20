@@ -64,10 +64,12 @@ local function finish(result, space)
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")
-    local cfg_addr = 0xF4B3                 -- _cfgtbl after session #24 layout shift
+    local cfg_addr = 0xF4BC                 -- _cfgtbl (check with `llvm-nm --numeric-sort cpnos.elf | grep _cfgtbl`)
     f:write(hex_dump(space, cfg_addr, 48) .. "\n")
     local slaveid = space:read_u8(cfg_addr + 1)
     f:write(string.format("SLAVEID = 0x%02x (want 0x70)\n", slaveid))
+    local netst = space:read_u8(cfg_addr + 0)
+    f:write(string.format("NETST   = 0x%02x (want 0x10 after NTWKIN)\n", netst))
 
     f:write("\n--- 0xF200 (resident VMA) ---\n")
     f:write(hex_dump(space, 0xF200, 128) .. "\n")
