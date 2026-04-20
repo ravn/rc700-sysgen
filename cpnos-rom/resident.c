@@ -75,31 +75,36 @@ RESIDENT
      * CFGTBL seeds FMT=0, DID=0, FNC=5, SIZ=0, DAT=[0]; SNDMSG fills
      * in SID from CFGTBL+1.  Result code in A (0=OK, 0xFF=error)
      * parked in a BSS byte so the MAME probe can inspect it. */
-    *(volatile uint8_t *)0xE210 = snios_sndmsg_c(MSGTX);
+    *(volatile uint8_t *)0xEF10 = snios_sndmsg_c(MSGTX);
 
     /* Matching RCVMSG: the master (server) now sends a canned response
      * frame; we receive + checksum-verify it via the full DRI framing.
      * Result code at 0xE211, received DAT[0] at 0xE212 so the MAME
      * probe can assert the bytes arrived uncorrupted. */
-    *(volatile uint8_t *)0xE211 = snios_rcvmsg_c(rx_buf);
-    *(volatile uint8_t *)0xE212 = rx_buf[5];    /* first data byte */
+    *(volatile uint8_t *)0xEF11 = snios_rcvmsg_c(rx_buf);
+    *(volatile uint8_t *)0xEF12 = rx_buf[5];    /* first data byte */
 
-    /* If netboot delivered an entry point, hand off to it.  From here
-     * on, the ROM is gone; we can't go back. */
-    if (entry != 0) {
-        ((fn_t)(uintptr_t)entry)();
-        /* If the loaded code returns (e.g. warm-boot stub), fall
-         * through to the diagnostic banner below. */
-    }
+    /* Indirect call to `entry` is parked: clang lowers `((fn_t)entry)()`
+     * to `CALL __call_iy` where __call_iy lives in PROM0 at 0x0009.  But
+     * disable_proms() above just unmapped the PROMs, so 0x0009 is RAM
+     * (zero), and the CALL walks through RAM as NOPs until it stumbles
+     * into CCP code which does `LXI SP,stack` — observed PC wander with
+     * SP landing inside CCP (~0xE1FB).  Real CCP handoff needs either
+     * a resident-section copy of __call_iy or an inline-asm JP (HL).
+     * For now, entry is always 0xDB80 (RET stub), so calling it is a
+     * no-op anyway.  Fall through to the fallback banner.
+     * See cpnos-issues.md session-26 "indirect-call-through-PROM"
+     * follow-up. */
+    (void)entry;
 
     /* Fallback diagnostic banner (no server, or loaded code returned). */
-    *(volatile uint8_t *)0xE200 = 0xA5;
+    *(volatile uint8_t *)0xEF00 = 0xA5;
     DISPLAY[0] = 'C';
     DISPLAY[1] = 'P';
     DISPLAY[2] = 'N';
     DISPLAY[3] = 'O';
     DISPLAY[4] = 'S';
-    *(volatile uint8_t *)0xE201 = 0x5A;
+    *(volatile uint8_t *)0xEF01 = 0x5A;
 
     /* Serial proof-of-life (no-op until SIO init lands next turn). */
     console_putc('C');

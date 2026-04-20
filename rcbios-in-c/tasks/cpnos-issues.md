@@ -111,17 +111,45 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
       happened to produce the right delta.  Real NDOS entry after fix:
       **0xE300 = JP 0xE571 (NDOSE)**, **0xE303 = JP 0xE4F6 (COLDST)**.
 
-- [ ] **CCP placement stomps scratch_bss.** CCP is 2560B at 0xD900, so
-      it ends at 0xE2FF — directly on top of `.scratch_bss` (0xE000..
-      0xE217) which holds `rx_buf` (261B), `msgbuf` (262B), and other
-      BIOS BSS.  Streaming CCP before resident_entry runs corrupts all
-      of this, causing PC to wander (observed PC=0x826F, SP=0xE1FB).
-      Decide: (a) move `.scratch_bss` to above CCP (e.g. 0xF000..0xF1FF,
-      below BIOS base), (b) shrink/split scratch usage so both fit in
-      the gap 0xE300..0xF1FF (with NDOS at 0xE300..0xEEFF that's only
-      0xEF00..0xF1FF = 768B), or (c) re-layout CCP+NDOS+BSS so BSS sits
-      above CCP end.  Option (a) cleanest; requires linker-script shift
-      and re-sizing.  Blocks CCP streaming + cold-boot handoff.
+- [x] **CCP placement stomps scratch_bss (resolved).**  `.scratch_bss`
+      moved from 0xE000..0xE217 to 0xEF00..0xF118 in the linker script
+      (window between NDOS top 0xEEFF and BIOS_BASE 0xF200).  SCRATCH
+      region narrowed from 4KB to 0x300=768B with a hard ASSERT that
+      BSS cannot overflow into the resident region.  Diagnostic
+      breadcrumbs in `resident.c` moved from 0xE200/0xE210.. to
+      0xEF00/0xEF10.. accordingly (both now live inside `rx_buf`, which
+      is fine — rx_buf is stale post-SNIOS and the writes are
+      diagnostic-only).  Stack space shrinks from ~4KB to 232B (0xF200
+      down to 0xF118); fine for current code but worth watching if we
+      add deeper call chains.
+
+- [ ] **Indirect call via `__call_iy` dies after PROM disable.**  Clang
+      lowers `((fn_t)(uintptr_t)entry)()` to `CALL __call_iy` where
+      `__call_iy` lives in PROM0 at 0x0009.  `disable_proms()` in
+      `resident_entry` unmaps the PROMs just before the CALL, so 0x0009
+      becomes RAM (zero), the CALL falls through NOPs until it crosses
+      into streamed CCP code, and CCP's entry prologue (`lxi sp,stack`)
+      resets SP to ~0xE1FB mid-CCP.  Workaround in session #26: removed
+      the indirect call entirely (parameter `entry` still accepted but
+      unused; entry was always 0xDB80 = RET stub anyway).  Real CCP
+      handoff (session #27+) needs one of:
+        (a) Inline asm: PUSH return-address + `JP (HL)`.
+        (b) A resident-section copy of `__call_iy` (compiler runtime
+            helper relocated into .resident so it survives PROM disable).
+        (c) Tail-call style: emit `JP (HL)` without saving a return
+            address, since `resident_entry` is `[[noreturn]]` and CCP
+            doesn't return anyway.
+      Likely (c) is smallest and cleanest — needs a small asm trampoline.
+
+- [ ] **Stack space narrowed to 232B.**  BSS top is now at 0xF118, SP
+      starts at 0xF200 per reset.s.  Current peak stack usage fits
+      comfortably (SNIOS SNDMSG/RCVMSG + nested transport calls land
+      well under 100B), but there is no longer margin for adding a
+      second nested protocol.  If call depth grows (e.g. CCP+NDOS
+      nested through SNIOS), move BSS lower by shrinking the gap
+      between CCP and NDOS — currently both are page-aligned-safe at
+      0xD900/0xE300, but we're 0x100 higher on each than strictly
+      needed.
 
 - [ ] **Update memory-map documentation.**  The runtime map in
       cpnos-rom-plan.md still shows CCP at 0xDB80 (2KB) and NDOS at

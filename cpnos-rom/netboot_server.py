@@ -156,11 +156,18 @@ def handle(c):
     ack = recv_msg(c)
     print(f"<- ack: {ack.hex()}")
 
-    # CCP streaming is parked: CCP at 0xD900..0xE2FF would overlap the
-    # resident scratch_bss (0xE000..0xE217) where rx_buf/msgbuf live,
-    # and stomp critical state before resident_entry runs.  Next step is
-    # to move scratch_bss out of that range, then re-enable CCP.  See
-    # cpnos-issues.md session-26 entry.
+    # Stream relocated CCP to CCP_BASE.  20 x 128B = 2560B code.
+    # Safe now that scratch_bss moved from 0xE000 -> 0xEF00 in the linker
+    # script; CCP occupies 0xD900..0xE2FF and no longer overlaps BSS.
+    # Entry after reloc: CCP_BASE+0 = ccpstart, CCP_BASE+3 = ccpclear.
+    with open(CCP_SPR, 'rb') as f:
+        spr = f.read()
+    ccp = spr_relocate(spr, CCP_BASE)
+    print(f"CCP.SPR relocated to 0x{CCP_BASE:04x}: "
+          f"{len(ccp)}B, first8={ccp[:8].hex()} "
+          f"(ccpstart={ccp[1] | (ccp[2]<<8):#06x}, "
+          f"ccpclear={ccp[4] | (ccp[5]<<8):#06x})")
+    stream_payload(c, client_sid, CCP_BASE, ccp, 'CCP')
 
     # Stream relocated NDOS to NDOS_BASE.  24 x 128B = 3072B code.
     # Entry: NDOS_BASE+0 = JMP NDOSE (BDOS dispatch),

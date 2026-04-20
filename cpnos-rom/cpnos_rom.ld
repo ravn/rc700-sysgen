@@ -37,8 +37,12 @@ MEMORY {
      still well under the 56KB TPA target.  Update cpnos-rom-plan.md
      concrete memory map when revisiting TPA numbers. */
   RESIDENT (rwx) : ORIGIN = 0xF200, LENGTH = 0x600
-  /* Scratch RAM for init-only variables used before PROM disable. */
-  SCRATCH (rwx) : ORIGIN = 0xE000, LENGTH = 0x1000
+  /* Scratch RAM for BSS (netboot msgbuf, SNIOS rx_buf, diag breadcrumbs).
+   * Session #26: moved from 0xE000..0xEFFF so that CCP (0xD900..0xE2FF)
+   * and NDOS (0xE300..0xEEFF) streaming does not stomp scratch_bss.
+   * Available window is 0xEF00..0xF1FF (768 B) between NDOS top and
+   * BIOS_BASE. */
+  SCRATCH (rwx) : ORIGIN = 0xEF00, LENGTH = 0x300
 }
 
 SECTIONS {
@@ -90,9 +94,14 @@ SECTIONS {
   ASSERT(__resident_end <= 0xF800, "Resident chunk overflowed into display RAM!")
 
   .scratch_bss (NOLOAD) : {
+    __scratch_bss_start = .;
     *(.bss*)
     *(COMMON)
+    __scratch_bss_end = .;
   } > SCRATCH
+
+  ASSERT(__scratch_bss_end <= 0xF200,
+         "scratch_bss overflowed into BIOS resident region!")
 
   /DISCARD/ : {
     *(.comment)
