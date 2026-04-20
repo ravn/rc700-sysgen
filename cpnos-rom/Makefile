@@ -157,6 +157,21 @@ cpnos-lis: clang/cpnos.elf
 cpnos-map: clang/cpnos.elf
 	$(NM) --numeric-sort $<
 
+# Per-TU annotated assembly from the compiler itself (-S -fverbose-asm).
+# Produces clang/<name>.s for every C source.  Includes compiler-level
+# annotations (register allocation hints, original variable names as
+# comments next to each instruction, high-level intent per line).
+CSRCS = $(wildcard *.c)
+CASMS = $(CSRCS:%.c=clang/%.s)
+
+clang/%.s: %.c
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -fverbose-asm -S $< -o $@
+
+cpnos-asm: $(CASMS)
+	@echo "--- per-TU annotated asm ---"
+	@ls -1 $(CASMS)
+
 # ---- Clean --------------------------------------------------------
 
 cpnos-clean:
