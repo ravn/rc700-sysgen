@@ -37,14 +37,19 @@ MEMORY {
      still well under the 56KB TPA target.  Update cpnos-rom-plan.md
      concrete memory map when revisiting TPA numbers. */
   RESIDENT (rwx) : ORIGIN = 0xF200, LENGTH = 0x600
-  /* Scratch RAM for BSS (netboot msgbuf, SNIOS rx_buf, diag breadcrumbs).
-   * Session #26: CCP and NDOS bases shifted down one page each so the
-   * window above NDOS grows from 768 B to 1 KB.  Layout:
-   *   CCP   0xD800..0xE1FF   (2.5KB)
-   *   NDOS  0xE200..0xEDFF   (3KB)
-   *   BSS   0xEE00..0xF1FF   (1KB window, 540 B used)
-   *   STACK 0xF200 down      (~489 B before colliding with BSS end) */
-  SCRATCH (rwx) : ORIGIN = 0xEE00, LENGTH = 0x400
+  /* Scratch RAM for BSS (netboot msgbuf, diag breadcrumbs).
+   * Session #27 shifted CCP+NDOS one more page down after observing
+   * SP=0xE199 with CCP at 0xD400 (stack_symbol resolves to ~base +
+   * 0xD99, not the ~0xB99 we guessed last revision — CCP's BSS/stack
+   * extends ~3.5 KB past code_len).  Layout, generously sized so the
+   * memory map can absorb more BSS discoveries without another move:
+   *   CCP   0xD000..0xDDFF   (2.5 KB code; BSS up to ~0xDD99)
+   *   NDOS  0xDE00..0xE9FF   (3 KB code; est. BSS up to ~0xEB99)
+   *   BSS   0xEC00..0xED1F   (0x400 gap to stack bottom)
+   *   STACK 0xF200 down      (~0x4EB = 1.2 KB)
+   * TPA 0x0100..0xCFFF = ~51.75 KB.  Move CCP back up later once we
+   * have a precise number for CCP+NDOS true extents. */
+  SCRATCH (rwx) : ORIGIN = 0xEC00, LENGTH = 0x600
 }
 
 SECTIONS {

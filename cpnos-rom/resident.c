@@ -56,7 +56,7 @@ RESIDENT
      * preamble for the self-JPs and version/ID bytes. */
     *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
     *(volatile uint8_t *)0x0006 = 0x06;     /* lo(NDOS_BASE + 6) */
-    *(volatile uint8_t *)0x0007 = 0xE2;     /* hi(NDOS_BASE + 6) — NDOS at 0xE200 */
+    *(volatile uint8_t *)0x0007 = 0xDE;     /* hi(NDOS_BASE + 6) — NDOS at 0xDE00 */
 
     /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
      * own NTWKIN may re-run this; that's fine (idempotent). */
@@ -73,13 +73,13 @@ RESIDENT
     }
 
     /* Fallback diagnostic banner (reached only when entry==0). */
-    *(volatile uint8_t *)0xEE00 = 0xA5;
+    *(volatile uint8_t *)0xEC00 = 0xA5;
     DISPLAY[0] = 'C';
     DISPLAY[1] = 'P';
     DISPLAY[2] = 'N';
     DISPLAY[3] = 'O';
     DISPLAY[4] = 'S';
-    *(volatile uint8_t *)0xEE01 = 0x5A;
+    *(volatile uint8_t *)0xEC01 = 0x5A;
 
     console_putc('C');
     console_putc('P');

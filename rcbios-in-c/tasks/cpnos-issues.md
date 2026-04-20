@@ -106,20 +106,26 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
       SNIOS NTWKIN.  MAME confirms PC lands inside NDOS (PC=0xEA35)
       after the jump, SP inside CCP/NDOS region — handoff is live.
 
-- [ ] **CCP expects BSS beyond its code_len.** Observed SP=0xE399
-      after ccpstart's `LXI SP, stack`, which is past the 2560 B we
-      stream for CCP (CCP ends at 0xE1FF).  The CCP source has `ds 84`
-      (stack) and other uninit variables declared at link offsets
-      beyond the SPR-reported code_len.  cpnetldr.asm presumably
-      allocates that extra space via its RAM top calculation; our
-      netboot server only streams code_len bytes and leaves whatever
-      was there before.  Currently those bytes happen to overlap NDOS
-      at 0xE200+, so CCP's stack grows into NDOS code.  No crash yet
-      because CCP pushes less than 0x200 bytes before calling into
-      NDOS, but this is brittle.  Fix: either (a) stream code_len +
-      pad-to-module-top bytes of zeros, (b) reserve BSS via a
-      post-code memset in the client, or (c) measure CCP's true
-      extent and move NDOS_BASE up.
+- [x] **CCP BSS-past-code hypothesis was wrong (resolved).**
+      Disassembling relocated CCP at ccpstart (0xD3E9 when based at
+      0xD000) shows `LXI SP, 0xD8FF` — CCP's stack symbol is at link
+      offset 0x08FF, **inside** its 2560 B code_len.  The SP=0xE199/
+      0xE399 I was observing at finish time was NDOS's stack (NDOS
+      has `LXI SP, 0xDF9B` at its own offset 0x288), not CCP's.  So
+      CCP needs exactly code_len bytes — no extra BSS allocation.
+      NDOS has one path that does `LXI SP, 0xEBE9` (link offset
+      0x0DE9, 411 B past code_len); that stack grows *down* from
+      0xEBE9 so doesn't overshoot our BSS at 0xEC00 — safe.
+
+- [ ] **Could use a pre-linked CCP at a specific base.**  Instead of
+      runtime SPR relocation we could either (a) re-link ccp.spr
+      with LINK-80 `[Lnnnn]` to bake in an absolute base and skip
+      relocation, (b) use MOVCPM.COM to relocate a full CPM.COM
+      image to our target memory size, or (c) pick a smaller CCP
+      source (standard CP/M 2.2 is 2 KB vs CP/NET 1.2's 2.5 KB).
+      Our SPR relocator already works, so (a) is no-gain; (c) would
+      shrink CCP by 0.5 KB and recover 2 pages of TPA.  Probably
+      worth revisiting once everything else is stable.
 
 - [ ] **CCP/NDOS stuck at PC=0xEA35.**  Handoff works but control
       settles inside NDOS and never emits a console prompt.  No wire

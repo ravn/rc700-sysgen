@@ -42,8 +42,8 @@ ENTRY = 0xDB80
 _HERE = os.path.dirname(os.path.abspath(__file__))
 NDOS_SPR = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
 CCP_SPR  = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ccp.spr')
-NDOS_BASE = 0xE200
-CCP_BASE  = 0xD800
+NDOS_BASE = 0xDE00
+CCP_BASE  = 0xD000
 # FNC=4 execute target: CCP ccpstart at module offset 0.
 ENTRY_ADDR = CCP_BASE
 

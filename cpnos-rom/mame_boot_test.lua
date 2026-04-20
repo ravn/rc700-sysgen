@@ -57,26 +57,26 @@ local function finish(result, space)
 
     f:write("\n--- 0x0000 (reset vector / PROM0 shadow + BDOS vector) ---\n")
     f:write(hex_dump(space, 0x0000, 48) .. "\n")
-    -- Expected: 00=0xA5, 01=0x5A (sentinels), 05=0xC3 06 E2 (JP 0xE206 BDOS).
-    f:write(string.format("BDOS vector [0x0005..7]=%02x %02x %02x (want c3 06 e2)\n",
+    -- Expected: 00=0xA5, 01=0x5A (sentinels), 05=0xC3 06 DE (JP 0xDE06 BDOS).
+    f:write(string.format("BDOS vector [0x0005..7]=%02x %02x %02x (want c3 06 de)\n",
         space:read_u8(0x0005), space:read_u8(0x0006), space:read_u8(0x0007)))
-    f:write("\n--- 0xD800 (CCP module entry, JP ccpstart / JP ccpclear) ---\n")
-    f:write(hex_dump(space, 0xD800, 16) .. "\n")
-    f:write("\n--- 0xE200 (NDOS module entry, JP NDOSE / JP COLDST) ---\n")
-    f:write(hex_dump(space, 0xE200, 16) .. "\n")
+    f:write("\n--- 0xD000 (CCP module entry, JP ccpstart / JP ccpclear) ---\n")
+    f:write(hex_dump(space, 0xD000, 16) .. "\n")
+    f:write("\n--- 0xDE00 (NDOS module entry, JP NDOSE / JP COLDST) ---\n")
+    f:write(hex_dump(space, 0xDE00, 16) .. "\n")
     -- Module offset 0 is `c3 <lo> <hi>` with hi = base_page after reloc.
-    -- Expected entry bytes: CCP 0xD800 = c3 e9 db (JP 0xDBE9 ccpstart);
-    -- NDOS 0xE200 = c3 71 e4 (JP 0xE471 NDOSE).
-    local ccp0 = space:read_u8(0xD800)
-    local ccp2 = space:read_u8(0xD802)
-    local ndos0 = space:read_u8(0xE200)
-    local ndos2 = space:read_u8(0xE202)
+    -- Expected entry bytes: CCP 0xD000 = c3 e9 d3 (JP 0xD3E9 ccpstart);
+    -- NDOS 0xDE00 = c3 71 e0 (JP 0xE071 NDOSE).
+    local ccp0 = space:read_u8(0xD000)
+    local ccp2 = space:read_u8(0xD002)
+    local ndos0 = space:read_u8(0xDE00)
+    local ndos2 = space:read_u8(0xDE02)
     f:write(string.format(
-        "CCP[0xD800..2]=%02x ?? %02x (want c3 ?? db), "
-        .. "NDOS[0xE200..2]=%02x ?? %02x (want c3 ?? e4)\n",
+        "CCP[0xD000..2]=%02x ?? %02x (want c3 ?? d3), "
+        .. "NDOS[0xDE00..2]=%02x ?? %02x (want c3 ?? e0)\n",
         ccp0, ccp2, ndos0, ndos2))
-    f:write("\n--- 0xEE00 (breadcrumbs — moved out of CCP range in session #26) ---\n")
-    f:write(hex_dump(space, 0xEE00, 32) .. "\n")
+    f:write("\n--- 0xEC00 (breadcrumbs — moved out of CCP range in session #26) ---\n")
+    f:write(hex_dump(space, 0xEC00, 32) .. "\n")
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")
@@ -113,30 +113,30 @@ emu.register_frame_done(function()
     local b0 = space:read_u8(0x0000)
     local b1 = space:read_u8(0x0001)
     local v5 = space:read_u8(0x0005)
-    if b0 == 0xA5 and b1 == 0x5A and v5 == 0xC3 then
+    local v7 = space:read_u8(0x0007)
+    if b0 == 0xA5 and b1 == 0x5A and v5 == 0xC3 and v7 == 0xDE then
         -- Sentinels + BDOS vector in place => resident_entry ran.  Give
         -- CCP a moment to settle, then check PC is inside loaded code.
         local pc = manager.machine.devices[":maincpu"].state["PC"].value
-        local cpo = space:read_u8(0xD800)
-        local cph = space:read_u8(0xD802)
-        local npo = space:read_u8(0xE200)
-        local nph = space:read_u8(0xE202)
-        if cpo ~= 0xC3 or cph ~= 0xDB then
+        local cpo = space:read_u8(0xD000)
+        local cph = space:read_u8(0xD002)
+        local npo = space:read_u8(0xDE00)
+        local nph = space:read_u8(0xDE02)
+        if cpo ~= 0xC3 or cph ~= 0xD3 then
             finish(string.format(
-                "FAIL: CCP entry reloc mismatch at 0xD800 (got %02x .. %02x, want c3 .. db)",
+                "FAIL: CCP entry reloc mismatch at 0xD000 (got %02x .. %02x, want c3 .. d3)",
                 cpo, cph), space)
             return
         end
-        if npo ~= 0xC3 or nph ~= 0xE4 then
+        if npo ~= 0xC3 or nph ~= 0xE0 then
             finish(string.format(
-                "FAIL: NDOS entry reloc mismatch at 0xE200 (got %02x .. %02x, want c3 .. e4)",
+                "FAIL: NDOS entry reloc mismatch at 0xDE00 (got %02x .. %02x, want c3 .. e0)",
                 npo, nph), space)
             return
         end
-        -- PC should now be somewhere inside CCP (0xD800..0xE1FF),
-        -- NDOS (0xE200..0xEDFF), or BIOS resident (0xF200..0xF800).
-        -- Bail out as soon as we have a stable reading.
-        if pc >= 0xD800 and pc < 0xF800 then
+        -- PC should now be somewhere inside CCP (0xD000..), NDOS
+        -- (0xDE00..), or BIOS resident (0xF200..0xF800).
+        if pc >= 0xD000 and pc < 0xF800 then
             finish(string.format("PASS (PC=%04X in loaded region)", pc), space)
             return
         end
