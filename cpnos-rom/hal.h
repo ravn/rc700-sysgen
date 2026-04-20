@@ -1,0 +1,52 @@
+/* cpnos-rom hardware abstraction — port addresses only
+ *
+ * Port numbers match the RC702/MIC702 I/O map (see autoload-in-c/rom.h
+ * and rcbios-in-c/hal.h for the canonical list).  Reads/writes go
+ * through clang's address_space(2) which lowers to IN A,(n) / OUT (n),A.
+ */
+#ifndef CPNOS_HAL_H
+#define CPNOS_HAL_H
+
+#include <stdint.h>
+
+#define __io __attribute__((address_space(2)))
+
+static inline uint8_t _port_in(uint16_t p) {
+    return *(volatile __io uint8_t *)p;
+}
+static inline void _port_out(uint16_t p, uint8_t v) {
+    *(volatile __io uint8_t *)p = v;
+}
+
+/* Canonical RC702 port map */
+enum {
+    PORT_CRT_PARAM    = 0x00,
+    PORT_CRT_CMD      = 0x01,
+    PORT_FDC_STATUS   = 0x04,
+    PORT_FDC_DATA     = 0x05,
+    PORT_SIO_A_DATA   = 0x08,
+    PORT_SIO_B_DATA   = 0x09,
+    PORT_SIO_A_CTRL   = 0x0A,
+    PORT_SIO_B_CTRL   = 0x0B,
+    PORT_CTC0         = 0x0C,
+    PORT_CTC1         = 0x0D,
+    PORT_CTC2         = 0x0E,
+    PORT_CTC3         = 0x0F,
+    PORT_PIO_A_DATA   = 0x10,
+    PORT_PIO_B_DATA   = 0x11,
+    PORT_PIO_A_CTRL   = 0x12,
+    PORT_PIO_B_CTRL   = 0x13,
+    PORT_SW1          = 0x14,   /* DIP switch read (not ROM disable) */
+    PORT_RAMEN        = 0x18,   /* any write disables both PROMs */
+    PORT_BIB          = 0x1C
+};
+
+/* SIO RR0 bits (status register 0, shared by both channels) */
+enum {
+    SIO_RR0_RX_CHAR_AVAIL = 0x01,
+    SIO_RR0_TX_BUF_EMPTY  = 0x04,
+    SIO_RR0_DCD           = 0x08,
+    SIO_RR0_CTS           = 0x20
+};
+
+#endif /* CPNOS_HAL_H */
