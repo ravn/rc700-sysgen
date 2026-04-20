@@ -83,6 +83,7 @@ SECTIONS {
     KEEP(*(.resident.jumptable))
     KEEP(*(.resident.snios_jt))
     KEEP(*(.resident.snios))
+    KEEP(*(.resident.isr))
     *(.resident)
     *(.resident.*)
     KEEP(*(.resident.data))

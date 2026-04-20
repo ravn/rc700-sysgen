@@ -49,4 +49,19 @@ enum : uint8_t {
     SIO_RR0_CTS           = 0x20
 };
 
+/* 8237 DMA controller — channel 2 = CRT display, channel 3 = CRT attr. */
+enum : uint16_t {
+    PORT_DMA_CH2_ADDR = 0xF4,
+    PORT_DMA_CH2_WC   = 0xF5,
+    PORT_DMA_CH3_ADDR = 0xF6,
+    PORT_DMA_CH3_WC   = 0xF7,
+    PORT_DMA_CMD      = 0xF8,
+    PORT_DMA_SMSK     = 0xFA,
+    PORT_DMA_MODE     = 0xFB,
+    PORT_DMA_CLBP     = 0xFC
+};
+
+#define DISPLAY_ADDR 0xF800
+#define DISPLAY_SIZE 2000        /* 80 x 25 */
+
 #endif /* CPNOS_HAL_H */

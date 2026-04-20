@@ -75,8 +75,10 @@ local function finish(result, space)
         "CCP[0xD000..2]=%02x ?? %02x (want c3 ?? d3), "
         .. "NDOS[0xDE00..2]=%02x ?? %02x (want c3 ?? e0)\n",
         ccp0, ccp2, ndos0, ndos2))
-    f:write("\n--- 0xEC00 (breadcrumbs — moved out of CCP range in session #26) ---\n")
-    f:write(hex_dump(space, 0xEC00, 32) .. "\n")
+    f:write("\n--- 0xEC00 (breadcrumbs; 0xEC20 = CRT ISR tick counter) ---\n")
+    f:write(hex_dump(space, 0xEC00, 48) .. "\n")
+    f:write(string.format("CRT ISR ticks = %d (expect > 0 if VRTC wired)\n",
+        space:read_u8(0xEC20)))
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")

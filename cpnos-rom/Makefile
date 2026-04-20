@@ -50,7 +50,7 @@ ASFLAGS = --target=z80 -g
 
 OBJS = clang/reset.o clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
        clang/resident.o clang/cfgtbl.o clang/init.o clang/transport_sio.o \
-       clang/netboot.o clang/snios.o
+       clang/netboot.o clang/snios.o clang/isr.o
 LDSCRIPT = cpnos_rom.ld
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
@@ -74,6 +74,10 @@ clang/bios_jt.o: bios_jt.s
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 clang/snios.o: snios.s
+	@mkdir -p clang
+	$(CC) $(ASFLAGS) -c $< -o $@
+
+clang/isr.o: isr.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 

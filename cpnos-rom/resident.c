@@ -43,6 +43,10 @@ static void console_putc(uint8_t c) {
  * PROM disable unlike clang's PROM-resident __call_iy helper. */
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
 
+/* Interrupt enable helper from isr.s — deferred until after netboot
+ * and SNIOS-JT copy so CRT refresh ISR doesn't race SIO polling. */
+extern void enable_interrupts(void);
+
 /* SNIOS NTWKIN is still called from the cold path as a sanity touch of
  * CFGTBL before NDOS takes over.  SNDMSG/RCVMSG smoke calls are gone —
  * NDOS drives the wire now. */
@@ -101,6 +105,11 @@ RESIDENT
     for (uint8_t i = 0; i < 24; ++i) {
         ((volatile uint8_t *)NDOS_SNIOS_ADDR)[i] = snios_jt[i];
     }
+
+    /* Enable interrupts now that polled netboot is done and SNIOS is
+     * wired up.  CRT refresh ISR (IVT slot 2 = CTC ch2) starts firing
+     * and the display wakes up. */
+    enable_interrupts();
 
     /* Hand off to NDOS COLDST (NDOS_BASE + 3).  NDOS initializes BDOSE,
      * patches BIOS JT intercepts, configures CFGTBL from our seed, then
@@ -165,6 +174,15 @@ RESIDENT
 
 RESIDENT
 uint8_t impl_const(void) {
+    /* Heartbeat: toggle DISPLAY[79] (top-right corner) every 256
+     * CONST polls so the user can see CCP/NDOS is actually running
+     * and making BDOS calls.  Real CRT ISR-driven blink comes later
+     * once CTC ch2 firing is sorted out. */
+    static uint8_t blink_count;
+    if (++blink_count == 0) {
+        volatile uint8_t *heartbeat = (volatile uint8_t *)(DISPLAY_ADDR + 79);
+        *heartbeat = (*heartbeat == '*') ? ' ' : '*';
+    }
     return (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) ? 0xFF : 0x00;
 }
 
