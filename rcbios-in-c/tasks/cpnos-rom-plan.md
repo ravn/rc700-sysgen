@@ -158,6 +158,35 @@ faster than the server. This is a **decision point, not immediate code**.
    (~250B vs 350B) and disk stubs are smaller (~30B vs 150B). Total saving
    ~200B — puts NOS-only TPA potentially at 56KB. Remeasure after Phase 1.
 
+## Runtime vs init code split
+
+**Only the runtime-resident portion gets copied to high RAM.** Init code
+stays in ROM and runs in place, since it only executes before PROM disable.
+
+Runtime-resident (copied to high RAM, survives PROM disable):
+- BIOS jump table
+- Console I/O (CONIN/CONOUT/CONST on SIO-B)
+- SNIOS message layer (send/recv/checksum/retry)
+- `ENABLE_FDC`: FDC driver + deblocking + 512B sector buffer + DPH/DPB
+- Network DPH/CFGTBL tables
+
+Init-only (stays in ROM, discarded at PROM disable):
+- Reset vector + hardware init (SIO/CTC/PIO, IVT stub)
+- Cold-boot driver (orchestrates netboot into RAM)
+- Netboot receive loop — runs once, from ROM
+- One-time banner/status messages
+
+Cold boot order:
+1. Reset → hardware init (runs from ROM)
+2. Netboot handshake, load CCP+BDOS into RAM (ROM-resident init code)
+3. Copy resident BIOS chunk from ROM to high RAM
+4. OUT (0x18) — both PROMs disabled, init code vanishes (done with it)
+5. Finalize IVT / stack in high RAM, jump to CCP
+
+**Size impact:** Init code (~500–800B estimated) lives in the 4KB ROM
+budget but not in the runtime RAM footprint. Slight TPA uplift vs the
+earlier assumption that everything had to be copied up. Measure in Phase 1.
+
 ## Decisions locked in (end of planning session)
 
 - **Project layout**: new directory `rc700-gensmedet/cpnos-rom/` (created,
