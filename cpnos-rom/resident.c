@@ -174,16 +174,33 @@ RESIDENT
 
 RESIDENT
 uint8_t impl_const(void) {
-    /* Heartbeat: toggle DISPLAY[79] (top-right corner) every 256
-     * CONST polls so the user can see CCP/NDOS is actually running
-     * and making BDOS calls.  Real CRT ISR-driven blink comes later
-     * once CTC ch2 firing is sorted out. */
-    static uint8_t blink_count;
-    if (++blink_count == 0) {
-        volatile uint8_t *heartbeat = (volatile uint8_t *)(DISPLAY_ADDR + 79);
-        *heartbeat = (*heartbeat == '*') ? ' ' : '*';
-    }
     return (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) ? 0xFF : 0x00;
+}
+
+/* Cursor position.  Lives in .scratch_bss (default-zero at BSS init),
+ * updated by impl_conout and mirrored to the 8275 after each write. */
+static uint8_t curx;
+static uint8_t cury;
+
+RESIDENT
+static void crt_set_cursor(uint8_t x, uint8_t y) {
+    _port_out(PORT_CRT_CMD,   0x80);   /* load cursor position */
+    _port_out(PORT_CRT_PARAM, x);
+    _port_out(PORT_CRT_PARAM, y);
+}
+
+RESIDENT
+static void crt_scroll_up(void) {
+    /* Move rows 1..24 down to 0..23, clear row 24.  Each row is 80B.
+     * Straightforward copy — no LDIR intrinsic in this C file, rely
+     * on the compiler to unroll or let runtime.s helpers do it. */
+    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
+    for (uint16_t i = 0; i < 24U * 80U; ++i) {
+        d[i] = d[i + 80];
+    }
+    for (uint8_t i = 0; i < 80; ++i) {
+        d[24U * 80U + i] = ' ';
+    }
 }
 
 RESIDENT
@@ -194,7 +211,40 @@ uint8_t impl_conin(void) {
 
 RESIDENT
 void impl_conout(uint8_t c) {
+    /* Minimal CP/M CONOUT: printable chars go to the current cursor
+     * position on the 8275 display; CR resets column; LF advances
+     * row and scrolls when the bottom row overflows.  Serial mirror
+     * goes to SIO-B so the null-modem log still captures output. */
     console_putc(c);
+
+    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
+
+    if (c == '\r') {
+        curx = 0;
+    } else if (c == '\n') {
+        /* Treat LF as CR+LF so host-side text with '\n'-only line
+         * breaks renders correctly and the banner fits under 256 B. */
+        curx = 0;
+        if (cury + 1 >= 25) {
+            crt_scroll_up();
+        } else {
+            cury++;
+        }
+    } else if (c >= 0x20) {
+        d[(uint16_t)cury * 80U + curx] = c;
+        if (++curx >= 80) {
+            curx = 0;
+            if (cury + 1 >= 25) {
+                crt_scroll_up();
+            } else {
+                cury++;
+            }
+        }
+    }
+    /* Other control chars (0x08 BS, 0x09 TAB, 0x07 BEL...) ignored
+     * for now — add as CCP output demands them. */
+
+    crt_set_cursor(curx, cury);
 }
 
 RESIDENT

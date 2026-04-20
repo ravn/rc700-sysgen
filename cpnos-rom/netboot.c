@@ -32,6 +32,11 @@
 #include <stdint.h>
 #include "transport.h"
 
+/* BIOS CONOUT — resident at 0xF20C; already in RAM by the time
+ * netboot runs (cpnos_main copies the resident chunk before
+ * calling netboot).  Routes to 8275 display + SIO-B. */
+extern void impl_conout(uint8_t c);
+
 /* Message buffer offsets. */
 enum : uint8_t {
     FMT = 0, DID = 1, SID = 2, FNC = 3, SIZ = 4, DAT = 5
@@ -133,7 +138,10 @@ uint16_t netboot(void) {
         case 0:                       /* NAK — fatal */
             return 0;
 
-        case 1:                       /* load text — drop silently */
+        case 1:                       /* load text — print via CONOUT */
+            for (uint8_t i = 0; i < siz; ++i) {
+                impl_conout(msgbuf[DAT + i]);
+            }
             break;
 
         case 2:                       /* set DMA */

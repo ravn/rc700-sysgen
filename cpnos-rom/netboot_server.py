@@ -151,9 +151,19 @@ def handle(c):
         return
     client_sid = req[2]
 
-    banner = b'CPNOS  '
+    # Multi-line banner the client prints via CONOUT — verifies the
+    # CR/LF + scroll path before CCP/NDOS ever gets handed control.
+    banner = (
+        b'\n cpnos-rom netboot (session 30)\n'
+        b'\n Console via BIOS CONOUT:\n'
+        b'   - 8275 CRT (80x25, auto-init DMA)\n'
+        b'   - SIO-B null-modem (polled, 38400)\n'
+        b'\n Streaming CCP 0xd000, NDOS 0xde00\n\n'
+    )
+    # Fits in one FNC=1 frame because SIZ <= 255.
+    assert len(banner) <= 255, f"banner too long ({len(banner)} > 255)"
     msg = make_msg(0xB1, client_sid, 0x00, 1, banner)
-    print(f"-> FNC=1 (load text): {msg.hex()}")
+    print(f"-> FNC=1 (load text, {len(banner)} B)")
     c.sendall(msg)
     ack = recv_msg(c)
     print(f"<- ack: {ack.hex()}")

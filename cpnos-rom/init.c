@@ -72,16 +72,20 @@ static void init_display(void) {
     _port_out(PORT_DMA_SMSK, 0x02);   /* mask clear ch2 */
     _port_out(PORT_DMA_SMSK, 0x03);   /* mask clear ch3 */
 
-    /* Write a visible test pattern to display RAM so we can see
-     * whether the 8275 is refreshing from it.  Top row says
-     * "CPNOS ROM DISPLAY TEST" then fills the rest with spaces. */
-    static const char banner[] = "CPNOS ROM DISPLAY TEST - IF YOU SEE THIS DMA WORKS ";
-    uint16_t i;
-    for (i = 0; i < sizeof(banner) - 1 && i < DISPLAY_SIZE; ++i) {
-        ((volatile uint8_t *)DISPLAY_ADDR)[i] = banner[i];
-    }
-    for (; i < DISPLAY_SIZE; ++i) {
-        ((volatile uint8_t *)DISPLAY_ADDR)[i] = ' ';
+    /* Test pattern: each row filled with its row letter (A..Y) and
+     * the column index at the end of the line.  Instantly shows any
+     * row/column the CRT fails to render.  Format per row r (0..24):
+     *     <letter> 0 1 2 3 ... 9 A B C ... F 0 1 ...  (column-mod-16)
+     * First column is the row letter 'A'..'Y'; remaining 79 columns
+     * show column index low nibble as a hex digit. */
+    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
+    for (uint8_t row = 0; row < 25; ++row) {
+        uint16_t off = (uint16_t)row * 80U;
+        d[off] = (uint8_t)('A' + row);
+        for (uint8_t col = 1; col < 80; ++col) {
+            uint8_t nib = (uint8_t)(col & 0x0F);
+            d[off + col] = (uint8_t)(nib < 10 ? ('0' + nib) : ('A' + nib - 10));
+        }
     }
 
     /* 8275 CRT: reset + geometry + start.  Constants from
@@ -90,8 +94,10 @@ static void init_display(void) {
     _port_out(PORT_CRT_PARAM, 0x4F);
     _port_out(PORT_CRT_PARAM, 0x98);
     _port_out(PORT_CRT_PARAM, 0x7A);
-    _port_out(PORT_CRT_PARAM, 0x0D);   /* CM=00 blink reverse block,
-                                        * underline line 1, 6 lines/row */
+    _port_out(PORT_CRT_PARAM, 0x6D);   /* CM=01 blink underline,
+                                        * 7 lines/row — same as rcbios,
+                                        * which is what MAME actually
+                                        * animates as a visible blink. */
     _port_out(PORT_CRT_CMD,   0x80);
     _port_out(PORT_CRT_PARAM, 0);
     _port_out(PORT_CRT_PARAM, 0);
