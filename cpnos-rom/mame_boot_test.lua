@@ -106,15 +106,18 @@ emu.register_frame_done(function()
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
 
-    -- Session #27 gate: PROM disable + BDOS vector written + SPR modules
-    -- streamed + PC landed in CCP/NDOS/BIOS region (not wandering PROM0
-    -- shadow or no-man's-land).  No banner: with the real CCP handoff
-    -- we never fall through to the diagnostic fallback in resident_entry.
+    -- Session #28 gate: zero-page vectors written + SPR modules
+    -- streamed + PC stable (either inside loaded region OR caught by
+    -- the null-jump trap at 0x0000).  Zero page:
+    --   0x0000..0x0002 = JP 0x0000  (c3 00 00) — null-jump trap
+    --   0x0005..0x0007 = JP NDOS+6  (c3 06 de) — BDOS vector
+    -- JP at 0x0000 also doubles as PROM-disable proof.
     local b0 = space:read_u8(0x0000)
     local b1 = space:read_u8(0x0001)
+    local b2 = space:read_u8(0x0002)
     local v5 = space:read_u8(0x0005)
     local v7 = space:read_u8(0x0007)
-    if b0 == 0xA5 and b1 == 0x5A and v5 == 0xC3 and v7 == 0xDE then
+    if b0 == 0xC3 and b1 == 0x00 and b2 == 0x00 and v5 == 0xC3 and v7 == 0xDE then
         -- Sentinels + BDOS vector in place => resident_entry ran.  Give
         -- CCP a moment to settle, then check PC is inside loaded code.
         local pc = manager.machine.devices[":maincpu"].state["PC"].value

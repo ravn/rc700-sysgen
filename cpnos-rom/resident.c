@@ -37,6 +37,15 @@ extern void jump_to(uint16_t addr) __attribute__((noreturn));
  * NDOS drives the wire now. */
 extern uint8_t snios_ntwkin(void);
 
+/* SNIOS jump table from snios.s (8 x 3-byte `JP <impl>` = 24 bytes).
+ * DRI NDOS.SPR is linked expecting SNIOS's JT at NDOS_BASE + code_len
+ * (= 0xEA00 with NDOS at 0xDE00).  We copy our JT there at cold-boot
+ * so NDOS's CALL NTWKIN/CNFTBL/SNDMSG/RCVMSG/etc. reach our SNIOS
+ * implementation.  The JT entries use absolute targets, so the copy
+ * works from either location. */
+extern uint8_t snios_jt[24];
+#define NDOS_SNIOS_ADDR  0xEA00  /* NDOS_BASE(0xDE00) + NDOS code_len(0xC00) */
+
 RESIDENT
 [[noreturn]] void resident_entry(uint16_t entry) {
     /* We are at VMA 0xF200 (RAM), PROMs still mapped at 0x0000/0x2000.
@@ -44,16 +53,21 @@ RESIDENT
      * are RAM.  Safe because we execute from 0xF200+. */
     disable_proms();
 
-    /* PROM-disable proof sentinels (checked by MAME probe). */
-    *(volatile uint8_t *)0x0000 = 0xA5;
-    *(volatile uint8_t *)0x0001 = 0x5A;
-
-    /* BDOS vector at 0x0005: `JP <NDOS_BASE+6>`.  NDOS's COLDST reads
-     * BDOS+1 (the 16-bit operand of this JP) and caches it as BDOSE for
-     * internal use — see ndos.asm:196.  The +6 offset lands on NDOS's
-     * second `JMP NDOSE` block (ndos.asm:86-88), matching CP/M's
-     * "BDOS entry = module_base + 6" convention that leaves a 6-byte
-     * preamble for the self-JPs and version/ID bytes. */
+    /* Zero-page setup.  Session #28 debug aid: **self-loop at 0x0000**
+     * (`JP 0x0000` = C3 00 00) so any stray null jump stays visible
+     * at PC=0x0000 instead of walking forward through NOPs and doing
+     * unpredictable damage.  CP/M normally puts `JP _bios_wboot` here,
+     * but until null-jump hazards are root-caused the trap is more
+     * valuable than the CP/M convention.  NDOS's COLDST reads TOP+1
+     * (= lo byte of this JP's operand = 0x00); it will compute a bogus
+     * BIOS base and mis-walk the BIOS JT, but that's fine for now —
+     * we want to see where it lands, not pretend everything works.
+     *
+     * The JP opcode at 0x0000 also doubles as the PROM-disable proof
+     * (would read back 0xF3 if PROM were still mapped). */
+    *(volatile uint8_t *)0x0000 = 0xC3;     /* JP opcode */
+    *(volatile uint8_t *)0x0001 = 0x00;     /* lo(0x0000) — self-loop */
+    *(volatile uint8_t *)0x0002 = 0x00;     /* hi(0x0000) */
     *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
     *(volatile uint8_t *)0x0006 = 0x06;     /* lo(NDOS_BASE + 6) */
     *(volatile uint8_t *)0x0007 = 0xDE;     /* hi(NDOS_BASE + 6) — NDOS at 0xDE00 */
@@ -62,14 +76,24 @@ RESIDENT
      * own NTWKIN may re-run this; that's fine (idempotent). */
     snios_ntwkin();
 
-    /* Hand off to CCP ccpstart (or whatever netboot delivered via
-     * FNC=4).  CCP's prologue does `LXI SP,stack` so it resets SP;
-     * we don't need to preserve our stack.  Never returns.
+    /* Copy our SNIOS jump table to the address where DRI NDOS.SPR
+     * expects SNIOS to live (NDOS + code_len).  Session #28 root
+     * cause of the null-loop: without this, NDOS's CALL NTWKIN goes
+     * to zero bytes and eventually dereferences BDOSE while BDOSE
+     * is still uninitialised. */
+    for (uint8_t i = 0; i < 24; ++i) {
+        ((volatile uint8_t *)NDOS_SNIOS_ADDR)[i] = snios_jt[i];
+    }
+
+    /* Hand off to NDOS COLDST (NDOS_BASE + 3).  NDOS initializes BDOSE,
+     * patches BIOS JT intercepts, configures CFGTBL from our seed, then
+     * JMPs NWBOOT which re-loads CCP.SPR from the server via SNIOS LOAD
+     * and transfers control to CCP ccpstart.  Never returns.
      *
-     * Fallback: if entry is zero (no netboot), fall through to the
+     * Fallback: if no netboot (entry==0), fall through to the
      * diagnostic banner — useful when running without a server. */
     if (entry != 0) {
-        jump_to(entry);
+        jump_to(0xDE03);
     }
 
     /* Fallback diagnostic banner (reached only when entry==0). */

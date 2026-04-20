@@ -97,6 +97,46 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 
 ## Session 24 (SNIOS port) — new issues
 
+## Session 28 (NDOS hang diagnosis) — new issues
+
+- [x] **Null-jump trap at 0x0000 (resolved as diagnostic).**  resident_entry
+      now writes `JP 0x0000` (`c3 00 00`) at 0x0000 instead of the CP/M
+      `JP _bios_wboot` convention.  Turns any stray null jump into a
+      stable `PC=0x0000` so the hang is visible in the MAME probe.
+      Will switch to the real `JP _bios_wboot` once SNIOS wiring below
+      is resolved and NDOS can be trusted not to dereference nulls.
+
+- [x] **NDOS expects SNIOS.SPR immediately after NDOS (root cause).**
+      The DRI NDOS.SPR is linked so SNIOS's jump table lives at
+      NDOS_BASE + 0xC00 (= code_len).  With NDOS at 0xDE00, that's
+      **0xEA00**.  NDOS's `CALL NTWKIN` in COLDST goes there first;
+      on our build that address is zero (NDOS BSS region), so the call
+      executes NOPs forward into garbage and NDOS unwinds into a
+      `JP (HL)` with HL = BDOSE = 0 → null-loop.  The
+      uninitialised-BDOSE symptom was downstream.
+
+- [x] **Wire SNIOS jump table at 0xEA00 (resolved).**  resident_entry
+      now memcpys the 24 bytes of `snios_jt` from its BIOS-resident
+      address (0xF233) to 0xEA00 right before `jump_to(0xDE03)`.  NDOS
+      COLDST now progresses past NTWKIN, through the TLBIOS walk,
+      CNFTBL, BDOSE setup, and into NWBOOT.  New hang appears further
+      downstream (see below) — baseline null-loop gone.
+
+- [ ] **CCP/NDOS warm-boot loop at 0xD3F5.**  After NDOS COLDST reaches
+      NWBOOT, execution lands in CCP at `ccpstart+0xC` (0xD3F5, the
+      `call setuser` site).  PC cycles: `D3F5: call D13A` → ... →
+      returns → somehow re-enters ccpstart → `lxi sp,stack` → `push b`
+      → A/HL differ each pass so some state is flowing.  Likely causes:
+      (a) NWBOOT's `call LOAD` is succeeding/failing in a way that
+          GOCCP re-enters ccpstart each time,
+      (b) A BDOS call inside setuser triggers warm-boot via CP/M
+          function 0 (reset),
+      (c) NDOS's MSGBUF / CFGTBL isn't initialised the way CCP expects.
+      Next step: trace at higher granularity from the first D3F5 hit
+      (line 805493) to see the exact path back to ccpstart.  Also:
+      server-side should start listening for SNIOS SNDMSG after FNC=4,
+      because GOCCP → LOAD path is expected to hit the wire.
+
 ## Session 27 (real CCP cold-boot handoff) — new issues
 
 - [x] **JP (HL) trampoline for real CCP handoff (resolved).**  Added
