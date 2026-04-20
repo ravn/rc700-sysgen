@@ -17,12 +17,32 @@
 **Follow-ups:**
 - [ ] Use `RXTHLO=240` for RX ring hysteresis (currently unused —
       reassert happens only at buffer-empty, which causes long pauses).
-- [ ] Retest session-22 CP/NET bring-up: the RTS-clobber fix may have
-      removed whatever was triggering the "4 bytes then hang" pattern.
-      If it still hangs, the remaining cause lives elsewhere (SNIOS
-      reentrancy, CFGTBL, etc.).
+- [x] Retest session-22 CP/NET bring-up: RC702 → z80pack MP/M now
+      works end-to-end (LOGIN PASSWORD → NETWORK H:=B: → DIR H:).
+      Root cause turned out to be clang BIOS codegen clobbering D/E
+      while SNIOS's `MSGOUT` expected E to survive `B$PUNCH`; fix
+      committed in SNIOS `SENDBY` (41bc0fa).
 - [ ] Make the integration test exit on completion-marker detection
       instead of a 30 s wall-clock kill.
+- [ ] **CP/NET + MP/M on physical hardware.**  End-to-end validate
+      the same `CPNETLDR → LOGIN PASSWORD → NETWORK H:=B: → DIR H:`
+      sequence on a real RC702 talking to an external MP/M server
+      over RS-232 SIO-A.  Needs: working cable, physical MP/M server
+      (or FT2232H + laptop-hosted z80pack), and tests/ harness.
+- [ ] **Deeper CP/NET verification against MP/M** — the existing
+      autotest's PIP round-trip (`HLCOPY2.TXT`, `BIGFILE.DAT`) tests
+      a file that only exists on the homegrown `server.py` drive,
+      not on MP/M's B:.  Needs an MP/M-side fixture.  Options:
+      - (a) CHKSUM round-trip: local file → `PIP H:TEST=A:TEST` →
+        `PIP A:BACK=H:TEST` → compare checksums via `CHKSUM.COM`
+        on both A: copies.  All automatic, no pre-computed
+        reference needed.
+      - (b) Assemble a small CP/M `.ASM` source placed on MP/M's B:,
+        write `.HEX` back to H:, compare against a pre-computed
+        reference HEX.  Requires build-time step to produce ref.
+      - (c) Use the existing MP/M files on H: (`NETWRKIF.ASM`,
+        `BNKXIOS.MAC`, `SERVER.RSP`): copy to A: via `PIP`, run
+        `CHKSUM.COM` locally and server-side, compare.
 
 ## Session 17 (Apr 2026) — SIO-B shadow console + baud rate investigation
 
