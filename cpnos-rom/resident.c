@@ -30,10 +30,17 @@ static void console_putc(uint8_t c) {
 
 typedef void (*fn_t)(void);
 
-/* SNIOS jump table, published by snios.s.  Declared as a function so
- * clang emits a plain CALL — clang Z80 prepends one underscore, which
- * matches snios.s's `_snios_ntwkin` symbol. */
+/* SNIOS entries.  `snios_sndmsg_c` is the C-ABI wrapper (HL arg)
+ * around the DRI SNDMSG (BC arg) — see snios.s for the wrapper. */
 extern uint8_t snios_ntwkin(void);
+extern uint8_t snios_sndmsg_c(void *msgbuf);
+
+/* Pointer to the outbound message area inside CFGTBL.  Layout is
+ * fixed by cfgtbl.c (FMT at +39..MSGBUF at +45 of the CP/NET CFGTBL
+ * struct); declared here as an extern byte to avoid dragging the
+ * struct definition into this file. */
+extern uint8_t cfgtbl[];
+#define MSGTX (&cfgtbl[39])
 
 RESIDENT
 [[noreturn]] void resident_entry(uint16_t entry) {
@@ -56,6 +63,13 @@ RESIDENT
      * checks CFGTBL.netst == 0x10.  No wire traffic — this is a glue
      * test for SNIOS → transport → CFGTBL. */
     snios_ntwkin();
+
+    /* Send one LIST-device message via the DRI framing — exercises
+     * the full SNDMSG path (ENQ/ACK/SOH/HCS/STX/ETX/CKS/EOT/ACK).
+     * CFGTBL seeds FMT=0, DID=0, FNC=5, SIZ=0, DAT=[0]; SNDMSG fills
+     * in SID from CFGTBL+1.  Result code in A (0=OK, 0xFF=error)
+     * parked in a BSS byte so the MAME probe can inspect it. */
+    *(volatile uint8_t *)0xE210 = snios_sndmsg_c(MSGTX);
 
     /* If netboot delivered an entry point, hand off to it.  From here
      * on, the ROM is gone; we can't go back. */

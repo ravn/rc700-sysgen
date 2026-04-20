@@ -80,6 +80,26 @@ _snios_ntwkdn:  jp NTWKDN       ; +15 NETWORK SHUTDOWN
 ;----------------------------------------------------------------
     .section .resident.snios,"ax",@progbits
 
+;----------------------------------------------------------------
+;  C-callable wrappers.
+;
+;  The SNIOS jump table is the DRI ABI — NDOS passes the message
+;  buffer pointer in BC.  cpnos-rom C code uses sdcccall(1), which
+;  passes the first 16-bit arg in HL.  These wrappers bridge the
+;  two conventions without disturbing the DRI-facing entries.
+;----------------------------------------------------------------
+    .global _snios_sndmsg_c
+_snios_sndmsg_c:
+    ld   b, h
+    ld   c, l
+    jp   SNDMSG
+
+    .global _snios_rcvmsg_c
+_snios_rcvmsg_c:
+    ld   b, h
+    ld   c, l
+    jp   RCVMSG
+
 ;================================================
 ;= CHARACTER I/O WRAPPERS                       =
 ;= Direct calls into _transport_* (SIO-A)        =

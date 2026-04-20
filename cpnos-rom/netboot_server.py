@@ -91,10 +91,16 @@ def handle(c):
         ack = recv_msg(c)
         print(f"<- ack: {ack.hex()}")
 
-    # After FNC=4, the client executes loaded code and may still write
-    # console bytes (or garbage) on SIO-A.  Keep the socket open and drain
-    # it so MAME doesn't get SIGPIPE when the Z80 writes post-netboot.
-    print("post-FNC=4: draining client writes until MAME closes")
+    # After FNC=4, the client jumps to 0xDF80 (RET) and falls back into
+    # resident_entry, which calls NTWKIN then SNDMSG.  Switch to the
+    # DRI SNIOS framing and service one SNDMSG round-trip.
+    try:
+        sniosro_handshake(c)
+    except Exception as e:
+        print(f"  snios exchange error: {e}")
+
+    # Drain any remaining post-handshake bytes so MAME doesn't SIGPIPE.
+    print("post-SNIOS: draining client writes until MAME closes")
     c.settimeout(2.0)
     try:
         while True:
@@ -104,7 +110,6 @@ def handle(c):
             print(f"<- drain: {data.hex()}")
     except (socket.timeout, TimeoutError):
         print("(drain timeout, staying open)")
-    # Don't close; let MAME close its end when it exits.
     while True:
         try:
             if not c.recv(256):
@@ -113,6 +118,72 @@ def handle(c):
             pass
         except Exception:
             break
+
+
+# ---- DRI SNIOS framing (master side) --------------------------------
+SOH, STX, ETX, EOT, ENQ, ACK, NAK = 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x15
+
+
+def recv_byte(c, timeout=5.0):
+    c.settimeout(timeout)
+    b = c.recv(1)
+    if not b:
+        raise EOFError("client closed during SNIOS exchange")
+    return b[0]
+
+
+def sniosro_handshake(c):
+    """Service one SNDMSG from the client per DRI framing.
+
+    Protocol (client=slave, we=master):
+      <- ENQ          ; client announces a message
+      -> ACK
+      <- SOH hdr[5] HCS   ; 2's-complement checksum over SOH+hdr
+      -> ACK
+      <- STX dat[n] ETX CKS EOT
+      -> ACK          ; final ack
+    """
+    print("SNIOS: waiting for ENQ")
+    c.settimeout(10.0)
+    b = recv_byte(c, timeout=10.0)
+    if b != ENQ:
+        print(f"  [warn] expected ENQ (0x05), got 0x{b:02x}")
+        return
+    print(f"<- ENQ")
+    c.sendall(bytes([ACK]))
+    print("-> ACK")
+
+    soh = recv_byte(c)
+    if soh != SOH:
+        print(f"  [warn] expected SOH, got 0x{soh:02x}")
+        return
+    hdr = bytes([recv_byte(c) for _ in range(5)])  # FMT DID SID FNC SIZ
+    hcs = recv_byte(c)
+    run = (soh + sum(hdr) + hcs) & 0xFF
+    status = "ok" if run == 0 else f"BAD (sum={run:02x})"
+    print(f"<- SOH {hdr.hex()} HCS=0x{hcs:02x} [{status}]")
+    print(f"   FMT={hdr[0]:02x} DID={hdr[1]:02x} SID={hdr[2]:02x} "
+          f"FNC={hdr[3]:02x} SIZ={hdr[4]}")
+    c.sendall(bytes([ACK]))
+    print("-> ACK")
+
+    stx = recv_byte(c)
+    if stx != STX:
+        print(f"  [warn] expected STX, got 0x{stx:02x}")
+        return
+    n = hdr[4] + 1                       # SIZ=0 means 1 byte (DRI)
+    data = bytes([recv_byte(c) for _ in range(n)])
+    etx = recv_byte(c)
+    cks = recv_byte(c)
+    eot = recv_byte(c)
+    run = (stx + sum(data) + etx + cks) & 0xFF
+    status = "ok" if run == 0 else f"BAD (sum={run:02x})"
+    eot_status = "ok" if eot == EOT else f"got 0x{eot:02x}"
+    print(f"<- STX DAT({n})={data.hex()} ETX CKS=0x{cks:02x} "
+          f"EOT [{status}, EOT {eot_status}]")
+    c.sendall(bytes([ACK]))
+    print("-> ACK (final)")
+    print("SNIOS: SNDMSG round-trip complete")
 
 
 def run(port):
