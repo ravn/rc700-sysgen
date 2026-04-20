@@ -59,7 +59,12 @@ SECTIONS {
     __resident_end = .;
   } > RESIDENT
 
+  __resident_lma = LOADADDR(.resident);
   __resident_size = __resident_end - __resident_start;
+
+  /* Guard: resident code must not overflow the RESIDENT region (below
+     display RAM at 0xF800; really below conv_tables at 0xF680). */
+  ASSERT(__resident_end <= 0xF680, "Resident chunk overflowed into conv_tables/display!")
 
   .scratch_bss (NOLOAD) : {
     *(.bss*)

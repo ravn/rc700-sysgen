@@ -183,6 +183,17 @@ Cold boot order:
 4. OUT (0x18) — both PROMs disabled, init code vanishes (done with it)
 5. Finalize IVT / stack in high RAM, jump to CCP
 
+### Single-pass relocation (vs current autoloader)
+
+The current ROA375 autoloader does a **two-pass** relocation: PROM0 code
+first copies itself to 0x7000 in RAM, then that stage-two code reads
+Track 0 into 0x0000 under the PROM, then disables the PROM. We do a
+**single pass**: init code runs in place from PROM0; netboot writes
+CCP+BDOS directly to their final RAM addresses (0xDF80+); resident BIOS
+chunk copies once from ROM LMA to RAM VMA 0xF580. No intermediate hop.
+This is feasible because we don't need to write RAM at 0x0000-0x07FF
+(PROM-shadowed) during boot — we netboot to high RAM only.
+
 **Size impact:** Init code (~500–800B estimated) lives in the 4KB ROM
 budget but not in the runtime RAM footprint. Slight TPA uplift vs the
 earlier assumption that everything had to be copied up. Measure in Phase 1.
