@@ -29,20 +29,34 @@
       sequence on a real RC702 talking to an external MP/M server
       over RS-232 SIO-A.  Needs: working cable, physical MP/M server
       (or FT2232H + laptop-hosted z80pack), and tests/ harness.
-- [ ] **Deeper CP/NET verification against MP/M** — the existing
-      autotest's PIP round-trip (`HLCOPY2.TXT`, `BIGFILE.DAT`) tests
-      a file that only exists on the homegrown `server.py` drive,
-      not on MP/M's B:.  Needs an MP/M-side fixture.  Options:
-      - (a) CHKSUM round-trip: local file → `PIP H:TEST=A:TEST` →
-        `PIP A:BACK=H:TEST` → compare checksums via `CHKSUM.COM`
-        on both A: copies.  All automatic, no pre-computed
-        reference needed.
-      - (b) Assemble a small CP/M `.ASM` source placed on MP/M's B:,
-        write `.HEX` back to H:, compare against a pre-computed
-        reference HEX.  Requires build-time step to produce ref.
-      - (c) Use the existing MP/M files on H: (`NETWRKIF.ASM`,
-        `BNKXIOS.MAC`, `SERVER.RSP`): copy to A: via `PIP`, run
-        `CHKSUM.COM` locally and server-side, compare.
+- [x] **Deeper CP/NET verification against MP/M** — done via
+      `cpnet/chksum_roundtrip_test.sh`: deterministic 2 KB fixture +
+      PIPNET push-and-pull + three-way CHKSUM comparison against a
+      pre-computed reference (0xFC00).  End-to-end byte-exact.
+
+      Key finding: **use `PIPNET.COM`, not plain `PIP`, against MP/M.**
+      Stock CP/M 2.2 PIP clobbers MP/M's FCB reserved bytes,
+      triggering a Close Checksum Error (NDOS Err 06 per DRI CP/NET
+      manual §3.2.1).  PIPNET from `cpnet-z80/dist/` is the
+      CP/NET-aware replacement.  See ravn/rc700-gensmedet#15 (closed)
+      for the write-up.
+
+- [ ] **No CP/NET "remote login" feature exists** — worth noting
+      for context.  CP/NET is one-way: requester uses server's
+      devices.  `NETWORK CON:=n` maps the *requester's* CON: to the
+      *server's* console hardware — the opposite of remote shell.
+      If a MP/M-shell-from-RC702 experience is wanted, it would
+      need a custom terminal emulator built on BDOS 66/67 (Send/
+      Receive Message), or an RC702-side telnet client.  Not
+      planned; record here so future readers don't re-investigate.
+
+- [ ] **Round-trip test should use its own MAME-exit marker**
+      instead of the 90 s wall-clock kill.  When CP/NET is
+      healthy, the $$$.SUB sequence completes in ~15 s — the
+      harness leaves MAME idling for 75 s afterward.  A simple
+      "done sentinel" (e.g. writing a magic byte to a known
+      memory address from the last SUB command, detected by
+      the Lua tap) would tighten that up.
 
 ## Session 17 (Apr 2026) — SIO-B shadow console + baud rate investigation
 

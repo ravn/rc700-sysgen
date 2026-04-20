@@ -99,14 +99,67 @@ Test harness:
 - SDLC / sync mode (sessions 18–21): the fixes are in async TX paths
   only; standalone SDLC programs re-initialize the SIO from scratch.
   No retest needed.
-- Session-22 CP/NET bring-up hang: the general RTS-clobber bug I fixed
-  here *could* have been a contributor (SNIOS does many short PUNCHes),
-  but re-running CP/NET end-to-end is its own task.  If it still hangs,
-  the present work at least removes one variable.
 
 ## Related MAME PR-track state
 
-- `ravn/mame#5` (SIO TX hang) was filed from session 22 findings.  The
-  root cause is **partly in the BIOS** (fixed here) and **partly in
-  MAME** (rs232b FLOW_CONTROL default — also fixed here).  The MAME
-  fork change is staged in `~/git/mame` on branch `master`.
+- `ravn/mame@1f2d4d000db`: rs232b FLOW_CONTROL default 0x00 → 0x01
+  (symmetric to rs232a), so null_modem honors BIOS RTS-B.
+- `ravn/mame#5` (SIO TX hang from session 22) is subsumed by the
+  combined BIOS + rs232b fix and may be closed.
+
+## Follow-up investigation — CP/NET vs MP/M (same session)
+
+After the RTS fix shipped, retested CP/NET bring-up (which had been
+wedged since session 22).  Trajectory:
+
+1. **RTS fix alone was not sufficient.**  RC702 → MP/M still hung
+   with `LOGIN PASSWORD`; SIO-A trace showed SNIOS sending `SOH + 2
+   header bytes` then aborting mid-frame, retrying ENQ, server
+   silent thereafter.
+
+2. **Root cause: SDCC-vs-clang register-allocation mismatch.**  SNIOS's
+   `MSGOUT` loop holds its byte counter in E across
+   `CALL NETOUT → JP SENDBY → JP B$PUNCH`.  Clang's `bios_punch_body`
+   uses D/E as scratch (saves the char in D and `iobyte_pun` in E
+   before dispatching).  SDCC's codegen for the same function
+   happened not to touch DE, so the bug lay dormant with SDCC.
+   CP/M 2.2 BIOS spec requires **no** register preservation, so the
+   shim was technically correct.
+
+3. **Fix landed in SNIOS, not the BIOS.**  `SENDBY` now pushes/pops
+   HL+DE around `B$PUNCH`, mirroring `RECVBY`'s existing pattern.
+   `cpnet/snios.asm` (commit 41bc0fa).  BIOS shims stay spec-literal.
+
+4. **End-to-end works against z80pack MP/M**:
+   `CPNETLDR → LOGIN PASSWORD → NETWORK H:=B: → DIR H:` all succeed,
+   MP/M's B: directory listed on CRT.  Closed three symptom issues
+   (#12 NETWORK slow, #13 per-byte latency, #14 mid-header abort) —
+   same root cause.
+
+5. **File-write to MP/M: must use PIPNET.**  Stock `PIP.COM` from
+   the RC702 boot disk triggers `NDOS Err 06, Func 10` = "Close
+   Checksum Error" (per DRI CP/NET Ref Manual §3.2.1).  MP/M
+   maintains an FCB checksum over reserved bytes; CP/M 2.2's PIP
+   clobbers those bytes between F_MAKE and F_CLOSE.  Fix: use
+   `PIPNET.COM` from `cpnet-z80/dist/` — the CP/NET-aware PIP.
+   Closed #15 with the write-up.
+
+6. **`cpnet-z80` added as a submodule** at workspace root (`~/z80`):
+   read-only reference impl + DRI CP/NET manual.  Decoding the
+   extended error codes and discovering PIPNET would have been
+   far slower without it.
+
+7. **New regression test: `cpnet/chksum_roundtrip_test.sh`.**
+   2 KB deterministic fixture, PIPNET-based round-trip, three-way
+   CHKSUM verification against pre-computed reference.  End-to-end
+   byte-exact; PASS/FAIL output suitable for CI.
+
+## Questions investigated and answered
+
+- *Does CP/NET provide a "remote login to MP/M" feature?*  No.  The
+  architecture is one-way (requester uses server's devices).  The
+  `NETWORK CON:=n` command maps the *requester's* CON: onto the
+  *server's* console hardware, which is the opposite of a remote
+  shell.  DRI CP/NET Ref Manual §3.2.7 is explicit; no dedicated
+  utility in `cpnet-z80/dist/` provides one either.  Recorded in
+  todo.md.
