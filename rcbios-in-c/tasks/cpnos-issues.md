@@ -3,6 +3,20 @@
 Concrete items surfaced during the planning sessions that need action before
 or during implementation. Live next to `cpnos-rom-plan.md`.
 
+## MAME observations (Phase 1 work-in-progress)
+
+- **Display RAM at 0xF800 is not visible until CRT + interrupts are
+  enabled.** Writing bytes via `LD ($F800),A` from ROM code did not
+  produce readable bytes at 0xF800 in the MAME boot test — either MAME
+  emulates display RAM as CRT-DMA-gated (reads return 0 while CRT is
+  idle) or some other interaction keeps our writes invisible.  Either
+  way, the MVP path is: enable IVT + PIO + DMA + 8275 CRT + interrupts
+  in init_hardware before expecting display-based test oracles to work.
+- **Alternative test oracles while CRT is still offline:** SIO-B TxD
+  toggles (capture via MAME null-modem image), MAME debugger memory
+  dump of 0xF800 after a known delay, or a software-maintained "alive"
+  byte at a non-display RAM address polled by the lua script.
+
 ## Verification tasks (before Phase 1 code)
 
 - [ ] **Confirm port 0x14 is DIP switch on MIC702.** User stated this is

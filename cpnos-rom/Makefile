@@ -109,6 +109,29 @@ cpnos-burn: clang/cpnos.bin
 cpnos-disasm: clang/cpnos.elf
 	$(OBJDUMP) -d --triple=z80 $<
 
+# ---- MAME boot test ----------------------------------------------
+
+MAME = /Users/ravn/git/mame
+MAME_PROM0 = $(MAME)/roms/rc702/roa375.ic66
+
+# Install prom0.bin into MAME (4KB slot, pad with 0xFF).  PROM1 at
+# 0x2000 in MAME is 0xFF by default — fine for Phase 1 where our
+# PROM1 is unused.
+cpnos-install: clang/cpnos.bin
+	@P0=$$(wc -c < clang/prom0.bin | tr -d ' '); \
+	 { cat clang/prom0.bin; perl -e "print \"\\xff\" x (4096 - $$P0)"; } \
+	   > clang/prom0_padded.ic66
+	cp clang/prom0_padded.ic66 $(MAME_PROM0)
+	@echo "installed cpnos prom0 -> $(MAME_PROM0)"
+
+cpnos-mame: cpnos-install
+	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 8 \
+	    -autoboot_script mame_boot_test.lua
+	@cat /tmp/cpnos_boot_result.txt
+	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
+
 # Source-interleaved disassembly (requires -g, enabled in CFLAGS).
 # The -S flag interleaves the original C lines with emitted Z80 asm.
 cpnos-lis: clang/cpnos.elf
