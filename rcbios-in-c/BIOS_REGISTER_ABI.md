@@ -105,39 +105,19 @@ stacks was unnecessarily conservative — the current implementation
 (a 1-byte `ld a, c` shim falling through to a normal C function) is
 correct and saves ~2.5M cycles during TYPE FILEX.PRN.
 
-## Exception: serial I/O shims preserve BC/DE/HL
+## Note: SNIOS's send path used to assume DE survives BIOS PUNCH
 
-`bios_punch_shim`, `bios_reader_shim`, and `bios_reads_shim` in
-`clang/bios_shims.s` **do** push/pop BC/DE/HL around the body call.
-This departs from the CP/M 2.2 spec in the conservative direction
-(we preserve more than required) and costs a few T-states per call.
+`cpnet/snios.asm`'s `MSGOUT` loop holds its byte counter in E and
+its running checksum in D, and historically assumed both would
+survive the call chain `CALL NETOUT → JP SENDBY → JP B$PUNCH`.
+That was an SDCC-specific coincidence: SDCC's codegen for
+`bios_punch_body` didn't happen to use DE, so `MSGOUT` worked.
+Clang *does* use D/E as scratch (saves the byte in D and the
+`iobyte_pun` nibble in E), which exposed the latent SNIOS bug —
+`MSGOUT` exited after 1–2 iterations, CP/NET frames aborted
+mid-header, and LOGIN against MP/M hung.
 
-Why: **SNIOS** (the CP/NET slave-side serial handler in
-`cpnet/snios.asm`) assumes DE survives across `CALL SENDBY → JP
-B$PUNCH`.  Its `MSGOUT` loop holds the byte counter in E:
-
-```
-MSGOUT: LD D, 0
-        CALL PREOUT
-MSOLP:  LD C, (HL)
-        INC HL
-        CALL NETOUT      ; tail-chains to JP B$PUNCH
-        DEC E            ; <- relies on E surviving BIOS PUNCH
-        JR  NZ, MSOLP
-```
-
-Clang's `bios_punch_body` uses D and E as scratch (saves the byte
-in D and `iobyte_pun` in E before the switch dispatch), so without
-DE preservation SNIOS's loop counter is trashed every byte, the
-loop exits after 1-2 iterations, and CP/NET frames abort mid-header.
-SDCC's codegen happens not to touch DE, which is why the bug lay
-dormant with SDCC.
-
-SNIOS itself is internally inconsistent here — its `RECVBY` does
-`push hl / push de` explicitly, but its send path does not.  A more
-spec-literal fix would be to patch SNIOS to guard its send path too;
-we chose to fix it on the BIOS side instead, as the pragmatic "cover
-any slave code that makes the same assumption" option.
-
-Fixed in commit 336d101 (BIOS shims preserve BC/DE/HL).  Fixes
-ravn/rc700-gensmedet#12, #13, #14.
+Resolved by making SNIOS explicit: `SENDBY` now pushes/pops DE
+around `CALL B$PUNCH`, mirroring what `RECVBY` already did for
+its call path.  BIOS shims remain spec-literal per the summary
+above.  Fixes ravn/rc700-gensmedet#12, #13, #14.

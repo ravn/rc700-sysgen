@@ -97,9 +97,16 @@ RETCNT:	DS	1		; RETRY COUNTER
 ;= Call BIOS through standard jump table         =
 ;================================================
 
-; SENDBY - Send byte in A via BIOS PUNCH
-SENDBY:	LD	C,A
-	JP	B$PUNCH		; BIOS PUNCH WAITS FOR TX READY
+; SENDBY - Send byte in A via BIOS PUNCH.
+; Preserves: HL, DE (BIOS PUNCH may clobber them per CP/M 2.2 spec;
+; MSGOUT's loop counter in E and checksum in D must survive).
+SENDBY:	PUSH	HL
+	PUSH	DE
+	LD	C,A
+	CALL	B$PUNCH		; BIOS PUNCH WAITS FOR TX READY
+	POP	DE
+	POP	HL
+	RET
 
 ; RECVBY - Receive one byte (busy wait, no timeout)
 ; Returns: A = byte, CY clear

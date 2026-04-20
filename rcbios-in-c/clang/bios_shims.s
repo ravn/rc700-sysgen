@@ -83,17 +83,10 @@ _bios_write_shim:
 	.section .text._bios_punch_shim,"ax",@progbits
 	.globl	_bios_punch_shim
 _bios_punch_shim:
-	; Preserve BC, DE, HL per CP/M BIOS ABI.  clang's _bios_punch_body
-	; uses D and E as scratch; SNIOS's MSGOUT loop counts in E, so
-	; dropping DE here breaks mid-header sends (ravn/rc700-gensmedet#14).
-	push	bc
-	push	de
 	push	hl
 	ld	a, c
 	call	_bios_punch_body
 	pop	hl
-	pop	de
-	pop	bc
 	ret
 
 ; ================================================================
@@ -144,15 +137,9 @@ _bios_sectran_shim:
 	.section .text._bios_reader_shim,"ax",@progbits
 	.globl	_bios_reader_shim
 _bios_reader_shim:
-	; Preserve BC, DE per CP/M BIOS ABI (HL already preserved).  SNIOS
-	; relies on DE surviving across READER (see punch_shim note above).
-	push	bc
-	push	de
 	push	hl
 	call	_bios_reader_body
 	pop	hl
-	pop	de
-	pop	bc
 	ld	c, a		; CP/M expects char in both A and C
 	ret
 
@@ -163,14 +150,9 @@ _bios_reader_shim:
 	.section .text._bios_reads_shim,"ax",@progbits
 	.globl	_bios_reads_shim
 _bios_reads_shim:
-	; Preserve BC, DE per CP/M BIOS ABI.  Same reasoning as punch_shim.
-	push	bc
-	push	de
 	push	hl
 	call	_bios_reads_body
 	pop	hl
-	pop	de
-	pop	bc
 	ld	c, a
 	ret
 
