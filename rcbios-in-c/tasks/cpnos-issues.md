@@ -43,6 +43,19 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 
 ## Server-side work
 
+- [x] **Stream real NDOS.SPR (session #25).** `netboot_server.py` now
+      reads `cpnet-z80/dist/ndos.spr`, applies DRI SPR page-relocation
+      (128B header -> code_len body -> code_len/8 MSB-first bitmap,
+      add base_page to flagged bytes) to NDOS_BASE=0xE300, and streams
+      24x 128B blocks via one FNC=2 + N FNC=3 pairs.  MAME verifies
+      relocation correctness at 0xE702/0xE705 (link-relative 0x01/0x05
+      -> 0xE4/0xE8 after +base_page).  CCP still pending.
+
+- [ ] **Stream real CCP.SPR.**  Same pattern as NDOS.  ccp.spr
+      code_len=0x0A00 (2.5KB) -> CCP_BASE=0xD900, 20 blocks.  Needed
+      before the FNC=4 execute can hand off to real CCP instead of
+      the current RET stub at 0xDB80.
+
 - [ ] **z80pack cpmsim MP/M netboot handler.** Extend the MP/M master
       running on z80pack to respond to FMT=0xB0/FNC=0 boot request with
       the CP/NOS load sequence (FNC=1/2/3/4). Reference:
@@ -81,6 +94,50 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 - [ ] **Asm ↔ C interop for SNIOS/netboot.** Porting `snios.asm` and
       `netboot.asm` means clang must link DRI-style asm. Check
       `autoload-in-c/` for precedent — current autoloader does C+asm mix.
+
+## Session 24 (SNIOS port) — new issues
+
+## Session 25 (NDOS SPR streaming) — new issues
+
+- [ ] **CCP streaming + real cold-boot handoff.**  NDOS is in RAM at
+      0xE300 but nothing calls it.  Next steps: (a) relocate+stream
+      ccp.spr to 0xD900, (b) change FNC=4 execute from the RET stub
+      at 0xDB80 to the CCP cold-start entry, (c) wire NDOS's BIOS
+      vector back-pointer so NDOS can find BIOS entries (typically
+      BIOS base is passed in HL at CCP entry, or baked into NDOS at
+      link time via a fixed address).  Decide which convention the
+      cpnet-z80 NDOS expects — inspect `cpnet-z80/dist/src/ndos.asm`.
+
+- [ ] **SPR relocator coverage.**  Current Python relocator asserts
+      page-alignment + bitmap length but doesn't handle data_len>0
+      (both ndos.spr and ccp.spr have data_len=0).  Add a path for
+      modules with pre-initialised data when we stream those later
+      (e.g. future FDOS.SPR).  Small: copy data_len bytes unchanged
+      immediately after code.
+
+- [x] **NDOS entry discovery (resolved).**  Inspected
+      `cpnet-z80/dist/src/ndos.asm:80-88`.  Module starts at `org 0`
+      with `NDOSTP: JMP NDOSE` (BDOS dispatch) at offset 0 followed
+      by `JMP COLDST` at offset 3.  After our relocation to 0xE300:
+      **0xE300 = BDOS entry**, **0xE303 = COLDST**.  CP/M BDOS vector
+      at 0x0005 should be `JP 0xE303` (the +3 half-convention where
+      the low byte of the BDOS vector doubles as the top-of-TPA
+      marker).  `BDOSE` word at NDOS+? stores a host-supplied entry —
+      need a closer read when wiring CCP handoff.
+
+- [ ] **Wire BDOS vector + CCP cold-boot handoff.**  After CCP.SPR is
+      streamed and relocated to 0xD900, cold-boot path needs to:
+      (a) write `JP 0xE303` at 0x0005 (BDOS vector);
+      (b) populate NDOS's BDOSE word with the BDOS entry;
+      (c) call CCP cold-start at 0xD900 (or 0xD900+8, convention
+          varies — cpnet CCP.ASM header will tell).
+      Currently FNC=4 executes a RET stub at 0xDB80 which is unrelated.
+
+- [ ] **Remove SNIOS smoke calls from resident_entry once real NDOS
+      runs.**  The `snios_ntwkin`/`sndmsg_c`/`rcvmsg_c` calls in
+      `resident.c:71-86` are Session #24 smoke tests; in production
+      NDOS is the caller of SNIOS.  Keep them behind a debug flag or
+      delete once NDOS drives the net traffic end-to-end.
 
 ## Session 24 (SNIOS port) — new issues
 

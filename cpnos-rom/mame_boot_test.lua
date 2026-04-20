@@ -57,8 +57,20 @@ local function finish(result, space)
 
     f:write("\n--- 0x0000 (reset vector / PROM0 shadow) ---\n")
     f:write(hex_dump(space, 0x0000, 48) .. "\n")
-    f:write("\n--- 0xDB80 (netboot FNC=3 load target / CCP base) ---\n")
+    f:write("\n--- 0xDB80 (netboot RET stub / FNC=4 execute target) ---\n")
     f:write(hex_dump(space, 0xDB80, 16) .. "\n")
+    f:write("\n--- 0xE300 (NDOS base, first 16B, expect all zero) ---\n")
+    f:write(hex_dump(space, 0xE300, 16) .. "\n")
+    f:write("\n--- 0xE700 (NDOS first non-zero, reloc'd) ---\n")
+    f:write(hex_dump(space, 0xE700, 16) .. "\n")
+    -- Assert a few relocated bytes we computed offline.  At 0xE702 and
+    -- 0xE705 the link-relative 0x01/0x05 should have become 0xE4/0xE8
+    -- after page-add of base_page=0xE3.  Proves SPR relocation + streaming.
+    local ndos_b2 = space:read_u8(0xE702)
+    local ndos_b5 = space:read_u8(0xE705)
+    f:write(string.format(
+        "NDOS[0xE702]=0x%02x (want 0xE4), NDOS[0xE705]=0x%02x (want 0xE8)\n",
+        ndos_b2, ndos_b5))
     f:write("\n--- 0xE200 (breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE200, 16) .. "\n")
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
@@ -107,6 +119,18 @@ emu.register_frame_done(function()
             finish(string.format(
                 "FAIL: PROM disable sentinel missing at 0x0000 (got %02x %02x, want a5 5a)",
                 b0, b1), space)
+            return
+        end
+        -- NDOS.SPR relocation + streaming check.  Picked because first
+        -- 0x400 bytes of NDOS are all zero so we'd pass by default —
+        -- 0xE702 and 0xE705 are the earliest bytes that distinguish a
+        -- correctly relocated image from an un-streamed one.
+        local nb2 = space:read_u8(0xE702)
+        local nb5 = space:read_u8(0xE705)
+        if nb2 ~= 0xE4 or nb5 ~= 0xE8 then
+            finish(string.format(
+                "FAIL: NDOS relocation mismatch at 0xE702/0xE705 (got %02x %02x, want e4 e8)",
+                nb2, nb5), space)
             return
         end
         finish("PASS", space)

@@ -23,16 +23,26 @@ CCP_BASE == 0xC9 as evidence that FNC=3 landed data at the right VMA.
 Usage:  python3 netboot_server.py [PORT]   (default PORT=9000)
 """
 
+import os
 import socket
 import struct
 import sys
 
 DEFAULT_PORT = 9000
-# CCP base address.  Moved from 0xDF80 to 0xDB80 in session #24 to keep
-# CCP (2KB) + NDOS (~3.5KB) below BIOS_BASE (0xF200).  Real NDOS-fit
-# will revalidate once cpnet-z80's NDOS.SPR lands in the stream.
+# CCP base address.  Moved from 0xDF80 to 0xDB80 in session #24.
+# Session #25 revisits the map with real NDOS.SPR (code_len=0x0C00=3KB):
+#   CCP  (2.5KB actual, ccp.spr code_len=0x0A00)  0xD900..0xE2FF
+#   NDOS (3KB)                                    0xE300..0xEEFF
+#   BIOS                                          0xF200..~0xF562
+# Page-aligned NDOS base required by SPR relocator (low byte must be 0).
 DMA = 0xDB80
 ENTRY = 0xDB80
+
+# Path to NDOS.SPR in the cpnet-z80 reference tree.
+NDOS_SPR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
+NDOS_BASE = 0xE300
 
 
 def checksum(msg):
@@ -67,6 +77,57 @@ def recv_msg(c):
     return msg
 
 
+def spr_relocate(spr_bytes, base_addr):
+    """Apply DRI SPR page-relocation.
+
+    Format: 128B header (byte 1..2 = code_len LE, byte 4..5 = data_len LE),
+    then code_len bytes linked at origin 0x0000, then data_len bytes,
+    then code_len/8 bytes of relocation bitmap (MSB-first, 1 bit per
+    code byte).  A set bit means "add base_page (high byte of runtime
+    base) to this code byte" — 8-bit ADD, no carry, so base must be
+    page-aligned.
+    """
+    assert base_addr & 0xFF == 0, f"SPR base 0x{base_addr:04x} not page-aligned"
+    base_page = (base_addr >> 8) & 0xFF
+    code_len = spr_bytes[1] | (spr_bytes[2] << 8)
+    data_len = spr_bytes[4] | (spr_bytes[5] << 8)
+    HDR = 128
+    code = bytearray(spr_bytes[HDR:HDR + code_len])
+    data = spr_bytes[HDR + code_len:HDR + code_len + data_len]
+    bm_off = HDR + code_len + data_len
+    bitmap = spr_bytes[bm_off:bm_off + code_len // 8]
+    assert len(bitmap) == code_len // 8, \
+        f"bitmap short: {len(bitmap)} != {code_len // 8}"
+    for i in range(code_len):
+        if (bitmap[i >> 3] >> (7 - (i & 7))) & 1:
+            code[i] = (code[i] + base_page) & 0xFF
+    return bytes(code) + data
+
+
+def stream_payload(c, client_sid, dma_base, payload, label):
+    """Write `payload` to client RAM starting at `dma_base` using
+    FNC=2 (set DMA) once, then 128B FNC=3 blocks.  Client auto-advances
+    dma after each FNC=3."""
+    msg = make_msg(0xB1, client_sid, 0x00, 2,
+                   bytes([dma_base & 0xFF, dma_base >> 8]))
+    print(f"-> FNC=2 set DMA=0x{dma_base:04x} ({label}): {msg.hex()}")
+    c.sendall(msg)
+    ack = recv_msg(c)
+    print(f"<- ack: {ack.hex()}")
+
+    CHUNK = 128
+    n_blocks = (len(payload) + CHUNK - 1) // CHUNK
+    for i in range(n_blocks):
+        block = payload[i * CHUNK:(i + 1) * CHUNK]
+        if len(block) < CHUNK:
+            block = block + b'\x00' * (CHUNK - len(block))
+        msg = make_msg(0xB1, client_sid, 0x00, 3, block)
+        print(f"-> FNC=3 block {i+1}/{n_blocks} @ 0x{dma_base + i*CHUNK:04x}: "
+              f"{block[:8].hex()}...")
+        c.sendall(msg)
+        ack = recv_msg(c)
+
+
 def handle(c):
     req = recv_msg(c)
     print(f"<- request: {req.hex()}  "
@@ -78,21 +139,30 @@ def handle(c):
     client_sid = req[2]
 
     banner = b'CPNOS  '
-    payload_block = b'\xc9' + b'\x00' * 127  # RET + zeros
-    steps = [
-        (1, banner,                 'load text'),
-        (2, bytes([DMA & 0xFF, DMA >> 8]),   'set DMA'),
-        (3, payload_block,          'load 128B'),
-        (4, bytes([ENTRY & 0xFF, ENTRY >> 8]), 'execute'),
-    ]
-    for fnc, data, desc in steps:
-        msg = make_msg(0xB1, client_sid, 0x00, fnc, data)
-        print(f"-> FNC={fnc} ({desc}): {msg.hex()}")
-        c.sendall(msg)
-        if fnc == 4:
-            break
-        ack = recv_msg(c)
-        print(f"<- ack: {ack.hex()}")
+    msg = make_msg(0xB1, client_sid, 0x00, 1, banner)
+    print(f"-> FNC=1 (load text): {msg.hex()}")
+    c.sendall(msg)
+    ack = recv_msg(c)
+    print(f"<- ack: {ack.hex()}")
+
+    # Stream relocated NDOS to NDOS_BASE.  24 x 128B = 3072B code.
+    with open(NDOS_SPR, 'rb') as f:
+        spr = f.read()
+    ndos = spr_relocate(spr, NDOS_BASE)
+    print(f"NDOS.SPR relocated to 0x{NDOS_BASE:04x}: "
+          f"{len(ndos)}B, first16={ndos[:16].hex()}")
+    stream_payload(c, client_sid, NDOS_BASE, ndos, 'NDOS')
+
+    # RET stub at CCP_BASE for the FNC=4 execute handoff — keeps the
+    # existing smoke path intact until CCP streaming + real cold-boot
+    # handoff lands.
+    payload_block = b'\xc9' + b'\x00' * 127
+    stream_payload(c, client_sid, DMA, payload_block, 'RET stub')
+
+    msg = make_msg(0xB1, client_sid, 0x00, 4,
+                   bytes([ENTRY & 0xFF, ENTRY >> 8]))
+    print(f"-> FNC=4 (execute 0x{ENTRY:04x}): {msg.hex()}")
+    c.sendall(msg)
 
     # After FNC=4, the client jumps to CCP_BASE (RET) and falls back into
     # resident_entry, which calls NTWKIN then SNDMSG.  Switch to the
