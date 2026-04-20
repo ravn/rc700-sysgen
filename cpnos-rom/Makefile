@@ -23,7 +23,7 @@ OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
 OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 NM      = $(CLANG_BUILD)/llvm-nm
 
-CFLAGS = --target=z80 -Oz -nostdlib -g \
+CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -ffunction-sections -fdata-sections \
          -Xclang -target-feature -Xclang +static-stack \
          -mllvm -disable-lsr \
@@ -32,7 +32,6 @@ CFLAGS = --target=z80 -Oz -nostdlib -g \
          -Iclang -I. \
          -Weverything \
          -Wno-unsafe-buffer-usage \
-         -Wno-c23-extensions \
          -Wno-reserved-macro-identifier \
          -Wno-reserved-identifier \
          -Wno-gcc-compat \
