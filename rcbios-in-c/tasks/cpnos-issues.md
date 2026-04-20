@@ -84,15 +84,15 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 
 ## Session 24 (SNIOS port) — new issues
 
-- [ ] **NDOS/BIOS memory collision.** BIOS_BASE moved to 0xF200 to fit
-      SNIOS in the resident region; NDOS loaded at 0xE786 (size ~3.5KB)
-      now reaches ~0xF585, overlapping the new BIOS area (~900B of
-      overlap). Harmless today because `netboot_server.py` streams
-      only a single RET byte, but must be resolved before real NDOS
-      bytes hit the wire. Options: (a) push CCP down by ~0x400 and
-      NDOS follows (costs ~1KB TPA), (b) shrink SNIOS further, (c)
-      split SNIOS off into PROM1 and keep only a jump-table trampoline
-      resident.  Decide once we have real NDOS bytes to measure.
+- [x] **NDOS/BIOS memory collision (resolved).** Took option (a):
+      CCP base moved from 0xDF80 -> 0xDB80 in `netboot_server.py`.
+      Runtime map now CCP 0xDB80..0xE37F (2KB), NDOS 0xE380..0xF17F
+      (3.5KB est.), BIOS 0xF200..~0xF562, display 0xF800+.  ~130B
+      slack between NDOS top and BIOS.  TPA drops from 56KB to 54.6KB
+      (plan's TPA target was 55KB for NOS-only; we come in 0.4KB under
+      but still well within the "55KB+" bullet).  Revalidate when
+      cpnet-z80's real NDOS.SPR hits the stream — if NDOS turns out
+      smaller than 3.5KB we can reclaim some TPA by raising CCP back up.
 
 - [ ] **SNIOS jump table not yet wired to NDOS.** `_snios_jt` is
       exposed at 0xF233 but nothing references it.  Once the server

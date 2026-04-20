@@ -14,11 +14,11 @@ services a single boot exchange per connection:
   server <- 0xB1 ... FNC=4 <lo hi>                   (execute entry)
 
 Sends a canned payload: one 128-byte block whose first byte is RET
-(0xC9), written at DMA=0xDF80, with execute-entry = 0xDF80.  The
-client netboot returns 0xDF80; cpnos_main CALLs it, RET comes
+(0xC9), written at DMA=CCP_BASE, with execute-entry = CCP_BASE.  The
+client netboot returns CCP_BASE; cpnos_main CALLs it, RET comes
 straight back, and the fall-through path drops into resident_entry
 which paints "CPNOS" on the display.  The MAME test then also sees
-0xDF80 == 0xC9 as evidence that FNC=3 landed data at the right VMA.
+CCP_BASE == 0xC9 as evidence that FNC=3 landed data at the right VMA.
 
 Usage:  python3 netboot_server.py [PORT]   (default PORT=9000)
 """
@@ -28,8 +28,11 @@ import struct
 import sys
 
 DEFAULT_PORT = 9000
-DMA = 0xDF80
-ENTRY = 0xDF80
+# CCP base address.  Moved from 0xDF80 to 0xDB80 in session #24 to keep
+# CCP (2KB) + NDOS (~3.5KB) below BIOS_BASE (0xF200).  Real NDOS-fit
+# will revalidate once cpnet-z80's NDOS.SPR lands in the stream.
+DMA = 0xDB80
+ENTRY = 0xDB80
 
 
 def checksum(msg):
@@ -91,7 +94,7 @@ def handle(c):
         ack = recv_msg(c)
         print(f"<- ack: {ack.hex()}")
 
-    # After FNC=4, the client jumps to 0xDF80 (RET) and falls back into
+    # After FNC=4, the client jumps to CCP_BASE (RET) and falls back into
     # resident_entry, which calls NTWKIN then SNDMSG.  Switch to the
     # DRI SNIOS framing and service one SNDMSG round-trip.
     try:
