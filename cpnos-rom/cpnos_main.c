@@ -29,8 +29,13 @@ extern uint8_t _resident_start[];
 extern uint8_t _resident_end[];
 
 extern void resident_entry(void);    /* defined in resident.c, at VMA 0xF580 */
+extern void init_hardware(void);     /* defined in init.c, runs from ROM */
 
 void cpnos_main(void) {
+    /* Bring up CTC + SIO-B so console_putc can transmit.  Full HW init
+     * (SIO-A for netboot, PIO, IVT) lands here in later slices. */
+    init_hardware();
+
     /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF580+). */
     uint8_t *src = _resident_lma;
     uint8_t *dst = _resident_start;

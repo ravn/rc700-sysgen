@@ -34,7 +34,7 @@ CFLAGS = --target=z80 -Oz -nostdlib -g \
 
 ASFLAGS = --target=z80
 
-OBJS = clang/reset.o clang/cpnos_main.o clang/resident.o
+OBJS = clang/reset.o clang/cpnos_main.o clang/resident.o clang/init.o
 LDSCRIPT = cpnos_rom.ld
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
@@ -54,6 +54,10 @@ clang/cpnos_main.o: cpnos_main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/resident.o: resident.c
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/init.o: init.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
