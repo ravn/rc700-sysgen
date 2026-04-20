@@ -29,7 +29,7 @@ static void console_putc(uint8_t c) {
 }
 
 RESIDENT
-void resident_entry(void) {
+[[noreturn]] void resident_entry(void) {
     /* We are at VMA 0xF580 (RAM), PROMs still mapped at 0x0000/0x2000.
      * First act: disable PROMs.  Safe here because we execute from RAM. */
     disable_proms();

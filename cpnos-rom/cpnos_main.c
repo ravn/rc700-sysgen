@@ -28,7 +28,7 @@ extern uint16_t netboot(void);       /* defined in netboot.c, ROM-only */
 
 typedef void (*fn_t)(void);
 
-void cpnos_main(void) {
+[[noreturn]] void cpnos_main(void) {
     /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
     init_hardware();
 

@@ -33,13 +33,17 @@
 #include "transport.h"
 
 /* Message buffer offsets. */
-enum {
+enum : uint8_t {
     FMT = 0, DID = 1, SID = 2, FNC = 3, SIZ = 4, DAT = 5
 };
+
+/* The DRI frame layout is wire-visible; prevent accidental reordering. */
+static_assert(DAT == 5, "DRI message header must be exactly 5 bytes");
 
 /* Max message payload: per DRI spec, SIZ is a byte so ≤255B.
  * cpnet-z80 reference uses 128 + 5 header + 1 CKS = 134.  We allow 256. */
 #define MSG_MAX  262
+static_assert(MSG_MAX >= 5 + 255 + 1, "msgbuf must hold the largest DRI frame");
 
 /* SLAVEID is baked into CFGTBL.  Provided via -DRC702_SLAVEID=0x70. */
 #ifndef RC702_SLAVEID
@@ -54,7 +58,7 @@ enum {
  * a localhost round-trip while still short enough to bail out cleanly
  * when no server is present. */
 #define RECV_TIMEOUT_TICKS  50000U
-#define RECV_RETRIES        40U
+#define RECV_RETRIES        8U
 
 static uint8_t msgbuf[MSG_MAX];
 
@@ -107,7 +111,7 @@ static uint16_t recv_msg(void) {
 /* Run the netboot loop.  Returns entry point on success (FNC=4),
  * or 0 on error. */
 uint16_t netboot(void) {
-    uint8_t *dma = (uint8_t *)0;     /* server sets this via FNC=2 */
+    uint8_t *dma = nullptr;          /* server sets this via FNC=2 */
 
     /* Build initial boot-request message: FMT=0xB0, FNC=0, SIZ=0. */
     msgbuf[FMT] = 0xB0;

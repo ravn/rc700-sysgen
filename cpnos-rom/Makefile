@@ -37,6 +37,7 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -Wno-gcc-compat \
          -Wno-declaration-after-statement \
          -Wno-pre-c11-compat \
+         -Wno-pre-c23-compat \
          -Wno-int-to-pointer-cast \
          -Wno-cast-qual \
          -Wno-padded \

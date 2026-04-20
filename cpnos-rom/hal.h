@@ -18,8 +18,8 @@ static inline void _port_out(uint16_t p, uint8_t v) {
     *(volatile __io uint8_t *)p = v;
 }
 
-/* Canonical RC702 port map */
-enum {
+/* Canonical RC702 port map (typed: 1-byte I/O addresses) */
+enum : uint8_t {
     PORT_CRT_PARAM    = 0x00,
     PORT_CRT_CMD      = 0x01,
     PORT_FDC_STATUS   = 0x04,
@@ -42,7 +42,7 @@ enum {
 };
 
 /* SIO RR0 bits (status register 0, shared by both channels) */
-enum {
+enum : uint8_t {
     SIO_RR0_RX_CHAR_AVAIL = 0x01,
     SIO_RR0_TX_BUF_EMPTY  = 0x04,
     SIO_RR0_DCD           = 0x08,
