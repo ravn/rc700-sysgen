@@ -42,7 +42,7 @@ LDSCRIPT = cpnos_rom.ld
 
 all: cpnos
 
-cpnos: clang/cpnos.bin cpnos-size
+cpnos: clang/cpnos.bin cpnos-size cpnos-asm
 
 # ---- Compile ------------------------------------------------------
 
