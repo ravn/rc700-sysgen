@@ -1,0 +1,2 @@
+trace /tmp/cpnos_trace.log
+go

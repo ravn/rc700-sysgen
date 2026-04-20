@@ -32,21 +32,22 @@ void cpnos_main(void) {
     /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
     init_hardware();
 
-    /* Try to netboot.  If a server is present it streams CCP+BDOS into
-     * RAM and returns an entry point; if not, we fall through to the
-     * resident "CPNOS" banner so the CPU state is still observable. */
-    uint16_t entry = netboot();
-
-    /* Record netboot result at a breadcrumb so MAME tests can see it. */
-    *(volatile uint8_t *)0xE202 = (uint8_t)(entry & 0xFF);
-    *(volatile uint8_t *)0xE203 = (uint8_t)(entry >> 8);
-
-    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF580+). */
+    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF580+)
+     * BEFORE netboot: netboot calls transport_send_byte / recv_byte
+     * which live in the resident section at 0xF5xx.  Calling them
+     * before the copy lands the CPU in uninitialized RAM (NOP sled). */
     uint8_t *src = _resident_lma;
     uint8_t *dst = _resident_start;
     while (dst < _resident_end) {
         *dst++ = *src++;
     }
+
+    /* Try to netboot.  If a server is present it streams CCP+BDOS into
+     * RAM and returns an entry point; if not, recv timeout returns 0. */
+    uint16_t entry = netboot();
+
+    *(volatile uint8_t *)0xE202 = (uint8_t)(entry & 0xFF);
+    *(volatile uint8_t *)0xE203 = (uint8_t)(entry >> 8);
 
     if (entry != 0) {
         /* Netboot succeeded.  Jump to loaded CCP entry point.  NB:
