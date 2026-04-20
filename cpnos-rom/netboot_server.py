@@ -154,6 +154,7 @@ def handle(c):
     # Multi-line banner the client prints via CONOUT — verifies the
     # CR/LF + scroll path before CCP/NDOS ever gets handed control.
     banner = (
+        b'\x0c'                              # Ctrl-L: clear screen, home cursor
         b'\n cpnos-rom netboot (session 30)\n'
         b'\n Console via BIOS CONOUT:\n'
         b'   - 8275 CRT (80x25, auto-init DMA)\n'

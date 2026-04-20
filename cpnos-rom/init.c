@@ -72,20 +72,10 @@ static void init_display(void) {
     _port_out(PORT_DMA_SMSK, 0x02);   /* mask clear ch2 */
     _port_out(PORT_DMA_SMSK, 0x03);   /* mask clear ch3 */
 
-    /* Test pattern: each row filled with its row letter (A..Y) and
-     * the column index at the end of the line.  Instantly shows any
-     * row/column the CRT fails to render.  Format per row r (0..24):
-     *     <letter> 0 1 2 3 ... 9 A B C ... F 0 1 ...  (column-mod-16)
-     * First column is the row letter 'A'..'Y'; remaining 79 columns
-     * show column index low nibble as a hex digit. */
-    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
-    for (uint8_t row = 0; row < 25; ++row) {
-        uint16_t off = (uint16_t)row * 80U;
-        d[off] = (uint8_t)('A' + row);
-        for (uint8_t col = 1; col < 80; ++col) {
-            uint8_t nib = (uint8_t)(col & 0x0F);
-            d[off + col] = (uint8_t)(nib < 10 ? ('0' + nib) : ('A' + nib - 10));
-        }
+    /* Clear display with spaces so subsequent CONOUT output is
+     * readable against a blank background. */
+    for (uint16_t i = 0; i < DISPLAY_SIZE; ++i) {
+        ((volatile uint8_t *)DISPLAY_ADDR)[i] = ' ';
     }
 
     /* 8275 CRT: reset + geometry + start.  Constants from

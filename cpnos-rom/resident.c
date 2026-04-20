@@ -219,7 +219,14 @@ void impl_conout(uint8_t c) {
 
     volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
 
-    if (c == '\r') {
+    if (c == 0x0C) {
+        /* Ctrl-L / form feed: clear display, home cursor. */
+        for (uint16_t i = 0; i < DISPLAY_SIZE; ++i) {
+            d[i] = ' ';
+        }
+        curx = 0;
+        cury = 0;
+    } else if (c == '\r') {
         curx = 0;
     } else if (c == '\n') {
         /* Treat LF as CR+LF so host-side text with '\n'-only line
