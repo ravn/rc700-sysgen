@@ -22,45 +22,30 @@ extern uint8_t _resident_lma[];
 extern uint8_t _resident_start[];
 extern uint8_t _resident_end[];
 
-extern void resident_entry(void);    /* defined in resident.c, at VMA 0xF580 */
-extern void init_hardware(void);     /* defined in init.c, runs from ROM */
-extern uint16_t netboot(void);       /* defined in netboot.c, ROM-only */
-
-typedef void (*fn_t)(void);
+[[noreturn]] extern void resident_entry(uint16_t entry);
+extern void init_hardware(void);            /* init.c, runs from ROM */
+extern uint16_t netboot(void);              /* netboot.c, ROM-only */
 
 [[noreturn]] void cpnos_main(void) {
     /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
     init_hardware();
 
     /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF580+)
-     * BEFORE netboot: netboot calls transport_send_byte / recv_byte
-     * which live in the resident section at 0xF5xx.  Calling them
-     * before the copy lands the CPU in uninitialized RAM (NOP sled). */
+     * BEFORE netboot: netboot's transport functions live there. */
     uint8_t *src = _resident_lma;
     uint8_t *dst = _resident_start;
     while (dst < _resident_end) {
         *dst++ = *src++;
     }
 
-    /* Try to netboot.  If a server is present it streams CCP+BDOS into
-     * RAM and returns an entry point; if not, recv timeout returns 0. */
-    *(volatile uint8_t *)0xE400 = 0xAA;   /* pre-netboot */
+    /* Try to netboot.  Server streams CCP+BDOS into RAM and returns an
+     * entry point; if absent, recv times out and entry == 0. */
     uint16_t entry = netboot();
-    *(volatile uint8_t *)0xE401 = 0xBB;   /* post-netboot */
 
-    *(volatile uint8_t *)0xE402 = (uint8_t)(entry & 0xFF);
-    *(volatile uint8_t *)0xE403 = (uint8_t)(entry >> 8);
-
-    if (entry != 0) {
-        /* Netboot succeeded.  Jump to loaded CCP entry point.  NB:
-         * PROM disable still needs to happen; today the resident chunk
-         * does it.  We'll move it to happen *before* the CCP jump once
-         * netboot is wired end-to-end. */
-        ((fn_t)entry)();
-    }
-
-    /* No server: fall back to resident banner (diagnostics). */
-    resident_entry();
-
-    for (;;) { }
+    /* Hand off to resident code.  It disables the PROMs (safe from
+     * 0xF580 — execution continues from RAM) and either jumps to the
+     * loaded entry or falls back to a diagnostic banner.  cpnos_main
+     * never runs again after this; the PROM is gone and so is the
+     * init code that lives underneath it. */
+    resident_entry(entry);
 }

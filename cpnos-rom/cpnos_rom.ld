@@ -23,7 +23,7 @@ MEMORY {
   PROM0 (rx) : ORIGIN = 0x0000, LENGTH = 2048
   PROM1 (rx) : ORIGIN = 0x2000, LENGTH = 2048
   /* Runtime-resident BIOS lands here after cold boot copies it out of ROM. */
-  RESIDENT (rwx) : ORIGIN = 0xF580, LENGTH = 0x80
+  RESIDENT (rwx) : ORIGIN = 0xF580, LENGTH = 0x100
   /* Scratch RAM for init-only variables used before PROM disable. */
   SCRATCH (rwx) : ORIGIN = 0xE000, LENGTH = 0x1000
 }

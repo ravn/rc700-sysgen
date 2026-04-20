@@ -28,24 +28,31 @@ static void console_putc(uint8_t c) {
     _port_out(PORT_SIO_B_DATA, c);
 }
 
+typedef void (*fn_t)(void);
+
 RESIDENT
-[[noreturn]] void resident_entry(void) {
+[[noreturn]] void resident_entry(uint16_t entry) {
     /* We are at VMA 0xF580 (RAM), PROMs still mapped at 0x0000/0x2000.
-     * First act: disable PROMs.  Safe here because we execute from RAM. */
+     * First act: disable the PROMs.  Safe here because we execute from
+     * RAM — the next instruction fetch is at 0xF58x+ which is not
+     * shadowed by either PROM. */
     disable_proms();
 
-    /* Breadcrumb marker in plain RAM (outside display area).  If this
-     * byte lands at 0xE200 we know resident_entry executed. */
-    *(volatile uint8_t *)0xE200 = 0xA5;
+    /* If netboot delivered an entry point, hand off to it.  From here
+     * on, the ROM is gone; we can't go back. */
+    if (entry != 0) {
+        ((fn_t)(uintptr_t)entry)();
+        /* If the loaded code returns (e.g. warm-boot stub), fall
+         * through to the diagnostic banner below. */
+    }
 
-    /* Display writes (may or may not stick depending on CRT state). */
+    /* Fallback diagnostic banner (no server, or loaded code returned). */
+    *(volatile uint8_t *)0xE200 = 0xA5;
     DISPLAY[0] = 'C';
     DISPLAY[1] = 'P';
     DISPLAY[2] = 'N';
     DISPLAY[3] = 'O';
     DISPLAY[4] = 'S';
-
-    /* Second breadcrumb after display writes, before serial. */
     *(volatile uint8_t *)0xE201 = 0x5A;
 
     /* Serial proof-of-life (no-op until SIO init lands next turn). */
