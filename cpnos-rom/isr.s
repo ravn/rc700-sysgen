@@ -34,13 +34,16 @@ _enable_im2:
     im   2
     ret
 
-    .section .text.__enable_interrupts, "ax", @progbits
+    ; enable_interrupts / disable_interrupts are called from
+    ; resident_entry *after* PROM disable, so they must live in
+    ; .resident.  Without this, the call lands on zero-initialised
+    ; RAM and PC walks through NOPs forever.
+    .section .resident.isr, "ax", @progbits
     .global _enable_interrupts
 _enable_interrupts:
     ei
     ret
 
-    .section .text.__disable_interrupts, "ax", @progbits
     .global _disable_interrupts
 _disable_interrupts:
     di

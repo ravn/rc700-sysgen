@@ -95,7 +95,39 @@ static void init_display(void) {
     _port_out(PORT_CRT_CMD,   0x23);
 }
 
+/* Fill a RAM range with JR $ (18 FE, self-loop) so any stray PC that
+ * lands here gets trapped in a tight 2-byte loop instead of walking
+ * byte-by-byte through zero-initialised NOPs for thousands of cycles.
+ * At odd offsets the CPU sees FE 18 = CP 0x18 and advances one pair,
+ * then hits the next 18 FE and loops — still a stop, just one step
+ * off the original PC. */
+static void fill_trap(uint16_t start, uint16_t end) {
+    volatile uint8_t *p = (volatile uint8_t *)(uintptr_t)start;
+    volatile uint8_t *q = (volatile uint8_t *)(uintptr_t)end;
+    while (p < q) {
+        *p++ = 0x18;
+        *p++ = 0xFE;
+    }
+}
+
 void init_hardware(void) {
+    /* Pre-fill the memory regions that could otherwise hold stray
+     * 0x00 NOPs.  We trap everything outside of:
+     *   - PROM windows 0x0000..0x07FF and 0x2000..0x27FF (PROM-mapped
+     *     until OUT (0x18); can't write there yet)
+     *   - scratch BSS 0xEC00..0xED1F (netboot msgbuf etc.)
+     *   - resident VMA 0xF200..0xF7FF
+     *   - IVT 0xF100..0xF123, cursor+stack 0xF200 down
+     *   - display RAM 0xF800.. (gets overwritten by init_display)
+     * TPA 0x0100..0xCFFF, unused-between-PROMs 0x0800..0x1FFF and
+     * 0x2800..0xCFFF, NDOS-BSS tail 0xEA00..0xEBFF — all get the
+     * trap pattern.  CCP/NDOS streaming overwrites 0xD000..0xE9FF
+     * later; filling here would just get overwritten, so skip it. */
+    fill_trap(0x0800, 0x2000);   /* gap between PROM windows */
+    fill_trap(0x2800, 0xD000);   /* gap between PROM1 and CCP base */
+    fill_trap(0xEA00, 0xEC00);   /* NDOS spill region + SNIOS JT space */
+    fill_trap(0xED20, 0xF100);   /* after scratch BSS, before IVT */
+
     /* IVT + IM2 first so any stray interrupt lands on isr_noop rather
      * than the reset vector.  Interrupts stay disabled; resident_entry
      * does EI after PROM disable. */
