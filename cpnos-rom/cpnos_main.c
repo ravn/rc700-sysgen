@@ -44,10 +44,12 @@ void cpnos_main(void) {
 
     /* Try to netboot.  If a server is present it streams CCP+BDOS into
      * RAM and returns an entry point; if not, recv timeout returns 0. */
+    *(volatile uint8_t *)0xE400 = 0xAA;   /* pre-netboot */
     uint16_t entry = netboot();
+    *(volatile uint8_t *)0xE401 = 0xBB;   /* post-netboot */
 
-    *(volatile uint8_t *)0xE202 = (uint8_t)(entry & 0xFF);
-    *(volatile uint8_t *)0xE203 = (uint8_t)(entry >> 8);
+    *(volatile uint8_t *)0xE402 = (uint8_t)(entry & 0xFF);
+    *(volatile uint8_t *)0xE403 = (uint8_t)(entry >> 8);
 
     if (entry != 0) {
         /* Netboot succeeded.  Jump to loaded CCP entry point.  NB:

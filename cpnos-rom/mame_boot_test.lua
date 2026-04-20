@@ -57,8 +57,12 @@ local function finish(result, space)
 
     f:write("\n--- 0x0000 (reset vector / PROM0 shadow) ---\n")
     f:write(hex_dump(space, 0x0000, 48) .. "\n")
+    f:write("\n--- 0xDF80 (netboot FNC=3 load target) ---\n")
+    f:write(hex_dump(space, 0xDF80, 16) .. "\n")
     f:write("\n--- 0xE200 (breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE200, 16) .. "\n")
+    f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
+    f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- 0xF580 (resident VMA) ---\n")
     f:write(hex_dump(space, 0xF580, 80) .. "\n")
     f:write("\n--- 0xF800 (display row 0) ---\n")
@@ -82,8 +86,8 @@ emu.register_frame_done(function()
         return
     end
 
-    -- 5s timeout: cpnos boot path is tiny, should hit CPNOS in <1s
-    if frame > 50 * 5 then
+    -- 15s timeout (covers netboot round-trip + fallback path)
+    if frame > 50 * 15 then
         finish("FAIL: CPNOS banner not seen", space)
     end
 end)

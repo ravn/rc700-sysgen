@@ -48,7 +48,13 @@ enum {
 
 /* Recv timeout: ~30k polling ticks.  transport_recv_byte returns
  * TRANSPORT_TIMEOUT (0xFFFF) if no byte arrives in time. */
-#define RECV_TIMEOUT_TICKS  30000U
+/* Per-byte poll count.  First byte of a response may arrive slowly
+ * (network/MAME null_modem buffering), so allow a handful of retries.
+ * 50k ticks ≈ 60ms emulated; 4 retries ≈ 240ms emulated, plenty for
+ * a localhost round-trip while still short enough to bail out cleanly
+ * when no server is present. */
+#define RECV_TIMEOUT_TICKS  50000U
+#define RECV_RETRIES        40U
 
 static uint8_t msgbuf[MSG_MAX];
 
@@ -65,20 +71,30 @@ static void send_msg(uint8_t *m, uint16_t n) {
     }
 }
 
+/* Wait for one byte with retries (extends the effective timeout beyond
+ * uint16_t polling ticks). */
+static uint16_t recv_byte_retrying(void) {
+    for (uint8_t n = 0; n < RECV_RETRIES; ++n) {
+        uint16_t r = transport_recv_byte(RECV_TIMEOUT_TICKS);
+        if (r != TRANSPORT_TIMEOUT) return r;
+    }
+    return TRANSPORT_TIMEOUT;
+}
+
 /* Receive a message into msgbuf.  Returns total byte count on success,
  * 0 on timeout/checksum-fail. */
 static uint16_t recv_msg(void) {
     uint16_t r;
     /* Header is always 5 bytes; read SIZ to learn the payload length. */
     for (uint8_t i = 0; i < 5; ++i) {
-        r = transport_recv_byte(RECV_TIMEOUT_TICKS);
+        r = recv_byte_retrying();
         if (r == TRANSPORT_TIMEOUT) return 0;
         msgbuf[i] = (uint8_t)r;
     }
     uint8_t siz = msgbuf[SIZ];
     /* Payload + trailing checksum byte. */
     for (uint16_t i = 0; i < (uint16_t)siz + 1; ++i) {
-        r = transport_recv_byte(RECV_TIMEOUT_TICKS);
+        r = recv_byte_retrying();
         if (r == TRANSPORT_TIMEOUT) return 0;
         msgbuf[5 + i] = (uint8_t)r;
     }
@@ -113,14 +129,11 @@ uint16_t netboot(void) {
         case 0:                       /* NAK — fatal */
             return 0;
 
-        case 1: {                     /* load text — print to console */
-            /* For Phase 1 we drop text silently.  Console_putc lives
-             * in resident space; banner would be nice but not required. */
+        case 1:                       /* load text — drop silently */
             break;
-        }
 
         case 2:                       /* set DMA */
-            dma = (uint8_t *)(msgbuf[DAT] | (msgbuf[DAT + 1] << 8));
+            dma = (uint8_t *)(uintptr_t)(msgbuf[DAT] | (msgbuf[DAT + 1] << 8));
             break;
 
         case 3: {                     /* load data — copy DAT..DAT+SIZ to dma */

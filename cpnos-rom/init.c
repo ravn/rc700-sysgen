@@ -16,7 +16,8 @@ static const uint8_t sio_a_init[] = {
     0x18,           /* WR0: channel reset */
     0x04, 0x44,     /* WR4: x16 clock, 1 stop, no parity */
     0x03, 0xE1,     /* WR3: 8-bit Rx, auto enables, Rx enable */
-    0x05, 0x68,     /* WR5: 8-bit Tx, Tx enable, RTS on */
+    0x05, 0x6A,     /* WR5: 8-bit Tx, Tx enable, RTS asserted (needed
+                     *      for MAME null_modem FLOW_CONTROL=0x01 to TX) */
     0x01, 0x00      /* WR1: no interrupts (polled) */
 };
 
@@ -25,7 +26,8 @@ static const uint8_t sio_b_init[] = {
     0x02, 0x10,     /* WR2: interrupt vector base 0x10 */
     0x04, 0x44,     /* WR4: x16 clock, 1 stop, no parity */
     0x03, 0xE1,     /* WR3: 8-bit Rx, auto enables, Rx enable */
-    0x05, 0x68,     /* WR5: 8-bit Tx, Tx enable, RTS on */
+    0x05, 0x6A,     /* WR5: 8-bit Tx, Tx enable, RTS asserted (needed
+                     *      for MAME null_modem FLOW_CONTROL=0x01 to TX) */
     0x01, 0x00      /* WR1: no interrupts (polled) */
 };
 

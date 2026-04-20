@@ -30,7 +30,21 @@ CFLAGS = --target=z80 -Oz -nostdlib -g \
          -DENABLE_FDC=$(ENABLE_FDC) \
          -DRC702_SLAVEID=0x70 \
          -Iclang -I. \
-         -Wall -Wextra
+         -Weverything \
+         -Wno-unsafe-buffer-usage \
+         -Wno-c23-extensions \
+         -Wno-reserved-macro-identifier \
+         -Wno-reserved-identifier \
+         -Wno-gcc-compat \
+         -Wno-declaration-after-statement \
+         -Wno-pre-c11-compat \
+         -Wno-int-to-pointer-cast \
+         -Wno-cast-qual \
+         -Wno-padded \
+         -Wno-missing-prototypes \
+         -Wno-missing-variable-declarations \
+         -Wno-missing-noreturn \
+         -Wno-sign-conversion
 
 ASFLAGS = --target=z80
 
@@ -144,6 +158,27 @@ cpnos-mame: cpnos-install
 	    -rs232a null_modem \
 	    -bitb1 /tmp/cpnos_sioa.raw \
 	    -autoboot_script mame_boot_test.lua
+
+# End-to-end netboot test: Python server on localhost, MAME bridged to
+# it over SIO-A null_modem.
+NETBOOT_PORT ?= 9000
+cpnos-netboot: cpnos-install
+	@rm -f /tmp/cpnos_netboot_server.log
+	@python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_netboot_server.pid
+	@sleep 0.3
+	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 20 \
+	    -rs232a null_modem \
+	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
+	    -autoboot_script mame_boot_test.lua
+	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
+	@echo "--- server log ---"
+	@cat /tmp/cpnos_netboot_server.log
+	@echo "--- boot test ---"
+	@cat /tmp/cpnos_boot_result.txt
+	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 	@cat /tmp/cpnos_boot_result.txt
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
