@@ -5,6 +5,51 @@ details live in `session24-cpnos-snios.md` and
 `session29-ccp-prompt.md`; this doc is the short "where are we and
 what's next" snapshot.
 
+## Session 31 (2026-04-21) — loader + RENAME
+
+- **CP/M `.COM` loader for PROM swap without burning** — committed
+  in `73206be`.  `build_loader.py` + Makefile `cpnos-loader` target
+  produce `clang/cpnos_loader.com` (4125 B = 3 B entry + 2 KB
+  prom0 + 2 KB prom1 + 26 B stub that DIs, LDIRs both payloads
+  into 0x0000 / 0x2000, then `jp 0`).  Stub lives at 0x1103 so
+  both LDIRs leave it untouched (first LDIR has dest<src so the
+  overlapping copy from 0x0103→0x0000 is safe).  End-to-end
+  verified via CP/NOS netboot (CCP loaded .COM, stub ran, cpnos
+  re-emitted a fresh 0xB0 cold-boot request on SIO-A).  Also
+  verified under the stock `rcbios-in-c/clang/bios.cim` via
+  `mame-maxi` — `cpmcp`-injected the .COM onto the A: disk and
+  saw the CP/NOS "CPNOS" fallback banner appear on the 8275
+  display, proving the swap worked across BIOSes.
+- **BDOS fn 23 RENAME** implemented in `netboot_server.py`
+  (commit `b17128b`).  Handles both ephemeral `_WRITES` entries
+  and in-memory rebind of disk-backed `_FILE_MAP` entries.
+  Verified with CCP `REN foo.com=login.com` + two DIR lookups.
+  Step-6 copy regression still passes.  Closes the one real
+  dispatcher gap flagged by the BDOS-coverage audit.
+- **RC700 console branch parked.**  `cpnos-rc700-console` WIP at
+  `5ed23da` — full memory-layout surgery landed (IVT 0xEE00,
+  SP 0xF000, `.resident` LMA PROM1, two memcpys, RC700 state
+  machine), but boot fails with PC in `resident_entry`'s fallback
+  `for(;;){}` at 0xF516.  Root cause traced to Issue U below,
+  not the console code itself.
+
+### Issue U — impl_wboot / impl_boot are unconditional fallback traps
+
+`resident.c` has `[[noreturn]] impl_boot`/`impl_wboot` both doing
+`resident_entry(0)`.  On `main`'s smoke plan CCP never hits WBOOT
+so the trap never fires, but the parked console branch exposed
+the bug: on first CONOUT something in the early CCP path lands
+in WBOOT, `resident_entry(0)` takes its `entry == 0` fallback,
+prints `CPNOS\r\n`, and spins `jr $f516`.  SP=0x00F6 in that
+state matches `cpbios.s` `ld sp, BUFF+0x80 = 0x0100` minus 5
+pushes — proof CCP was live underneath.
+
+Fix: point both entries at the loaded CCP base (`jump_to(0xD000)`
+for wboot; boot probably needs to re-netboot instead).  Doing
+this on `main` first would make any future branch failure
+announce itself as an obvious re-entry loop into CCP rather
+than a misleading silent fallback banner.
+
 ## Where we are (2026-04-21, session 29 close)
 
 CP/NOS cold-boots on MAME `rc702` against the Python
@@ -62,6 +107,15 @@ M80's 6-char limits.
 
 ## Known open items (none blocking)
 
+### Issue V — Loader carries max 4 KB payload
+
+`cpnos_loader.com` copies exactly 2 KB to 0x0000 and 2 KB to
+0x2000 because that's the physical PROM layout.  If cpnos-rom
+outgrows the 4 KB cap (currently PROM0 2040 / 2048 B, PROM1
+0 / 2048 B), the stub can just widen the LDIR counts — but
+`cpnos_main`'s reset path and `cpnos_rom.ld` still assume
+2 KB + 2 KB.  Coordinated change required.  Not urgent.
+
 ### Issue N — PIPNET.COM sends a zeroed FCB on WRITE SEQ
 PIPNET-specific quirk, not a server bug.  Our write path is
 proven correct via `testutil/copy.com` (same server, same NDOS,
@@ -88,8 +142,11 @@ Pick up only if PIPNET specifically is required.
 ## PROM space budget
 
 PROM image is 4096 B total (2 × 2 KB chips).
-- PROM0 in use: **1942 B** code + **106 B** padding headroom
+- PROM0 in use: **2040 B** code + **8 B** padding headroom
 - PROM1 in use: **0 B** — **all 2048 B free**
+
+(As of session 31 the `.COM` loader carries the same 4 KB; iterate
+without burning via `make cpnos-loader` + staged `CPNOSLDR.COM`.)
 
 Candidate uses for PROM1 (tracked but not yet picked).  The
 constraining rule is the RC702 hardware one-way PROM disable: once
