@@ -197,15 +197,30 @@ absorbing the preamble difference.  Robust but fragile if any future
 BDOS fn packs a different tail layout.  Document in
 `cpnet/DRI_PROTOCOL.md` when we next touch it.
 
-### Issue N — WRITE SEQ FCB layout unknown (blocks step 6)
-When PIPNET issues WRITE SEQ during a copy, the server's FCB parse
-(`data[1:37]`) yields a key of 9 NUL bytes + `$$` instead of the
-temp file it just MADE.  The MAKE / OPEN / READ calls in the same
-sequence extract the right FCB, so either (a) WRITE SEQ carries a
-different preamble than other file-fns, or (b) PIPNET is sending a
-second FCB slot (input vs output FCB) that my dispatch picks the
-wrong one from.  Fix: log the raw WRITE SEQ DAT payload next time,
-diff with READ SEQ, and adjust `fcb = data[X:X+36]` accordingly.
+### Issue N — CP/NET WRITE SEQ FCB not decoded (blocks step 6)
+WRITE SEQ from PIPNET during `A>pipnet foo.txt=login.com` arrives
+with a nearly all-zero FCB:
+  `00 01 00×9 24 24 00×24 [128-byte sector]`
+Only the `$$` bytes at offsets 11-12 (ext) are non-zero.  MAKE for
+`FOO.$70` succeeded immediately before, so PIPNET does hold a
+populated FCB — the wire frame just doesn't carry it as expected.
+
+User hints (directly from the session):
+ - "MAKE should populate the FCB correctly"
+ - "WRITE method assumes ownership of the FCB and updates fields
+    inside for record keeping purposes"
+Best guess: the server's MAKE reply under-populates (missing
+allocation map / per-NET fields) so PIPNET's subsequent WRITE
+emits a zeroed-out FCB.  Alternative: CP/NET fn 21 wire format
+differs from fn 20 in ways I haven't traced yet.
+
+Next steps when revisiting:
+ - Log MAKE reply hex as sent and diff against canonical BDOS.
+ - Trace `cpndos.asm funtb2` entry for fn 21 (opcode 0x15) to see
+   the send-side packing.
+ - Populate MAKE reply alloc map with realistic block numbers and
+   retry; if WRITE then arrives populated, under-population was
+   the bug.
 
 ### Issue M — Directory entry is single-extent only (deferred)
 `_dir_entry` in `netboot_server.py` builds one 32-byte CP/M directory
