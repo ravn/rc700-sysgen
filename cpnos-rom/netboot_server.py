@@ -332,6 +332,36 @@ _OPEN_FILES = {}   # key: fcb[0..11] -> bytes content (session cache for reads)
 _WRITES = {}       # key: fcb[0..11] -> bytearray (ephemeral writable files)
 
 
+def _seed_sub_file(slave_id=0x70, commands=None):
+    """Seed $<ss>.SUB in _WRITES with a list of command lines.  CCP's
+    CP/NET submit reader (ccp.asm:215-266) reads records in LIFO order:
+    it reads the last record, if byte 0 != 0xFF it treats the record
+    as a command, else follows the indirection pointer to the named
+    record.  On a single-command SUB we want exactly one record with
+    the line, so CCP reads it, sees buff[0] != 0xFF, executes, then
+    notices subrr==0 and deletes the file.
+
+    Record format: byte 0 = line length, bytes 1..len = ASCII text,
+    rest zeros.  Length byte gives CCP the line length for comlen."""
+    if not commands:
+        return
+    key = f"${slave_id:02X}     SUB"
+    buf = bytearray()
+    for line in commands:
+        line = line.rstrip('\r\n')
+        rec = bytearray(128)
+        rec[0] = len(line)
+        rec[1:1 + len(line)] = line.encode('ascii', 'replace')
+        buf.extend(rec)
+    _WRITES[key] = buf
+    print(f"seeded SUB file {key!r} with {len(commands)} command(s): {commands}")
+
+
+_SUB_CMDS = os.environ.get('CPNOS_SUB', '')
+if _SUB_CMDS:
+    _seed_sub_file(commands=_SUB_CMDS.split('|'))
+
+
 def _all_keys():
     """Union of read-only server files and ephemeral written files."""
     return sorted(set(_FILE_MAP) | set(_WRITES))
@@ -552,6 +582,56 @@ def dispatch_sndmsg(hdr, data):
         fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
         key = _fcb_key(fcb)
         _OPEN_FILES.pop(key, None)
+        return bytes([0x00]) + bytes(fcb)
+
+    if fnc == 35:  # COMPUTE FILE SIZE
+        # Reply: status + FCB with r0/r1/r2 (bytes 33/34/35) set to
+        # record count (ceil(size/128)).  CP/NET CCP reads this from
+        # subrr (FCB bytes 33..34) to find the last-record index.
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        key = _fcb_key(fcb)
+        size = _file_size(key)
+        records = (size + 127) // 128
+        fcb[33] = records & 0xFF
+        fcb[34] = (records >> 8) & 0xFF
+        fcb[35] = (records >> 16) & 0xFF
+        print(f"    FILE SIZE {key!r} = {records} records ({size} B)")
+        return bytes([0x00]) + bytes(fcb)
+
+    if fnc == 33:  # RANDOM READ
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        key = _fcb_key(fcb)
+        content = _file_content(key)
+        if content is None:
+            print(f"    RANDREAD: no file {key!r}")
+            return bytes([0xFF]) + bytes(fcb) + b'\0' * 128
+        record = fcb[33] | (fcb[34] << 8) | (fcb[35] << 16)
+        offset = record * 128
+        sector = content[offset:offset + 128] if offset < len(content) else b''
+        if len(sector) < 128:
+            sector = sector + b'\x1A' * (128 - len(sector))
+        status = 0x00 if offset < len(content) else 0x01
+        print(f"    RANDREAD {key!r} rec {record}: {sector[:8].hex()}...")
+        return bytes([status]) + bytes(fcb) + bytes(sector)
+
+    if fnc == 34:  # RANDOM WRITE
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        sector = bytes(data[37:165]) if len(data) >= 165 else bytes(data[37:]).ljust(128, b'\0')
+        key = _fcb_key(fcb)
+        if key not in _WRITES:
+            # First random-write on a read-only file: copy-on-write to _WRITES
+            src = _file_content(key)
+            if src is None:
+                print(f"    RANDWRITE: no file {key!r}")
+                return bytes([0xFF]) + bytes(fcb)
+            _WRITES[key] = bytearray(src)
+        buf = _WRITES[key]
+        record = fcb[33] | (fcb[34] << 8) | (fcb[35] << 16)
+        offset = record * 128
+        if offset + 128 > len(buf):
+            buf.extend(b'\0' * (offset + 128 - len(buf)))
+        buf[offset:offset + 128] = sector
+        print(f"    RANDWRITE {key!r} rec {record}")
         return bytes([0x00]) + bytes(fcb)
 
     if fnc == 19:  # DELETE FILE
