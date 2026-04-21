@@ -522,46 +522,56 @@ def dispatch_sndmsg(hdr, data):
     print(f"  dispatch FNC={fnc:#04x} ({name})")
 
     if fnc == 15:   # OPEN FILE
-        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
-        key = _fcb_key(fcb)
+        # Reply layout (34 B, matches cpnet/server.py handle_open).
+        # Name+ext high bits stripped so the client's FCB doesn't
+        # carry over R/O/SYS attributes -- PIPNET propagates R/O into
+        # its output FCB and blocks WRITE otherwise.
+        fcb_in = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        key = _fcb_key(fcb_in)
         content = _file_content(key)
-        if content is not None:
-            _OPEN_FILES[key] = content
-            fcb[12] = 0
-            fcb[13] = 0
-            fcb[14] = 0
-            fcb[15] = min(128, (len(content) + 127) // 128)
-            fcb[32] = 0
-            print(f"    opened {key!r} ({len(content)} B)")
-            return bytes([0x00]) + bytes(fcb)
-        print(f"    file-not-found key={key!r}")
-        return bytes([0xFF]) + bytes(fcb)
+        if content is None:
+            print(f"    file-not-found key={key!r}")
+            return bytes([0xFF])
+        _OPEN_FILES[key] = content
+        records = min(128, (len(content) + 127) // 128)
+        reply = bytearray(34)
+        reply[0] = 0x00
+        reply[1] = data[1] & 0x0F                # drive, attributes stripped
+        # FCB[1..11] = name(8) + ext(3), high bits stripped
+        reply[2:13] = bytes(b & 0x7F for b in data[2:13])
+        reply[13] = 0                            # ex
+        reply[14] = 0                            # s1
+        reply[15] = 0                            # s2
+        reply[16] = records                      # rc
+        # reply[17..32] alloc + cr all zero
+        print(f"    opened {key!r} ({len(content)} B)")
+        return bytes(reply)
 
     if fnc == 22:  # MAKE FILE
-        print(f"    MAKE raw DAT[{len(data)}]={data.hex()}")
-        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
-        key = _fcb_key(fcb)
+        # Reply layout (34 B, matches cpnet/server.py handle_make_file):
+        #   byte 0     retcode
+        #   byte 1     drive
+        #   bytes 2-12 FCB[1..11] name + ext
+        #   bytes 13-16 ex/s1/s2/rc = 0 (new empty file)
+        #   bytes 17-32 allocation map = zeros
+        #   byte 33    cr = 0
+        # NDOS gtfcb copies 32 bytes from msgdat[2..33] into caller's
+        # FCB[1..32].  Returning extra bytes (e.g. r0/r1/r2) alters
+        # siz and can trigger NDOS's 35-byte ctfcrr path inadvertently.
+        fcb_in = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        key = _fcb_key(fcb_in)
         if key in _FILE_MAP:
-            # Don't shadow a real file — MAKE should fail on existing.
             print(f"    MAKE: refuse, {key!r} exists on disk")
-            return bytes([0xFF]) + bytes(fcb)
+            return bytes([0xFF])
         _WRITES[key] = bytearray()
         _OPEN_FILES[key] = bytes()
-        fcb[12] = 0              # ex
-        fcb[13] = 0              # s1
-        fcb[14] = 0              # s2
-        fcb[15] = 0              # rc (empty extent)
-        # Allocation map: one plausible non-zero block so PIPNET sees
-        # the FCB as "live" instead of "deleted slot".  Real CP/M fills
-        # these lazily as blocks are allocated during WRITE; the server
-        # has no disk geometry so we just plant a sentinel.
-        fcb[16] = 0x01
-        for i in range(17, 32):
-            fcb[i] = 0
-        fcb[32] = 0              # cr
-        reply = bytes([0x00]) + bytes(fcb)
-        print(f"    MAKE {key!r} reply={reply.hex()}")
-        return reply
+        reply = bytearray(34)
+        reply[0] = 0x00                          # retcode (success)
+        reply[1] = data[1] & 0x0F                # drive, attributes stripped
+        reply[2:13] = bytes(b & 0x7F for b in data[2:13])   # name+ext, attrs stripped
+        # bytes 13..32 stay 0: ex, s1, s2, rc, alloc (zeros), cr
+        print(f"    MAKE {key!r} reply={bytes(reply).hex()}")
+        return bytes(reply)
 
     if fnc == 21:  # WRITE SEQ
         print(f"    WRITE SEQ raw DAT[{len(data)}]={data.hex()}")
