@@ -142,6 +142,18 @@ cpnos-size: clang/cpnos.bin
 	@echo "--- actual code bytes in PROM0 (non-0xFF) ---"
 	@od -An -tx1 clang/prom0.bin | tr -s ' ' '\n' | grep -v '^$$' | grep -v '^ff$$' | wc -l | awk '{ printf "%d non-padding bytes\n", $$1 }'
 
+# ---- CP/M .COM loader (test PROMs without burning) ---------------
+#
+# Produces a ~4 KB .COM that, when executed from the CP/M prompt,
+# copies prom0.bin into 0x0000 and prom1.bin into 0x2000 then JPs
+# to 0x0000 — mimicking a cold boot against new PROM payloads
+# without touching physical EPROMs.  See build_loader.py for layout.
+
+cpnos-loader: clang/cpnos.bin
+	python3 build_loader.py clang/prom0.bin clang/prom1.bin clang/cpnos_loader.com
+	cp clang/cpnos_loader.com testutil/cpnosldr.com
+	@echo "staged testutil/cpnosldr.com (run 'cpnosldr' from CP/M A>)"
+
 # ---- Split for burner --------------------------------------------
 
 cpnos-burn: clang/cpnos.bin
