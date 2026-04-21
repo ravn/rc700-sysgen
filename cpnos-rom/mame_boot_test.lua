@@ -112,40 +112,30 @@ emu.register_frame_done(function()
     -- With TOP+1 = 0xF203, NDOS's TLBIOS-walk patches BIOS JT at
     -- 0xF200+ and doesn't touch the BDOS vector.  Previous null-trap
     -- (c3 00 00) caused the walk to scribble low memory instead.
-    -- Zero-page gate: resident_entry writes C3 at 0x0000 and 0x0005.
-    -- cpnos.com's cpbios boot later overwrites the operand bytes
-    -- (0x0001/2 -> NDOSRL+0x303, 0x0006/7 -> BDOS).  So we check
-    -- only the C3 opcodes here — they stay stable across both phases.
-    local b0 = space:read_u8(0x0000)
-    local v5 = space:read_u8(0x0005)
-    if b0 == 0xC3 and v5 == 0xC3 then
-        -- Sentinels + BDOS vector in place => resident_entry ran.  Give
-        -- CCP a moment to settle, then check PC is inside loaded code.
-        local pc = manager.machine.devices[":maincpu"].state["PC"].value
-        -- cpnos.com first byte at 0xD000 should be `JP BIOS` (BIOS=0xDC10)
-        -- which assembles to c3 10 dc.  3 fixed bytes.
-        local boot0 = space:read_u8(0xD000)
-        local boot1 = space:read_u8(0xD001)
-        local boot2 = space:read_u8(0xD002)
-        if boot0 ~= 0xC3 or boot1 ~= 0x10 or boot2 ~= 0xDC then
-            finish(string.format(
-                "FAIL: BOOT vector at 0xD000 = %02x %02x %02x (want c3 10 dc)",
-                boot0, boot1, boot2), space)
-            return
+    -- Real success criterion: CCP prints its prompt on the 8275 display.
+    -- CP/M CCP emits "\r\nA>" once loaded and running.  We scan the
+    -- display buffer for "A>" anywhere — covers both the first prompt
+    -- and any position after scrolling.  Weaker intermediate gates
+    -- (PC in loaded region, C3 at zero page) were misleading: they
+    -- fired at ~2.5s while NDOS was still streaming CCP.SPR.
+    for row = 0, 24 do
+        for col = 0, 78 do
+            if space:read_u8(DSPSTR + row * 80 + col) == string.byte('A')
+               and space:read_u8(DSPSTR + row * 80 + col + 1) == string.byte('>') then
+                finish(string.format("PASS (A> at row %d col %d)", row, col), space)
+                return
+            end
         end
-        -- PC should now be somewhere inside CCP (0xD000..), NDOS
-        -- (0xDE00..), or BIOS resident (0xF200..0xF800).
-        if pc >= 0xD000 and pc < 0xF800 then
-            finish(string.format("PASS (PC=%04X in loaded region)", pc), space)
-            return
-        end
-        -- PC still in PROM shadow / init code — give it more time.
     end
 
-    -- 30s timeout.
-    if frame > 50 * 30 then
+    -- 60s timeout — full CCP.SPR load is 20 SNIOS round-trips, each
+    -- with polled SIO I/O; be generous so slow CI machines don't flake.
+    if frame > 50 * 60 then
+        local b0 = space:read_u8(0x0000)
+        local v5 = space:read_u8(0x0005)
         finish(string.format(
-            "FAIL: handoff did not complete (B0=%02x V5=%02x)",
-            b0, v5), space)
+            "FAIL: no A> prompt (B0=%02x V5=%02x PC=%04X)",
+            b0, v5,
+            manager.machine.devices[":maincpu"].state["PC"].value), space)
     end
 end)

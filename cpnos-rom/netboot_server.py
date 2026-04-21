@@ -302,35 +302,112 @@ def snios_send_rcvmsg(c, reply_to, data, fnc=None):
     print(f"-> RCVMSG reply FNC={fnc:02x} DAT[{len(data)}]={data.hex()}")
 
 
+# Host-side file repository served to the CP/NOS client.
+_FILE_ROOT = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist')
+_FILE_MAP = {
+    'CCP     SPR': os.path.join(_FILE_ROOT, 'ccp.spr'),
+}
+_OPEN_FILES = {}   # key: fcb[0..11] -> bytes content
+
+BDOS_FNC = {
+    13: "RESET DISK",
+    14: "SELECT DISK",
+    15: "OPEN FILE",
+    16: "CLOSE FILE",
+    17: "SEARCH FIRST",
+    18: "SEARCH NEXT",
+    20: "READ SEQ",
+    21: "WRITE SEQ",
+    26: "SET DMA",
+    32: "SET USER",
+    37: "RESET DISK VEC",
+    39: "FREE DRIVE (bcast)",
+}
+
+
+def _fcb_key(fcb):
+    """Turn an FCB's 8-byte name + 3-byte ext (with high bits stripped)
+    into a case-insensitive canonical 'NAME    EXT' key."""
+    name = bytes(b & 0x7F for b in fcb[1:9]).decode('latin1', 'replace').strip()
+    ext  = bytes(b & 0x7F for b in fcb[9:12]).decode('latin1', 'replace').strip()
+    return f"{name:<8}{ext:<3}".upper()
+
+
 def dispatch_sndmsg(hdr, data):
-    """Temporary dispatcher: recognise BDOS function codes from the
-    request and return a minimum reply (status byte only) so NDOS's
-    LOAD path fails cleanly and prints 'CCP.SPR ?' rather than
-    crashing on an uninitialised buffer.  Returns None to suppress
-    any reply."""
+    """CP/NET BDOS-over-SNIOS dispatcher.  Handles just the subset of
+    functions NDOS uses during cold-boot CCP load (fn 13, 14, 15, 16,
+    20, 26, 32, 39).  Reply layout per DRI convention:
+        msgdat[0]       = status byte (0..3 OK, 0xFF error)
+        msgdat[1..36]   = 36-byte FCB (echoed, with ex/cr updated)
+        msgdat[37..164] = 128-byte sector (READ SEQ only)
+    """
     fnc = hdr[3]
-    BDOS_FNC = {
-        13: "RESET DISK",
-        14: "SELECT DISK",
-        15: "OPEN FILE",
-        16: "CLOSE FILE",
-        17: "SEARCH FIRST",
-        18: "SEARCH NEXT",
-        20: "READ SEQ",
-        21: "WRITE SEQ",
-        32: "SET USER",
-        37: "RESET DISK VEC",
-        39: "FREE DRIVE (bcast)",
-    }
-    print(f"  dispatch FNC={fnc:#04x} ({BDOS_FNC.get(fnc, '?')})")
+    name = BDOS_FNC.get(fnc, '?')
+    print(f"  dispatch FNC={fnc:#04x} ({name})")
+
     if fnc == 15:   # OPEN FILE
-        return bytes([0xFF])   # file not found — NDOS will print CCP.SPR ?
-    if fnc in (13, 14, 16, 32, 39):
-        return bytes([0x00])
+        # Request layout: data[0] = leading byte (disk/FID code), data[1..36] = FCB.
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
+        key = _fcb_key(fcb)
+        path = _FILE_MAP.get(key)
+        if path and os.path.exists(path):
+            with open(path, 'rb') as f:
+                content = f.read()
+            _OPEN_FILES[key] = content
+            # Reset sequential-access fields
+            fcb[12] = 0   # ex
+            fcb[13] = 0   # s1
+            fcb[14] = 0   # s2
+            fcb[15] = min(128, (len(content) - 0) // 128)  # rc in first extent
+            fcb[32] = 0   # cr
+            print(f"    opened {path} ({len(content)} B), key={key!r}")
+            return bytes([0x00]) + bytes(fcb)
+        print(f"    file-not-found key={key!r}")
+        return bytes([0xFF]) + bytes(fcb)
+
     if fnc == 20:   # READ SEQ
-        return bytes([0xFF])   # read error
-    # Unknown — 1-byte zero reply (generic success).
-    return bytes([0x00])
+        # Request layout: data[0] = leading byte (disk/FID code), data[1..36] = FCB.
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
+        key = _fcb_key(fcb)
+        content = _OPEN_FILES.get(key)
+        if content is None:
+            print(f"    READ on unopened file key={key!r}")
+            return bytes([0xFF]) + bytes(fcb) + b'\0' * 128
+        # Compute absolute record: ex * 128 + cr
+        ex = fcb[12]
+        cr = fcb[32]
+        record = ex * 128 + cr
+        offset = record * 128
+        if offset >= len(content):
+            print(f"    EOF at record {record} (offset {offset}, len {len(content)})")
+            return bytes([0x01]) + bytes(fcb) + b'\0' * 128   # 1 = EOF
+        sector = content[offset:offset + 128]
+        if len(sector) < 128:
+            sector = sector + b'\x1A' * (128 - len(sector))   # CP/M EOF pad
+        # Advance cr; handle extent roll-over (cr >= 128 -> ex++, cr=0).
+        cr += 1
+        if cr >= 128:
+            cr = 0
+            ex += 1
+        fcb[12] = ex
+        fcb[32] = cr
+        print(f"    read record {record} @ offset {offset}: {sector[:8].hex()}...")
+        return bytes([0x00]) + bytes(fcb) + bytes(sector)
+
+    if fnc == 16:   # CLOSE FILE
+        # Request layout: data[0] = leading byte (disk/FID code), data[1..36] = FCB.
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
+        key = _fcb_key(fcb)
+        _OPEN_FILES.pop(key, None)
+        return bytes([0x00]) + bytes(fcb)
+
+    if fnc in (13, 14, 26, 32, 39, 37):
+        # Status-only responses; echo FCB-like zero padding for safety.
+        return bytes([0x00]) + b'\0' * 36
+
+    # Unknown — short reply.
+    print(f"    unhandled FNC, replying 0 status")
+    return bytes([0x00]) + b'\0' * 36
 
 
 def run(port):
