@@ -328,7 +328,32 @@ def _build_file_map():
 
 
 _FILE_MAP = _build_file_map()
-_OPEN_FILES = {}   # key: fcb[0..11] -> bytes content
+_OPEN_FILES = {}   # key: fcb[0..11] -> bytes content (session cache for reads)
+_WRITES = {}       # key: fcb[0..11] -> bytearray (ephemeral writable files)
+
+
+def _all_keys():
+    """Union of read-only server files and ephemeral written files."""
+    return sorted(set(_FILE_MAP) | set(_WRITES))
+
+
+def _file_content(key):
+    """Content for READ: prefer in-memory writes (fresh from MAKE +
+    WRITE SEQ), fall back to read-only _FILE_MAP on disk."""
+    if key in _WRITES:
+        return bytes(_WRITES[key])
+    path = _FILE_MAP.get(key)
+    if path and os.path.exists(path):
+        with open(path, 'rb') as f:
+            return f.read()
+    return None
+
+
+def _file_size(key):
+    if key in _WRITES:
+        return len(_WRITES[key])
+    path = _FILE_MAP.get(key)
+    return os.path.getsize(path) if path and os.path.exists(path) else 0
 
 # SEARCH FIRST / NEXT iterator state.  One global slot is fine while we
 # run a single CP/NOS client at a time.
@@ -418,9 +443,7 @@ def _search_reply():
     if not pending:
         return bytes([0xFF]) + b'\0' * 128
     key = pending.pop(0)
-    path = _FILE_MAP[key]
-    size = os.path.getsize(path) if os.path.exists(path) else 0
-    entry = _dir_entry(key, size)
+    entry = _dir_entry(key, _file_size(key))
     return bytes([0x00]) + entry + b'\0' * (128 - len(entry))
 
 
@@ -437,24 +460,63 @@ def dispatch_sndmsg(hdr, data):
     print(f"  dispatch FNC={fnc:#04x} ({name})")
 
     if fnc == 15:   # OPEN FILE
-        # Request layout: data[0] = leading byte (disk/FID code), data[1..36] = FCB.
         fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
         key = _fcb_key(fcb)
-        path = _FILE_MAP.get(key)
-        if path and os.path.exists(path):
-            with open(path, 'rb') as f:
-                content = f.read()
+        content = _file_content(key)
+        if content is not None:
             _OPEN_FILES[key] = content
-            # Reset sequential-access fields
-            fcb[12] = 0   # ex
-            fcb[13] = 0   # s1
-            fcb[14] = 0   # s2
-            fcb[15] = min(128, (len(content) - 0) // 128)  # rc in first extent
-            fcb[32] = 0   # cr
-            print(f"    opened {path} ({len(content)} B), key={key!r}")
+            fcb[12] = 0
+            fcb[13] = 0
+            fcb[14] = 0
+            fcb[15] = min(128, (len(content) + 127) // 128)
+            fcb[32] = 0
+            print(f"    opened {key!r} ({len(content)} B)")
             return bytes([0x00]) + bytes(fcb)
         print(f"    file-not-found key={key!r}")
         return bytes([0xFF]) + bytes(fcb)
+
+    if fnc == 22:  # MAKE FILE
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        key = _fcb_key(fcb)
+        if key in _FILE_MAP:
+            # Don't shadow a real file — MAKE should fail on existing.
+            print(f"    MAKE: refuse, {key!r} exists on disk")
+            return bytes([0xFF]) + bytes(fcb)
+        _WRITES[key] = bytearray()
+        _OPEN_FILES[key] = bytes()
+        fcb[12] = 0
+        fcb[13] = 0
+        fcb[14] = 0
+        fcb[15] = 0
+        fcb[32] = 0
+        print(f"    MAKE {key!r}")
+        return bytes([0x00]) + bytes(fcb)
+
+    if fnc == 21:  # WRITE SEQ
+        # Request: FCB at data[1..36], 128-byte sector at data[37..164].
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        sector = bytes(data[37:165]) if len(data) >= 165 else bytes(data[37:]).ljust(128, b'\0')
+        key = _fcb_key(fcb)
+        if key not in _WRITES:
+            print(f"    WRITE: no MAKE/OPEN for {key!r}")
+            return bytes([0xFF]) + bytes(fcb)
+        buf = _WRITES[key]
+        ex = fcb[12]
+        cr = fcb[32]
+        record = ex * 128 + cr
+        offset = record * 128
+        if offset + 128 > len(buf):
+            buf.extend(b'\0' * (offset + 128 - len(buf)))
+        buf[offset:offset + 128] = sector
+        _OPEN_FILES[key] = bytes(buf)
+        cr += 1
+        if cr >= 128:
+            cr = 0
+            ex += 1
+        fcb[12] = ex
+        fcb[32] = cr
+        print(f"    WRITE record {record} -> {key!r} (size now {len(buf)})")
+        return bytes([0x00]) + bytes(fcb)
 
     if fnc == 20:   # READ SEQ
         # Request layout: data[0] = leading byte (disk/FID code), data[1..36] = FCB.
@@ -493,15 +555,20 @@ def dispatch_sndmsg(hdr, data):
         return bytes([0x00]) + bytes(fcb)
 
     if fnc == 19:  # DELETE FILE
-        # No writable filesystem yet — report "no matching file" rather
-        # than faking success, so CCP's state doesn't diverge from truth.
         fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
-        print(f"    DELETE: no file to delete, returning 0xFF")
+        key = _fcb_key(fcb)
+        if key in _WRITES:
+            del _WRITES[key]
+            _OPEN_FILES.pop(key, None)
+            print(f"    DELETE {key!r} (ephemeral)")
+            return bytes([0x00]) + bytes(fcb)
+        # Files in _FILE_MAP are read-only; deletion silently refused.
+        print(f"    DELETE {key!r}: not found / read-only")
         return bytes([0xFF]) + bytes(fcb)
 
     if fnc == 17:  # SEARCH FIRST
         pattern = _pattern_from_search_data(data)
-        matches = [k for k in sorted(_FILE_MAP) if _pattern_match(pattern, k)]
+        matches = [k for k in _all_keys() if _pattern_match(pattern, k)]
         _SEARCH_STATE['pattern'] = pattern
         _SEARCH_STATE['pending'] = matches
         print(f"    SEARCH FIRST pattern={pattern!r} matches={len(matches)}")
