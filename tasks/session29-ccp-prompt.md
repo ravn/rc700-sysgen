@@ -97,3 +97,44 @@ Pick one:
 
 Recommendation: 1 first — it's the smallest step that still proves
 the stack is alive in both directions.
+
+## Tiered smoke plan (growing workload)
+
+Each step adds one dimension of coverage; failing early rules out
+later work. Steps 1-3 need no server changes; 4-7 do.
+
+1. **`^C` warm boot** — CONIN + CCP reload. Server sees a second
+   OPEN/READ burst for CCP.SPR. Sanity check.
+2. **ENTER on empty line** — CCP reprompts. Proves CONOUT + edit
+   buffer round-trip.
+3. **`DIR`** — SEARCH FIRST (17) + SEARCH NEXT (18). Currently stubs.
+   Expected `NO FILE` until fns implemented.
+4. **`DIR` against populated server dir** — drop 2-3 files in
+   `cpnet-z80/dist/` visible to slave 0x70. Real directory scan.
+5. **Run one transient `.COM`** — tiny "print banner + RET". Exercises
+   OPEN / READ SEQ / CLOSE on arbitrary file + TPA jump + warm boot
+   on exit. Declaring the core stack "works" happens here.
+6. **`PIP B:=A:FOO.TXT`** — cross-drive read, WRITE SEQ (21) + MAKE
+   (22).
+7. **Assemble SYSGEN.ASM under CP/NOS and byte-diff output** — the
+   strongest regression test in the repo.
+
+   - Host `MAC.COM` on the server, feed it `sysgen/SYSGEN.ASM`
+     (several KB, macros, conditionals).
+   - Keystroke `MAC SYSGEN$PZ` via null_modem bitbang.
+   - Server logs every WRITE by filename; after `A>` reappears,
+     host-side diff `server_writes/SYSGEN.COM` vs
+     `sysgen/RCSYSGEN.COM` — must be byte-identical.
+   - Exercises: sustained READ (dozens of records), sustained WRITE
+     (HEX + PRN + SYM emitted concurrently/sequentially), wildcard
+     SEARCH, possibly random I/O, TPA occupancy (~8-10 KB for MAC),
+     minutes of emulated time without a protocol hiccup.
+   - Pinning caveat: byte-exact match against RCSYSGEN.COM assumes
+     the CP/NOS-hosted MAC version matches the zmac `--dri` mode we
+     use to verify on host. If they differ, pin the first successful
+     output as the reference — the test still catches stack
+     regressions either way.
+
+Automation for all steps: MAME null_modem bitb socket injects
+keystrokes, Lua gate looks for expected display substrings
+(`NO FILE`, `HELLO`, re-prompt, etc.).
