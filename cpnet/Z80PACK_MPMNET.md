@@ -148,6 +148,65 @@ agnostic (raw TCP), so only the MAME side matters.
 
 ## z80pack MP/M Server Setup
 
+### Disk image provenance
+
+The prebuilt MP/M II + CP/NET server disk pack is **not** on the
+modern z80pack GitHub repo — it has to be fetched from Udo Munk's
+cpmarchives mirror:
+
+    http://cpmarchives.classiccmp.org/cpm/mirrors/www.unix4fun.org/z80pack/ftp/mpm-net-1.2.tgz
+
+Local copy: `~/Downloads/mpm-net-1.2.tgz` (242 659 B, gzip 2008-07-05).
+Unpacks to:
+    mpm-net2                        (launcher: `./cpmsim` with drives a/b
+                                     linked to mpm-net2-1/2.dsk)
+    disks/library/mpm-net2-1.dsk    (256 256 B)
+    disks/library/mpm-net2-2.dsk    (256 256 B)
+
+Referred from the index page
+`http://cpmarchives.classiccmp.org/cpm/mirrors/www.unix4fun.org/z80pack/index.html`.
+The tarball is stamped 2008; the `mpm-net2` launcher inside is
+2007-12-07.  These disks have been successfully used with the ravn
+z80pack fork in session 28-ish work (see `MPMNET_ANALYSIS.md`).
+
+### Installation into `z80pack/cpmsim/` submodule (session 32, 2026-04-21)
+
+1. Build `srctools/` (`cd z80pack/cpmsim/srctools && make`).  Without
+   `cpmrecv` on the path or in `./srctools/`, cpmsim does `kill(SIGQUIT)`
+   on itself at startup (simio.c:427-428).
+2. Copy prebuilt disks + launcher:
+   ```
+   cp ~/Downloads/mpm-net-1.2/disks/library/mpm-net2-{1,2}.dsk \
+      z80pack/cpmsim/disks/library/
+   cp ~/Downloads/mpm-net-1.2/mpm-net2 z80pack/cpmsim/
+   ```
+3. Patch the launcher: the 2007 tarball uses `.cpm` extensions; modern
+   cpmsim wants `.dsk`.  Sed or hand-edit both `ln` lines.
+4. Write `conf/net_server.conf` (consoles 1-4 on ports 4000-4003).
+5. Inject `$$$.SUB` with "MPMLDR" as the only command, so CP/M 2.2
+   auto-loads MP/M II on boot:
+   ```
+   python3 -c "
+   cmd=b'MPMLDR'; rec=bytes([len(cmd)])+cmd+b'\0'*(127-len(cmd))
+   open('/tmp/sub.bin','wb').write(rec)"
+   cpmcp -f ibm-3740 disks/library/mpm-net2-1.dsk /tmp/sub.bin '0:$$$.SUB'
+   ```
+   Disk format is **ibm-3740** (77 × 26 × 128 = 256 256 B, SSSD 8").
+6. Run `./mpm-net2`.  Expect banner sequence: Z80SIM → CP/M 2.2 →
+   CCP reads `$$$.SUB` → `MPMLDR` → MP/M II V2.0 → `0A>` prompt on
+   console 0; TCP 4002 open for CP/NET slaves.
+
+Full run verified 2026-04-21: `MP/M 2 XIOS V1.6-NET for Z80SIM`
+banner, `SERVR0PRRSP` + `NtwrkIP0RSP` both resident.
+
+**Note:** the submodule's `srcmpm/netwrkif-2.asm:939-946` still has
+the buggy CONIN-address calculation documented in `MPMNET_ANALYSIS.md`.
+The 2007-vintage prebuilt disks apparently side-step the bug somehow
+(either via a different netwrkif variant, or a patched MP/M build that
+was never upstreamed).  If we ever rebuild the disks from submodule
+sources we'll need to port the fix; for now, just use the prebuilt
+tarball.
+
 See `MPMNET_ANALYSIS.md` for z80pack bugs that needed fixing:
 - **NETWRKIF nwinit** — incorrect CONIN address calculation (crashes MP/M)
 - **GENSYS TMPs** — must be 5 (matching XIOS NMBCNS), not 2
