@@ -306,14 +306,19 @@ def snios_send_rcvmsg(c, reply_to, data, fnc=None):
 # Key = 11-char normalised "NAME    EXT" (8+3, uppercase).
 # CCP.SPR + NDOS.SPR are exposed for NDOS cold boot; other files
 # are user-visible on DIR so step 4 of the smoke plan can iterate them.
-_FILE_ROOT = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist')
+_FILE_ROOTS = [
+    os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist'),   # DRI sources
+    os.path.join(_HERE, 'testutil'),                        # our test helpers (done.com etc.)
+]
 
 
 def _build_file_map():
     m = {}
-    if os.path.isdir(_FILE_ROOT):
-        for fn in sorted(os.listdir(_FILE_ROOT)):
-            full = os.path.join(_FILE_ROOT, fn)
+    for root in _FILE_ROOTS:
+        if not os.path.isdir(root):
+            continue
+        for fn in sorted(os.listdir(root)):
+            full = os.path.join(root, fn)
             if not os.path.isfile(full):
                 continue
             base, _, ext = fn.rpartition('.')
@@ -322,8 +327,7 @@ def _build_file_map():
             name = base.upper().ljust(8)[:8]
             ext  = ext.upper().ljust(3)[:3]
             m[f"{name}{ext}"] = full
-    # Always keep CCP.SPR exposed even if the listing didn't find it.
-    m.setdefault('CCP     SPR', os.path.join(_FILE_ROOT, 'ccp.spr'))
+    m.setdefault('CCP     SPR', os.path.join(_FILE_ROOTS[0], 'ccp.spr'))
     return m
 
 
