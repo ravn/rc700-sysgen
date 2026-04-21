@@ -111,15 +111,17 @@ RESIDENT
      * and the display wakes up. */
     enable_interrupts();
 
-    /* Hand off to NDOS COLDST (NDOS_BASE + 3).  NDOS initializes BDOSE,
-     * patches BIOS JT intercepts, configures CFGTBL from our seed, then
-     * JMPs NWBOOT which re-loads CCP.SPR from the server via SNIOS LOAD
-     * and transfers control to CCP ccpstart.  Never returns.
+    /* Hand off to cpnos.com's BOOT stub at 0xD000.  That is a `JP BIOS`
+     * which lands in cpbios's boot routine; cpbios sets up the zero
+     * page (WBOOT vector -> NDOSRL+0x303, BDOS vector -> BDOS), copies
+     * its 17-entry BIOS JT to NDOSRL+0x300, then jumps to NDOS+3 (NDOS
+     * COLDST).  Our resident zero-page setup gets overwritten — that's
+     * expected and correct for CP/NOS.
      *
      * Fallback: if no netboot (entry==0), fall through to the
      * diagnostic banner — useful when running without a server. */
     if (entry != 0) {
-        jump_to(0xDE03);
+        jump_to(0xD000);
     }
 
     /* Fallback diagnostic banner (reached only when entry==0). */

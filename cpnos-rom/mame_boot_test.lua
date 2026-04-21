@@ -60,21 +60,18 @@ local function finish(result, space)
     -- Expected: 00=0xA5, 01=0x5A (sentinels), 05=0xC3 06 DE (JP 0xDE06 BDOS).
     f:write(string.format("BDOS vector [0x0005..7]=%02x %02x %02x (want c3 06 de)\n",
         space:read_u8(0x0005), space:read_u8(0x0006), space:read_u8(0x0007)))
-    f:write("\n--- 0xD000 (CCP module entry, JP ccpstart / JP ccpclear) ---\n")
+    f:write("\n--- 0xD000 (BOOT = cpnos stub: JP BIOS) ---\n")
     f:write(hex_dump(space, 0xD000, 16) .. "\n")
-    f:write("\n--- 0xDE00 (NDOS module entry, JP NDOSE / JP COLDST) ---\n")
-    f:write(hex_dump(space, 0xDE00, 16) .. "\n")
-    -- Module offset 0 is `c3 <lo> <hi>` with hi = base_page after reloc.
-    -- Expected entry bytes: CCP 0xD000 = c3 e9 d3 (JP 0xD3E9 ccpstart);
-    -- NDOS 0xDE00 = c3 71 e0 (JP 0xE071 NDOSE).
-    local ccp0 = space:read_u8(0xD000)
-    local ccp2 = space:read_u8(0xD002)
-    local ndos0 = space:read_u8(0xDE00)
-    local ndos2 = space:read_u8(0xDE02)
+    f:write("\n--- 0xD003 (NDOS = JP NDOSE, JP COLDST) ---\n")
+    f:write(hex_dump(space, 0xD003, 16) .. "\n")
+    f:write("\n--- 0xDC10 (BIOS jump table) ---\n")
+    f:write(hex_dump(space, 0xDC10, 51) .. "\n")
+    -- Image signature: BOOT at 0xD000 is `JP 0xDC10` (BIOS) = c3 10 dc.
+    local boot0 = space:read_u8(0xD000)
+    local boot2 = space:read_u8(0xD002)
     f:write(string.format(
-        "CCP[0xD000..2]=%02x ?? %02x (want c3 ?? d3), "
-        .. "NDOS[0xDE00..2]=%02x ?? %02x (want c3 ?? e0)\n",
-        ccp0, ccp2, ndos0, ndos2))
+        "BOOT[0xD000..2]=%02x ?? %02x (want c3 10 dc)\n",
+        boot0, boot2))
     f:write("\n--- 0xEC00 (breadcrumbs; 0xEC20 = CRT ISR tick counter) ---\n")
     f:write(hex_dump(space, 0xEC00, 48) .. "\n")
     f:write(string.format("CRT ISR ticks = %d (expect > 0 if VRTC wired)\n",
@@ -115,34 +112,25 @@ emu.register_frame_done(function()
     -- With TOP+1 = 0xF203, NDOS's TLBIOS-walk patches BIOS JT at
     -- 0xF200+ and doesn't touch the BDOS vector.  Previous null-trap
     -- (c3 00 00) caused the walk to scribble low memory instead.
+    -- Zero-page gate: resident_entry writes C3 at 0x0000 and 0x0005.
+    -- cpnos.com's cpbios boot later overwrites the operand bytes
+    -- (0x0001/2 -> NDOSRL+0x303, 0x0006/7 -> BDOS).  So we check
+    -- only the C3 opcodes here — they stay stable across both phases.
     local b0 = space:read_u8(0x0000)
-    local b2 = space:read_u8(0x0002)
     local v5 = space:read_u8(0x0005)
-    local v6 = space:read_u8(0x0006)
-    local v7 = space:read_u8(0x0007)
-    if b0 == 0xC3 and b2 == 0xF2
-       and v5 == 0xC3 and v6 == 0x06 and v7 == 0xDE then
+    if b0 == 0xC3 and v5 == 0xC3 then
         -- Sentinels + BDOS vector in place => resident_entry ran.  Give
         -- CCP a moment to settle, then check PC is inside loaded code.
         local pc = manager.machine.devices[":maincpu"].state["PC"].value
-        local cpo = space:read_u8(0xD000)
-        local cph = space:read_u8(0xD002)
-        -- NDOS+0..+5 are overwritten by NDOS COLDST (ndos.asm:204-212
-        -- copies 6 bytes from MSGDAT into NDOS+0..+5 as internal
-        -- scratch).  Check the duplicate dispatch at NDOS+6 instead,
-        -- which stays intact and is what our BDOS vector points at.
-        local npo = space:read_u8(0xDE06)
-        local nph = space:read_u8(0xDE08)
-        if cpo ~= 0xC3 or cph ~= 0xD3 then
+        -- cpnos.com first byte at 0xD000 should be `JP BIOS` (BIOS=0xDC10)
+        -- which assembles to c3 10 dc.  3 fixed bytes.
+        local boot0 = space:read_u8(0xD000)
+        local boot1 = space:read_u8(0xD001)
+        local boot2 = space:read_u8(0xD002)
+        if boot0 ~= 0xC3 or boot1 ~= 0x10 or boot2 ~= 0xDC then
             finish(string.format(
-                "FAIL: CCP entry reloc mismatch at 0xD000 (got %02x .. %02x, want c3 .. d3)",
-                cpo, cph), space)
-            return
-        end
-        if npo ~= 0xC3 or nph ~= 0xE0 then
-            finish(string.format(
-                "FAIL: NDOS dispatch reloc mismatch at 0xDE06 (got %02x .. %02x, want c3 .. e0)",
-                npo, nph), space)
+                "FAIL: BOOT vector at 0xD000 = %02x %02x %02x (want c3 10 dc)",
+                boot0, boot1, boot2), space)
             return
         end
         -- PC should now be somewhere inside CCP (0xD000..), NDOS
@@ -157,7 +145,7 @@ emu.register_frame_done(function()
     -- 30s timeout.
     if frame > 50 * 30 then
         finish(string.format(
-            "FAIL: handoff did not complete (B0=%02x B1=%02x V5=%02x)",
-            b0, b1, v5), space)
+            "FAIL: handoff did not complete (B0=%02x V5=%02x)",
+            b0, v5), space)
     end
 end)

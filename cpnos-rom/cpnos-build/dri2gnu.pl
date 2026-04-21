@@ -8,11 +8,21 @@ use strict;
 use warnings;
 use feature 'state';
 
+my $first_line = 1;   # emit a default section before the first output line
+
 sub _split_chars {
     my $s = shift;
     $s =~ s|''|'|g;       # de-double DRI doubled quotes
-    return "'$s'" if length($s) == 1;
-    return join(',', map { "'$_'" } split(//, $s));
+    my @out;
+    for my $c (split //, $s) {
+        if ($c eq q{'}) {
+            push @out, '0x27';  # single quote can't be 'char' literal
+        } else {
+            push @out, "'$c'";
+        }
+    }
+    return "'$s'" if @out == 1 && $s ne q{'};  # trivial case
+    return join ',', @out;
 }
 
 while (my $line = <>) {
@@ -25,6 +35,13 @@ while (my $line = <>) {
     if ($line =~ /^\s*$/) { next; }
 
     # Skip END / TITLE / PAGE (listing/layout, GNU-as has no equivalent).
+    # `END <label>` in DRI marks the module entry point — emit a
+    # `.global <label>` so ld.lld can resolve ENTRY() in the linker
+    # script.
+    if ($line =~ /^\s*END\s+([A-Za-z_][A-Za-z0-9_]*)\s*(;.*)?$/i) {
+        print ".global $1\n";
+        next;
+    }
     if ($line =~ /^\s*END(\s|$)/i) { next; }
     if ($line =~ /^\s*TITLE(\s|$)/i) { next; }
     if ($line =~ /^\s*PAGE\s*(;.*)?$/i) { next; }
@@ -63,12 +80,12 @@ while (my $line = <>) {
     # $ is DRI's location counter.  Protect $ in identifiers
     # (STA$RET) and $ inside single-quoted character literals before
     # converting standalone $ to '.'.
-    $line =~ s/([A-Za-z_])\$([A-Za-z_0-9])/$1\x01$2/g;   # \x01 placeholder
-    $line =~ s/'\$'/'\x02'/g;                              # quoted dollar
-    $line =~ s/'([^']*)\$([^']*)'/"'$1\x02$2'"/g;          # $ inside longer quoted
-    $line =~ s/\$/./g;                                      # now safe
-    $line =~ s/\x01/\$/g;                                    # restore identifier $
-    $line =~ s/\x02/\$/g;                                    # restore quoted $
+    $line =~ s/([A-Za-z_])\$([A-Za-z_0-9])/$1\x01$2/g;   # identifier $ -> \x01
+    $line =~ s/'\$'/'\x02'/g;                             # quoted dollar -> \x02
+    $line =~ s/'([^']*)\$([^']*)'/'$1\x02$2'/g;           # $ in long quoted -> \x02
+    $line =~ s/\$/./g;                                     # other $ -> .
+    $line =~ s/\x01/\$/g;                                  # restore identifier $
+    $line =~ s/\x02/\$/g;                                  # restore quoted $
 
     # DRI "not X" in expressions -> bitwise complement.  XIZ leaves
     # these alone; GNU-as uses ~.  Conservative: only when we see
@@ -152,5 +169,10 @@ while (my $line = <>) {
                         |DI|EI|HALT|NOP|IM|DAA|SCF|CCF
                         |RLCA|RRCA|RLA|RRA)(\s|$)/x;
 
+    if ($first_line) {
+        # Default section in case source doesn't begin with cseg/dseg.
+        print ".section .cpnos_code,\"ax\",\@progbits\n";
+        $first_line = 0;
+    }
     print "$line\n";
 }

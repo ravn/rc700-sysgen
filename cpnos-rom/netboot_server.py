@@ -39,14 +39,19 @@ DEFAULT_PORT = 9000
 DMA = 0xDB80
 ENTRY = 0xDB80
 
-# Paths to CP/NET SPR modules in the cpnet-z80 reference tree.
+# CP/NOS composite image built by cpnos-build — single .com carrying
+# cpnos + cpndos + cpnios + cpbdos + cpbios, linked at data 0xCC00 /
+# code 0xD000.
 _HERE = os.path.dirname(os.path.abspath(__file__))
+CPNOS_COM = os.path.join(_HERE, 'cpnos-build', 'd', 'cpnos.com')
+CPNOS_BASE = 0xCC00     # where the .com's first byte lives in memory
+ENTRY_ADDR = 0xD000     # BOOT label (first byte of code segment)
+
+# Legacy single-module SPRs — kept for reference, not currently used.
 NDOS_SPR = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
 CCP_SPR  = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ccp.spr')
 NDOS_BASE = 0xDE00
 CCP_BASE  = 0xD000
-# FNC=4 execute target: CCP ccpstart at module offset 0.
-ENTRY_ADDR = CCP_BASE
 
 
 def checksum(msg):
@@ -153,7 +158,7 @@ def handle(c):
     client_sid = req[2]
 
     # Multi-line banner the client prints via CONOUT — verifies the
-    # CR/LF + scroll path before CCP/NDOS ever gets handed control.
+    # CR/LF + scroll path before CP/NOS ever gets handed control.
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     banner = (
         b'\x0c'                               # Ctrl-L: clear screen, home cursor
@@ -161,7 +166,7 @@ def handle(c):
         b'\n Console via BIOS CONOUT:\n'
         b'   - 8275 CRT (80x25, auto-init DMA)\n'
         b'   - SIO-B null-modem (polled, 38400)\n'
-        b'\n Streaming CCP 0xd000, NDOS 0xde00\n\n'
+        b'\n Streaming cpnos.com -> 0xcc00\n\n'
     )
     # Fits in one FNC=1 frame because SIZ <= 255.
     assert len(banner) <= 255, f"banner too long ({len(banner)} > 255)"
@@ -171,34 +176,16 @@ def handle(c):
     ack = recv_msg(c)
     print(f"<- ack: {ack.hex()}")
 
-    # Stream relocated CCP to CCP_BASE.  20 x 128B = 2560B code.
-    # Safe now that scratch_bss moved from 0xE000 -> 0xEF00 in the linker
-    # script; CCP occupies 0xD900..0xE2FF and no longer overlaps BSS.
-    # Entry after reloc: CCP_BASE+0 = ccpstart, CCP_BASE+3 = ccpclear.
-    with open(CCP_SPR, 'rb') as f:
-        spr = f.read()
-    ccp = spr_relocate(spr, CCP_BASE)
-    print(f"CCP.SPR relocated to 0x{CCP_BASE:04x}: "
-          f"{len(ccp)}B, first8={ccp[:8].hex()} "
-          f"(ccpstart={ccp[1] | (ccp[2]<<8):#06x}, "
-          f"ccpclear={ccp[4] | (ccp[5]<<8):#06x})")
-    stream_payload(c, client_sid, CCP_BASE, ccp, 'CCP')
+    # Stream the monolithic CP/NOS image: one DMA set to 0xCC00
+    # followed by 34 FNC=3 blocks of cpnos.com (4292 bytes, rounded).
+    with open(CPNOS_COM, 'rb') as f:
+        image = f.read()
+    print(f"cpnos.com: {len(image)} B -> 0x{CPNOS_BASE:04x}..0x{CPNOS_BASE+len(image)-1:04x}")
+    stream_payload(c, client_sid, CPNOS_BASE, image, 'CPNOS')
 
-    # Stream relocated NDOS to NDOS_BASE.  24 x 128B = 3072B code.
-    # Entry: NDOS_BASE+0 = JMP NDOSE (BDOS dispatch),
-    #        NDOS_BASE+3 = JMP COLDST.
-    with open(NDOS_SPR, 'rb') as f:
-        spr = f.read()
-    ndos = spr_relocate(spr, NDOS_BASE)
-    print(f"NDOS.SPR relocated to 0x{NDOS_BASE:04x}: "
-          f"{len(ndos)}B, first8={ndos[:8].hex()} "
-          f"(NDOSE={ndos[1] | (ndos[2]<<8):#06x}, "
-          f"COLDST={ndos[4] | (ndos[5]<<8):#06x})")
-    stream_payload(c, client_sid, NDOS_BASE, ndos, 'NDOS')
-
-    # Execute at CCP ccpstart.  resident_entry will write the BDOS
-    # vector at 0x0005 + run NTWKIN before jumping here via the
-    # _jump_to trampoline (tail-call JP (HL)).
+    # Execute at BOOT (cpnos stub at 0xD000).  cpnos.s is `jmp BIOS`;
+    # BIOS init sets up zero-page vectors, copies BIOS JT to
+    # NDOSRL+0x300, and hands off to NDOS cold-start.
     msg = make_msg(0xB1, client_sid, 0x00, 4,
                    bytes([ENTRY_ADDR & 0xFF, ENTRY_ADDR >> 8]))
     print(f"-> FNC=4 (execute 0x{ENTRY_ADDR:04x}): {msg.hex()}")
