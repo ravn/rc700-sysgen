@@ -198,8 +198,8 @@ The autoload PROM (ROA375) bootstraps the system:
 2. Initialize interrupt vectors at 0x7300 (Z80 Mode 2)
 3. Initialize PIO, DMA, CTC, and CRT controllers
 4. Attempt hard disk boot, fallback to floppy
-5. Read Track 0 (mixed density) to 0x0000
-6. Disable ROM via port 0x14
+5. Disable ROM via port 0x18 (RAMEN; disables both PROM0 @ 0x0000 and PROM1 @ 0x2000 simultaneously, exposing RAM underneath). Boot code is already running from 0x7000, so this is safe. Port 0x14 is likely the DIP-switch read, not ROM disable.
+6. Read Track 0 (mixed density) to 0x0000 (now RAM)
 7. Jump to 0x0000 (CP/M cold boot)
 
 ## Collaboration Workflow

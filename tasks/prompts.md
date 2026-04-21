@@ -165,3 +165,32 @@
 - does the test need extra time to detect?
 - i want an extra line added to the boot banner if so
 - the bios is old
+
+## Session 24 — CP/NOS combined autoloader+BIOS PROM planning
+
+- new job: I want to get CP/NOS up and running on the rc700 against MP/M. 2x2KB proms, slimmed BIOS combined with autoloader, design a download protocol
+- i only need a subset of what the current bios supports
+- i would like diskette support to be optional - please add estimates of code size
+- Two proms. I expect to replace both
+- I need the 8" DSDD diskette format support only for this
+- i would like for room for the parallel port support when I get that working
+- the parallel port is currently parked, I will come back to it later
+- if we can get 56 Kb TPA or more that would be nice
+- get the diskette geometry from the bios. Also allow for local diskette fallback if faster than server (check later). PROM0 2KB @ 0x0000, PROM1 2KB @ 0x2000. BIOS relocated to upper memory. 0xF800+ same as current BIOS for Comal80
+- sounds right
+- investigate
+- go
+- it is port 0x18, i misunderstood something back then. port 0x14 is probably the dip switch
+- and the rom is disabled before track 0 is read
+- use the z80pack mp/m server and pick up fresh
+- analyse, raise issues and tasks, summarize and commit
+
+## Session 24 (continued, 2026-04-20) — SNIOS port into cpnos-rom
+
+- this session is about snios.asm
+- the next step in the plan
+- direct call
+- did you compile with -g
+- yes
+- b
+- go

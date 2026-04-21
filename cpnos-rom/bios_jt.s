@@ -1,0 +1,43 @@
+; cpnos-rom BIOS jump table (Phase 1 skeleton)
+;
+; Standard CP/M 2.2 BIOS 17-entry table, placed at BIOS_BASE (0xF200
+; since session #24; was 0xF580).  CCP+BDOS (and in NOS mode, NDOS) call
+; these offsets; the addresses are the BIOS's public ABI and must not
+; drift between builds.
+;
+; The linker script KEEPs section .resident.jumptable at the very start
+; of the .resident region (VMA 0xF200), so `_bios_boot` equals BIOS_BASE.
+;
+; Most entries in the NOS-only build are thin stubs: CP/NOS routes disk
+; I/O through NDOS -> SNIOS, so SELDSK/READ/WRITE never get called for
+; network drives. Those slots still have to exist for the standard jump
+; offsets to line up, but they land on _bios_stub_ret which just returns.
+
+    .section .resident.jumptable, "ax"
+    .global _bios_jt
+    .global _bios_boot, _bios_wboot
+    .global _bios_const, _bios_conin, _bios_conout
+    .global _bios_list, _bios_punch, _bios_reader
+    .global _bios_home, _bios_seldsk
+    .global _bios_settrk, _bios_setsec, _bios_setdma
+    .global _bios_read, _bios_write
+    .global _bios_listst, _bios_sectran
+
+_bios_jt:
+_bios_boot:     jp _impl_boot
+_bios_wboot:    jp _impl_wboot
+_bios_const:    jp _impl_const
+_bios_conin:    jp _impl_conin
+_bios_conout:   jp _impl_conout
+_bios_list:     jp _bios_stub_ret
+_bios_punch:    jp _bios_stub_ret
+_bios_reader:   jp _bios_stub_ret
+_bios_home:     jp _bios_stub_ret
+_bios_seldsk:   jp _impl_seldsk_null
+_bios_settrk:   jp _bios_stub_ret
+_bios_setsec:   jp _bios_stub_ret
+_bios_setdma:   jp _bios_stub_ret
+_bios_read:     jp _impl_disk_err
+_bios_write:    jp _impl_disk_err
+_bios_listst:   jp _bios_stub_ret
+_bios_sectran:  jp _bios_stub_ret          ; identity in NOS-only build
