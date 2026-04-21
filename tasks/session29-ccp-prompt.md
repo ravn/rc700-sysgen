@@ -222,6 +222,41 @@ Next steps when revisiting:
    retry; if WRITE then arrives populated, under-population was
    the bug.
 
+**Update after investigation (commit `2ddefae` follow-up):**
+
+Captured both MAKE req/reply and WRITE SEQ req hex.
+
+MAKE request (45 B): `00 01 FOO      $70  [zeros] [18 FE 18 12 " FOO.TX"]`
+— standard CP/NET packed FCB ending with trap-fill + command-tail
+bleed from paramt+36.
+
+MAKE reply (37 B): `00 01 FOO      $70  [00×22 alloc-sentinel 01 [rest 0]]`
+— echoed FCB with alloc[0] set per session29 note.  PIPNET must be
+receiving this cleanly.
+
+WRITE SEQ request (165 B): `00 01 [8 NUL name] [\x00$$] [zeros] [sector]`
+— FCB is wiped.  Alloc-map sentinel in MAKE reply made no
+difference; PIPNET's WRITE-time FCB genuinely contains zeros.
+
+Ruled out:
+ - CP/M version check (fn 12 added; PIPNET never calls it)
+ - MAKE reply under-population of alloc map (tested, no effect)
+
+Still-viable leads:
+ 1. **PIPNET uses a separate output FCB** allocated inside the
+    transient that's never populated with the temp-file name.
+    Copy paths like `A:FOO.TXT=B:LOGIN.COM` might route through
+    MP/M-style dual FCBs (`FCB1`+`FCB2`) that CP/NET's NDOS treats
+    asymmetrically on the write side.
+ 2. **PIPNET source is not shipped** with cpnet-z80 (binary only)
+    and not in z80pack either.  Likely needs disassembly of
+    `cpnet-z80/dist/pipnet.com` to resolve — probably a whole
+    session on its own.
+ 3. **Workaround** for step-6 in the meantime: add a trivial copy
+    utility to `cpnos-rom/testutil/` (fn 20 / 21 explicit) that
+    exercises the WRITE SEQ path with a known-good FCB, so step
+    6's end-to-end test doesn't depend on PIPNET at all.
+
 ### Issue M — Directory entry is single-extent only (deferred)
 `_dir_entry` in `netboot_server.py` builds one 32-byte CP/M directory
 entry per file, assuming the whole file fits in extent 0 (max 128

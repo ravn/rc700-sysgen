@@ -538,6 +538,7 @@ def dispatch_sndmsg(hdr, data):
         return bytes([0xFF]) + bytes(fcb)
 
     if fnc == 22:  # MAKE FILE
+        print(f"    MAKE raw DAT[{len(data)}]={data.hex()}")
         fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
         key = _fcb_key(fcb)
         if key in _FILE_MAP:
@@ -546,15 +547,24 @@ def dispatch_sndmsg(hdr, data):
             return bytes([0xFF]) + bytes(fcb)
         _WRITES[key] = bytearray()
         _OPEN_FILES[key] = bytes()
-        fcb[12] = 0
-        fcb[13] = 0
-        fcb[14] = 0
-        fcb[15] = 0
-        fcb[32] = 0
-        print(f"    MAKE {key!r}")
-        return bytes([0x00]) + bytes(fcb)
+        fcb[12] = 0              # ex
+        fcb[13] = 0              # s1
+        fcb[14] = 0              # s2
+        fcb[15] = 0              # rc (empty extent)
+        # Allocation map: one plausible non-zero block so PIPNET sees
+        # the FCB as "live" instead of "deleted slot".  Real CP/M fills
+        # these lazily as blocks are allocated during WRITE; the server
+        # has no disk geometry so we just plant a sentinel.
+        fcb[16] = 0x01
+        for i in range(17, 32):
+            fcb[i] = 0
+        fcb[32] = 0              # cr
+        reply = bytes([0x00]) + bytes(fcb)
+        print(f"    MAKE {key!r} reply={reply.hex()}")
+        return reply
 
     if fnc == 21:  # WRITE SEQ
+        print(f"    WRITE SEQ raw DAT[{len(data)}]={data.hex()}")
         # Request: FCB at data[1..36], 128-byte sector at data[37..164].
         fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
         sector = bytes(data[37:165]) if len(data) >= 165 else bytes(data[37:]).ljust(128, b'\0')
@@ -689,6 +699,13 @@ def dispatch_sndmsg(hdr, data):
     if fnc == 18:  # SEARCH NEXT
         print(f"    SEARCH NEXT remaining={len(_SEARCH_STATE['pending'])}")
         return _search_reply()
+
+    if fnc == 12:  # GET VERSION
+        # CP/M 2.2 = L:0x22, H:0 (system type = CP/M-80).  PIPNET
+        # checks this during startup ("REQUIRES CP/M 2.0 OR NEWER");
+        # a zero reply may throw it into a degraded code path.
+        print(f"    GET VERSION -> 2.2")
+        return bytes([0x22, 0x00])
 
     if fnc in (13, 14, 26, 32, 39, 37):
         # Status-only responses; echo FCB-like zero padding for safety.
