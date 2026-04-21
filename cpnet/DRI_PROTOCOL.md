@@ -280,6 +280,6 @@ The bootstrap sequence:
 - Digital Research, *CP/NET Operating System Manual*, Appendix E
   (serial protocol specification)
 - `~/git/cpnet-z80/src/ser-dri/snios.asm` -- DRI reference SNIOS
-- `~/git/z80pack/cpmsim/srcsim/` -- z80pack SNIOS (binary DRI)
+- `z80pack/cpmsim/srcsim/` (submodule) -- z80pack SNIOS (binary DRI)
 - `~/git/cpnet-z80/contrib/CpnetSerialServer.jar` -- Java server
   (supports `proto=DRI`)

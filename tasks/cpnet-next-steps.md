@@ -36,7 +36,7 @@ port with ring buffer and RTS flow control.
 |-----------|----------|--------|
 | SNIOS.SPR | `cpnet/snios.asm` + `build_snios.py` | Working (DRI binary) |
 | server.py | `cpnet/server.py` | Working (TCP, BDOS emulation) |
-| z80pack MP/M | `~/git/z80pack` (ravn fork) | Forked, NETWRKIF fixed |
+| z80pack MP/M | `z80pack/` submodule (ravn fork) | Forked, NETWRKIF fixed |
 | BIOS (C) | `rcbios-in-c/` | Latest: SIO swap, IOBYTE, ring buffers |
 | Test suite | `cpnet/run_test.sh` + `autotest.lua` | Needs re-validation |
 | DRI protocol doc | `cpnet/DRI_PROTOCOL.md` | Complete |
@@ -95,7 +95,7 @@ headroom.  Develop with 4 KB in MAME.  Real hardware: 2 KB PROMs (2716).
 
 ### Phase A: CP/NET on Latest BIOS in MAME (against z80pack MP/M)
 
-1. Build z80pack cpmsim on macOS (check `~/git/z80pack/cpmsim/`)
+1. Build z80pack cpmsim on macOS (check `z80pack/cpmsim/` submodule)
 2. Start z80pack MP/M II with NETWRKIF on TCP 4002
 3. Rebuild SNIOS.SPR — verify BIOS entry point addresses still match
 4. Boot MAME with latest BIOS, connect to z80pack via null_modem

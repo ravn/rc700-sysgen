@@ -5,6 +5,65 @@ details live in `session24-cpnos-snios.md` and
 `session29-ccp-prompt.md`; this doc is the short "where are we and
 what's next" snapshot.
 
+## Session 32 (2026-04-21) — retarget: CP/NOS + z80pack MP/M II
+
+**Decision.** Retarget the server side from our Python `netboot_server.py`
+to a real DRI MP/M II running in z80pack `cpmsim` (submodule at
+`z80pack/`, ravn fork).  This is the *officially intended* CP/NOS
+topology per DRI app note 03.
+
+**Protocol research (agent, session 32):**
+
+- CP/NOS is **linked statically** on the slave
+  (`LINK CPNOS,CPNDOS,CPNIOS,CPBDOS,CPBIOS[LF000,DEC000]`) and the
+  whole image lives in the slave's PROM.  `cpnos.asm` is a 10-line
+  stub; no bytes cross the wire at cold boot.
+- Server-side `CPNETLDR.ASM` is for CP/M (local-disk) slaves, not
+  CP/NOS.
+- DRI's `NETBOOT` extension (FMT=0xB0 req / 0xB1 resp, sub-fns
+  ldtxt/stdma/load128/execute) is optional and has **no responder
+  in the DRI MP/M II server** (`dist/mpm/server.asm`) nor in
+  z80pack's `srcmpm/netwrkif-*.asm`.  Left to the integrator.
+- `LOGIN` is **explicit** (user runs `LOGIN.COM`), CP/NET fn 64,
+  not part of boot.
+- MP/M II routes slaves by **SIO port**, not by in-band slave ID.
+- Frame format unchanged (ENQ/SOH/header/HCS/STX/data/ETX/CKS/EOT).
+
+**Target architecture.**
+1. RC702 cold-boots CP/NOS entirely from its own PROMs (full
+   CCP+NDOS+SNIOS+CPBDOS+CPBIOS image, no netboot download).
+2. Local A> prompt appears with **no bytes on the wire**.
+3. User types `LOGIN`; CP/NET fn 64 is the first frame emitted.
+4. MAME SIO-A -> TCP bridge -> z80pack cpmsim virtual SIO port
+   (`mpm-net2` target).  Bridge is pure byte relay.
+
+**PROM size policy (user, 2026-04-21).**
+"Booting first, memory later."  **MAME may use 4 KB PROMs
+temporarily** if the linked image doesn't fit 2 × 2 KB.  PCB530
+real HW stays at 2 KB — we'll shrink before physical testing.
+
+### New tasks
+
+| ID | Summary |
+|----|---------|
+| W  | Link full CP/NOS image (CCP+NDOS+SNIOS+CPBDOS+CPBIOS) into cpnos-rom; measure size |
+| X  | If > 4 KB: bump MAME `rc702.cpp` PROM region to 4 KB (single 4 KB or 2 × 2 KB or 2 × 4 KB as needed), defer PCB530 constraint |
+| Y  | Build z80pack `cpmsim` from submodule; bring up `mpm-net2` headless |
+| Z  | Write TCP bridge (MAME SIO-A pipe <-> cpmsim SIO slave port) — replaces `netboot_server.py` on this path |
+| AA | First milestone: RC702 boots locally, `LOGIN <slave-id>` to MP/M II returns a prompt, `DIR` on a remote drive lists MP/M files |
+
+### Issue V — UPDATED
+
+Loader 4 KB cap no longer a concern for the boot-first path: if the
+full-image link exceeds 4 KB, we simply don't go through the .COM
+loader for MP/M integration work — we burn (or MAME-load) larger
+PROMs directly.  Loader keeps being useful for sub-4 KB iterations.
+
+### Issue U — unchanged
+
+Still open as a latent bug on `cpnos-rc700-console`.  Not on the
+critical path for MP/M integration.
+
 ## Session 31 (2026-04-21) — loader + RENAME
 
 - **CP/M `.COM` loader for PROM swap without burning** — committed

@@ -1,0 +1,3 @@
+[submodule "z80pack"]
+	path = z80pack
+	url = https://github.com/ravn/z80pack

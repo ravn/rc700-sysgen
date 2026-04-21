@@ -88,7 +88,7 @@ protocols via `cpnet_proto=` config. This is the easiest server to use.
 
 ### Resources
 - z80pack: https://retrocmp.de/emulator/z80pack/z80pack.htm
-- z80pack fork: https://github.com/ravn/z80pack (local: ~/git/z80pack)
+- z80pack fork: https://github.com/ravn/z80pack (local: submodule at z80pack/)
 - cpnet-z80: https://github.com/durgadas311/cpnet-z80 (local: ~/git/cpnet-z80)
 - CP/NET docs: http://sebhc.durgadas.com/CPNET-docs/cpnet.html
 - CpnetSerialServer.jar: cpnet-z80/contrib/ (Java, supports DRI+ASCII protocols)

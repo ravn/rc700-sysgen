@@ -242,7 +242,7 @@ table at 0xF233 visible (8 JP entries).
 - **Boot sequence order**: ROM is disabled *before* track 0 is read
   (safe because boot code runs from 0x7000 by then). Project-root CLAUDE.md
   corrected.
-- **MP/M server**: z80pack `cpmsim` at `/Users/ravn/git/z80pack/cpmsim`.
+- **MP/M server**: z80pack `cpmsim` at `/Users/ravn/z80/rc700-gensmedet/z80pack/cpmsim` (submodule).
 - **SLAVEID**: build-time constant, `-DRC702_SLAVEID=0x70` (can change).
 - **Transport**: SIO-A async 38400, RTS/CTS flow control (session #23 fix).
 - **Target TPA**: 55–56KB NOS-only, ~52KB with diskette.
@@ -500,7 +500,7 @@ make cpnos-clean                    # clean build artifacts
 
 ## z80pack MP/M server setup
 
-Working directory: `/Users/ravn/git/z80pack/cpmsim/`.
+Working directory: `/Users/ravn/z80/rc700-gensmedet/z80pack/cpmsim/` (submodule).
 
 Two integration options:
 

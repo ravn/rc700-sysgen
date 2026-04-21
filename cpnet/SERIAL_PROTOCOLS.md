@@ -57,6 +57,6 @@
 - Server NIOS is reverse of client: receives first, then sends (ENQ from client initiates)
 
 ## Related Repos
-- **z80pack**: `~/git/z80pack/` (fork: https://github.com/ravn/z80pack)
+- **z80pack**: `z80pack/` submodule (fork: https://github.com/ravn/z80pack)
 - **cpnet-z80**: `~/git/cpnet-z80/` (https://github.com/durgadas311/cpnet-z80)
 - **cpmtools3**: `~/git/cpmtools3/` (disk image file injection)
