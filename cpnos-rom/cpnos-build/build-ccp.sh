@@ -24,8 +24,11 @@ mkdir -p "$OUT/a" "$OUT/d"
 cp "$CPNET/dist/vcpm/rmac.com" "$OUT/a/"
 cp "$CPNET/dist/vcpm/link.com" "$OUT/a/"
 
-# CCP source -> D: (CRLF line endings so RMAC is happy).
-perl -pe 's/\n/\r\n/g unless /\r\n$/' "$CPNET/dist/src/ccp.asm" > "$OUT/d/CCP.ASM"
+# CCP source -> D: one-instruction-per-line (CRLF for RMAC).
+# dri_split.py expands DRI MAC's '!' statement+comment terminators
+# into newlines so the source is readable and editable while still
+# producing byte-identical ccp.spr from RMAC.
+"$HERE/dri_split.py" "$CPNET/dist/src/ccp.asm" "$OUT/d/CCP.ASM"
 
 export CPMDrive_A="$OUT/a"
 export CPMDrive_D="$OUT/d"
