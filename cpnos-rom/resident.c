@@ -174,9 +174,22 @@ RESIDENT
     resident_entry(0);
 }
 
+/* PIO-A keyboard ring buffer.  Populated by isr_pio_kbd (isr.s) on each
+ * PIO-A interrupt — one keystroke per IRQ.  Drained by impl_conin.
+ * Size must be a power of two (mask = SIZE-1).  SIO-B RX is checked
+ * first so automated tests driving the serial line see predictable
+ * byte ordering; the PIO path only matters when a human types at the
+ * physical keyboard, and the ring smooths over the ISR<->poll race. */
+#define KBD_RING_SIZE 16
+uint8_t kbd_ring[KBD_RING_SIZE];
+uint8_t kbd_head;   /* written by ISR */
+uint8_t kbd_tail;   /* written by CONIN */
+
 RESIDENT
 uint8_t impl_const(void) {
-    return (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) ? 0xFF : 0x00;
+    if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) return 0xFF;
+    if (kbd_head != kbd_tail) return 0xFF;
+    return 0x00;
 }
 
 /* Cursor position.  Lives in .scratch_bss (default-zero at BSS init),
@@ -207,8 +220,16 @@ static void crt_scroll_up(void) {
 
 RESIDENT
 uint8_t impl_conin(void) {
-    while ((_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) == 0) { }
-    return _port_in(PORT_SIO_B_DATA);
+    for (;;) {
+        if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) {
+            return _port_in(PORT_SIO_B_DATA);
+        }
+        if (kbd_head != kbd_tail) {
+            uint8_t c = kbd_ring[kbd_tail];
+            kbd_tail = (kbd_tail + 1) & (KBD_RING_SIZE - 1);
+            return c;
+        }
+    }
 }
 
 RESIDENT

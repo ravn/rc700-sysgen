@@ -127,3 +127,47 @@ _isr_crt:
     .byte 0x08              ; ex af,af'
     ei
     reti
+
+; PIO-A keyboard ISR.  Fires on each PIO-A interrupt (one per keystroke
+; when PIO-A is in input mode with IRQ enabled).  Reads the byte and
+; enqueues to the kbd_ring; drops the byte silently if the ring is full.
+; Swaps to shadow regs (same convention as _isr_crt).  The ring buffer
+; symbols (_kbd_ring / _kbd_head / _kbd_tail) live in .scratch_bss,
+; defined by resident.c.
+    .global _isr_pio_kbd
+_isr_pio_kbd:
+    .byte 0x08              ; ex af,af'
+    .byte 0xD9              ; exx
+
+    in   a, (0x10)          ; PORT_PIO_A_DATA -> A (keystroke)
+    ld   e, a               ; stash the key
+
+    ; new_head = (head + 1) & 0x0F
+    ld   hl, _kbd_head
+    ld   a, (hl)
+    inc  a
+    and  0x0F
+    ld   d, a               ; D = new_head
+
+    ; if (new_head == tail) drop the byte
+    ld   hl, _kbd_tail
+    ld   a, (hl)
+    cp   d
+    jr   z, _isr_pio_kbd_done
+
+    ; ring[head] = key;  head = new_head
+    ld   hl, _kbd_head
+    ld   a, (hl)
+    ld   h, 0
+    ld   l, a
+    ld   bc, _kbd_ring
+    add  hl, bc
+    ld   (hl), e            ; store key
+    ld   a, d
+    ld   (_kbd_head), a
+
+_isr_pio_kbd_done:
+    .byte 0xD9              ; exx
+    .byte 0x08              ; ex af,af'
+    ei
+    reti

@@ -13,11 +13,20 @@
 /* ISRs + helpers from isr.s. */
 extern void isr_crt(void);
 extern void isr_noop(void);
+extern void isr_pio_kbd(void);
 extern void set_i_reg(uint8_t page);
 extern void enable_im2(void);
 
+/* IVT at 0xF100; each slot is 2 bytes, so slot N lives at 0xF100+2N.
+ *   slot 0..3  (vec 0x00..0x06): CTC channels 0..3 (ch2 = CRT refresh)
+ *   slot 8..10 (vec 0x10..0x14): SIO-B rx/tx/extstatus (polled, slots
+ *                                 installed as noop for the daisy chain)
+ *   slot 16    (vec 0x20):       PIO-A keyboard
+ *   slot 17    (vec 0x22):       PIO-B (unused)
+ */
 #define IVT_ADDR     0xF100
 #define IVT_ENTRIES  18
+#define IVT_PIO_A    16
 
 static const uint8_t sio_a_init[] = {
     0x18,           /* WR0: channel reset */
@@ -44,8 +53,26 @@ static void setup_ivt(void) {
         ivt[i] = (uint16_t)(uintptr_t)&isr_noop;
     }
     ivt[2] = (uint16_t)(uintptr_t)&isr_crt;
+    ivt[IVT_PIO_A] = (uint16_t)(uintptr_t)&isr_pio_kbd;
     set_i_reg(IVT_ADDR >> 8);
     enable_im2();
+}
+
+/* PIO-A keyboard: input mode with interrupt on any byte written by the
+ * external agent (native keyboard MCU on real HW, MAME's generic keyboard
+ * in emulation).  Control word sequence matches rcbios-in-c/bios_hw_init
+ * so MAME's rc702 driver sees the same pattern it already handles.
+ *
+ *   0x20 — interrupt vector (slot 16 in our IVT = 0xF100+0x20)
+ *   0x4F — mode 1 (input) + ICW-follows bit (M1=01, ICW=1)
+ *   0x83 — enable interrupts (EI=1, ICW selector)
+ *
+ * Interrupts stay globally DI until resident_entry does EI, so the ISR
+ * won't fire mid-init. */
+static void init_pio_kbd(void) {
+    _port_out(PORT_PIO_A_CTRL, 0x20);
+    _port_out(PORT_PIO_A_CTRL, 0x4F);
+    _port_out(PORT_PIO_A_CTRL, 0x83);
 }
 
 static void init_display(void) {
@@ -153,6 +180,8 @@ void init_hardware(void) {
 
     (void)_port_in(PORT_SIO_A_CTRL);
     (void)_port_in(PORT_SIO_B_CTRL);
+
+    init_pio_kbd();
 
     init_display();
 }
