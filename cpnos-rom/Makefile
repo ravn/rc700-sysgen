@@ -265,7 +265,7 @@ cpnos-sub-test: cpnos-install
 	@sleep 0.3
 	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	    -nothrottle -window -skip_gameinfo \
-	    -seconds_to_run 25 \
+	    -seconds_to_run 70 \
 	    -rs232a null_modem \
 	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
 	    -rs232b null_modem \

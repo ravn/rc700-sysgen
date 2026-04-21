@@ -27,11 +27,18 @@ stays invisible.
 
 ## What's broken / blocked
 
-### Issue N — PIPNET WRITE SEQ FCB is zero
-See `session29-ccp-prompt.md` §"Issue N".  Blocks step 6 (PIP copy
-end-to-end).  Best next lead: MAKE reply likely under-populates
-the FCB; need to diff against canonical BDOS fn 22 and trace
-`cpndos.asm funtb2` entry 0x15.
+(Nothing blocking the smoke plan today.)
+
+## Deferred: PIPNET.COM
+
+### Issue N — PIPNET sends a zeroed FCB on WRITE SEQ
+PIPNET-specific; our server's write path is proven correct
+via `testutil/copy.com` (same server, proper ABI = step 6 PASS).
+DRI's PIP v1.5 source isn't in cpnet-z80 or z80pack; resolving
+would require disassembling `cpnet-z80/dist/pipnet.com` to find
+what pointer it actually passes to BDOS fn 21 and why its output
+FCB ends up zeroed between MAKE and WRITE.  Pick it up when
+PIPNET specifically is a requirement.
 
 ## What's deferred
 
@@ -54,21 +61,24 @@ the FCB; need to diff against canonical BDOS fn 22 and trace
 | 3 | `DIR` → NO FILE | PASS (empty-map case) |
 | 4 | `DIR` on populated dir | PASS |
 | 5 | Run a transient `.COM` | PASS (PIPNET, MAIL, DONE all load) |
-| 6 | `PIP B:FOO=A:BAR` copy | BLOCKED on issue N |
+| 6 | copy a file over the wire | PASS via `testutil/copy.com` (PIPNET deferred — issue N) |
 | 7 | Assemble SYSGEN.ASM + byte-diff | deferred |
 
 ## First thing to do next session
 
-1. Re-read `session29-ccp-prompt.md` §"Issue N" for the raw WRITE SEQ
-   DAT hex and the user hints about MAKE populating the FCB.
-2. Add a `print(f"-> MAKE reply: {reply.hex()}")` to
-   `netboot_server.py` and compare against a real CP/M-80 BDOS fn 22
-   return (dump via MAME under a disk-based BIOS, or cross-check
-   against a BDOS source listing).
-3. Populate the alloc-map bytes in the MAKE reply with plausible
-   non-zero block numbers.  If WRITE SEQ then arrives with a
-   populated FCB, the root cause is confirmed and the fix is
-   straightforward; if not, walk cpndos.asm's send path for fn 21.
+Step 7 (SYSGEN byte-diff) is the natural next milestone:
+ 1. Obtain a MAC.COM (or ASM.COM) binary and add it to
+    `cpnet-z80/dist/` or `cpnos-rom/testutil/`.  DRI sources of
+    SYSGEN.ASM are already in `sysgen/SYSGEN.ASM`.
+ 2. Extend `cpnos-sub-test` with a target that seeds the SUB with
+    `mac sysgen$pz|copy sysgen.com /tmp/...|done` (or similar) and
+    verifies the assembled output byte-matches `sysgen/RCSYSGEN.COM`.
+ 3. Issue M (multi-extent DIR) becomes relevant here since MAC's
+    intermediate listings can exceed 16 KB — touch that up if
+    FILE SIZE round-trips fail for large files.
+
+PIPNET remains deferred (issue N) unless it becomes a specific
+requirement.
 
 ## Where files live
 

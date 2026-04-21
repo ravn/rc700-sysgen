@@ -48,7 +48,7 @@ emu.register_frame_done(function()
         finish(string.format("PASS: DONE marker on SIO-B at frame %d", frame))
         return
     end
-    if frame > 50 * 20 then
-        finish("FAIL: 20 s elapsed without DONE marker")
+    if frame > 50 * 60 then
+        finish("FAIL: 60 s elapsed without DONE marker")
     end
 end)

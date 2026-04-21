@@ -630,10 +630,19 @@ def dispatch_sndmsg(hdr, data):
         return bytes([0x00]) + bytes(fcb) + bytes(sector)
 
     if fnc == 16:   # CLOSE FILE
-        # Request layout: data[0] = leading byte (disk/FID code), data[1..36] = FCB.
         fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray((data[1:] if data else b'').ljust(36, b'\0'))
         key = _fcb_key(fcb)
         _OPEN_FILES.pop(key, None)
+        # If the client wrote to this key, persist the final contents
+        # so host-side tests can byte-compare against an expected file.
+        if key in _WRITES:
+            out_dir = '/tmp/cpnos_writes'
+            os.makedirs(out_dir, exist_ok=True)
+            fn_clean = key.strip().replace(' ', '_').replace('/', '_')
+            out_path = os.path.join(out_dir, fn_clean + '.bin')
+            with open(out_path, 'wb') as f:
+                f.write(bytes(_WRITES[key]))
+            print(f"    CLOSE: flushed {key!r} ({len(_WRITES[key])} B) -> {out_path}")
         return bytes([0x00]) + bytes(fcb)
 
     if fnc == 35:  # COMPUTE FILE SIZE
