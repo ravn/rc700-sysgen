@@ -91,18 +91,35 @@ PROM image is 4096 B total (2 × 2 KB chips).
 - PROM0 in use: **1942 B** code + **106 B** padding headroom
 - PROM1 in use: **0 B** — **all 2048 B free**
 
-Candidate uses for PROM1 (tracked but not yet picked):
+Candidate uses for PROM1 (tracked but not yet picked).  The
+constraining rule is the RC702 hardware one-way PROM disable: once
+`OUT (0x18), A` fires, both PROMs are unmapped until hardware
+reset.  So any PROM content has to be **copied once at cold boot**
+to survive, *and* has to be either read-only / non-regenerable by
+runtime code, or have a cheap warm-boot recovery path (since warm
+boot doesn't re-enable PROM).
 
-1. **Z80-converted CCP in PROM1** — CCP.SPR is 2560 B of 8080 code;
-   Z80 conversion realistically brings it to ~2200 B; cutting
-   $<slave>.SUB + XSUB hooks + rarely-used built-ins can fit it
-   into 2048 B.  Would eliminate the 25-record CCP.SPR streaming
-   burst every cold boot.  Byte-identity-verified base is in place.
-2. **Hardware monitor** (~1 KB) — peek/poke/port for on-bench
-   debugging without a working network stack.
-3. **Netboot retry/progress UI** (~300 B) — visible "waiting for
-   server…" state instead of silent hang.
-4. Leave as headroom — default if nothing else bids.
+1. **Hardware monitor** (~1 KB) — peek/poke/port for on-bench
+   debugging without a working network stack.  Natural fit: code
+   only runs during cold-boot diagnostic sequences, copy-once to
+   RAM is fine, and it's explicitly optional for warm boot.
+2. **Netboot retry/progress UI** (~300 B) — visible "waiting for
+   server…" state instead of silent hang.  Cold-boot only, no
+   warm-boot path, perfect fit.
+3. Leave as headroom — default if nothing else bids.
+
+### Deferred: Z80-converted CCP in PROM1
+
+*Why parked:* RAM is precious.  A PROM-sourced CCP has to sit in
+RAM to be executable, which costs the same RAM as the network-
+loaded one.  And warm boot expects CCP to be re-freshable — PROM
+is disabled by then, so we'd need a second pristine copy in RAM to
+restore from, *doubling* the RAM cost for zero functional gain.
+The byte-identity-verified build infrastructure (build-ccp.sh,
+build-ccp-zmac.sh, dri_split.py) stays useful for unrelated CCP
+work (e.g. shrinking the binary to reduce the cold-boot streaming
+burst without moving it).  Revisit if the RAM math changes or if
+we find a no-warm-boot use case.
 
 ## What could happen next
 
