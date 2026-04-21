@@ -707,6 +707,32 @@ def dispatch_sndmsg(hdr, data):
         print(f"    DELETE {key!r}: not found / read-only")
         return bytes([0xFF]) + bytes(fcb)
 
+    if fnc == 23:  # RENAME FILE
+        # BDOS fn 23 FCB layout: bytes 0..15 = old (drive+name+ext+extent),
+        # bytes 16..31 = new (drive+name+ext+reserved).  The new name fills
+        # d1..d11 at fcb[17..27].  Build a synthetic 12-byte "drive+name+ext"
+        # buffer for _fcb_key().
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        old_key = _fcb_key(fcb)
+        new_fcb = bytes([fcb[16]]) + bytes(fcb[17:25]) + bytes(fcb[25:28])
+        new_key = _fcb_key(new_fcb)
+        if old_key not in _WRITES and old_key not in _FILE_MAP:
+            print(f"    RENAME {old_key!r} -> {new_key!r}: old not found")
+            return bytes([0xFF]) + bytes(fcb)
+        if new_key in _WRITES or new_key in _FILE_MAP:
+            print(f"    RENAME {old_key!r} -> {new_key!r}: new already exists")
+            return bytes([0xFF]) + bytes(fcb)
+        if old_key in _WRITES:
+            _WRITES[new_key] = _WRITES.pop(old_key)
+        if old_key in _OPEN_FILES:
+            _OPEN_FILES[new_key] = _OPEN_FILES.pop(old_key)
+        if old_key in _FILE_MAP:
+            # Rebind the disk-backed entry under the new key for the
+            # remainder of this server session (in-memory only).
+            _FILE_MAP[new_key] = _FILE_MAP.pop(old_key)
+        print(f"    RENAME {old_key!r} -> {new_key!r}")
+        return bytes([0x00]) + bytes(fcb)
+
     if fnc == 17:  # SEARCH FIRST
         pattern = _pattern_from_search_data(data)
         matches = [k for k in _all_keys() if _pattern_match(pattern, k)]
