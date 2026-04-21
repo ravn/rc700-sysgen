@@ -179,10 +179,18 @@ cpnos-mame: cpnos-install
 # End-to-end netboot test: Python server on localhost, MAME bridged to
 # it over SIO-A null_modem.
 NETBOOT_PORT ?= 9000
+SIOB_PORT    ?= 9001
+SIOB_TRIGGER ?=
+SIOB_INJECT  ?=
 cpnos-netboot: cpnos-install
-	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log
 	@python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_netboot_server.pid
+	@python3 -u sio_b_driver.py $(SIOB_PORT) \
+	    $(if $(SIOB_TRIGGER),--trigger '$(SIOB_TRIGGER)') \
+	    $(if $(SIOB_INJECT),--inject '$(SIOB_INJECT)') \
+	    > /tmp/cpnos_siob_driver.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_siob_driver.pid
 	@sleep 0.3
 	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	    -nothrottle -window -skip_gameinfo \
@@ -190,17 +198,54 @@ cpnos-netboot: cpnos-install
 	    -rs232a null_modem \
 	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
 	    -rs232b null_modem \
-	    -bitb2 /tmp/cpnos_siob.raw \
+	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)" \
 	    -autoboot_script mame_boot_test.lua
 	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_siob_driver.pid) 2>/dev/null || true
 	@echo "--- server log ---"
 	@cat /tmp/cpnos_netboot_server.log
+	@echo "--- SIO-B driver log ---"
+	@cat /tmp/cpnos_siob_driver.log
 	@echo "--- SIO-B capture (printable) ---"
 	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null || true
 	@echo
 	@echo "--- boot test ---"
 	@cat /tmp/cpnos_boot_result.txt
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
+
+# Step 1 of the smoke plan: ^C warm boot via SIO-B injection.
+# Runs long enough for cold boot + ^C + full CCP.SPR reload, then
+# asserts the server observed two OPEN events for CCP.SPR.
+cpnos-warmboot-test: cpnos-install
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log
+	@python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_netboot_server.pid
+	@python3 -u sio_b_driver.py $(SIOB_PORT) \
+	    --trigger 'A>' --inject '\x03' --timeout 30 \
+	    > /tmp/cpnos_siob_driver.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_siob_driver.pid
+	@sleep 0.3
+	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 25 \
+	    -rs232a null_modem \
+	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
+	    -rs232b null_modem \
+	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)"
+	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_siob_driver.pid) 2>/dev/null || true
+	@echo "--- server log (OPEN events) ---"
+	@grep -E 'opened|FNC=0x0f' /tmp/cpnos_netboot_server.log || true
+	@echo "--- SIO-B driver log ---"
+	@cat /tmp/cpnos_siob_driver.log
+	@echo "--- SIO-B capture (printable) ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null || true
+	@echo
+	@echo "--- assertion ---"
+	@n=$$(grep -cE '    opened ' /tmp/cpnos_netboot_server.log); \
+	 echo "CCP.SPR OPEN count: $$n"; \
+	 [ "$$n" -ge 2 ] || { echo 'FAIL: expected >= 2 OPEN events'; exit 1; }; \
+	 echo 'PASS: warm boot re-fetched CCP.SPR'
 
 # CPU trace: captures every executed instruction to /tmp/cpnos_trace.log.
 # Use for debugging control-flow issues.  Pipe through tail or head to

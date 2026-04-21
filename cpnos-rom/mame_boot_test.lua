@@ -8,6 +8,14 @@ local done = false
 local DSPSTR = 0xF800
 local RESULT_FILE = "/tmp/cpnos_boot_result.txt"
 
+-- After the PASS/FAIL condition is first detected, keep the emulation
+-- running for this many frames so SIO-B TX finishes draining (at 38400
+-- baud a byte needs ~13 frames of 1/50 s to transmit; 15 frames covers
+-- any short tail like "\r\nA>").
+local DRAIN_FRAMES = 15
+local pending_finish = nil
+local pending_frame  = 0
+
 local function screen_text(space, base)
     local out = {}
     for row = 0, 24 do
@@ -101,9 +109,19 @@ end
 emu.register_frame_done(function()
     if done then return end
     frame = frame + 1
-    if frame % 25 ~= 0 then return end  -- every ~0.5s
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
+
+    -- If a result is pending, hold the frame loop open for DRAIN_FRAMES
+    -- before calling finish() so SIO-B TX has time to flush.
+    if pending_finish ~= nil then
+        if frame - pending_frame >= DRAIN_FRAMES then
+            finish(pending_finish, space)
+        end
+        return
+    end
+
+    if frame % 25 ~= 0 then return end  -- every ~0.5s
 
     -- Session #29 gate: real CP/M zero-page vectors written + SPR
     -- modules streamed + PC inside loaded region.  Zero page:
@@ -122,7 +140,8 @@ emu.register_frame_done(function()
         for col = 0, 78 do
             if space:read_u8(DSPSTR + row * 80 + col) == string.byte('A')
                and space:read_u8(DSPSTR + row * 80 + col + 1) == string.byte('>') then
-                finish(string.format("PASS (A> at row %d col %d)", row, col), space)
+                pending_finish = string.format("PASS (A> at row %d col %d)", row, col)
+                pending_frame = frame
                 return
             end
         end
@@ -133,9 +152,10 @@ emu.register_frame_done(function()
     if frame > 50 * 60 then
         local b0 = space:read_u8(0x0000)
         local v5 = space:read_u8(0x0005)
-        finish(string.format(
+        pending_finish = string.format(
             "FAIL: no A> prompt (B0=%02x V5=%02x PC=%04X)",
             b0, v5,
-            manager.machine.devices[":maincpu"].state["PC"].value), space)
+            manager.machine.devices[":maincpu"].state["PC"].value)
+        pending_frame = frame
     end
 end)
