@@ -303,11 +303,82 @@ def snios_send_rcvmsg(c, reply_to, data, fnc=None):
 
 
 # Host-side file repository served to the CP/NOS client.
+# Key = 11-char normalised "NAME    EXT" (8+3, uppercase).
+# CCP.SPR + NDOS.SPR are exposed for NDOS cold boot; other files
+# are user-visible on DIR so step 4 of the smoke plan can iterate them.
 _FILE_ROOT = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist')
-_FILE_MAP = {
-    'CCP     SPR': os.path.join(_FILE_ROOT, 'ccp.spr'),
-}
+
+
+def _build_file_map():
+    m = {}
+    if os.path.isdir(_FILE_ROOT):
+        for fn in sorted(os.listdir(_FILE_ROOT)):
+            full = os.path.join(_FILE_ROOT, fn)
+            if not os.path.isfile(full):
+                continue
+            base, _, ext = fn.rpartition('.')
+            if not base:
+                base, ext = fn, ''
+            name = base.upper().ljust(8)[:8]
+            ext  = ext.upper().ljust(3)[:3]
+            m[f"{name}{ext}"] = full
+    # Always keep CCP.SPR exposed even if the listing didn't find it.
+    m.setdefault('CCP     SPR', os.path.join(_FILE_ROOT, 'ccp.spr'))
+    return m
+
+
+_FILE_MAP = _build_file_map()
 _OPEN_FILES = {}   # key: fcb[0..11] -> bytes content
+
+# SEARCH FIRST / NEXT iterator state.  One global slot is fine while we
+# run a single CP/NOS client at a time.
+_SEARCH_STATE = {
+    'pattern': None,   # 11-char pattern with '?' = any
+    'pending': [],     # keys still to return (popleft)
+}
+
+
+def _pattern_from_search_data(data):
+    """Extract the 11-char name+ext pattern from a SEARCH FIRST/NEXT
+    message.  NDOS's stsf routing (cpndos.asm:747-770) produces two
+    different preamble layouts depending on whether FCB[0] is '?':
+        stsf1 (specific drive): [user, drive, FCB[1..35]]        -> 37 B
+        stsf2 ('?' wildcard):   [drive, user, '?', FCB[1..35]]   -> 38 B
+    Both end with FCB[1..35] at the tail, and the pattern (FCB[1..11])
+    is the first 11 bytes of that 35-byte block.  Compute position
+    relative to the end so the preamble ambiguity is absorbed."""
+    if len(data) < 35:
+        return '?' * 11
+    start = len(data) - 35
+    raw = bytes(b & 0x7F for b in data[start:start + 11])
+    s = raw.decode('latin1', 'replace').upper()
+    return s.ljust(11)[:11]
+
+
+def _pattern_match(pattern, key):
+    if len(pattern) != 11 or len(key) != 11:
+        return False
+    return all(p == '?' or p == k for p, k in zip(pattern, key))
+
+
+def _dir_entry(key, size):
+    """Build a 32-byte CP/M directory entry for a file.  We use extent 0
+    only; the block map is filled with non-zero sentinels so CP/M tools
+    that check allocation won't flag the entry as deleted/empty."""
+    name = key[:8].encode('ascii')
+    ext  = key[8:11].encode('ascii')
+    rc   = min(128, (size + 127) // 128)
+    entry = bytearray(32)
+    entry[0]    = 0x00                        # user number
+    entry[1:9]  = name
+    entry[9:12] = ext
+    entry[12]   = 0                           # extent low
+    entry[13]   = 0                           # s1
+    entry[14]   = 0                           # s2 / extent high
+    entry[15]   = rc                          # record count this extent
+    for i in range(16, 32):
+        entry[i] = 0x01                       # bogus non-zero alloc block
+    return bytes(entry)
 
 BDOS_FNC = {
     13: "RESET DISK",
@@ -336,6 +407,21 @@ def _fcb_key(fcb):
     name = bytes(b & 0x7F for b in fcb[1:9]).decode('latin1', 'replace').strip()
     ext  = bytes(b & 0x7F for b in fcb[9:12]).decode('latin1', 'replace').strip()
     return f"{name:<8}{ext:<3}".upper()
+
+
+def _search_reply():
+    """Format a SEARCH FIRST / NEXT reply: status byte + 128-byte dir
+    buffer holding the next pending match at offset 0.  Returns 0xFF
+    when no more matches.  We always report status 0 (entry at offset
+    0) so the 128-byte buffer is just [entry|zeros*96]."""
+    pending = _SEARCH_STATE['pending']
+    if not pending:
+        return bytes([0xFF]) + b'\0' * 128
+    key = pending.pop(0)
+    path = _FILE_MAP[key]
+    size = os.path.getsize(path) if os.path.exists(path) else 0
+    entry = _dir_entry(key, size)
+    return bytes([0x00]) + entry + b'\0' * (128 - len(entry))
 
 
 def dispatch_sndmsg(hdr, data):
@@ -413,15 +499,17 @@ def dispatch_sndmsg(hdr, data):
         print(f"    DELETE: no file to delete, returning 0xFF")
         return bytes([0xFF]) + bytes(fcb)
 
-    if fnc in (17, 18):   # SEARCH FIRST / SEARCH NEXT
-        # Minimal stub: "no matching directory entry".  Returning status 0
-        # with a zeroed FCB makes CCP think it found a file called
-        # "\0\0\0\0\0\0\0\0.\0\0\0" and garbage-print it; 0xFF is the
-        # canonical "no file" status.  Reply data buffer is 128 bytes
-        # (4 x 32-byte dir entries); content is irrelevant when status
-        # says not-found.
-        print(f"    SEARCH {fnc}: returning no-match (0xFF)")
-        return bytes([0xFF]) + b'\0' * 128
+    if fnc == 17:  # SEARCH FIRST
+        pattern = _pattern_from_search_data(data)
+        matches = [k for k in sorted(_FILE_MAP) if _pattern_match(pattern, k)]
+        _SEARCH_STATE['pattern'] = pattern
+        _SEARCH_STATE['pending'] = matches
+        print(f"    SEARCH FIRST pattern={pattern!r} matches={len(matches)}")
+        return _search_reply()
+
+    if fnc == 18:  # SEARCH NEXT
+        print(f"    SEARCH NEXT remaining={len(_SEARCH_STATE['pending'])}")
+        return _search_reply()
 
     if fnc in (13, 14, 26, 32, 39, 37):
         # Status-only responses; echo FCB-like zero padding for safety.

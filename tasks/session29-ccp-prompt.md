@@ -139,6 +139,52 @@ Pick one:
 Recommendation: 1 first — it's the smallest step that still proves
 the stack is alive in both directions.
 
+## Progress against the smoke plan
+
+- Step 1 (^C warm boot) — PASSES via `make cpnos-warmboot-test`
+- Step 2 (ENTER on empty line) — passes implicitly (see PIP session below)
+- Step 3 (DIR -> NO FILE) — PASSES once DELETE returned 0xFF for absent
+  files; earlier catch-all's fake-success confused CCP's post-command
+  housekeeping and stalled the CONOUT path.
+- Step 4 (DIR against populated directory) — PASSES.  Server now scans
+  `cpnet-z80/dist/` at startup (`_build_file_map`) and SEARCH FIRST/NEXT
+  iterate matching `_FILE_MAP` keys; CCP prints a 13-file listing in
+  the standard four-up format.
+- Step 5 (run a transient .COM) — PASSES spontaneously.  Typing
+  `pipnet` at A> loaded PIP.COM end-to-end: SEARCH → OPEN → 8 x READ
+  → JP 0x0100 → PIP's `*` prompt.  That proves the full network
+  transient path works for arbitrary .COMs.
+- Step 6 (PIP cross-drive copy) — not yet tested (needs WRITE SEQ +
+  MAKE on the server).
+- Step 7 (SYSGEN.ASM byte-diff) — deferred.
+
+## Newly raised issues
+
+### Issue J — SEARCH FIRST preamble ambiguity
+NDOS's `stsf` routes through two different branches depending on
+whether `FCB[0]` is `'?'` (wildcard-drive) or a specific drive code,
+producing different on-wire preambles (37 B vs 38 B) before the FCB
+body.  Current server code uses `data[len-35 : len-24]` to extract
+the 11-char name+ext pattern from the tail of the FCB block,
+absorbing the preamble difference.  Robust but fragile if any future
+BDOS fn packs a different tail layout.  Document in
+`cpnet/DRI_PROTOCOL.md` when we next touch it.
+
+### Issue K — Single-client SEARCH iterator state
+`_SEARCH_STATE` is a module-global dict.  Only one CP/NOS slave can
+search concurrently.  Fine now (one MAME), breaks if we ever run two
+slaves against the same server.  Key on `(did, sid)` from the SNDMSG
+header when it becomes relevant.
+
+### Issue L — Host-task completion != MAME exit
+Background `make cpnos-interactive` runs MAME in the make's
+foreground but backgrounds the Python servers; the Bash tool's
+"task completed" signal does not reliably correspond to MAME being
+dead (shell wrapper can finish setup while MAME keeps running; or
+conversely, Python server exit can race).  Authoritative check is
+`pgrep -f regnecentralend`.  Don't treat task-notification as
+ground truth.
+
 ## Tiered smoke plan (growing workload)
 
 Each step adds one dimension of coverage; failing early rules out
