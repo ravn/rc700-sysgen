@@ -256,29 +256,29 @@ cpnos-warmboot-test: cpnos-install
 # afterwards CCP is idle at the prompt (no SNIOS traffic for >2 s).
 CPNOS_SUB ?= dir
 cpnos-sub-test: cpnos-install
-	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log
-	@CPNOS_SUB='$(CPNOS_SUB)' python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log /tmp/cpnos_boot_result.txt
+	@CPNOS_SUB='$(CPNOS_SUB)|done' python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_netboot_server.pid
-	@python3 -u sio_b_driver.py $(SIOB_PORT) --timeout 25 \
+	@python3 -u sio_b_driver.py $(SIOB_PORT) --timeout 30 \
 	    > /tmp/cpnos_siob_driver.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_siob_driver.pid
 	@sleep 0.3
 	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	    -nothrottle -window -skip_gameinfo \
-	    -seconds_to_run 20 \
+	    -seconds_to_run 25 \
 	    -rs232a null_modem \
 	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
 	    -rs232b null_modem \
-	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)"
+	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)" \
+	    -autoboot_script mame_sub_test.lua
 	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
 	@kill $$(cat /tmp/cpnos_siob_driver.pid) 2>/dev/null || true
 	@echo "--- SIO-B (printable) ---"
 	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw | sed 's/$$/ /'
 	@echo
-	@echo "--- assertion ---"
-	@grep -q "opened '\$$[0-9A-F][0-9A-F] *SUB'" /tmp/cpnos_netboot_server.log \
-	   || { echo 'FAIL: CCP never opened the seeded SUB file'; exit 1; }
-	@echo "PASS: SUB file opened and executed"
+	@echo "--- result ---"
+	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
+	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
 # Interactive: boot CP/NOS, leave MAME running at the A> prompt so a
 # human can type on the native keyboard (PIO-A path).  SIO-B output

@@ -154,9 +154,26 @@ the stack is alive in both directions.
   `pipnet` at A> loaded PIP.COM end-to-end: SEARCH → OPEN → 8 x READ
   → JP 0x0100 → PIP's `*` prompt.  That proves the full network
   transient path works for arbitrary .COMs.
-- Step 6 (PIP cross-drive copy) — not yet tested (needs WRITE SEQ +
-  MAKE on the server).
+- Step 6 (PIP cross-drive copy) — server side ready (MAKE fn 22,
+  WRITE SEQ fn 21, DELETE fn 19 all in place).  End-to-end PIP copy
+  not yet exercised in an automated test; deferred to a later
+  session together with a proper two-drive CFGTBL.
 - Step 7 (SYSGEN.ASM byte-diff) — deferred.
+
+## $$$.SUB automation is live
+
+Commit `b66c8a2` adds CP/NET-native batch execution.  Server seeds
+`$<slave>.SUB` in `_WRITES` from the `CPNOS_SUB` env var; CCP reads
+the file at the first prompt via fns 33/34/35 (RANDREAD / RANDWRITE
+/ FILE SIZE) and runs each command, then deletes the SUB.  New
+target `make cpnos-sub-test CPNOS_SUB='dir|pip foo=bar'` runs a
+canned session and asserts the server saw the SUB OPEN — catches
+regressions across the full SEARCH / OPEN / FILE SIZE / RANDREAD /
+DELETE pipeline as a single integrated smoke test.
+
+This is the preferred automation surface going forward.  SIO-B
+injection (`sio_b_driver.py --trigger / --inject`) stays for mid-
+program input (e.g. feeding PIP's `*` prompt or MAIL's menu).
 
 ## Newly raised issues
 

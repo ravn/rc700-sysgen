@@ -345,9 +345,12 @@ def _seed_sub_file(slave_id=0x70, commands=None):
     rest zeros.  Length byte gives CCP the line length for comlen."""
     if not commands:
         return
+    # CCP reads SUB records LIFO: the last record is the first command
+    # executed, then truncates.  To run commands in human order we write
+    # them reversed so commands[0] ends up at the tail of the file.
     key = f"${slave_id:02X}     SUB"
     buf = bytearray()
-    for line in commands:
+    for line in reversed(commands):
         line = line.rstrip('\r\n')
         rec = bytearray(128)
         rec[0] = len(line)
