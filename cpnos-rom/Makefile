@@ -180,7 +180,7 @@ cpnos-mame: cpnos-install
 # it over SIO-A null_modem.
 NETBOOT_PORT ?= 9000
 cpnos-netboot: cpnos-install
-	@rm -f /tmp/cpnos_netboot_server.log
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw
 	@python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_netboot_server.pid
 	@sleep 0.3
@@ -189,13 +189,16 @@ cpnos-netboot: cpnos-install
 	    -seconds_to_run 70 \
 	    -rs232a null_modem \
 	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
+	    -rs232b null_modem \
+	    -bitb2 /tmp/cpnos_siob.raw \
 	    -autoboot_script mame_boot_test.lua
 	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
 	@echo "--- server log ---"
 	@cat /tmp/cpnos_netboot_server.log
+	@echo "--- SIO-B capture (printable) ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null || true
+	@echo
 	@echo "--- boot test ---"
-	@cat /tmp/cpnos_boot_result.txt
-	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 	@cat /tmp/cpnos_boot_result.txt
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
