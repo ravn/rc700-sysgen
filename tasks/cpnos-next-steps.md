@@ -28,6 +28,26 @@ where DRI's MAC leaves leftover bytes from the prior literal
 (`'RETURN TO SKIP'`) that zmac zero-pads — unrelated to any
 server or transport issue.
 
+## CCP rebuild capability (new this session)
+
+We can now reproduce `cpnet-z80/dist/ccp.spr` byte-for-byte from
+source, on two independent paths:
+
+| Tool | Script | Output | Verified |
+|------|--------|--------|----------|
+| RMAC + LINK (VirtualCpm) | `cpnos-build/build-ccp.sh` | Full .SPR (3200 B) | byte-identical to `dist/ccp.spr` |
+| zmac -8 --dri (host) | `cpnos-build/build-ccp-zmac.sh` | Code section only (2560 B) | byte-identical to SPR offset 256..2815 (zero-padded trailing DEFS) |
+
+Both consume `cpnos-build/dri_split.py` output — the original
+`ccp.asm` preprocessed so each DRI-MAC `!`-joined statement lands on
+its own line (922 → 1410 lines), still assembles to the same bytes.
+
+This gives a clean base for Z80-conversion experiments: edit the
+split source, run either build, cmp against the original.  The zmac
+path is preferred for iteration because it's pure host-side, no
+VirtualCpm launch overhead, and zmac has none of RMAC's 8080-only /
+M80's 6-char limits.
+
 ## Smoke plan status
 
 | Step | What | Status |
@@ -62,9 +82,37 @@ Pick up only if PIPNET specifically is required.
 | K  | Single-client SEARCH iterator state | Only matters with >1 slave |
 | L  | Task-notification ≠ MAME-exit | Known; use `pgrep -f regnecentralend` |
 | M  | DIR entries are single-extent only | No served file exceeds 16 KB yet |
+| O  | M80 unsuitable for ccp.asm | 6-char symbol truncation + `$`-in-binary-literals unsupported; documented in session notes, see MS M80 manual |
+| P  | zmac build produces code-only, not SPR | Need a small wrapper tool to emit full SPR (header + data sector + code + relocation bitmap) if we want zmac output to drop in as a replacement for dist/ccp.spr |
+
+## PROM space budget
+
+PROM image is 4096 B total (2 × 2 KB chips).
+- PROM0 in use: **1942 B** code + **106 B** padding headroom
+- PROM1 in use: **0 B** — **all 2048 B free**
+
+Candidate uses for PROM1 (tracked but not yet picked):
+
+1. **Z80-converted CCP in PROM1** — CCP.SPR is 2560 B of 8080 code;
+   Z80 conversion realistically brings it to ~2200 B; cutting
+   $<slave>.SUB + XSUB hooks + rarely-used built-ins can fit it
+   into 2048 B.  Would eliminate the 25-record CCP.SPR streaming
+   burst every cold boot.  Byte-identity-verified base is in place.
+2. **Hardware monitor** (~1 KB) — peek/poke/port for on-bench
+   debugging without a working network stack.
+3. **Netboot retry/progress UI** (~300 B) — visible "waiting for
+   server…" state instead of silent hang.
+4. Leave as headroom — default if nothing else bids.
 
 ## What could happen next
 
+- **Z80 CCP experiment.**  With two byte-identical build paths in
+  place plus the split source, the iteration loop is: edit splits
+  → zmac → cmp → test in MAME.  Pilot: translate a hot loop (e.g.
+  a `mvi b, n / dcr / jnz` idiom) to `djnz`, verify boot still
+  works, measure -N bytes.  Parked at the decision of whether to
+  target full SPR (keep current load path) or PROM1 absolute
+  (requires PROM-disable timing changes).
 - **Back to the actual project goal** (per `~/z80/CLAUDE.md`):
   optimize the LLVM-Z80 backend against SDCC code density.  PROM
   is 1756 B clang vs 1910 B SDCC; BIOS 6021 vs 6123.  Paused for
