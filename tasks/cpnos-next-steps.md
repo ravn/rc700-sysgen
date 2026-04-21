@@ -5,6 +5,79 @@ details live in `session24-cpnos-snios.md` and
 `session29-ccp-prompt.md`; this doc is the short "where are we and
 what's next" snapshot.
 
+## Session 32 (2026-04-21 → 2026-04-22) — RC702 ↔ MP/M II GREEN
+
+### Milestone AA reached — end-to-end LOGIN + remote file ops PASS
+
+After installing prebuilt `mpm-net2` package into z80pack submodule
+and fixing the launcher to `cp` disks (so CCP's `$$$.SUB` cleanup
+doesn't clobber the library), ran `bash cpnet/run_test.sh --no-server
+--inject --auto --headless`.  Result from `/tmp/cpnet_test_results.txt`:
+
+    RESULT: PASS — prompt visible after NETWORK
+    RESULT: PASS — ERA H:HLCOPY2.TXT succeeded
+    RESULT: PASS — HELP ERA EXAMPLES succeeded
+
+Lua autoboot output (cpnet_38400.lua) shows the exact boot sequence:
+
+    RC700 56k CP/M 2.2 C-bios/clang 2026-04-22
+    A>CPNETLDR
+    CP/NET 1.2 Loader
+    BIOS         DA00H  2600H
+    BDOS         CC00H  0E00H
+    SNIOS   SPR  C900H  0300H
+    NDOS    SPR  BD00H  0C00H
+    TPA          0000H  BD00H
+    CP/NET 1.2 loading complete.
+    A>LOGIN PASSWORD
+    (network drive usable)
+
+Infrastructure snapshot at milestone:
+
+| Piece | Location | Notes |
+|-------|----------|-------|
+| MP/M II server | `z80pack/cpmsim/` submodule, `./mpm-net2` | CCP auto-runs MPMLDR via $$$.SUB; listens TCP 4002 |
+| RC702 (MAME)   | `~/git/mame/regnecentralend rc702` | PROM: stock ROA375 (SHA1 306af9fc) — required for this path, NOT cpnos-rom |
+| RC702 BIOS     | `rcbios-in-c/clang/bios.cim` | clang-built C-BIOS, 38400 baud, RTS flow |
+| SNIOS.SPR      | `cpnet/zout/SNIOS.SPR` | 1024 B, built from cpnet/snios.asm |
+| Wiring         | MAME `-bitb1 socket.localhost:4002` | null_modem TCP client → cpmsim console 3 |
+| Driver         | `cpnet/run_test.sh --no-server --inject --auto --headless` | SUB = CPNETLDR → LOGIN PASSWORD → NETWORK H:=B: |
+
+### Pitfalls recorded
+
+1. **cpmsim needs `srctools/cpmrecv`.**  Without it cpmsim does
+   `kill(SIGQUIT)` on the whole process group during startup
+   (simio.c:427).  Fix: build `z80pack/cpmsim/srctools/` with `make`.
+2. **Tarball uses `.cpm` extensions; modern cpmsim wants `.dsk`.**
+   Patched the mpm-net2 launcher.
+3. **`$$$.SUB` is one-shot.**  CCP deletes it after executing.  With
+   hard-linked drives the library got mutated.  Fix: launcher uses
+   `cp` (not `ln`), and the library disk carries a fresh `$$$.SUB`.
+4. **Stock ROA375 PROM required in `~/git/mame/roms/rc702/`.**
+   cpnos-rom PROM (session 31) does its own SIO netboot which MP/M
+   does not serve — MAME will hang on the "CPNOS" banner.  Stock ROM
+   SHA1 is `306af9fc779e3d4f51645ba04f8a99b11b5e6084`, size 2048 B
+   (MAME pads internally to the 0x1000 region with FF).
+5. **Old macOS `screen` (v4.00.03, 2006).**  `-X stuff` flushing to
+   the log is unreliable; use a real terminal for interactive driving
+   of cpmsim console 0.  For headless automation, $$$.SUB is cleaner.
+
+### Next steps
+
+- **Path-B test: cpnos-rom ↔ MP/M II via Python 0xB0 proxy.**  Now
+  that the stock path is validated, it becomes the reference.  Then
+  write a minimal proxy in front of cpmsim:4002 that intercepts 0xB0
+  cold-boot requests and responds with the cpnos-build image, while
+  forwarding all other CP/NET traffic transparently.  When the proxy
+  sees LOGIN/DIR go through, success.
+- **SLAVEID consistency.**  stock path uses 0x01 from `cpnet/snios.asm`.
+  cpnos-rom-plan hardcodes 0x70.  Change `cpnos-rom/Makefile`
+  `-DRC702_SLAVEID=0x70` to `0x01` before attempting path-B.
+- **Restore cpnos-rom PROM in MAME after path-B work.**  Swap in
+  `cpnos-rom/clang/prom0_padded.ic66` when testing cpnos-rom; swap
+  back to `roa375/roa375.rom` for path-A smoke.  Could automate via
+  `cpnos-install` / `autoload-install` make targets.
+
 ## Session 32 (2026-04-21) — retarget: CP/NOS + z80pack MP/M II
 
 **Decision.** Retarget the server side from our Python `netboot_server.py`
