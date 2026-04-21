@@ -84,6 +84,47 @@ Cosmetic: after cpbios runs, 0x0005 is rewritten to `c3 06 cc` (BDOS
 lives inside the 0xCC00 data region). The "want" string in
 `mame_boot_test.lua:finish()` is stale from pre-cpbios days.
 
+## Follow-up work landed this session
+
+- **CONIN dual-path** (commit `d939759`) — `impl_const`/`impl_conin`
+  drain from a 16-byte PIO-A keyboard ring buffer in addition to the
+  existing SIO-B poll. New `isr_pio_kbd` (isr.s) enqueues on each
+  PIO-A interrupt; `init_pio_kbd` configures input mode + IRQ with
+  vector 0x20 at IVT slot 16. SIO-B wins when both have a byte so
+  automation via the serial line sees deterministic ordering.
+
+- **SIO-B output capture** (commit `61c8860`) — `cpnos-netboot` now
+  writes every CONOUT byte through the second null_modem to
+  `/tmp/cpnos_siob.raw`; `make` target prints a printable-filtered
+  view of it. Complements screen scrape as a text-only channel.
+
+## Newly raised issues
+
+### Issue G — SIO-B drain timing cuts off late output
+Bytes still in the SIO TX FIFO when Lua calls `manager.machine:exit()`
+never reach the `bitb2` file. At 38400 baud each byte needs ~260 us;
+four bytes of `\r\nA>` lose the race. Fix: once the pass/fail gate
+matches, keep the frame loop alive for ~10 more frames (200 ms
+emulated) before calling `finish()`. Affects all tests that assert on
+SIO-B content.
+
+### Issue H — SIO-B injection path not wired
+User intent: SIO-B = automation injection (from me), PIO-A = physical
+keyboard (from user). Output capture currently uses `bitb2 <file>`
+which is unidirectional in practice. For bidirectional injection we
+need `-rs232b null_modem -bitb2 socket.127.0.0.1:PORT2` + a small
+Python helper that accepts, sends keystrokes, and appends received
+bytes to a log file. Strictly needed before step 1 can drive CCP
+from automation.
+
+### Issue I — PIO-A ISR functionally untested
+New code paths (`isr_pio_kbd`, ring buffer, init sequence) compile
+and do not regress the cold boot, but nothing has enqueued a byte
+yet. First test: MAME `natkeyboard:post("A\r")` after the `A>` gate;
+expect the typed text echoed through `impl_conout` to the display
+and SIO-B log. Pinning this down doubles as the first real CONIN
+exercise.
+
 ## Next session
 
 Pick one:
