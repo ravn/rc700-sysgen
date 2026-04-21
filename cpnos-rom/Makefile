@@ -247,6 +247,30 @@ cpnos-warmboot-test: cpnos-install
 	 [ "$$n" -ge 2 ] || { echo 'FAIL: expected >= 2 OPEN events'; exit 1; }; \
 	 echo 'PASS: warm boot re-fetched CCP.SPR'
 
+# Interactive: boot CP/NOS, leave MAME running at the A> prompt so a
+# human can type on the native keyboard (PIO-A path).  SIO-B output
+# still streams to /tmp/cpnos_siob.raw so the other side can watch
+# what got typed + echoed.  Exit by closing the MAME window (Esc).
+cpnos-interactive: cpnos-install
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log
+	@python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_netboot_server.pid
+	@python3 -u sio_b_driver.py $(SIOB_PORT) --timeout 3600 \
+	    > /tmp/cpnos_siob_driver.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_siob_driver.pid
+	@sleep 0.3
+	@echo "netboot server pid=$$(cat /tmp/cpnos_netboot_server.pid)"
+	@echo "sio-b driver  pid=$$(cat /tmp/cpnos_siob_driver.pid)"
+	@echo "Watch typed output:  tail -f /tmp/cpnos_siob.raw"
+	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -window -skip_gameinfo \
+	    -rs232a null_modem \
+	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
+	    -rs232b null_modem \
+	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)"
+	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_siob_driver.pid) 2>/dev/null || true
+
 # CPU trace: captures every executed instruction to /tmp/cpnos_trace.log.
 # Use for debugging control-flow issues.  Pipe through tail or head to
 # avoid filling the disk (per project memory).

@@ -316,10 +316,15 @@ BDOS_FNC = {
     16: "CLOSE FILE",
     17: "SEARCH FIRST",
     18: "SEARCH NEXT",
+    19: "DELETE FILE",
     20: "READ SEQ",
     21: "WRITE SEQ",
+    22: "MAKE FILE",
+    23: "RENAME FILE",
     26: "SET DMA",
     32: "SET USER",
+    35: "FILE SIZE",
+    36: "SET RANDOM REC",
     37: "RESET DISK VEC",
     39: "FREE DRIVE (bcast)",
 }
@@ -400,6 +405,23 @@ def dispatch_sndmsg(hdr, data):
         key = _fcb_key(fcb)
         _OPEN_FILES.pop(key, None)
         return bytes([0x00]) + bytes(fcb)
+
+    if fnc == 19:  # DELETE FILE
+        # No writable filesystem yet — report "no matching file" rather
+        # than faking success, so CCP's state doesn't diverge from truth.
+        fcb = bytearray(data[1:37]) if len(data) >= 37 else bytearray(36)
+        print(f"    DELETE: no file to delete, returning 0xFF")
+        return bytes([0xFF]) + bytes(fcb)
+
+    if fnc in (17, 18):   # SEARCH FIRST / SEARCH NEXT
+        # Minimal stub: "no matching directory entry".  Returning status 0
+        # with a zeroed FCB makes CCP think it found a file called
+        # "\0\0\0\0\0\0\0\0.\0\0\0" and garbage-print it; 0xFF is the
+        # canonical "no file" status.  Reply data buffer is 128 bytes
+        # (4 x 32-byte dir entries); content is irrelevant when status
+        # says not-found.
+        print(f"    SEARCH {fnc}: returning no-match (0xFF)")
+        return bytes([0xFF]) + b'\0' * 128
 
     if fnc in (13, 14, 26, 32, 39, 37):
         # Status-only responses; echo FCB-like zero padding for safety.
