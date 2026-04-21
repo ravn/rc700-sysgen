@@ -155,9 +155,19 @@ the stack is alive in both directions.
   → JP 0x0100 → PIP's `*` prompt.  That proves the full network
   transient path works for arbitrary .COMs.
 - Step 6 (PIP cross-drive copy) — server side ready (MAKE fn 22,
-  WRITE SEQ fn 21, DELETE fn 19 all in place).  End-to-end PIP copy
-  not yet exercised in an automated test; deferred to a later
-  session together with a proper two-drive CFGTBL.
+  WRITE SEQ fn 21, DELETE fn 19 all in place).  First attempt with
+  `pipnet foo.txt=login.com` via SUB:
+    * CCP parses + loads PIPNET.COM successfully
+    * PIPNET opens LOGIN.COM (read) — 384 B, works
+    * PIPNET issues MAKE for temp file `FOO.$70` (note the slave-ID
+      extension — PIPNET reserves `$<slave_hex>` namespace for
+      per-slave temp files) — works
+    * PIPNET issues WRITE SEQ — fails with a garbled FCB key of
+      nine NUL bytes + `$$` in the extension slot
+  Investigation parked; WRITE SEQ wire layout likely differs from
+  READ SEQ (my handler assumes the same `data[1:37]` slice).
+  Revisit by capturing the raw DAT hex and decoding against NDOS
+  send path.
 - Step 7 (SYSGEN.ASM byte-diff) — deferred.
 
 ## $$$.SUB automation is live
@@ -186,6 +196,16 @@ the 11-char name+ext pattern from the tail of the FCB block,
 absorbing the preamble difference.  Robust but fragile if any future
 BDOS fn packs a different tail layout.  Document in
 `cpnet/DRI_PROTOCOL.md` when we next touch it.
+
+### Issue N — WRITE SEQ FCB layout unknown (blocks step 6)
+When PIPNET issues WRITE SEQ during a copy, the server's FCB parse
+(`data[1:37]`) yields a key of 9 NUL bytes + `$$` instead of the
+temp file it just MADE.  The MAKE / OPEN / READ calls in the same
+sequence extract the right FCB, so either (a) WRITE SEQ carries a
+different preamble than other file-fns, or (b) PIPNET is sending a
+second FCB slot (input vs output FCB) that my dispatch picks the
+wrong one from.  Fix: log the raw WRITE SEQ DAT payload next time,
+diff with READ SEQ, and adjust `fcb = data[X:X+36]` accordingly.
 
 ### Issue M — Directory entry is single-extent only (deferred)
 `_dir_entry` in `netboot_server.py` builds one 32-byte CP/M directory
