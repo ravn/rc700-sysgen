@@ -170,6 +170,16 @@ absorbing the preamble difference.  Robust but fragile if any future
 BDOS fn packs a different tail layout.  Document in
 `cpnet/DRI_PROTOCOL.md` when we next touch it.
 
+### Issue M — Directory entry is single-extent only (deferred)
+`_dir_entry` in `netboot_server.py` builds one 32-byte CP/M directory
+entry per file, assuming the whole file fits in extent 0 (max 128
+records = 16 KB).  Files larger than 16 KB should emit multiple
+extents (extent 0, 1, 2 …) so operations like FILE SIZE (fn 35) and
+SEARCH NEXT iteration return accurate info.  All files currently
+served from `cpnet-z80/dist/` are well under 16 KB so the first-
+extent-only shortcut is fine today; revisit when we serve a larger
+binary (e.g. MAC.COM or SYSGEN.ASM listings for step 7).
+
 ### Issue K — Single-client SEARCH iterator state
 `_SEARCH_STATE` is a module-global dict.  Only one CP/NOS slave can
 search concurrently.  Fine now (one MAME), breaks if we ever run two
