@@ -28,10 +28,17 @@
 
 #define RESIDENT_DATA __attribute__((section(".resident.data"), used))
 
-/* Bit 7 of the low byte of each drive slot = "this drive is remote". In
- * CP/NOS all our drives should be remote at boot; keep them local (0) for
- * now until NDOS and SNIOS are actually running. */
+/* Drive map entry encoding (per cpndos.asm:435-451 chkdsk):
+ *   byte 0 (low):  bit 7 = 1 for network drive, bits 3..0 = remote drive letter
+ *   byte 1 (high): server slave ID that serves this drive
+ *
+ * NET_DRV(letter, srv) packs into a uint16_t LE — bit 7 of low byte
+ * marks network, and the low nibble holds the remote drive letter.
+ * chkdsk rotates bit 7 out and re-rotates back, then ANDs with 0x0F
+ * to extract the letter, so NET_DRV('A', 0x00) uses a remote drive A
+ * on server slave 0 (the master). */
 #define LOCAL   0x0000
+#define NET_DRV(letter, srv)  ((uint16_t)((0x80 | ((letter) - 'A')) | ((srv) << 8)))
 
 struct cfgtbl {
     uint8_t  netst;                /* +0 */
@@ -60,7 +67,13 @@ RESIDENT_DATA
 struct cfgtbl cfgtbl = {
     .netst   = 0x00,            /* offline until NDOS brings us up */
     .slaveid = RC702_SLAVEID,
-    .drive   = { LOCAL, LOCAL, LOCAL, LOCAL,
+    /* Drive A:-D: mapped to server master (slave ID 0x00) drives A:-D:.
+     * Remaining drives stay local.  NDOS's LOAD for CCP.SPR picks up
+     * CDISK (0 = A:) by default, so A: needs to be network. */
+    .drive   = { NET_DRV('A', 0x00),
+                 NET_DRV('B', 0x00),
+                 NET_DRV('C', 0x00),
+                 NET_DRV('D', 0x00),
                  LOCAL, LOCAL, LOCAL, LOCAL,
                  LOCAL, LOCAL, LOCAL, LOCAL,
                  LOCAL, LOCAL, LOCAL, LOCAL },
