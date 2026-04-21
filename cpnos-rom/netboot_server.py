@@ -423,12 +423,37 @@ def _pattern_match(pattern, key):
     return all(p == '?' or p == k for p, k in zip(pattern, key))
 
 
+def _is_system_file(key):
+    """Hide our test infrastructure from DIR listings.  CP/M CCP's DIR
+    built-in skips entries where FCB ext-byte-1 bit 7 (SYS attribute)
+    is set.  Applies to the ephemeral submit file and anything we
+    install under cpnos-rom/testutil/ — those are plumbing, not
+    user-visible files."""
+    if key.startswith('$'):
+        return True
+    path = _FILE_MAP.get(key)
+    if path and os.path.sep + 'testutil' + os.path.sep in path:
+        return True
+    return False
+
+
 def _dir_entry(key, size):
     """Build a 32-byte CP/M directory entry for a file.  We use extent 0
     only; the block map is filled with non-zero sentinels so CP/M tools
-    that check allocation won't flag the entry as deleted/empty."""
-    name = key[:8].encode('ascii')
-    ext  = key[8:11].encode('ascii')
+    that check allocation won't flag the entry as deleted/empty.
+
+    SYS attribute is encoded as bit 7 of ext[1] (byte 10 of the entry)
+    per DRI FCB convention — CCP's DIR masks these out.  R/O is bit 7
+    of ext[0]; we mark every _FILE_MAP-sourced file R/O because the
+    server never writes back to the host filesystem — BDOS will reject
+    inadvertent writes cleanly instead of silently succeeding in the
+    _OPEN_FILES cache but losing the change on the next OPEN."""
+    name = bytearray(key[:8].encode('ascii'))
+    ext  = bytearray(key[8:11].encode('ascii'))
+    if key in _FILE_MAP and key not in _WRITES:
+        ext[0] |= 0x80                        # R/O
+    if _is_system_file(key):
+        ext[1] |= 0x80                        # SYS: hide from DIR
     rc   = min(128, (size + 127) // 128)
     entry = bytearray(32)
     entry[0]    = 0x00                        # user number
