@@ -191,28 +191,19 @@ def handle(c):
     print(f"-> FNC=4 (execute 0x{ENTRY_ADDR:04x}): {msg.hex()}")
     c.sendall(msg)
 
-    # From here CCP runs, calls NDOS for BDOS services, NDOS drives
-    # SNIOS for network I/O.  No more one-shot SNDMSG/RCVMSG probe —
-    # whatever the client asks for, we either respond or let it time out.
-    # For this bring-up the server just drains until MAME closes.
-    print("post-boot: draining client writes until MAME closes")
-    c.settimeout(2.0)
+    # Post-boot: service SNIOS SNDMSG/RCVMSG exchanges from NDOS.
+    # Loop until the client closes or falls silent.
+    print("post-boot: serving SNIOS requests")
     try:
         while True:
-            data = c.recv(256)
-            if not data:
-                break
-            print(f"<- drain: {data.hex()}")
-    except (socket.timeout, TimeoutError):
-        print("(drain timeout, staying open)")
-    while True:
-        try:
-            if not c.recv(256):
-                break
-        except (socket.timeout, TimeoutError):
-            pass
-        except Exception:
-            break
+            hdr, data = snios_recv_sndmsg(c)
+            reply = dispatch_sndmsg(hdr, data)
+            if reply is None:
+                print(f"  [no reply for FNC={hdr[3]:02x}]")
+                continue
+            snios_send_rcvmsg(c, reply_to=hdr, data=reply)
+    except (socket.timeout, TimeoutError, EOFError) as e:
+        print(f"SNIOS session ended: {type(e).__name__}: {e}")
 
 
 # ---- DRI SNIOS framing (master side) --------------------------------
@@ -227,93 +218,119 @@ def recv_byte(c, timeout=5.0):
     return b[0]
 
 
-def sniosro_handshake(c):
-    """Service one SNDMSG from the client per DRI framing.
+def snios_recv_sndmsg(c, idle_timeout=30.0, byte_timeout=5.0):
+    """Receive one SNDMSG frame from the client per DRI framing.
+    Returns (header_bytes, data_bytes) or raises on error/timeout.
 
     Protocol (client=slave, we=master):
-      <- ENQ          ; client announces a message
+      <- ENQ                      ; client announces a message
       -> ACK
-      <- SOH hdr[5] HCS   ; 2's-complement checksum over SOH+hdr
+      <- SOH hdr[5] HCS           ; 2's-complement checksum over SOH+hdr
       -> ACK
       <- STX dat[n] ETX CKS EOT
-      -> ACK          ; final ack
+      -> ACK                       ; final ack
     """
-    print("SNIOS: waiting for ENQ")
-    c.settimeout(10.0)
-    b = recv_byte(c, timeout=10.0)
-    if b != ENQ:
-        print(f"  [warn] expected ENQ (0x05), got 0x{b:02x}")
-        return
-    print(f"<- ENQ")
+    c.settimeout(idle_timeout)
+    b = c.recv(1)
+    if not b:
+        raise EOFError("client closed waiting for ENQ")
+    if b[0] != ENQ:
+        raise EOFError(f"expected ENQ, got 0x{b[0]:02x}")
     c.sendall(bytes([ACK]))
-    print("-> ACK")
 
+    c.settimeout(byte_timeout)
     soh = recv_byte(c)
     if soh != SOH:
-        print(f"  [warn] expected SOH, got 0x{soh:02x}")
-        return
-    hdr = bytes([recv_byte(c) for _ in range(5)])  # FMT DID SID FNC SIZ
+        raise EOFError(f"expected SOH, got 0x{soh:02x}")
+    hdr = bytes([recv_byte(c) for _ in range(5)])
     hcs = recv_byte(c)
     run = (soh + sum(hdr) + hcs) & 0xFF
-    status = "ok" if run == 0 else f"BAD (sum={run:02x})"
-    print(f"<- SOH {hdr.hex()} HCS=0x{hcs:02x} [{status}]")
-    print(f"   FMT={hdr[0]:02x} DID={hdr[1]:02x} SID={hdr[2]:02x} "
-          f"FNC={hdr[3]:02x} SIZ={hdr[4]}")
+    if run != 0:
+        print(f"  [warn] header checksum fail: sum={run:02x}")
+    print(f"<- SOH FMT={hdr[0]:02x} DID={hdr[1]:02x} SID={hdr[2]:02x} "
+          f"FNC={hdr[3]:02x} SIZ={hdr[4]}  HCS=0x{hcs:02x}")
     c.sendall(bytes([ACK]))
-    print("-> ACK")
 
     stx = recv_byte(c)
     if stx != STX:
-        print(f"  [warn] expected STX, got 0x{stx:02x}")
-        return
-    n = hdr[4] + 1                       # SIZ=0 means 1 byte (DRI)
+        raise EOFError(f"expected STX, got 0x{stx:02x}")
+    n = hdr[4] + 1
     data = bytes([recv_byte(c) for _ in range(n)])
     etx = recv_byte(c)
     cks = recv_byte(c)
     eot = recv_byte(c)
     run = (stx + sum(data) + etx + cks) & 0xFF
-    status = "ok" if run == 0 else f"BAD (sum={run:02x})"
-    eot_status = "ok" if eot == EOT else f"got 0x{eot:02x}"
-    print(f"<- STX DAT({n})={data.hex()} ETX CKS=0x{cks:02x} "
-          f"EOT [{status}, EOT {eot_status}]")
+    if run != 0:
+        print(f"  [warn] data checksum fail: sum={run:02x}")
+    if eot != EOT:
+        print(f"  [warn] expected EOT, got 0x{eot:02x}")
+    print(f"<- STX DAT[{n}]={data.hex()}")
     c.sendall(bytes([ACK]))
-    print("-> ACK (final)")
-    print("SNIOS: SNDMSG round-trip complete")
-
-    # Master -> slave RCVMSG round-trip.  Client has called
-    # snios_rcvmsg_c() and is waiting for an ENQ from us.
-    sniosro_send(c, fmt=0x01, did=hdr[2], sid=0x00, fnc=0x05,
-                 data=bytes([0x42]))
+    return hdr, data
 
 
-def sniosro_send(c, fmt, did, sid, fnc, data):
-    """Send one DRI frame (master -> slave).
-
-    Mirror of the client's SNDMSG: ENQ/ACK, SOH+header+HCS/ACK,
-    STX+data+ETX+CKS+EOT/ACK.  Data length on the wire is len(data)
-    (clipped to >=1), SIZ field carries len-1 per DRI "0 means 1".
+def snios_send_rcvmsg(c, reply_to, data, fnc=None):
+    """Send one DRI RCVMSG frame back to the client.
+    `reply_to` is the request header; we swap DID/SID and reuse FNC
+    unless an override is given.
     """
+    fnc = reply_to[3] if fnc is None else fnc
+    fmt = 0x01                              # reply marker
+    did = reply_to[2]                       # client's SID -> our DID
+    sid = 0x00                              # server slave ID
+
     c.sendall(bytes([ENQ]))
-    print("-> ENQ")
     ack = recv_byte(c)
-    print(f"<- ACK 0x{ack:02x}" + ("" if ack == ACK else " [WARN]"))
+    if ack != ACK:
+        print(f"  [warn] expected ACK after ENQ, got 0x{ack:02x}")
 
     siz = max(len(data), 1) - 1
     header = bytes([fmt, did, sid, fnc, siz])
     run = (SOH + sum(header)) & 0xFF
     hcs = (-run) & 0xFF
     c.sendall(bytes([SOH]) + header + bytes([hcs]))
-    print(f"-> SOH {header.hex()} HCS=0x{hcs:02x}")
     ack = recv_byte(c)
-    print(f"<- ACK 0x{ack:02x}" + ("" if ack == ACK else " [WARN]"))
+    if ack != ACK:
+        print(f"  [warn] expected ACK after SOH, got 0x{ack:02x}")
 
     run = (STX + sum(data) + ETX) & 0xFF
     cks = (-run) & 0xFF
     c.sendall(bytes([STX]) + data + bytes([ETX, cks, EOT]))
-    print(f"-> STX DAT={data.hex()} ETX CKS=0x{cks:02x} EOT")
     ack = recv_byte(c)
-    print(f"<- ACK 0x{ack:02x} (final)" + ("" if ack == ACK else " [WARN]"))
-    print("SNIOS: RCVMSG round-trip complete")
+    if ack != ACK:
+        print(f"  [warn] expected ACK after EOT, got 0x{ack:02x}")
+    print(f"-> RCVMSG reply FNC={fnc:02x} DAT[{len(data)}]={data.hex()}")
+
+
+def dispatch_sndmsg(hdr, data):
+    """Temporary dispatcher: recognise BDOS function codes from the
+    request and return a minimum reply (status byte only) so NDOS's
+    LOAD path fails cleanly and prints 'CCP.SPR ?' rather than
+    crashing on an uninitialised buffer.  Returns None to suppress
+    any reply."""
+    fnc = hdr[3]
+    BDOS_FNC = {
+        13: "RESET DISK",
+        14: "SELECT DISK",
+        15: "OPEN FILE",
+        16: "CLOSE FILE",
+        17: "SEARCH FIRST",
+        18: "SEARCH NEXT",
+        20: "READ SEQ",
+        21: "WRITE SEQ",
+        32: "SET USER",
+        37: "RESET DISK VEC",
+        39: "FREE DRIVE (bcast)",
+    }
+    print(f"  dispatch FNC={fnc:#04x} ({BDOS_FNC.get(fnc, '?')})")
+    if fnc == 15:   # OPEN FILE
+        return bytes([0xFF])   # file not found — NDOS will print CCP.SPR ?
+    if fnc in (13, 14, 16, 32, 39):
+        return bytes([0x00])
+    if fnc == 20:   # READ SEQ
+        return bytes([0xFF])   # read error
+    # Unknown — 1-byte zero reply (generic success).
+    return bytes([0x00])
 
 
 def run(port):
