@@ -81,7 +81,10 @@ local function finish(result, space)
         "BOOT[0xD000..2]=%02x ?? %02x (want c3 10 dc)\n",
         boot0, boot2))
     f:write("\n--- 0xEC00 (breadcrumbs; 0xEC20 = CRT ISR tick counter) ---\n")
-    f:write(hex_dump(space, 0xEC00, 48) .. "\n")
+    -- Dump through 0xEC5F so the impl_conout/const/conin breadcrumb
+    -- counters at 0xEC40..0xEC43 (resident.c) are visible.  Keep until
+    -- issue #38 (boot path flaky) is reliably green.
+    f:write(hex_dump(space, 0xEC00, 96) .. "\n")
     f:write(string.format("CRT ISR ticks = %d (expect > 0 if VRTC wired)\n",
         space:read_u8(0xEC20)))
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")

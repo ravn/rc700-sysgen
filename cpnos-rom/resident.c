@@ -191,8 +191,22 @@ uint8_t kbd_ring[KBD_RING_SIZE];
 uint8_t kbd_head;   /* written by ISR */
 uint8_t kbd_tail;   /* written by CONIN */
 
+/* Breadcrumbs in scratch RAM for diagnosing issue #38 (netboot boot flaky,
+ * CONOUT sometimes never called).  Keep in place until the boot path is
+ * reliably green — see mame_boot_test.lua dump of 0xEC00+96.
+ *   0xEC40  impl_conout call count
+ *   0xEC41  last byte passed to impl_conout
+ *   0xEC42  impl_const call count
+ *   0xEC43  impl_conin call count
+ */
+#define TRACE_CONOUT_CNT   ((volatile uint8_t *)0xEC40)
+#define TRACE_CONOUT_LAST  ((volatile uint8_t *)0xEC41)
+#define TRACE_CONST_CNT    ((volatile uint8_t *)0xEC42)
+#define TRACE_CONIN_CNT    ((volatile uint8_t *)0xEC43)
+
 RESIDENT
 uint8_t impl_const(void) {
+    (*TRACE_CONST_CNT)++;
     if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) return 0xFF;
     if (kbd_head != kbd_tail) return 0xFF;
     return 0x00;
@@ -226,6 +240,7 @@ static void crt_scroll_up(void) {
 
 RESIDENT
 uint8_t impl_conin(void) {
+    (*TRACE_CONIN_CNT)++;
     for (;;) {
         if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) {
             return _port_in(PORT_SIO_B_DATA);
@@ -244,6 +259,8 @@ void impl_conout(uint8_t c) {
      * position on the 8275 display; CR resets column; LF advances
      * row and scrolls when the bottom row overflows.  Serial mirror
      * goes to SIO-B so the null-modem log still captures output. */
+    (*TRACE_CONOUT_CNT)++;
+    *TRACE_CONOUT_LAST = c;
     console_putc(c);
 
     volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
