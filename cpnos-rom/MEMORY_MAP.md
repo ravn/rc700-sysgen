@@ -59,18 +59,23 @@ document summarizes.  Update both sides when you move a boundary.
 
 ```
 0x0000 ┌────────────────────────┐
-       │ PROM0  (roa375.ic66)   │  2 KB.  reset.s, cpnos_main, init,
-       │ 0x0000..0x07FF         │  resident LMA tail, snios LMA, etc.
-0x0800 ├ 0xFF padding ──────────┤
-0x2000 ├────────────────────────┤
-       │ PROM1  (prom1.ic65)    │  2 KB.  netboot_mpm only.  Payload
-       │ 0x2000..0x27FF         │  fetches cpnos.com and tail-jumps
-       │                        │  into RAM before PROMs are disabled.
+       │ PROM0  (roa375.ic66)   │  2 KB.  Everything: reset.s, cpnos_main,
+       │ 0x0000..0x0270         │  init, netboot_mpm.  Followed by the
+       │                        │  resident LMA block (1412 B) that is
+       │ 0x0271..0x07F4         │  memcpy'd to 0xED00 at cold boot.
+0x07F5 ├ 0xFF padding (11 B) ───┤
+0x07FF                          │
+0x2000 ┌────────────────────────┐
+       │ PROM1  (prom1.ic65)    │  Empty.  Socket is wired but the
+       │ 0x2000..0x27FF         │  EPROM (if fitted) is all 0xFF.
+       │ (unused)               │  netboot_mpm used to live here;
+       │                        │  merged into PROM0 in Phase 18
+       │                        │  (issue #39).
 0x2800 └ 0xFF padding ──────────┘
 ```
 
 Both PROMs are mapped at boot.  After the resident chunk is copied
-to 0xED00..~0xF24F and `OUT (0x18),A` fires, the EPROMs disappear
+to 0xED00..~0xF283 and `OUT (0x18),A` fires, the EPROMs disappear
 and RAM shows through at 0x0000 + 0x2000.  Execution is already
 running from 0xED00+ when that happens — never branch back into ROM
 after the disable.
