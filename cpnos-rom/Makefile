@@ -75,6 +75,12 @@ all: cpnos
 
 cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
+# Flag changes (e.g. -DRC702_SLAVEID=) must invalidate all objects.
+# Without this, a stale cfgtbl.o kept SLAVEID=0x70 in the image even
+# after the Makefile was edited to 0x01, causing wire-protocol SID
+# mismatches that are painful to diagnose.
+$(OBJS): Makefile
+
 # ---- Compile ------------------------------------------------------
 
 clang/reset.o: reset.s
