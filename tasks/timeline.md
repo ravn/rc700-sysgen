@@ -161,7 +161,37 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
-## Phase 17 summary (wrap-up)
+## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
+- **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
+  slack after #39).  Target: ≥ 200 B for future work (signature
+  prefix for #46, ISR-driven SIO-B ring, etc.).
+- **Analysis-first**: built a per-function size breakdown of the
+  2037 B payload; cross-compared with `rcbios-in-c` patterns
+  (table-driven port init, shared ISR structure, SBC A,A idioms)
+  to pick high-yield / low-risk changes.  See
+  `cpnos-rom/MEMORY_MAP.md` + the GH issue #47 task list.
+- **Tier 1 (c54229c)**: strip all trace instrumentation added
+  during Phase 16-17 — SNIOS per-FNC counter, CONOUT/CONIN/CONST
+  counters, CONIN ring, netboot breadcrumbs.  **-121 B** (vs ~70 B
+  predicted — the compiler compacted adjacent basic blocks after
+  the bumps went).
+- **Tier 2a (0dae340)**: collapse ~30 inline `_port_out` calls
+  in `init_hardware` + folded-in `init_pio_kbd`/`init_display`
+  into one unified `port_init[]` table + for-loop.  **-39 B**.
+- **Interim (9add5ba)**: smoke_inject now sends a CR nudge after
+  10 s of SIO-B silence — practical workaround for issue #44 (the
+  "had to type Enter manually" annoyance) until Tier 4 gives us an
+  ISR-driven SIO-B ring.  Doesn't change PROM size.
+- **Current slack**: **171 B** (from 11 B).  Remaining Tier 2 + 3
+  items tracked in #47.
+- **Lessons**: (a) kill diagnostic code with the bug it diagnosed,
+  not later — it had been burning space in every boot for two
+  phases; (b) when a pattern appears N times inline, a table + loop
+  break-evens at N ≈ 3; (c) unify before optimising — consolidating
+  init_pio_kbd + init_display into one table was a bigger win than
+  any local micro-opt.
+
+
 - **Goal reached 2026-04-22**: "CP/NOS on a physical RC702 against a
   live MP/M II over serial" validated in emulation — cpnet-smoke PASS
   with stock MP/M (z80pack mpm-net2) serving a slave that assembles a
