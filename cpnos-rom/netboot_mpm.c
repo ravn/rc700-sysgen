@@ -31,7 +31,9 @@ extern uint8_t snios_ntwkin(void);
 /* BIOS CONOUT — resident at 0xF20C after cpnos_main copies .resident. */
 extern void impl_conout(uint8_t c);
 
-#define PROM1_CODE __attribute__((section(".prom1"), used))
+/* Used to live in a dedicated PROM1 section at 0x2000.  Merged into
+ * PROM0 in Phase 18 (issue #39) — no longer section-pinned. */
+#define PROM1_CODE
 
 /* DRI CP/NET frame header offsets. */
 #define FMT 0
@@ -146,12 +148,7 @@ uint16_t netboot_mpm(void) {
 
     /* --- READ-SEQ loop -------------------------------------------- */
     *TRACE_NB_STEP = 0x05;
-    impl_conout('L');                /* 'Loading ' banner */
-    impl_conout('o'); impl_conout('a'); impl_conout('d');
-    impl_conout('i'); impl_conout('n'); impl_conout('g');
-    impl_conout(' ');
     uint8_t *dma = IMG_BASE;
-    uint8_t rec = 0;
     for (;;) {
         reuse_fcb();
         rc = cpnet_xact(20, 36);
@@ -163,14 +160,11 @@ uint16_t netboot_mpm(void) {
             dma[i] = msg[DAT + 37 + i];
         }
         dma += 128;
-        rec++;
         impl_conout('.');            /* one dot per 128-byte sector */
-        *TRACE_NB_STEP = (uint8_t)(0x80 | (rec & 0x7F));
         /* Safety: refuse to overflow into BIOS area (now 0xED00+). */
         if (dma >= (uint8_t *)0xEC00) return 0;
     }
     impl_conout(0x0d); impl_conout(0x0a);
-    *TRACE_NB_STEP = 0xFE;
 
     /* --- CLOSE ---------------------------------------------------- */
     reuse_fcb();

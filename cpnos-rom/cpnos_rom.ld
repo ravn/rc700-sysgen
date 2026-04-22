@@ -23,8 +23,11 @@
 ENTRY(_reset)
 
 MEMORY {
+  /* PROM0 is the only physical EPROM we program.  PROM1 used to hold
+   * netboot_mpm at 0x2000 but was merged into PROM0 in Phase 18
+   * (issue #39).  The RC702's PROM1 socket is still wired — we just
+   * burn 0xFF into that chip or leave it empty. */
   PROM0 (rx) : ORIGIN = 0x0000, LENGTH = 2048
-  PROM1 (rx) : ORIGIN = 0x2000, LENGTH = 2048
   /* Runtime-resident BIOS lands here after cold boot copies it out of ROM. */
   /* Resident grows up to just below conv_tables (0xF780 in the planned
      memory map — see rcbios-in-c/tasks/cpnos-rom-plan.md). Phase 1 has
@@ -83,14 +86,8 @@ SECTIONS {
   __prom0_end = .;
   ASSERT(__prom0_end <= 0x0800, "PROM0 code overflowed 2KB!")
 
-  .prom1 0x2000 : {
-    *(.prom1)
-    *(.prom1.*)
-  } > PROM1
-
-  __prom1_end = .;
-  ASSERT(__prom1_end <= 0x2800, "PROM1 code overflowed 2KB!")
-
+  /* .resident's LMA follows the init code in PROM0.  Guard below
+   * ensures init + resident LMA fits inside 2 KB. */
   .resident 0xED00 : AT(__prom0_end) {
     __resident_start = .;
     /* BIOS jump table MUST come first — its entries are the BIOS's
@@ -111,6 +108,14 @@ SECTIONS {
 
   __resident_lma = LOADADDR(.resident);
   __resident_size = __resident_end - __resident_start;
+  __resident_lma_end = __resident_lma + __resident_size;
+
+  /* Hard guard: init code + resident LMA must fit in the physical
+   * 2 KB PROM0.  Without this assert the Makefile's `dd bs=2048` step
+   * silently truncates the tail of the resident chunk and the cold
+   * boot runs corrupt code. */
+  ASSERT(__resident_lma_end <= 0x0800,
+         "init + resident LMA overflowed 2 KB PROM0!")
 
   /* Guard: resident code must not overflow the RESIDENT region (below
      display RAM at 0xF800; really below conv_tables at 0xF680). */
