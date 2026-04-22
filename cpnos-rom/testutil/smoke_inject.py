@@ -66,8 +66,22 @@ def main():
     cooldown_until = 0.0
     deadline = time.monotonic() + args.timeout
     saw_marker = False
+    last_data_at = time.monotonic()
+    next_nudge_at = time.monotonic() + 10.0
 
     while time.monotonic() < deadline:
+        # If the slave has been silent for >10 s and we haven't finished
+        # all steps, nudge with a lone CR.  Catches the occasional case
+        # where a byte got lost and CCP is waiting for EOL — same thing
+        # the user was doing manually by pressing Enter (issue #44).
+        if (step_idx < len(STEPS)
+                and time.monotonic() >= next_nudge_at
+                and time.monotonic() - last_data_at > 10.0):
+            print(f'[nudge] idle {time.monotonic()-last_data_at:.1f}s, '
+                  f'sending CR', flush=True)
+            conn.sendall(b'\r')
+            next_nudge_at = time.monotonic() + 10.0
+
         try:
             data = conn.recv(256)
         except socket.timeout:
@@ -75,6 +89,7 @@ def main():
         if not data:
             print('peer closed', flush=True)
             break
+        last_data_at = time.monotonic()
         log.write(data)
         buf.extend(data)
         if len(buf) > 4096:
