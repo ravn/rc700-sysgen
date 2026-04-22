@@ -126,8 +126,8 @@ uint16_t netboot_mpm(void) {
             dma[i] = msg[DAT + 37 + i];
         }
         dma += 128;
-        /* Safety: refuse to overflow into BIOS (0xF200+). */
-        if (dma >= (uint8_t *)0xF000) return 0;
+        /* Safety: refuse to overflow into BIOS area (now 0xED00+). */
+        if (dma >= (uint8_t *)0xEC00) return 0;
     }
 
     /* --- CLOSE ---------------------------------------------------- */

@@ -5,6 +5,16 @@ details live in `session24-cpnos-snios.md` and
 `session29-ccp-prompt.md`; this doc is the short "where are we and
 what's next" snapshot.
 
+## Session 33 follow-up (2026-04-22) — relocatable monolith design note
+
+See `cpnos-rom/cpnos-build/RELOCATABLE_SPR.md` — analysis + options for
+making cpnos-build's CP/NOS monolith position-independent via DRI `.SPR`
+format (plus a single external `BIOS_JT_BASE` patch point for the
+cross-boundary reference to cpnos-rom's resident impls).  Originates from
+the observation that DRI binaries are inherently relocatable and we've
+been baking them against fixed addresses unnecessarily.  Parked until we
+actually need to move the memory map more than once.
+
 ## Session 33 (2026-04-22) — cpnos-rom ↔ MP/M II + server rework
 
 ### Milestone BB reached

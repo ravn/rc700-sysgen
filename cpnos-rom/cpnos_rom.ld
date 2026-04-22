@@ -36,7 +36,13 @@ MEMORY {
      headroom relative to the original plan; acceptable given Phase 1 is
      still well under the 56KB TPA target.  Update cpnos-rom-plan.md
      concrete memory map when revisiting TPA numbers. */
-  RESIDENT (rwx) : ORIGIN = 0xF200, LENGTH = 0x600
+  /* Session 33 follow-up (2026-04-22): BIOS_BASE moved from 0xF200 down
+   * to 0xED00.  +1.25 KB of RESIDENT headroom for SNIOS growth.  SCRATCH
+   * (BSS) + cold-boot stack region move with it.  User plans to tighten
+   * back up after memory optimisation; the cpnos-build monolith's cpbios
+   * trampolines were rebuilt in step.  See GitHub issue #34 for the
+   * SPR-relocatable monolith plan that would remove this coupling. */
+  RESIDENT (rwx) : ORIGIN = 0xED00, LENGTH = 0xB00
   /* Scratch RAM for BSS (netboot msgbuf, diag breadcrumbs).
    * Session #27 shifted CCP+NDOS one more page down after observing
    * SP=0xE199 with CCP at 0xD400 (stack_symbol resolves to ~base +
@@ -49,7 +55,10 @@ MEMORY {
    *   STACK 0xF200 down      (~0x4EB = 1.2 KB)
    * TPA 0x0100..0xCFFF = ~51.75 KB.  Move CCP back up later once we
    * have a precise number for CCP+NDOS true extents. */
-  SCRATCH (rwx) : ORIGIN = 0xEC00, LENGTH = 0x600
+  /* SCRATCH (BSS) relocated 0xEC00 -> 0xEA20 in step with BIOS_BASE.
+   * 256 B (up to 0xEB20) is enough for current BSS (239 B) with slack.
+   * Stack lives in 0xEB20..0xED00 (480 B) — cold-boot SP = 0xED00. */
+  SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x100
 }
 
 SECTIONS {
@@ -76,7 +85,7 @@ SECTIONS {
   __prom1_end = .;
   ASSERT(__prom1_end <= 0x2800, "PROM1 code overflowed 2KB!")
 
-  .resident 0xF200 : AT(__prom0_end) {
+  .resident 0xED00 : AT(__prom0_end) {
     __resident_start = .;
     /* BIOS jump table MUST come first — its entries are the BIOS's
      * public ABI (BOOT at +0, WBOOT at +3, CONST at +6, ...). */
@@ -90,7 +99,7 @@ SECTIONS {
     __resident_end = .;
   } > RESIDENT
 
-  ASSERT(_bios_boot == 0xF200, "BIOS jump table must start at 0xF200")
+  ASSERT(_bios_boot == 0xED00, "BIOS jump table must start at 0xED00")
   ASSERT(_bios_conout - _bios_boot == 12, "BIOS CONOUT offset must be +12")
   ASSERT(_bios_sectran - _bios_boot == 48, "BIOS SECTRAN offset must be +48")
 
@@ -108,8 +117,8 @@ SECTIONS {
     __scratch_bss_end = .;
   } > SCRATCH
 
-  ASSERT(__scratch_bss_end <= 0xF200,
-         "scratch_bss overflowed into BIOS resident region!")
+  ASSERT(__scratch_bss_end <= 0xEB20,
+         "scratch_bss overflowed into stack region!")
 
   /DISCARD/ : {
     *(.comment)

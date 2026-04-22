@@ -77,8 +77,9 @@ _isr_crt:
     .byte 0x08              ; ex af,af' (GNU-as on Z80 chokes on the apostrophe)
     .byte 0xD9              ; exx
 
-    ; Breadcrumb tick.
-    ld   hl, 0xEC20
+    ; Breadcrumb tick.  Was 0xEC20; moved to 0xEC30 because IVT now
+    ; lives at 0xEC00..0xEC23 (IVT_PIO_A slot at 0xEC20 would collide).
+    ld   hl, 0xEC30
     inc  (hl)
 
     ; Ack CRT status register.

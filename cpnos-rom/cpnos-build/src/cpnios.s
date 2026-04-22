@@ -19,8 +19,13 @@
 
     .section .cpnos_code,"ax",@progbits
 
-; Our resident SNIOS JT lives at 0xF233 (8 * 3-byte JP entries).
-    .equ _snios_jt, 0xF233
+; The NIOS trampoline chains through the SNIOS JT copy at 0xEA00 that
+; cpnos-rom's resident_entry populates before handoff.  0xEA00 is the
+; DRI-contract address (NDOS_BASE + NDOS code_len = 0xDE00 + 0xC00) —
+; stable and independent of cpnos-rom's BIOS_BASE, so moving BIOS_BASE
+; (session 33 follow-up moved it from 0xF200 to 0xED00) doesn't require
+; rebuilding this module if the JT-copy destination stays put.
+    .equ _snios_jt, 0xEA00
 
 NIOS:
     jp    _snios_jt +  0              ; +0   NTWKIN

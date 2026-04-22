@@ -38,16 +38,22 @@ extern uint16_t netboot_mpm(void);          /* netboot_mpm.c, PROM1 */
 #endif
 
 [[noreturn]] void cpnos_main(void) {
-    /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
-    init_hardware();
-
-    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xF200+)
-     * BEFORE netboot: netboot's transport functions live there. */
+    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xED00..)
+     * FIRST: the IVT at 0xF100..0xF123 lives inside this region, and
+     * init_hardware's setup_ivt writes there — but memcpy would then
+     * overwrite those IVT entries.  Do memcpy first so setup_ivt's
+     * writes stick.  (Pre-session-33 RESIDENT at 0xF200+ was above
+     * IVT, so the old order worked by accident.) */
     uint8_t *src = _resident_lma;
     uint8_t *dst = _resident_start;
     while (dst < _resident_end) {
         *dst++ = *src++;
     }
+
+    /* Bring up CTC + SIO-A/B + IVT + CRT.  IVT lives at 0xEC00
+     * (moved from 0xF100 session 33 follow-up, because 0xF100 is now
+     * inside .resident code after BIOS_BASE dropped to 0xED00). */
+    init_hardware();
 
     /* Try to netboot.  Server streams CCP+BDOS into RAM and returns an
      * entry point; if absent, recv times out and entry == 0. */

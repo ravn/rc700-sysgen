@@ -63,9 +63,9 @@ extern uint8_t snios_jt[24];
 
 RESIDENT
 [[noreturn]] void resident_entry(uint16_t entry) {
-    /* We are at VMA 0xF200 (RAM), PROMs still mapped at 0x0000/0x2000.
+    /* We are at VMA 0xED00 (RAM), PROMs still mapped at 0x0000/0x2000.
      * First act: disable the PROMs so 0x0000..0x07FF and 0x2000..0x27FF
-     * are RAM.  Safe because we execute from 0xF200+. */
+     * are RAM.  Safe because we execute from 0xED00+. */
     disable_proms();
 
     /* CP/M 2.2 zero page:
@@ -86,7 +86,10 @@ RESIDENT
      * proof (would read back 0xF3 if PROM were still mapped). */
     *(volatile uint8_t *)0x0000 = 0xC3;     /* JP opcode */
     *(volatile uint8_t *)0x0001 = 0x03;     /* lo(_bios_wboot) */
-    *(volatile uint8_t *)0x0002 = 0xF2;     /* hi(_bios_wboot) = BIOS 0xF203 */
+    *(volatile uint8_t *)0x0002 = 0xED;     /* hi(_bios_wboot) = BIOS 0xED03
+                                             * (BIOS_BASE moved from 0xF200
+                                             * to 0xED00 session 33 follow-
+                                             * up — see cpnos_rom.ld). */
     *(volatile uint8_t *)0x0003 = 0x00;     /* IOBYTE */
     *(volatile uint8_t *)0x0004 = 0x00;     /* current drive/user */
     *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
@@ -160,18 +163,21 @@ void bios_stub_ret(void) { }
 
 RESIDENT
 [[noreturn]] void impl_boot(void) {
-    /* Cold-start entry once CCP+BDOS are loaded; not used by our own
-     * init path (cpnos_main tail-calls resident_entry directly). If
-     * something ever calls through the jump table at cold boot, land
-     * in the banner path so it's obvious we got here. */
-    resident_entry(0);
+    /* CP/M cold-boot entry.  cpnos_main tail-called resident_entry
+     * directly once already, so the normal boot flow doesn't come
+     * through here.  If CP/NOS itself ever jumps here (e.g. during
+     * its post-handoff init before it has patched the zero page
+     * to point at NDOSRL's BIOS JT), re-run the cpnos stub rather
+     * than dropping into a fallback trap.  Was Issue U. */
+    jump_to(0xD000);
 }
 
 RESIDENT
 [[noreturn]] void impl_wboot(void) {
-    /* Warm boot in NOS mode re-requests CCP from the server. Not
-     * wired yet — fall into BOOT for now. */
-    resident_entry(0);
+    /* CP/M warm boot.  In CP/NOS the whole OS image is in RAM and
+     * re-runnable from its BOOT label at 0xD000, so re-entering the
+     * cpnos stub is an acceptable warm-boot.  Was Issue U. */
+    jump_to(0xD000);
 }
 
 /* PIO-A keyboard ring buffer.  Populated by isr_pio_kbd (isr.s) on each

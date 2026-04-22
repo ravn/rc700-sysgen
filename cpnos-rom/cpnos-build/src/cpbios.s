@@ -109,15 +109,18 @@ prmsg:
 
 ; ---------------------------------------------------------------
 ; ABI shims — translate CP/M register conventions to sdcccall and
-; chain to our clang-built resident impls via the BIOS JT at 0xF200.
-; The JT slots 0xF200..0xF230 are stable (enforced by cpnos_rom.ld
-; asserts); the underlying _impl_xxx addresses drift with clang
-; builds, but we chain through the JT, not the impl directly.
+; chain to our clang-built resident impls via the BIOS JT.
+; Session 33 follow-up (2026-04-22): BIOS_BASE moved from 0xF200 to
+; 0xED00 to give SNIOS more room.  JT slots 0xED00..0xED30 are stable
+; (enforced by cpnos_rom.ld asserts); the underlying _impl_xxx
+; addresses drift with clang builds, but we chain through the JT, not
+; the impl directly.  See GitHub issue #34 for the SPR-relocatable
+; monolith plan that would eliminate this coupling.
 ; ---------------------------------------------------------------
-    .equ _bios_const,    0xF206
-    .equ _bios_conin,    0xF209
-    .equ _bios_conout,   0xF20C
-    .equ _bios_list,     0xF20F
+    .equ _bios_const,    0xED06
+    .equ _bios_conin,    0xED09
+    .equ _bios_conout,   0xED0C
+    .equ _bios_list,     0xED0F
 
 const_shim:
     jp    _bios_const

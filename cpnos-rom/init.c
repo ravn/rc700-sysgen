@@ -24,7 +24,14 @@ extern void enable_im2(void);
  *   slot 16    (vec 0x20):       PIO-A keyboard
  *   slot 17    (vec 0x22):       PIO-B (unused)
  */
-#define IVT_ADDR     0xF100
+/* IVT moved from 0xF100 to 0xEC00 in session 33 follow-up: with
+ * BIOS_BASE at 0xED00, .resident code spans 0xED00..~0xF250 and
+ * 0xF100..0xF123 fell inside that range, so the old IVT slot would
+ * have been overwritten by memcpy (or stomped resident code if IVT
+ * were written first).  0xEC00 sits in the 0xEB20..0xED00 gap
+ * between BSS (0xEA20..0xEB20) and RESIDENT (0xED00..), with enough
+ * room for 18 × 2-byte entries. */
+#define IVT_ADDR     0xEC00
 #define IVT_ENTRIES  18
 #define IVT_PIO_A    16
 
@@ -150,10 +157,11 @@ void init_hardware(void) {
      * 0x2800..0xCFFF, NDOS-BSS tail 0xEA00..0xEBFF — all get the
      * trap pattern.  CCP/NDOS streaming overwrites 0xD000..0xE9FF
      * later; filling here would just get overwritten, so skip it. */
-    fill_trap(0x0800, 0x2000);   /* gap between PROM windows */
-    fill_trap(0x2800, 0xD000);   /* gap between PROM1 and CCP base */
-    fill_trap(0xEA00, 0xEC00);   /* NDOS spill region + SNIOS JT space */
-    fill_trap(0xED20, 0xF100);   /* after scratch BSS, before IVT */
+    /* Session 33 follow-up: fill_trap removed — it was diagnostic scaffolding
+     * for the ISR stack problem that's since been resolved.  The old ranges
+     * also reflected the pre-session-33 memory map (BIOS_BASE=0xF200) which
+     * no longer matches; leaving stale ranges here would clobber .resident
+     * and BSS.  If we need to re-trap, parameterise via linker symbols. */
 
     /* IVT + IM2 first so any stray interrupt lands on isr_noop rather
      * than the reset vector.  Interrupts stay disabled; resident_entry

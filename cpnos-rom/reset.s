@@ -20,10 +20,12 @@
     .global _reset
 _reset:
     di
-    ld sp, #0xF200              ; init stack below resident; grows down
-                                ; into free RAM (0xF000..0xF1FF).  Session
-                                ; #24 moved BIOS_BASE from 0xF580 to 0xF200
-                                ; to fit SNIOS; stack moved in step.
-                                ; Must NOT overlap netboot DMA targets.
+    ld sp, #0xED00              ; Cold-boot stack, grows down.  Session 33
+                                ; follow-up (2026-04-22) moved it from
+                                ; 0xF200 to 0xED00 in step with BIOS_BASE
+                                ; to give SNIOS more room.  Stack occupies
+                                ; 0xEB20..0xED00 (480 B); BSS 0xEA20..0xEB20
+                                ; below.  Must NOT overlap netboot DMA
+                                ; targets (0xCC00..0xDCC4 for cpnos.com).
     call _cpnos_main
 1:  jr 1b                       ; hang if main returns
