@@ -26,12 +26,12 @@ false	equ	not true
 ;
 ; cpnos-rom resident BIOS JT addresses (cpnos_rom.ld asserts these
 ; are stable: BIOS_BASE + 0/3/6/9/12/15).
-_bios_boot	equ	0ED00h
-_bios_wboot	equ	0ED03h
-_bios_const	equ	0ED06h
-_bios_conin	equ	0ED09h
-_bios_conout	equ	0ED0Ch
-_bios_list	equ	0ED0Fh
+rbboot	equ	0ED00h
+rbwboot	equ	0ED03h
+rbconst	equ	0ED06h
+rbconin	equ	0ED09h
+rbcout	equ	0ED0Ch
+rblist	equ	0ED0Fh
 ;
 	extrn	NDOS	; Network Disk Operating System
 	extrn	BDOS	; Basic Disk Operating System
@@ -43,10 +43,10 @@ BIOS:
 ;	jump vector for individual routines
 	jmp	boot		; +0
 wboote:	jmp	error		; +3  wboot (unused in CP/NOS)
-	jmp	const_shim	; +6
-	jmp	conin_shim	; +9
-	jmp	conout_shim	; +12
-	jmp	list_shim	; +15
+	jmp	cshim	; +6
+	jmp	cishim	; +9
+	jmp	coshim	; +12
+	jmp	lshim	; +15
 	jmp	error		; +18 PUNCH
 	jmp	error		; +21 READER
 	jmp	error		; +24 HOME
@@ -56,13 +56,13 @@ wboote:	jmp	error		; +3  wboot (unused in CP/NOS)
 	jmp	error		; +36 SETDMA
 	jmp	error		; +39 READ
 	jmp	error		; +42 WRITE
-	jmp	listst_shim	; +45 LISTST
+	jmp	lsshim	; +45 LISTST
 	jmp	error		; +48 SECTRAN
 BIOSlen	equ	$-BIOS
 ;
 cr	equ	0dh
 lf	equ	0ah
-jmp_op	equ	0c3h
+jpopc	equ	0c3h
 buff	equ	0080h
 ;
 signon:
@@ -74,7 +74,7 @@ boot:	; print signon and jump to NDOS coldstart
 	lxi	sp,buff+0080h
 	lxi	h,signon
 	call	prmsg
-	mvi	a,jmp_op
+	mvi	a,jpopc
 	sta	0000h
 	sta	0005h
 	lxi	h,BDOS
@@ -109,7 +109,7 @@ prmsg:	; print zero-terminated string at HL
 	rz
 	push	h
 	mov	c,a
-	call	conout_shim
+	call	coshim
 	pop	h
 	inx	h
 	jmp	prmsg
@@ -126,43 +126,43 @@ prmsg:	; print zero-terminated string at HL
 ; HL is the return register on the clang side so we do NOT preserve
 ; it; CP/M callers don't expect HL to survive either.
 ;
-const_shim:
+cshim:
 	push	b
 	push	d
-	call	_bios_const	; clang returns status in L
+	call	rbconst	; clang returns status in L
 	mov	a,l
 	pop	d
 	pop	b
 	ret
 ;
-conin_shim:
+cishim:
 	push	b
 	push	d
-	call	_bios_conin	; clang returns char in L
+	call	rbconin	; clang returns char in L
 	mov	a,l
 	pop	d
 	pop	b
 	ret
 ;
-conout_shim:
+coshim:
 	push	b
 	push	d
 	mov	a,c		; CP/M: char in C; clang: char in A
-	call	_bios_conout
+	call	rbcout
 	pop	d
 	pop	b
 	ret
 ;
-list_shim:
+lshim:
 	push	b
 	push	d
 	mov	a,c
-	call	_bios_list
+	call	rblist
 	pop	d
 	pop	b
 	ret
 ;
-listst_shim:
+lsshim:
 	; No list device on RC702; return "ready" (0xff) so prints
 	; don't block.  (Matches original Altos listst behaviour when
 	; the port was absent.)

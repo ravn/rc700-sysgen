@@ -114,12 +114,12 @@ RESIDENT
      * and the display wakes up. */
     enable_interrupts();
 
-    /* Hand off to cpnos.com's BOOT stub at 0xD000.  That is a `JP BIOS`
-     * which lands in cpbios's boot routine; cpbios sets up the zero
-     * page (WBOOT vector -> NDOSRL+0x303, BDOS vector -> BDOS), copies
-     * its 17-entry BIOS JT to NDOSRL+0x300, then jumps to NDOS+3 (NDOS
-     * COLDST).  Our resident zero-page setup gets overwritten — that's
-     * expected and correct for CP/NOS.
+    /* Hand off to cpnos.com's entry at 0xCC00 (first byte of the loaded
+     * image = cpnos.asm's `JP BIOS` vector).  BIOS's boot routine sets
+     * up the zero page (WBOOT vector -> NDOSRL+0x303, BDOS vector ->
+     * BDOS), copies its 17-entry BIOS JT to NDOSRL+0x300, then jumps
+     * to NDOS+3 (COLDST).  Our resident zero-page setup gets
+     * overwritten — that's expected and correct for CP/NOS.
      *
      * Fallback: if no netboot (entry==0), fall through to the
      * diagnostic banner — useful when running without a server. */

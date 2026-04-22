@@ -45,10 +45,15 @@ extern void impl_conout(uint8_t c);
  * Round up for safety. */
 #define MSG_MAX 200
 
-/* Where the image lands.  cpnos.com is linked at .cpnos_data = 0xCC00
- * and .cpnos_code = 0xD000; BOOT label of cpnos.o is first byte of code,
- * so entry is 0xD000.  We stream from 0xCC00 upward. */
-#define IMG_BASE   ((uint8_t *)0xCC00)
+/* cpnos.com produced by RMAC+LINK is CODE-only (DATA section at
+ * 0xCC00 is runtime-initialized BSS, not stored in the file).  The
+ * 4 KB file is the CODE section, linked at 0xD000.  File offset 0 =
+ * memory 0xD000 = `c3 21 df` (JP BIOS).
+ * Verified 2026-04-22 by comparing cpnos.com bytes to in-memory
+ * layout and observing that offset 0xDF21-0xCC00 = 0x1321 runs past
+ * the 4 KB file end — confirming the file covers 0xD000..0xDFD9 not
+ * 0xCC00..0xDFD9. */
+#define IMG_BASE   ((uint8_t *)0xD000)
 #define ENTRY_ADDR 0xD000
 
 /* MP/M II default password on mpm-net2-1.dsk.  Override at build time

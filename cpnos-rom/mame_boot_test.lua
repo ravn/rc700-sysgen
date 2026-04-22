@@ -33,6 +33,24 @@ local last_last    = -1
 local last_nb_step = -1
 local last_nb_rc   = -1
 
+-- First-sighting timestamps for key signatures, so we can see the
+-- exact moment NDOS patches its BIOS JT and whether the patched
+-- 0xCF00 ever contained a 17-entry JP table.  Issue #38.
+local function read_word(space, addr)
+    return space:read_u8(addr) + space:read_u8(addr + 1) * 256
+end
+local function jt_fingerprint(space, base)
+    -- Read 6 bytes (first two JP entries) — enough to distinguish
+    -- "c3 LL HH c3 LL HH" from garbage.
+    local b = {}
+    for i = 0, 5 do b[#b+1] = space:read_u8(base + i) end
+    return string.format("%02x %02x %02x %02x %02x %02x",
+        b[1], b[2], b[3], b[4], b[5], b[6])
+end
+local df21_first_c3 = -1
+local cf00_first_c3 = -1
+local ed00_first_c3 = -1
+
 local function screen_text(space, base)
     local out = {}
     for row = 0, 24 do
@@ -89,8 +107,14 @@ local function finish(result, space)
     f:write(hex_dump(space, 0xD000, 16) .. "\n")
     f:write("\n--- 0xD003 (NDOS = JP NDOSE, JP COLDST) ---\n")
     f:write(hex_dump(space, 0xD003, 16) .. "\n")
-    f:write("\n--- 0xDC10 (BIOS jump table) ---\n")
-    f:write(hex_dump(space, 0xDC10, 51) .. "\n")
+    -- Monolith's BIOS JT lives at 0xDF21 since we replaced the Altos
+    -- cpbios with our RC702 trampoline (previous address 0xDC10 was
+    -- stale from before the session-33 cpbios trampoline rework).
+    -- Expected: 17 × 3-byte JP entries, first = JP boot (c3 LL HH
+    -- pointing inside the monolith), WBOOT = JP error, CONST/CONIN/
+    -- CONOUT/LIST = JP *_shim.
+    f:write("\n--- 0xDF21 (monolith BIOS JT after cpbios trampoline rewire) ---\n")
+    f:write(hex_dump(space, 0xDF21, 51) .. "\n")
     -- NDOS COLDST walks TOP+1 (our BIOS JT at 0xED00) and writes a
     -- patched copy at NDOSRL+0x300 = 0xCC00+0x300 = 0xCF00 with
     -- intercepts for CONOUT/LIST/etc.  CCP calls BIOS through this
@@ -106,11 +130,11 @@ local function finish(result, space)
     -- contain c3 + an address, that's why CONOUT is broken.
     f:write("\n--- 0xED00 (our BIOS JT VMA) ---\n")
     f:write(hex_dump(space, 0xED00, 51) .. "\n")
-    -- Image signature: BOOT at 0xD000 is `JP 0xDC10` (BIOS) = c3 10 dc.
+    -- Image signature: BOOT at 0xD000 is `JP BIOS` (= JP 0xDF21 = c3 21 df).
     local boot0 = space:read_u8(0xD000)
     local boot2 = space:read_u8(0xD002)
     f:write(string.format(
-        "BOOT[0xD000..2]=%02x ?? %02x (want c3 10 dc)\n",
+        "BOOT[0xD000..2]=%02x ?? %02x (want c3 21 df)\n",
         boot0, boot2))
     f:write("\n--- 0xEC00 (breadcrumbs; 0xEC20 = CRT ISR tick counter) ---\n")
     -- Dump through 0xEC5F so the impl_conout/const/conin breadcrumb
@@ -154,6 +178,31 @@ emu.register_frame_done(function()
             finish(pending_finish, space)
         end
         return
+    end
+
+    -- Watch the three BIOS-JT addresses for their first c3 opcode so we
+    -- can time-order: monolith landed (0xDF21) → cpbios initloop copied
+    -- it to 0xCF00 → NDOS overwrote 0xCF00 with intercepts (possibly
+    -- stomping the c3 pattern).  Logs land in the trace file.
+    if trace_f ~= nil then
+        if df21_first_c3 < 0 and space:read_u8(0xDF21) == 0xC3 then
+            df21_first_c3 = frame
+            trace_f:write(string.format(
+                "# 0xDF21 first c3 at frame %d (%.2fs): %s\n",
+                frame, frame/50.0, jt_fingerprint(space, 0xDF21)))
+        end
+        if cf00_first_c3 < 0 and space:read_u8(0xCF00) == 0xC3 then
+            cf00_first_c3 = frame
+            trace_f:write(string.format(
+                "# 0xCF00 first c3 at frame %d (%.2fs): %s\n",
+                frame, frame/50.0, jt_fingerprint(space, 0xCF00)))
+        end
+        if ed00_first_c3 < 0 and space:read_u8(0xED00) == 0xC3 then
+            ed00_first_c3 = frame
+            trace_f:write(string.format(
+                "# 0xED00 first c3 at frame %d (%.2fs): %s\n",
+                frame, frame/50.0, jt_fingerprint(space, 0xED00)))
+        end
     end
 
     -- Log breadcrumbs every 50 frames (~1 s) OR whenever any counter
