@@ -99,26 +99,50 @@ static void reuse_fcb(void) {
     msg[DAT] = 0;                    /* user number */
 }
 
+/* Breadcrumbs for issue #38 (netboot boot flakiness).  Each step that
+ * completes bumps a byte; on failure we return 0 and resident_entry's
+ * fallback for(;;) is reached.  0xEC44 records how far we got.
+ *   0x01  entered netboot_mpm
+ *   0x02  snios_ntwkin succeeded
+ *   0x03  LOGIN OK
+ *   0x04  OPEN OK
+ *   0x05  entered READ-SEQ loop
+ *   0x80 | N  last record number successfully copied
+ *   0xFE  EOF received -> normal exit
+ *   0xFF  CLOSE completed (full success)
+ * 0xEC45 records the last retcode (rc) from cpnet_xact. */
+#define TRACE_NB_STEP ((volatile uint8_t *)0xEC44)
+#define TRACE_NB_RC   ((volatile uint8_t *)0xEC45)
+
 PROM1_CODE
 uint16_t netboot_mpm(void) {
+    *TRACE_NB_STEP = 0x01;
     /* Arm SNIOS.  Drains SIO RX and flips CFGTBL.NETST.ACTIVE. */
     if (snios_ntwkin() != 0) return 0;
+    *TRACE_NB_STEP = 0x02;
 
     /* --- LOGIN ----------------------------------------------------- */
     for (uint8_t i = 0; i < 8; ++i) msg[DAT + i] = RC702_LOGIN_PWD[i];
     uint8_t rc = cpnet_xact(64, 7);
+    *TRACE_NB_RC = rc;
     if (rc != 0) return 0;
+    *TRACE_NB_STEP = 0x03;
 
     /* --- OPEN A:CPNOS.IMG ----------------------------------------- */
     install_fcb();
     rc = cpnet_xact(15, 36);
+    *TRACE_NB_RC = rc;
     if (rc != 0) return 0;
+    *TRACE_NB_STEP = 0x04;
 
     /* --- READ-SEQ loop -------------------------------------------- */
+    *TRACE_NB_STEP = 0x05;
     uint8_t *dma = IMG_BASE;
+    uint8_t rec = 0;
     for (;;) {
         reuse_fcb();
         rc = cpnet_xact(20, 36);
+        *TRACE_NB_RC = rc;
         if (rc == 1) break;          /* EOF */
         if (rc != 0) return 0;       /* error */
         /* Response: DAT[0]=rc, DAT[1..36]=FCB, DAT[37..164]=128B sector. */
@@ -126,13 +150,17 @@ uint16_t netboot_mpm(void) {
             dma[i] = msg[DAT + 37 + i];
         }
         dma += 128;
+        rec++;
+        *TRACE_NB_STEP = (uint8_t)(0x80 | (rec & 0x7F));
         /* Safety: refuse to overflow into BIOS area (now 0xED00+). */
         if (dma >= (uint8_t *)0xEC00) return 0;
     }
+    *TRACE_NB_STEP = 0xFE;
 
     /* --- CLOSE ---------------------------------------------------- */
     reuse_fcb();
     (void)cpnet_xact(16, 36);        /* ignore — file close errors are not fatal */
+    *TRACE_NB_STEP = 0xFF;
 
     return ENTRY_ADDR;
 }

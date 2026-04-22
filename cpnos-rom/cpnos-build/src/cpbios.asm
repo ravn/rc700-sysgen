@@ -1,0 +1,172 @@
+	title	'RC702 BIOS trampoline for CP/NOS 1.2'
+;
+; Replaces cpnet-z80/dist/src/cpbios.asm (which talks to Altos
+; console/list ports 0x1C/0x1E).  On RC702 the console is the 8275
+; CRT at 0xF800 and the list device is absent; those live in the
+; cpnos-rom resident at VMA 0xED00+.
+;
+; This module provides:
+;   - BIOS jump table (17 × 3-byte JPs) at `BIOS:`
+;   - boot code that sets up CP/M zero page, copies the BIOS JT to
+;     NDOSRL+0x300 (so CCP calls BIOS through the intercepted copy),
+;     prints a signon banner via our resident CONOUT, and jumps to
+;     NDOS coldstart.
+;   - Thin const/conin/conout/list shims that call into the cpnos-rom
+;     resident BIOS at 0xED00..0xED0F.  Register conversion: CP/M
+;     passes char in C, returns status/char in A, preserves all other
+;     regs.  cpnos-rom uses clang sdcccall(1): arg in A, 8-bit return
+;     in L, callee-saved = none.  The shims bridge by pushing BC/DE
+;     around the call and translating C↔A and L↔A.
+;
+;	Copyright (c) 1980..82 Digital Research (original concept)
+;	RC702 retarget 2026-04, issue #38
+;
+true	equ	0ffffh
+false	equ	not true
+;
+; cpnos-rom resident BIOS JT addresses (cpnos_rom.ld asserts these
+; are stable: BIOS_BASE + 0/3/6/9/12/15).
+_bios_boot	equ	0ED00h
+_bios_wboot	equ	0ED03h
+_bios_const	equ	0ED06h
+_bios_conin	equ	0ED09h
+_bios_conout	equ	0ED0Ch
+_bios_list	equ	0ED0Fh
+;
+	extrn	NDOS	; Network Disk Operating System
+	extrn	BDOS	; Basic Disk Operating System
+	extrn	NDOSRL	; NDOS serial number, BIOS jump table
+			;  is page aligned at 0300H offset
+	CSEG
+BIOS:
+	public	BIOS
+;	jump vector for individual routines
+	jmp	boot		; +0
+wboote:	jmp	error		; +3  wboot (unused in CP/NOS)
+	jmp	const_shim	; +6
+	jmp	conin_shim	; +9
+	jmp	conout_shim	; +12
+	jmp	list_shim	; +15
+	jmp	error		; +18 PUNCH
+	jmp	error		; +21 READER
+	jmp	error		; +24 HOME
+	jmp	error		; +27 SELDSK
+	jmp	error		; +30 SETTRK
+	jmp	error		; +33 SETSEC
+	jmp	error		; +36 SETDMA
+	jmp	error		; +39 READ
+	jmp	error		; +42 WRITE
+	jmp	listst_shim	; +45 LISTST
+	jmp	error		; +48 SECTRAN
+BIOSlen	equ	$-BIOS
+;
+cr	equ	0dh
+lf	equ	0ah
+jmp_op	equ	0c3h
+buff	equ	0080h
+;
+signon:
+	db	cr,lf,lf
+	db	'RC702 CP/NOS v1.2'
+	db	cr,lf,0
+;
+boot:	; print signon and jump to NDOS coldstart
+	lxi	sp,buff+0080h
+	lxi	h,signon
+	call	prmsg
+	mvi	a,jmp_op
+	sta	0000h
+	sta	0005h
+	lxi	h,BDOS
+	shld	0006h
+	xra	a
+	sta	0004h
+	lxi	h,NDOSRL+0303h
+	shld	0001h
+	dcx	h
+	dcx	h
+	dcx	h		; HL = NDOSRL+0300h (CCP's BIOS JT slot)
+	lxi	d,BIOS
+	mvi	c,BIOSlen
+initloop:
+	ldax	d
+	mov	m,a
+	inx	h
+	inx	d
+	dcr	c
+	jnz	initloop
+	jmp	NDOS+03h	; NDOS cold-start
+;
+; Utility
+error:
+	lxi	h,0ffffh
+	mov	a,h
+	ret
+;
+prmsg:	; print zero-terminated string at HL
+	mov	a,m
+	ora	a
+	rz
+	push	h
+	mov	c,a
+	call	conout_shim
+	pop	h
+	inx	h
+	jmp	prmsg
+;
+; ---- ABI shims: CP/M BIOS <-> cpnos-rom resident ---------------
+;
+; CP/M:   CONOUT(c in C),  CONIN(→A), CONST(→A), LIST(c in C),
+;         LISTST(→A).  All regs preserved except the A return.
+; clang sdcccall(1):  arg in A, 8-bit return in L, all caller-saved.
+;
+; Without push/pop wrappers the CCP/NDOS loop counters in BC/DE get
+; trashed and CCP spins emitting a single char (symptom seen during
+; issue #36 rc700_console integration attempt).
+; HL is the return register on the clang side so we do NOT preserve
+; it; CP/M callers don't expect HL to survive either.
+;
+const_shim:
+	push	b
+	push	d
+	call	_bios_const	; clang returns status in L
+	mov	a,l
+	pop	d
+	pop	b
+	ret
+;
+conin_shim:
+	push	b
+	push	d
+	call	_bios_conin	; clang returns char in L
+	mov	a,l
+	pop	d
+	pop	b
+	ret
+;
+conout_shim:
+	push	b
+	push	d
+	mov	a,c		; CP/M: char in C; clang: char in A
+	call	_bios_conout
+	pop	d
+	pop	b
+	ret
+;
+list_shim:
+	push	b
+	push	d
+	mov	a,c
+	call	_bios_list
+	pop	d
+	pop	b
+	ret
+;
+listst_shim:
+	; No list device on RC702; return "ready" (0xff) so prints
+	; don't block.  (Matches original Altos listst behaviour when
+	; the port was absent.)
+	xra	a
+	ret
+;
+	end

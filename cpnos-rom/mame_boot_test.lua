@@ -16,6 +16,23 @@ local DRAIN_FRAMES = 15
 local pending_finish = nil
 local pending_frame  = 0
 
+-- Breadcrumb log: append a line each second with PC/SP and the trace
+-- counters at 0xEC40..0xEC43 so we can see when CCP first reaches any
+-- BIOS entry and in what sequence.  Open with "w" once per run so the
+-- file is fresh.  Issue #38.
+local TRACE_FILE = "/tmp/cpnos_boot_trace.txt"
+local trace_f = io.open(TRACE_FILE, "w")
+if trace_f then
+    trace_f:write("# frame t(s)  PC   SP   CONOUT last CONST CONIN CRT_tick NB_step NB_rc\n")
+    trace_f:flush()
+end
+local last_conout  = -1
+local last_const   = -1
+local last_conin   = -1
+local last_last    = -1
+local last_nb_step = -1
+local last_nb_rc   = -1
+
 local function screen_text(space, base)
     local out = {}
     for row = 0, 24 do
@@ -74,6 +91,21 @@ local function finish(result, space)
     f:write(hex_dump(space, 0xD003, 16) .. "\n")
     f:write("\n--- 0xDC10 (BIOS jump table) ---\n")
     f:write(hex_dump(space, 0xDC10, 51) .. "\n")
+    -- NDOS COLDST walks TOP+1 (our BIOS JT at 0xED00) and writes a
+    -- patched copy at NDOSRL+0x300 = 0xCC00+0x300 = 0xCF00 with
+    -- intercepts for CONOUT/LIST/etc.  CCP calls BIOS through this
+    -- patched table, not our JT directly.  If CONOUT isn't reaching
+    -- our _impl_conout, this is where to look.  Issue #38.
+    f:write("\n--- 0xCF00 (NDOS-patched BIOS JT = NDOSRL+0x300) ---\n")
+    f:write(hex_dump(space, 0xCF00, 51) .. "\n")
+    -- Our BIOS JT at 0xED00 should be c3 xx xx c3 xx xx ... after
+    -- the cpnos_main memcpy.  The patched copy at 0xCF00 should have
+    -- the same layout but with CONOUT/LIST/etc. rewritten to NDOS's
+    -- intercept wrappers.  If 0xCF00 is full of 0x00 or 0xFF, NDOS's
+    -- walk never ran.  If offsets 0xCF0C..0xCF0E (CONOUT slot) don't
+    -- contain c3 + an address, that's why CONOUT is broken.
+    f:write("\n--- 0xED00 (our BIOS JT VMA) ---\n")
+    f:write(hex_dump(space, 0xED00, 51) .. "\n")
     -- Image signature: BOOT at 0xD000 is `JP 0xDC10` (BIOS) = c3 10 dc.
     local boot0 = space:read_u8(0xD000)
     local boot2 = space:read_u8(0xD002)
@@ -122,6 +154,37 @@ emu.register_frame_done(function()
             finish(pending_finish, space)
         end
         return
+    end
+
+    -- Log breadcrumbs every 50 frames (~1 s) OR whenever any counter
+    -- changes since the last log line, so we see the first CONOUT/CONIN
+    -- event down to ~20ms resolution without spamming the file.
+    if trace_f ~= nil then
+        local conout = space:read_u8(0xEC40)
+        local last   = space:read_u8(0xEC41)
+        local const  = space:read_u8(0xEC42)
+        local conin  = space:read_u8(0xEC43)
+        local nb_step = space:read_u8(0xEC44)
+        local nb_rc   = space:read_u8(0xEC45)
+        if conout ~= last_conout or const ~= last_const
+           or conin ~= last_conin or last ~= last_last
+           or nb_step ~= last_nb_step or nb_rc ~= last_nb_rc
+           or frame % 50 == 0 then
+            local pc = manager.machine.devices[":maincpu"].state["PC"].value
+            local sp = manager.machine.devices[":maincpu"].state["SP"].value
+            local crt_tick = space:read_u8(0xEC20)
+            trace_f:write(string.format(
+                "%5d %6.2f %04X %04X  %3d %02x  %3d  %3d   %3d    %02x    %02x\n",
+                frame, frame / 50.0, pc, sp,
+                conout, last, const, conin, crt_tick, nb_step, nb_rc))
+            trace_f:flush()
+            last_conout  = conout
+            last_const   = const
+            last_conin   = conin
+            last_last    = last
+            last_nb_step = nb_step
+            last_nb_rc   = nb_rc
+        end
     end
 
     if frame % 25 ~= 0 then return end  -- every ~0.5s

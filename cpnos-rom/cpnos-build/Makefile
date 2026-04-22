@@ -8,6 +8,9 @@
 
 VCPM := java -jar /Users/ravn/z80/cpnet-z80/tools/VirtualCpm.jar
 SRC  := /Users/ravn/z80/cpnet-z80/dist/src
+# Local overrides for DRI sources we've replaced (RC702-specific vs
+# Altos).  If src/<name>.asm exists it wins over $(SRC)/<name>.asm.
+LOCAL_SRC := src
 
 # Link addresses.  Must sit below our BIOS resident at 0xF200 and
 # display RAM at 0xF800.  Current choice:
@@ -26,6 +29,11 @@ MODULES := cpnos cpndos cpnios cpbdos cpbios
 
 .PHONY: all clean
 all: d/cpnos.com
+
+# Local asm (our overrides) wins; fall back to cpnet-z80 upstream.
+d/%.asm: $(LOCAL_SRC)/%.asm
+	@mkdir -p d
+	perl -pe 's/\r?\n/\r\n/g' $< > $@
 
 d/%.asm: $(SRC)/%.asm
 	@mkdir -p d
