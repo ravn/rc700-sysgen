@@ -191,6 +191,15 @@
   overwrites CPNOS.IMG with our `cpnos-build/d/cpnos.com`.
 - **Remaining:** #40 — real-MP/M OPEN rc=0x02 after LOGIN.  Harness
   (#41) blocked on this.
+- **2026-04-22 (post-compact)**: **#40 fix identified.**  `rc=0x02` is
+  NOT an error — it's a CP/M BDOS OPEN success code.  BDOS fn 15
+  returns directory code 0..3 on success (the found entry's offset
+  mod 4), 0xFF on not-found.  `netboot_mpm.c` treated any non-zero
+  rc as failure; changed the guard to `if (rc >= 0x04) return 0;`.
+  **(Easy)** once misread — hours were burned assuming 0x02 was an
+  error code before re-reading the BDOS spec.  Underscores the rule:
+  when a retcode looks weird, check whether it's BDOS-passthrough
+  (raw directory code) vs. CP/NET transport (normalized 0/0xFF).
 
 ## Phase 16: First end-to-end DIR against live MP/M (Apr 22, 2026)
 - **2026-04-22**: CONST/CONIN echoed `F G H I` (0x46..0x49) for input

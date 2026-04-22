@@ -137,7 +137,11 @@ uint16_t netboot_mpm(void) {
     install_fcb();
     rc = cpnet_xact(15, 36);
     *TRACE_NB_RC = rc;
-    if (rc != 0) return 0;
+    /* BDOS OPEN (fn 15) returns directory code 0..3 on success, 0xFF on
+     * not-found.  MP/M's CP/NET server passes that raw return through
+     * in DAT[0].  Observed rc=0x02 against mpm-net2 = success, not
+     * error — issue #40. */
+    if (rc >= 0x04) return 0;
     *TRACE_NB_STEP = 0x04;
 
     /* --- READ-SEQ loop -------------------------------------------- */
