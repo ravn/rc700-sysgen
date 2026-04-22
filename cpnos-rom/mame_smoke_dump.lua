@@ -21,7 +21,10 @@ emu.register_periodic(function()
     last_snapshot_tick = now
 
     local out = io.open("/tmp/cpnos_fnc_counters.txt", "a")
-    out:write(string.format("--- t=%d ---\n", now))
+    local rs_lo = mem:read_u8(0xEC7E)
+    local rs_hi = mem:read_u8(0xEC7F)
+    local rs16 = rs_hi * 256 + rs_lo
+    out:write(string.format("--- t=%d  READ_SEQ_16bit=%d ---\n", now, rs16))
     for fnc = 0, 127 do
         local v = mem:read_u8(0xEC80 + fnc)
         if v ~= 0 then
