@@ -30,7 +30,16 @@ MODULES := cpnos cpndos cpnios cpbdos cpbios
 .PHONY: all clean
 all: d/cpnos.com
 
-# Local asm (our overrides) wins; fall back to cpnet-z80 upstream.
+# Named-shim override: src/cpnios-shim.asm is our thin JP-to-0xEA00
+# trampoline into cpnos-rom's resident SNIOS.  RMAC+LINK still needs
+# the monolith module name to be cpnios (NDOS calls `call NIOS+N*3`
+# where NIOS is the label in that module), so the source file carries
+# the -shim suffix but the built .asm lands in d/ as cpnios.asm.
+d/cpnios.asm: $(LOCAL_SRC)/cpnios-shim.asm
+	@mkdir -p d
+	perl -pe 's/\r?\n/\r\n/g' $< > $@
+
+# Local asm (our overrides) wins over upstream for any other module.
 d/%.asm: $(LOCAL_SRC)/%.asm
 	@mkdir -p d
 	perl -pe 's/\r?\n/\r\n/g' $< > $@
