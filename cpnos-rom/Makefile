@@ -199,12 +199,67 @@ MAME_PROM0 = $(MAME)/roms/rc702/roa375.ic66
 # Install prom0.bin into MAME (4KB slot, pad with 0xFF).  PROM1 at
 # 0x2000 in MAME is 0xFF by default — fine for Phase 1 where our
 # PROM1 is unused.
+MAME_PROM1 = $(MAME)/roms/rc702/prom1.ic65
 cpnos-install: clang/cpnos.bin
 	@P0=$$(wc -c < clang/prom0.bin | tr -d ' '); \
 	 { cat clang/prom0.bin; perl -e "print \"\\xff\" x (4096 - $$P0)"; } \
 	   > clang/prom0_padded.ic66
 	cp clang/prom0_padded.ic66 $(MAME_PROM0)
+	cp clang/prom1.bin         $(MAME_PROM1)
 	@echo "installed cpnos prom0 -> $(MAME_PROM0)"
+	@echo "installed cpnos prom1 -> $(MAME_PROM1)"
+
+# ---- cpnet-smoke: end-to-end test against live MP/M ---------------
+#
+# Non-trivial test: slave drives CP/M ASM (from master B:) to assemble
+# an unrolled sum-of-1..1000 program from master D:, LOADs the HEX to
+# COM (also on D:), and runs it.  The program computes 0xA314 and
+# prints "CPNET OK A314".  Any CP/NET or CCP/BDOS/BIOS regression
+# corrupts the assembler's output → the running program prints the
+# wrong string or crashes → grep fails → make target fails.
+#
+# Preconditions:
+#   - MP/M is running in a screen session (see
+#     z80pack/cpmsim/mpm-net2).  Target restarts it so the drive
+#     staging is fresh.
+#   - cpnos-rom is built and installed into MAME.
+#
+# Prints PASS or FAIL and exits accordingly.
+MPM_DIR ?= $(CURDIR)/../z80pack/cpmsim
+SMOKE_PORT ?= 9001
+cpnet-smoke: cpnos-install
+	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
+	python3 testutil/mksmokeasm.py
+	testutil/mksmokedisk.sh
+	@echo "=== 2/5 restarting MP/M with fresh drive D: ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@echo "=== 3/5 waiting for MP/M CP/NET server on :4002 ==="
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.5; done
+	@sleep 4
+	@echo "=== 4/5 launching MAME + smoke injector ==="
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_smoke_inject.log
+	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --log /tmp/cpnos_siob.raw --timeout 240 \
+	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_smoke_inject.pid
+	@sleep 0.3
+	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 240 \
+	    -rs232a null_modem -bitb1 socket.127.0.0.1:4002 \
+	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT)
+	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
+	@echo "=== 5/5 verifying ==="
+	@echo --- injector log ---
+	@cat /tmp/cpnos_smoke_inject.log
+	@echo --- SIO-B tail ---
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw | tail -c 400 || true
+	@echo
+	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
+	    && echo "PASS: slave-assembled program printed CPNET OK A314" \
+	    || (echo "FAIL: expected 'CPNET OK A314' not found in /tmp/cpnos_siob.raw"; exit 1)
 
 cpnos-mame: cpnos-install
 	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
