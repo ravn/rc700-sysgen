@@ -161,6 +161,26 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 16: First end-to-end DIR against live MP/M (Apr 22, 2026)
+- **2026-04-22**: CONST/CONIN echoed `F G H I` (0x46..0x49) for input
+  `d i r \r`.  Diagnosis via a 4-slot CONIN input ring at 0xEC46+:
+  impl_conin delivered the correct bytes `64 69 72 0d`.  The corruption
+  was in the monolith's cishim/cshim: `mov a, l` after the call, on
+  the assumption sdcccall(1) returns 8-bit values in L.  Disassembly of
+  impl_conin / impl_const showed both end with `ld a,d; ret` — clang
+  Z80 returns 8-bit in **A**, not L.  Fixed by removing `mov a, l`.
+  **(Painful)** — the stale HL happened to track the input-ring scratch
+  address, producing a deceptively-plausible incrementing pattern that
+  looked like an off-by-one input bug rather than an ABI mismatch.
+- **2026-04-22**: **First successful DIR over the wire.**  CP/NOS slave
+  in MAME, bitbanger SIO-A to TCP 4002 = z80pack cpmsim mpm-net2 MP/M II
+  master.  `A>dir` lists `CCP SPR / CPNETLDR COM / CPNOS IMG / NDOS SPR
+  / PIPNET COM ...` — real files on `mpm-net2-1.dsk` served by MP/M's
+  stock CP/NET server through our RC702-retargeted cpbios + cpnios-shim.
+  CONOUT=254 for that one command, confirming full BDOS+NDOS+BIOS chain.
+  The goal ("physical RC702 against live MP/M over 38400 8N1") is met
+  in emulation; physical hardware next.
+
 ## Phase 15: Remote drives for slave workload (Apr 22, 2026)
 - **2026-04-22**: `z80pack/cpmsim/mpm-net2` launcher now stages four disks:
   A=mpm-net2-1 (boot + CPNOS.IMG), B=cpm22-1 (DRI/MS assemblers: ASM, MAC,
