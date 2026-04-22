@@ -126,11 +126,17 @@ prmsg:	; print zero-terminated string at HL
 ; HL is the return register on the clang side so we do NOT preserve
 ; it; CP/M callers don't expect HL to survive either.
 ;
+; NOTE on sdcccall(1) 8-bit return: clang Z80 sdcccall(1) returns
+; 8-bit values in A (NOT L as we initially assumed).  Confirmed
+; 2026-04-22 from impl_conin / impl_const disassembly — both end
+; with `ld a,d; ret`.  Do NOT do `mov a,l` here: it would overwrite
+; the correct return with the stale HL low byte.  (That bug made
+; CCP echo `F G H I` = 0x46..0x49 for input `d i r \r` because
+; HL happened to track the input-ring scratch address 0xEC46+.)
 cshim:
 	push	b
 	push	d
-	call	rbconst	; clang returns status in L
-	mov	a,l
+	call	rbconst	; A = status (0x00 or 0xFF)
 	pop	d
 	pop	b
 	ret
@@ -138,8 +144,7 @@ cshim:
 cishim:
 	push	b
 	push	d
-	call	rbconin	; clang returns char in L
-	mov	a,l
+	call	rbconin	; A = char
 	pop	d
 	pop	b
 	ret

@@ -243,11 +243,21 @@ uint8_t impl_conin(void) {
     (*TRACE_CONIN_CNT)++;
     for (;;) {
         if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) {
-            return _port_in(PORT_SIO_B_DATA);
+            uint8_t c = _port_in(PORT_SIO_B_DATA);
+            /* Ring-log the 4 most recent SIO-B RX bytes at 0xEC46..0xEC49
+             * so we can tell whether impl_conin is delivering the real
+             * bytes or something else.  Issue #38 input diagnostic. */
+            uint8_t idx = (*(volatile uint8_t *)0xEC4A) & 0x03;
+            ((volatile uint8_t *)0xEC46)[idx] = c;
+            *(volatile uint8_t *)0xEC4A = (uint8_t)(idx + 1);
+            return c;
         }
         if (kbd_head != kbd_tail) {
             uint8_t c = kbd_ring[kbd_tail];
             kbd_tail = (kbd_tail + 1) & (KBD_RING_SIZE - 1);
+            uint8_t idx = (*(volatile uint8_t *)0xEC4A) & 0x03;
+            ((volatile uint8_t *)0xEC46)[idx] = c;
+            *(volatile uint8_t *)0xEC4A = (uint8_t)(idx + 1);
             return c;
         }
     }
