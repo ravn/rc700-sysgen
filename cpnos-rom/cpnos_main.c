@@ -24,7 +24,18 @@ extern uint8_t _resident_end[];
 
 [[noreturn]] extern void resident_entry(uint16_t entry);
 extern void init_hardware(void);            /* init.c, runs from ROM */
-extern uint16_t netboot(void);              /* netboot.c, ROM-only */
+
+/* Network bootstrap entry.  Two implementations; only one lands in the
+ * link, selected by SERVER=mpm|proxy in the Makefile.  Default is mpm:
+ * standard CP/NET 1.2 LOGIN/OPEN/READ/CLOSE against z80pack MP/M II.
+ * 'proxy' keeps the legacy FMT=0xB0 protocol for netboot_server.py. */
+#ifdef NETBOOT_LEGACY
+extern uint16_t netboot(void);              /* netboot.c, PROM0 */
+#define NETBOOT() netboot()
+#else
+extern uint16_t netboot_mpm(void);          /* netboot_mpm.c, PROM1 */
+#define NETBOOT() netboot_mpm()
+#endif
 
 [[noreturn]] void cpnos_main(void) {
     /* Bring up CTC + SIO-A/B.  (PIO, IVT, DMA, CRT are Phase 2.) */
@@ -40,7 +51,7 @@ extern uint16_t netboot(void);              /* netboot.c, ROM-only */
 
     /* Try to netboot.  Server streams CCP+BDOS into RAM and returns an
      * entry point; if absent, recv times out and entry == 0. */
-    uint16_t entry = netboot();
+    uint16_t entry = NETBOOT();
 
     /* Hand off to resident code.  It disables the PROMs (safe from
      * 0xF200 — execution continues from RAM) and either jumps to the

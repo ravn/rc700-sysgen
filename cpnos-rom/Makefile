@@ -28,7 +28,8 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -Xclang -target-feature -Xclang +static-stack \
          -mllvm -disable-lsr \
          -DENABLE_FDC=$(ENABLE_FDC) \
-         -DRC702_SLAVEID=0x70 \
+         -DRC702_SLAVEID=0x01 \
+         $(SERVER_CFLAGS) \
          -Iclang -I. \
          -Weverything \
          -Wno-unsafe-buffer-usage \
@@ -48,9 +49,24 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
 
 ASFLAGS = --target=z80 -g
 
+# Server side: default is standard MP/M II (cpmsim mpm-net2).
+# Override with SERVER=proxy to use the legacy Python netboot_server.py
+# (FMT=0xB0 custom protocol).
+SERVER ?= mpm
+
+ifeq ($(SERVER),mpm)
+NETBOOT_OBJ = clang/netboot_mpm.o
+SERVER_CFLAGS =
+else ifeq ($(SERVER),proxy)
+NETBOOT_OBJ = clang/netboot.o
+SERVER_CFLAGS = -DNETBOOT_LEGACY
+else
+$(error SERVER must be 'mpm' or 'proxy')
+endif
+
 OBJS = clang/reset.o clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
        clang/resident.o clang/cfgtbl.o clang/init.o clang/transport_sio.o \
-       clang/netboot.o clang/snios.o clang/isr.o
+       $(NETBOOT_OBJ) clang/snios.o clang/isr.o
 LDSCRIPT = cpnos_rom.ld
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
@@ -102,6 +118,10 @@ clang/transport_sio.o: transport_sio.c transport.h hal.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/netboot.o: netboot.c transport.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/netboot_mpm.o: netboot_mpm.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
