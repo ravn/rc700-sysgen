@@ -234,6 +234,14 @@ cpnet-smoke: cpnos-install
 	@echo "=== 2/5 restarting MP/M with fresh drive D: ==="
 	-screen -S mpm -X quit >/dev/null 2>&1 || true
 	@sleep 1
+	@# Guard: make sure nothing else is squatting on :4002 (stray
+	@# netboot_server.py, orphan cpmsim, ...) — any phantom listener
+	@# will intercept MAME's netboot and produce misleading results.
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound — kill the squatter first:"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; \
+	    exit 1; \
+	fi
 	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
 	@echo "=== 3/5 waiting for MP/M CP/NET server on :4002 ==="
 	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.5; done

@@ -43,6 +43,15 @@ done
 cpmrm -f ibm-3740 "$OUT_DISK" 0:SUMTEST.ASM 2>/dev/null || true
 cpmcp -f ibm-3740 "$OUT_DISK" "$HERE/sumtest.asm" 0:SUMTEST.ASM
 
+# mpm-net2-1.dsk ships RMAC/M80/LINK/LOAD but no L80.  Our smoke script
+# uses Microsoft's M80+L80 pair, so pull L80.COM off cpm22-1.dsk.
+CPM22_DISK="$LIB/cpm22-1.dsk"
+TMP_L80=$(mktemp -d)
+trap "rm -rf $TMP_L80" EXIT
+cpmcp -f ibm-3740 "$CPM22_DISK" 0:L80.COM "$TMP_L80/L80.COM"
+cpmrm -f ibm-3740 "$OUT_DISK" 0:L80.COM 2>/dev/null || true
+cpmcp -f ibm-3740 "$OUT_DISK" "$TMP_L80/L80.COM" 0:L80.COM
+
 # Replace the stock CPNOS.IMG (z80pack generic slave) with our RC702-
 # retargeted cpnos.com.  Without this, netboot fetches z80pack's image
 # that drives ports the RC702 doesn't have.  Rebuild cpnos-build first
