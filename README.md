@@ -8,9 +8,9 @@ Work in progress!
 
 ---
 
-SIO programming had gotten confused and messed up hardware handshake.  This is now fixed and CP/NET works in MAME against z80pack MP/M.
+2026-04-22: CP/NET client and server now work in MAME against z80pack MP/M-net over serial port A only at 38400 8N1.
 
-/ravn 2026-04-20
+2026-04-20: SIO programming had gotten confused and messed up hardware handshake.  This is now fixed and CP/NET works in MAME against z80pack MP/M.
 
 2026-04-17:  Thorough experiments have been made to see if the Z80 SIO-A chip can work reliably at x1 speeds.  Unfortunately it cannot so either a protocol must be used that is reliable against transmission errors or stay at 38400 until a better clock can be provided.  Hardwired to memory speed / 32.
 
