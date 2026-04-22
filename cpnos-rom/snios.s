@@ -214,37 +214,6 @@ SNDMS0:
     ld   h, b
     ld   l, c
     ld   (MSGADR), hl
-    ; -- BDOS/CP-NET function trace (per-FNC saturating uint8) --
-    ; Counter table at 0xEC80..0xECFF; FNC byte is at msgbuf+3.
-    ; Additionally, 16-bit counter for FNC=20 (READ_SEQ) at
-    ; 0xEC7E..0xEC7F — so we can see if it exceeds 256.
-    push af
-    push hl
-    push bc
-    inc  hl
-    inc  hl
-    inc  hl                         ; HL = msgbuf+3 = FNC
-    ld   a, (hl)
-    push af                         ; save raw FNC
-    and  0x7f                       ; clamp 0..127
-    ld   l, a
-    ld   h, 0xec
-    set  7, l                       ; HL = 0xEC80 | (FNC & 0x7F)
-    ld   a, (hl)
-    inc  a
-    jr   z, 1f                      ; saturate at 0xFF
-    ld   (hl), a
-1:  pop  af                         ; restore raw FNC
-    cp   20                         ; READ_SEQ?
-    jr   nz, 2f
-    ld   hl, 0xec7e
-    inc  (hl)
-    jr   nz, 2f
-    inc  hl
-    inc  (hl)
-2:  pop  bc
-    pop  hl
-    pop  af
     ; Ensure SID is correct
     ld   a, (_cfgtbl + CFG_SLAVEID)
     inc  bc
