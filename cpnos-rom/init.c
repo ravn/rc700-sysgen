@@ -31,7 +31,12 @@ extern void enable_im2(void);
  * were written first).  0xEC00 sits in the 0xEB20..0xED00 gap
  * between BSS (0xEA20..0xEB20) and RESIDENT (0xED00..), with enough
  * room for 18 × 2-byte entries. */
-#define IVT_ADDR     0xEC00
+/* IVT location provided by the linker script (cpnos_rom.ld) so the
+ * ld ASSERTs and setup_ivt() stay in sync.  If .resident or BSS grows
+ * to overlap _ivt_start.._ivt_end, the link fails at build time (issue
+ * #35) instead of silently stomping the vector table at boot. */
+extern uint8_t _ivt_start[];
+#define IVT_ADDR     ((uint16_t)(uintptr_t)_ivt_start)
 #define IVT_ENTRIES  18
 #define IVT_PIO_A    16
 

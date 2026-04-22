@@ -61,6 +61,12 @@ MEMORY {
   SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x100
 }
 
+/* IVT location shared with init.c (setup_ivt).  Defined here so the
+ * ASSERTs below can check for overlap with .resident / .scratch_bss
+ * after those sections are placed.  Issue #35. */
+__ivt_start = 0xEC00;
+__ivt_end   = __ivt_start + 18 * 2;
+
 SECTIONS {
   .reset 0x0000 : {
     KEEP(*(.reset))
@@ -119,6 +125,15 @@ SECTIONS {
 
   ASSERT(__scratch_bss_end <= 0xEB20,
          "scratch_bss overflowed into stack region!")
+
+  /* Issue #35: guard against the class of bug where .resident (or BSS)
+   * silently overlaps the IVT so memcpy-from-LMA clobbers setup_ivt's
+   * writes.  Root-caused in session 33 follow-up when BIOS_BASE moved
+   * and IVT at 0xF100 fell inside the new .resident range. */
+  ASSERT(__ivt_end <= __resident_start || __ivt_start >= __resident_end,
+         "IVT overlaps .resident — memcpy will clobber setup_ivt writes")
+  ASSERT(__ivt_end <= __scratch_bss_start || __ivt_start >= __scratch_bss_end,
+         "IVT overlaps .scratch_bss — BSS clear will clobber IVT")
 
   /DISCARD/ : {
     *(.comment)
