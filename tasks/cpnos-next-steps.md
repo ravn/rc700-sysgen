@@ -5,15 +5,56 @@ details live in `session24-cpnos-snios.md` and
 `session29-ccp-prompt.md`; this doc is the short "where are we and
 what's next" snapshot.
 
-## Session 33 follow-up (2026-04-22) — relocatable monolith design note
+## Session 33 follow-up (2026-04-22) — BIOS_BASE moved + three bugs fixed
 
-See `cpnos-rom/cpnos-build/RELOCATABLE_SPR.md` — analysis + options for
-making cpnos-build's CP/NOS monolith position-independent via DRI `.SPR`
-format (plus a single external `BIOS_JT_BASE` patch point for the
-cross-boundary reference to cpnos-rom's resident impls).  Originates from
-the observation that DRI binaries are inherently relocatable and we've
-been baking them against fixed addresses unnecessarily.  Parked until we
-actually need to move the memory map more than once.
+**BIOS_BASE 0xF200 → 0xED00.**  Grew RESIDENT from 0x600 (1.5 KB) to
+0xB00 (2.75 KB) to make room for future SNIOS / rc700_console / whatever
+else needs resident space.  BSS relocated to 0xEA20..0xEB20; stack to
+0xEB20..0xED00; IVT relocated to 0xEC00 (was 0xF100 — fell inside the
+new .resident range, which would have been clobbered by memcpy).
+Verified end-to-end: cpnos-rom + cpnos-build + Python CP/NET server →
+"RC702 CP/NOS v1.2 / A>" prompt → `dir` via natural_keyboard paste →
+full remote DIR listing of MP/M's A: drive.  Commit d9feeaa (parent),
+submodule bump 1858833b.
+
+### Three bugs uncovered + fixed
+
+- **Issue U** (#22, now closed): `impl_boot` and `impl_wboot` were
+  unconditional `resident_entry(0)` fallback traps.  CP/NOS's warm-boot
+  path hit them and dropped into our "CPNOS" banner instead of
+  re-entering CCP.  Now `jump_to(0xD000)`.
+- **`cpnos-build/s/cpnios.s` stale `_snios_jt` constant.**  Was
+  `.equ _snios_jt, 0xF233` (= old BIOS_BASE + 0x33).  After the move
+  it pointed into dead RAM, so NDOS's `call nios+0` → garbage →
+  NDOS "Init Err".  Changed to `0xEA00` (NDOS-contract SNIOS JT copy
+  address), which is stable across future BIOS_BASE moves.
+- **IVT at 0xF100 fell inside .resident (0xED00..0xF24B).**  setup_ivt
+  wrote IVT entries, then the memcpy that populates .resident clobbered
+  them with impl_conout bytes.  Symptom: no keyboard input — PIO-A
+  IRQ vectored to code bytes interpreted as an address = garbage.
+  Fixed by relocating IVT to 0xEC00 and running memcpy before
+  setup_ivt.
+
+### Open: `cpnos-rom/cpnos-build/RELOCATABLE_SPR.md`
+
+Design note captured mid-session — analysis + options for making
+cpnos-build's CP/NOS monolith position-independent via DRI `.SPR`
+format, plus a single external `BIOS_JT_BASE` patch point for the
+cross-boundary reference to cpnos-rom's resident impls.  Originates
+from the observation that DRI binaries are inherently relocatable and
+we've been baking them against fixed addresses unnecessarily.  GitHub
+issue #34 tracks it.  Parked until the memory-map coupling bites
+again.
+
+### Issues opened this round
+
+| # | Title | State |
+|---|-------|-------|
+| 22 | Issue U — impl_wboot/impl_boot fallback traps | **closed** (d9feeaa) |
+| 34 | Toolchain: SPR-relocatable monolith | open, parked |
+| 35 | Linker ASSERT that .resident doesn't cover IVT range | open |
+| 36 | RC700 terminal codes state machine — reopen | open, ready |
+| 37 | 8" DS/DD dual-drive local support | open, deferred |
 
 ## Session 33 (2026-04-22) — cpnos-rom ↔ MP/M II + server rework
 
