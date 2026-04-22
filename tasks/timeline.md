@@ -200,6 +200,26 @@
   error code before re-reading the BDOS spec.  Underscores the rule:
   when a retcode looks weird, check whether it's BDOS-passthrough
   (raw directory code) vs. CP/NET transport (normalized 0/0xFF).
+- **2026-04-22 (late)**: Netboot fix validated end-to-end — CP/NOS
+  loads, banner, CCP prompt, M80 + L80 run.  But assembled program
+  is empty (3-byte stub).  Built cpnet-smoke harness with TYPE +
+  M80 + DIR + L80 + exec stages, a saturating uint8 counter per
+  CP/NET FNC at 0xEC80..0xECFF (plus 16-bit READ_SEQ at 0xEC7E),
+  and a MAME Lua tap on 0x0005 to capture the **full** BDOS call
+  stream (6351 calls in a typical run).  TYPE reads the source
+  perfectly — CP/NET READ is not the transport-level problem.
+  zmac assembles the same source cleanly — the source is valid.
+  **Hypothesis confirmed via trace analysis:** M80 issues exactly
+  17 READ_SEQ calls per OPEN regardless of file size (tested with
+  TINY.ASM=20B and SUMTEST.ASM=5790B).  Since TINY.ASM fits in a
+  single record, 16 of those reads are past-EOF.  Implication: the
+  CP/NET slave chain (SNIOS → NDOS → slave BDOS) is returning
+  `rc=0` (success) for past-EOF reads instead of `rc=1` (EOF),
+  so M80 never sees the EOF signal that would make it finalize
+  assembly.  Next: instrument the return value (A on BDOS RET)
+  to prove it, or fix the NDOS/BDOS EOF path in our cpnos.com
+  build.  **(Hard)** — needed three distinct diagnostic layers
+  (FNC counter, BDOS tap, trace analysis) to triangulate.
 
 ## Phase 16: First end-to-end DIR against live MP/M (Apr 22, 2026)
 - **2026-04-22**: CONST/CONIN echoed `F G H I` (0x46..0x49) for input
