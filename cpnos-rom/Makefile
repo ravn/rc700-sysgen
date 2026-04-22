@@ -255,7 +255,7 @@ cpnet-smoke: cpnos-install
 	@sleep 0.3
 	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	    -nothrottle -window -skip_gameinfo \
-	    -seconds_to_run 600 \
+	    -seconds_to_run 1200 \
 	    -rs232a null_modem -bitb1 socket.127.0.0.1:4002 \
 	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
 	    -autoboot_script mame_smoke_dump.lua

@@ -12,7 +12,7 @@ COM image itself, only on what the program computes and emits.
 """
 import os
 
-N = 5                           # sum(1..N); adjust to change target
+N = 1000                        # sum(1..N); adjust to change target
 # Sum exceeds 16 bits for N >= 362.  HL wraps mod 2^16 via DAD, which
 # is what we check against.  For N=1000, sum = 500500, HL = 500500 &
 # 0xFFFF = 0xA314.
@@ -41,6 +41,7 @@ BDOS    equ     0005h
 CONOUT  equ     2
 PRINTS  equ     9
 
+        aseg                    ; absolute (CP/M .COM) not relocatable
         org     0100h
 
 start:  ; entry point referenced by END
@@ -54,10 +55,12 @@ for i in range(1, N + 1):
     body_lines.append(f"        dad     d")
 
 postamble = """
-        ; Print leading message.
+        ; Print leading message.  BDOS trashes HL, so preserve sum.
+        push    h
         lxi     d, msg1
         mvi     c, PRINTS
         call    BDOS
+        pop     h
 
         ; Print HL as 4 hex digits.
         mov     a, h
@@ -106,7 +109,7 @@ msg2:   db      0dh, 0ah, '$'
         END
 """
 
-with open(OUT, 'w') as f:
+with open(OUT, 'w', newline='\r\n') as f:
     f.write(preamble)
     f.write("\n".join(body_lines) + "\n")
     f.write(postamble)

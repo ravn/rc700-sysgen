@@ -27,7 +27,6 @@ STEPS = [
     # First TYPE the file to verify CP/NET READ returns the expected
     # bytes — if TYPE shows garbage, the bug is in the read chain
     # before M80 ever sees it.
-    (b'A>', b'type sumtest.asm\r'),
     (b'A>', b'type tiny.asm\r'),
     (b'A>', b'm80 tiny,=tiny.asm\r'),
     (b'A>', b'dir tiny.*\r'),

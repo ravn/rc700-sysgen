@@ -19,6 +19,7 @@ bdos_log:close()
 
 bdos_tap = nil
 bdos_tap_installed = false
+last_dma = 0x0080  -- CP/M default
 
 emu.register_periodic(function()
     if bdos_tap_installed then return end
@@ -37,8 +38,20 @@ emu.register_periodic(function()
             local caller_hi = space:read_u8(sp + 1)
             local caller = caller_hi * 256 + caller_lo - 3
             local bl = io.open("/tmp/cpnos_bdos_trace.txt", "a")
-            bl:write(string.format("fn=%3d DE=0x%04x caller=0x%04x\n",
-                                    c, de, caller))
+            -- On EVERY BDOS entry, dump the 32 bytes at last_dma —
+            -- this captures the result of the most recent READ_SEQ
+            -- *as M80 sees it* on the next BDOS call (tap fires before
+            -- the current call runs, so the previous call has completed
+            -- by now).
+            local hex = ""
+            for k = 0, 31 do
+                hex = hex .. string.format("%02x", space:read_u8(last_dma + k))
+            end
+            bl:write(string.format("fn=%3d DE=0x%04x caller=0x%04x dma=%04x buf=%s\n",
+                                    c, de, caller, last_dma, hex))
+            if c == 26 then
+                last_dma = de
+            end
             bl:close()
         end)
     bdos_tap_installed = true

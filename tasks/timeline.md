@@ -200,6 +200,26 @@
   error code before re-reading the BDOS spec.  Underscores the rule:
   when a retcode looks weird, check whether it's BDOS-passthrough
   (raw directory code) vs. CP/NET transport (normalized 0/0xFF).
+- **2026-04-22 (later still)**: **cpnet-smoke PASS.**  Program
+  assembled on the slave by M80+L80 over CP/NET prints
+  `CPNET OK A314` — sum(1..1000) & 0xFFFF computed correctly.
+  Root cause chain (not what I first thought): **M80 requires
+  CR+LF line endings.**  Our generator wrote LF-only source; M80's
+  line scanner couldn't recognize statement boundaries, so every
+  pseudo-op including `END` read as part of a single mega-line.
+  Buffer-content dump via Lua tap (reading M80's read-DMA area)
+  proved the file *did* reach M80 with END in it — M80's parser
+  just didn't see it without the CR.  Two secondary source-level
+  bugs surfaced after that: (a) M80 defaults to relocatable, need
+  explicit `ASEG` for CP/M .COM output; (b) BDOS PRINTS (fn 9)
+  does not preserve HL, so the print-then-format logic needs
+  PUSH/POP H around the BDOS call.  Saved `feedback_crlf_cpm_disk`
+  as a standing rule.  **(Painful → Easy once found)** — seven
+  rounds of "it's CP/NET extent handling" / "it's READ_SEQ return
+  values" / "it's source syntax" before the buffer-dump made the
+  CR-LF gap obvious.  Deep lesson: when content clearly reaches
+  the target correctly, look for *interpretation* differences
+  before blaming transport.
 - **2026-04-22 (late)**: Netboot fix validated end-to-end — CP/NOS
   loads, banner, CCP prompt, M80 + L80 run.  But assembled program
   is empty (3-byte stub).  Built cpnet-smoke harness with TYPE +
