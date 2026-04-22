@@ -80,6 +80,150 @@
 - **2026-03-07**: RC702E BIOS split into modular source files (current branch: rc702e-modular)
 - **2026-03-07**: Work area 0xFFD0-0xFFFF mapped with ORG+DS layout
 
+## Phase 10: CP/NOS autoloader PROM — bring-up (Apr 20, 2026)
+- **2026-04-20**: New subtree `cpnos-rom/` — combined autoloader + runtime BIOS image
+  intended to burn into RC702's two 2 KB EPROMs.  Goal: cold-boot a CP/NOS slave
+  directly from PROM, no 8″ floppy required.  **(Easy)** basic skeleton (reset.s,
+  linker script, clang Z80 build) landed in hours.
+- **2026-04-20**: PROM-disable hazard diagnosed and fixed — `OUT (0x18),A` has
+  to be issued from RAM-resident code, not from PROM-backed code that's about
+  to vanish from under the program counter.  **(Hard)** MAME boot test reliably
+  reproduced the hazard only after explicit PROM-mapping assertions were added.
+- **2026-04-20**: SIO-B (polled) + SIO-A (transport) + CTC bring-up in C;
+  38400 8N1 TX verified.  **(Easy)** — same ports as rcbios-in-c, semantics
+  unchanged.
+- **2026-04-20**: Netboot protocol wired end-to-end against the Python server;
+  cold-boot fetches a remote image into RAM.  First hang was in FNC=4 (execute)
+  — server-side protocol quirk, not Z80 side.  **(Medium)**
+
+## Phase 11: CP/NET on bare CP/NOS — real NDOS/CCP (Apr 20, 2026)
+- **2026-04-20**: Ported SNIOS from rcbios-in-c into cpnos-rom, dropped BIOS_BASE
+  to 0xF200 to make room; SNDMSG/RCVMSG round-trip PASS.  **(Easy)** — SNIOS was
+  already hardware-independent above the BIOS layer.
+- **2026-04-20**: DRI .SPR page-relocator written in C — streams NDOS.SPR and
+  CCP.SPR from the server, walks the bitmap, installs at chosen RAM addresses.
+  **(Hard)** the 128-byte "ignored sector" at the head of the .SPR threw off
+  the relocator until the alignment bug was caught.
+- **2026-04-20**: CCP reaches PC inside NDOS entry — first sign the relocated
+  modules are cross-calling correctly.
+- **2026-04-20**: 8275 CRT + 8237 DMA bring-up in C; display refreshes from RAM.
+  **(Medium)** — CRT parameter values were transcribed from rcbios-in-c, DMA
+  autoinit-mode discovered experimentally.
+- **2026-04-21**: Zero-page convention switched from null-trap to real WBOOT
+  vector so NDOS's TLBIOS-walk patches the right BIOS JT.  **(Hard)** —
+  debugging NDOS's opaque post-handoff behaviour required memory dumps at
+  multiple instants to find where page 0 was getting scribbled.
+- **2026-04-21**: SIO-B captured to `/tmp/cpnos_siob.raw`; ^C warm-boot via
+  SIO-B injection works.
+- **2026-04-21**: Server gains full CP/NET BDOS surface: OPEN/READ/WRITE,
+  SEARCH FIRST/NEXT, MAKE, DELETE, RENAME, GET VERSION, plus R/O and SYS
+  attribute handling.  `$$.SUB` automation lets MAME execute scripted
+  CCP command sequences for regression tests.
+
+## Phase 12: DRI CP/NOS monolith build (Apr 21, 2026)
+- **2026-04-21**: `cpnos-build/` — a separate subdir that runs DRI's original
+  RMAC+LINK under VirtualCpm (Java) to assemble and link `cpnos.asm` +
+  `cpndos.asm` + `cpnios.asm` + `cpbdos.asm` + `cpbios.asm` into one
+  flat `cpnos.com` image.  **(Medium)** — most friction was in VirtualCpm
+  invocation, not the 8080 sources themselves.
+- **2026-04-21**: Link addresses relocked to `CODE=0xD000 / DATA=0xCC00`
+  so CP/NOS doesn't collide with our resident BIOS + display RAM above.
+- **2026-04-21**: `dri_split.py` + `dri2gnu.pl` bridge — one-instruction-per
+  -line reformatted DRI sources, then mechanical translation into GNU-as
+  Z80 syntax.  Enables double-assembly for byte-verification of CCP.SPR.
+- **2026-04-21**: First full boot: `cpnos.com` streams from server, NDOS
+  routes BDOS through SNIOS, CCP reaches `A>`.  **This was the first
+  end-to-end PASS.**
+
+## Phase 13: MP/M II retarget (Apr 22, 2026)
+- **2026-04-22**: Decision: replace the Python proxy server with a live
+  MP/M II running on the host under z80pack cpmsim.  Goal: prove the
+  stack works against a stock unmodified master.  Motivation: the Python
+  server risked drifting into a bespoke protocol the DRI slave wouldn't
+  accept on real MP/M.  **(Hard)** the decision itself — and documenting
+  which MP/M version + disk images to use.
+- **2026-04-22**: `netboot_mpm.c` replaces the legacy FMT=0xB0 custom
+  protocol with standard CP/NET 1.2 LOGIN (fn 64) + OPEN (fn 15) +
+  READ-SEQ (fn 20) + CLOSE (fn 16) against a virtual A:CPNOS.IMG.
+  **(Medium)** — the DRI functions were documented but MP/M's exact
+  response framing needed trial-and-error.
+- **2026-04-22**: `netboot_server.py` rewritten to implement the same
+  CP/NET 1.2 surface, so the slave can be tested without cpmsim running
+  — the two servers are now wire-compatible.
+- **2026-04-22**: SLAVEID normalized to 0x01 end-to-end (was 0x70 from
+  historical RC-in-house choice).  `Makefile: $(OBJS): Makefile` dep
+  added after a stale `cfgtbl.o` sent 0x70 on the wire despite flag
+  change — **(painful)** lesson in build-graph hygiene.
+- **2026-04-22**: BIOS_BASE moved 0xF200 → 0xED00 (RESIDENT grows 1.5 KB
+  → 2.75 KB).  Three follow-up bugs fell out: IVT at 0xF100 got copied
+  over by the resident memcpy (fixed by moving IVT to 0xEC00, issue #35
+  added a linker ASSERT); SNIOS JT constant in cpnios.s stale; impl_wboot/
+  impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
+  was silent at build time and only showed up as a mid-boot lockup.
+
+## Phase 14: RC702 retarget of DRI reference modules (Apr 22, 2026)
+- **2026-04-22**: Decision: the slave must NOT ship DRI's Altos-targeted
+  reference code.  The stock `cpbios.asm` bangs ports 0x1C/0x1D/0x1E/0x1F
+  (Altos console) and `cpnios.asm` bangs 0x3E/0x3F (Altos serial) — both
+  absent on RC702.  **(Easy, once it was seen.)**
+- **2026-04-22**: `cpnos-build/src/cpbios.asm` added — RC702 BIOS as a
+  trampoline into the cpnos-rom resident at 0xED00+.  17-entry JT matches
+  DRI's ABI exactly; CONOUT/CONIN/CONST/LIST shims translate CP/M's
+  C-register arg convention and A-register return into clang's sdcccall(1).
+- **2026-04-22**: Two RMAC syntax pitfalls surfaced during the cpbios
+  retarget.  **(Very hard — silent failures.)**  First, `jmp` is a reserved
+  mnemonic; `jmp_op equ 0c3h` assembled but resolved to zero, so the
+  zero-page `sta 0000h / sta 0005h` wrote NOPs and CP/M saw a broken
+  BDOS vector.  Second, RMAC truncates labels containing underscore, so
+  `const_shim` appeared in the sym table as `CONST` and JT entries
+  referencing the full name resolved to `JP 0x0000`.  Fixed by renaming
+  to short no-underscore labels (`jpopc`, `cshim`, `coshim`, …).
+- **2026-04-22**: `cpnos-build/src/cpnios-shim.asm` — 24-byte trampoline
+  from the DRI SNIOS JT slot (linked at NIOS=`0xD993` in the monolith)
+  into our resident SNIOS JT at `0xEA00`.  Filename carries `-shim`
+  suffix per user preference; Makefile maps `cpnios-shim.asm` →
+  `d/cpnios.asm` because the link needs the module name RMAC+LINK
+  expects (`NIOS:` label).  **(Easy)** now the pattern was established.
+- **2026-04-22**: Both trampolines in place; first end-to-end PASS on the
+  RC702-retargeted monolith: banner at row 2, `A>` at row 4, 38 CONOUT
+  calls (banner 22 + prompt 4 + NDOS addenda 12).  **This closes the
+  tripwire that had been blocking since the BIOS_BASE move.**
+
+## What was Hard vs Easy (through Phase 14)
+
+**Easy** (hours, straightforward):
+- Initial cpnos-rom skeleton + clang Z80 + lld linker script.
+- Porting SNIOS from rcbios-in-c (hardware-abstracted cleanly).
+- Adding breadcrumb counters + Lua snapshots for post-hoc analysis.
+- Local-override mechanism in cpnos-build/Makefile for shim modules.
+
+**Medium** (a session of focused debugging):
+- 8275 CRT + 8237 DMA bring-up.
+- DRI .SPR page-relocator (once the 128 B skip-sector was understood).
+- MP/M II CP/NET 1.2 wire protocol from DRI docs.
+
+**Hard** (multi-session, required instrumentation to root-cause):
+- PROM-disable hazard and its subtle interaction with resident-copy ordering.
+- NDOS's TLBIOS-walk of the zero-page BIOS vector.
+- BIOS_BASE move and the cascade of silent-until-runtime address drift.
+- RMAC's reserved-mnemonic + underscore-label mangling — both assemble
+  cleanly, both produce `JP 0x0000` at runtime, neither generates a warning.
+
+**Painful** (wasted time until caught):
+- Stale `.o` files after `-D` flag changes (SLAVEID=0x70 persisted despite
+  source edit) — fixed by `$(OBJS): Makefile` dep.
+- PROM1 install step missing from `cpnos-install` when `.resident` LMA
+  overflowed into PROM1 — silent, produced garbage at the JT LMA.
+- Chasing "baseline was flaky" for hours when really one PASS had been a
+  lucky single run on an otherwise broken baseline.
+
+## Format for ongoing entries
+
+Each new entry should record: date, phase, what changed, and a
+`**(Easy|Medium|Hard|Painful)**` difficulty marker with one-line reason.
+Aggregate into a "What was Hard vs Easy" summary at phase boundaries or
+when the project reaches a stated goal.
+
 ## Key Architectural Decisions
 
 | Decision | Rationale |
@@ -96,6 +240,14 @@
 | Python CP/NET server | Quick iteration, handles all BDOS functions over TCP |
 | verify_bios.py approach | Compares code bytes only, ignoring runtime-modified variables |
 | patch_bios.py | Direct IMD patching avoids SYSGEN round-trip |
+| cpnos-rom clang+lld | Z80 backend produces small, readable asm; same toolchain as autoload-in-c |
+| DRI RMAC+LINK for monolith | Keep cpnos.com binary-compatible with CP/NET 1.2 semantics rather than reinvent |
+| Local-override source dir | `cpnos-build/src/` overrides `cpnet-z80/dist/src/` on a per-file basis |
+| -shim suffix for DRI replacements | Makes "this is our RC702 trampoline, not DRI's reference code" explicit at file level |
+| Shim at 24 bytes (cpnios) | Smaller than re-implementing SNIOS on the CP/NOS side; resident owns wire logic |
+| Breadcrumbs stay until goal is green | Keeps post-hoc trace analysis cheap across sessions; remove only after reliable PASS |
+| Monolith addresses locked 0xD000/0xCC00 | Cpnos.com is non-relocatable; acceptable while we ship one slave hardware target |
+| Live MP/M over serial as the target | Avoids bespoke-protocol drift vs. goal of stock-MP/M compatibility |
 
 ## Key Tools Created
 
