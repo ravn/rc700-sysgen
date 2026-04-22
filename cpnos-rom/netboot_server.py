@@ -1,89 +1,45 @@
 #!/usr/bin/env python3
-"""Minimal DRI netboot server for cpnos-rom bring-up.
+"""CP/NET 1.2 server for cpnos-rom development — MP/M II compatible.
 
-Listens on a TCP port (MAME -bitb1 socket.HOST:PORT connects) and
-services a single boot exchange per connection:
+Drop-in replacement for z80pack cpmsim's mpm-net2 SERVER.RSP.  Speaks
+full DRI CP/NET 1.2 framing (ENQ/SOH/STX/ETX/EOT with ACKs) and
+implements the set of functions cpnos-rom + CP/NOS issues:
 
-  client -> 0xB0 DID=0 SID=slave FNC=0 SIZ=0 CKS     (boot request)
-  server <- 0xB1 DID=slave SID=0 FNC=1 <text>        (load text)
-  client -> 0xB0 ... FNC=0 (ack)
-  server <- 0xB1 ... FNC=2 <lo hi>                   (set DMA)
-  client -> ack
-  server <- 0xB1 ... FNC=3 <128 data bytes>          (load block)
-  client -> ack
-  server <- 0xB1 ... FNC=4 <lo hi>                   (execute entry)
+  64 LOGIN
+  15 OPEN  / 16 CLOSE / 22 MAKE FILE
+  17 SEARCH FIRST / 18 SEARCH NEXT
+  19 DELETE / 23 RENAME
+  20 READ-SEQ / 21 WRITE-SEQ / 33 READ-RAND / 34 WRITE-RAND
+  35 COMPUTE FILE SIZE
+  12 GET VERSION
 
-Sends a canned payload: one 128-byte block whose first byte is RET
-(0xC9), written at DMA=CCP_BASE, with execute-entry = CCP_BASE.  The
-client netboot returns CCP_BASE; cpnos_main CALLs it, RET comes
-straight back, and the fall-through path drops into resident_entry
-which paints "CPNOS" on the display.  The MAME test then also sees
-CCP_BASE == 0xC9 as evidence that FNC=3 landed data at the right VMA.
+Virtual file CPNOS.IMG on drive A: maps to cpnos-build/d/cpnos.com so
+cpnos-rom's new netboot_mpm.c loader (SERVER=mpm, the default) can
+bootstrap against this server exactly as against MP/M.
 
-Usage:  python3 netboot_server.py [PORT]   (default PORT=9000)
+Other served files come from the host file system via _FILE_ROOTS
+(cpnet-z80/dist + cpnos-rom/testutil), same as before.
+
+Usage:
+    python3 netboot_server.py [PORT]    (default 9000)
+    python3 netboot_server.py 4002      (pretend to be mpm-net2)
+
+The legacy FMT=0xB0 "raw byte" protocol (used by older cpnos-rom
+built with SERVER=proxy via the old netboot.c) has been removed.
+If you need it, check out a commit before session 32's rework.
 """
 
-import datetime
 import os
 import socket
-import struct
 import sys
 
 DEFAULT_PORT = 9000
-# CCP base address.  Moved from 0xDF80 to 0xDB80 in session #24.
-# Session #25 revisits the map with real NDOS.SPR (code_len=0x0C00=3KB):
-#   CCP  (2.5KB actual, ccp.spr code_len=0x0A00)  0xD900..0xE2FF
-#   NDOS (3KB)                                    0xE300..0xEEFF
-#   BIOS                                          0xF200..~0xF562
-# Page-aligned NDOS base required by SPR relocator (low byte must be 0).
-DMA = 0xDB80
-ENTRY = 0xDB80
 
 # CP/NOS composite image built by cpnos-build — single .com carrying
 # cpnos + cpndos + cpnios + cpbdos + cpbios, linked at data 0xCC00 /
-# code 0xD000.
+# code 0xD000.  Served to the client as A:CPNOS.IMG.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 CPNOS_COM = os.path.join(_HERE, 'cpnos-build', 'd', 'cpnos.com')
-CPNOS_BASE = 0xCC00     # where the .com's first byte lives in memory
-ENTRY_ADDR = 0xD000     # BOOT label (first byte of code segment)
-
-# Legacy single-module SPRs — kept for reference, not currently used.
-NDOS_SPR = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ndos.spr')
-CCP_SPR  = os.path.join(_HERE, '..', '..', 'cpnet-z80', 'dist', 'ccp.spr')
-NDOS_BASE = 0xDE00
-CCP_BASE  = 0xD000
-
-
-def checksum(msg):
-    return (-sum(msg)) & 0xFF
-
-
-def make_msg(fmt, did, sid, fnc, data=b''):
-    assert len(data) <= 255
-    hdr = bytes([fmt, did, sid, fnc, len(data)])
-    body = hdr + data
-    return body + bytes([checksum(body)])
-
-
-def recv_exact(c, n):
-    buf = b''
-    while len(buf) < n:
-        chunk = c.recv(n - len(buf))
-        if not chunk:
-            raise EOFError(f"client closed after {len(buf)}/{n} bytes")
-        buf += chunk
-    return buf
-
-
-def recv_msg(c):
-    hdr = recv_exact(c, 5)
-    siz = hdr[4]
-    tail = recv_exact(c, siz + 1)
-    msg = hdr + tail
-    sumv = sum(msg) & 0xFF
-    if sumv != 0:
-        print(f"  [warn] checksum fail: sum={sumv:02x} msg={msg.hex()}")
-    return msg
 
 
 def spr_relocate(spr_bytes, base_addr):
@@ -123,77 +79,14 @@ def spr_relocate(spr_bytes, base_addr):
     return bytes(code) + data
 
 
-def stream_payload(c, client_sid, dma_base, payload, label):
-    """Write `payload` to client RAM starting at `dma_base` using
-    FNC=2 (set DMA) once, then 128B FNC=3 blocks.  Client auto-advances
-    dma after each FNC=3."""
-    msg = make_msg(0xB1, client_sid, 0x00, 2,
-                   bytes([dma_base & 0xFF, dma_base >> 8]))
-    print(f"-> FNC=2 set DMA=0x{dma_base:04x} ({label}): {msg.hex()}")
-    c.sendall(msg)
-    ack = recv_msg(c)
-    print(f"<- ack: {ack.hex()}")
-
-    CHUNK = 128
-    n_blocks = (len(payload) + CHUNK - 1) // CHUNK
-    for i in range(n_blocks):
-        block = payload[i * CHUNK:(i + 1) * CHUNK]
-        if len(block) < CHUNK:
-            block = block + b'\x00' * (CHUNK - len(block))
-        msg = make_msg(0xB1, client_sid, 0x00, 3, block)
-        print(f"-> FNC=3 block {i+1}/{n_blocks} @ 0x{dma_base + i*CHUNK:04x}: "
-              f"{block[:8].hex()}...")
-        c.sendall(msg)
-        ack = recv_msg(c)
-
-
 def handle(c):
-    req = recv_msg(c)
-    print(f"<- request: {req.hex()}  "
-          f"FMT={req[0]:02x} DID={req[1]:02x} SID={req[2]:02x} "
-          f"FNC={req[3]:02x} SIZ={req[4]}")
-    if req[0] != 0xB0 or req[3] != 0:
-        print("  not a boot request, ignoring")
-        return
-    client_sid = req[2]
+    """Service one MAME connection via full CP/NET 1.2 framing.
 
-    # Multi-line banner the client prints via CONOUT — verifies the
-    # CR/LF + scroll path before CP/NOS ever gets handed control.
-    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    banner = (
-        b'\x0c'                               # Ctrl-L: clear screen, home cursor
-        b'\n cpnos-rom netboot - ' + now.encode('ascii') + b'\n'
-        b'\n Console via BIOS CONOUT:\n'
-        b'   - 8275 CRT (80x25, auto-init DMA)\n'
-        b'   - SIO-B null-modem (polled, 38400)\n'
-        b'\n Streaming cpnos.com -> 0xcc00\n\n'
-    )
-    # Fits in one FNC=1 frame because SIZ <= 255.
-    assert len(banner) <= 255, f"banner too long ({len(banner)} > 255)"
-    msg = make_msg(0xB1, client_sid, 0x00, 1, banner)
-    print(f"-> FNC=1 (load text, {len(banner)} B)")
-    c.sendall(msg)
-    ack = recv_msg(c)
-    print(f"<- ack: {ack.hex()}")
-
-    # Stream the monolithic CP/NOS image: one DMA set to 0xCC00
-    # followed by 34 FNC=3 blocks of cpnos.com (4292 bytes, rounded).
-    with open(CPNOS_COM, 'rb') as f:
-        image = f.read()
-    print(f"cpnos.com: {len(image)} B -> 0x{CPNOS_BASE:04x}..0x{CPNOS_BASE+len(image)-1:04x}")
-    stream_payload(c, client_sid, CPNOS_BASE, image, 'CPNOS')
-
-    # Execute at BOOT (cpnos stub at 0xD000).  cpnos.s is `jmp BIOS`;
-    # BIOS init sets up zero-page vectors, copies BIOS JT to
-    # NDOSRL+0x300, and hands off to NDOS cold-start.
-    msg = make_msg(0xB1, client_sid, 0x00, 4,
-                   bytes([ENTRY_ADDR & 0xFF, ENTRY_ADDR >> 8]))
-    print(f"-> FNC=4 (execute 0x{ENTRY_ADDR:04x}): {msg.hex()}")
-    c.sendall(msg)
-
-    # Post-boot: service SNIOS SNDMSG/RCVMSG exchanges from NDOS.
-    # Loop until the client closes or falls silent.
-    print("post-boot: serving SNIOS requests")
+    Every transaction — including the initial LOGIN and the
+    READ-SEQ loop that bootstraps CP/NOS — goes through the SNIOS
+    ENQ/SOH/STX/ETX/EOT wire layer.  No separate pre-boot phase.
+    """
+    print(f"client connected {c.getpeername()}")
     try:
         while True:
             hdr, data = snios_recv_sndmsg(c)
@@ -203,7 +96,7 @@ def handle(c):
                 continue
             snios_send_rcvmsg(c, reply_to=hdr, data=reply)
     except (socket.timeout, TimeoutError, EOFError) as e:
-        print(f"SNIOS session ended: {type(e).__name__}: {e}")
+        print(f"session ended: {type(e).__name__}: {e}")
 
 
 # ---- DRI SNIOS framing (master side) --------------------------------
@@ -328,6 +221,9 @@ def _build_file_map():
             ext  = ext.upper().ljust(3)[:3]
             m[f"{name}{ext}"] = full
     m.setdefault('CCP     SPR', os.path.join(_FILE_ROOTS[0], 'ccp.spr'))
+    # CPNOS.IMG -> cpnos-build/d/cpnos.com.  cpnos-rom's netboot_mpm.c
+    # fetches this over LOGIN+OPEN+READ-SEQ+CLOSE to bootstrap CP/NOS.
+    m.setdefault('CPNOS   IMG', CPNOS_COM)
     return m
 
 
@@ -520,6 +416,17 @@ def dispatch_sndmsg(hdr, data):
     fnc = hdr[3]
     name = BDOS_FNC.get(fnc, '?')
     print(f"  dispatch FNC={fnc:#04x} ({name})")
+
+    if fnc == 64:  # LOGIN
+        # data is the 8-byte password.  Stock MP/M II checks it against
+        # srvcfg.G$PWD; we accept anything.  Single-byte response = 0 (OK).
+        pwd = bytes(data[:8]) if len(data) >= 8 else bytes(data)
+        print(f"    LOGIN from SID={hdr[2]:#04x} pwd={pwd!r}")
+        return bytes([0x00])
+
+    if fnc == 65:  # LOGOFF
+        print(f"    LOGOFF SID={hdr[2]:#04x}")
+        return bytes([0x00])
 
     if fnc == 15:   # OPEN FILE
         # Reply layout (34 B, matches cpnet/server.py handle_open).
