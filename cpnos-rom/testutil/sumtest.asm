@@ -20,6 +20,7 @@ PRINTS  equ     9
 
         org     0100h
 
+start:  ; entry point referenced by END
         ; HL = sum(1..1000), fully unrolled.
         lxi     h, 0
         lxi     d, 1
@@ -2072,4 +2073,4 @@ pok:
 msg1:   db      'CPNET OK $'
 msg2:   db      0dh, 0ah, '$'
 
-        end
+END start

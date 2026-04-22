@@ -43,6 +43,7 @@ PRINTS  equ     9
 
         org     0100h
 
+start:  ; entry point referenced by END
         ; HL = sum(1..{N}), fully unrolled.
         lxi     h, 0
 """
@@ -102,7 +103,7 @@ pok:
 msg1:   db      'CPNET OK $'
 msg2:   db      0dh, 0ah, '$'
 
-        end
+END start
 """
 
 with open(OUT, 'w') as f:

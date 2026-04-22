@@ -257,7 +257,8 @@ cpnet-smoke: cpnos-install
 	    -nothrottle -window -skip_gameinfo \
 	    -seconds_to_run 240 \
 	    -rs232a null_modem -bitb1 socket.127.0.0.1:4002 \
-	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT)
+	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
+	    -autoboot_script mame_smoke_dump.lua
 	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
 	@echo "=== 5/5 verifying ==="
 	@echo --- injector log ---
@@ -265,6 +266,8 @@ cpnet-smoke: cpnos-install
 	@echo --- SIO-B tail ---
 	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw | tail -c 400 || true
 	@echo
+	@echo --- BDOS FNC counter snapshot ---
+	@tail -40 /tmp/cpnos_fnc_counters.txt 2>/dev/null || echo "(no counter file)"
 	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
 	    && echo "PASS: slave-assembled program printed CPNET OK A314" \
 	    || (echo "FAIL: expected 'CPNET OK A314' not found in /tmp/cpnos_siob.raw"; exit 1)

@@ -214,6 +214,26 @@ SNDMS0:
     ld   h, b
     ld   l, c
     ld   (MSGADR), hl
+    ; -- BDOS/CP-NET function trace (per-FNC saturating counter) --
+    ; Counter table at 0xEC80..0xECFF; FNC byte is at msgbuf+3.
+    push af
+    push hl
+    push bc
+    inc  hl
+    inc  hl
+    inc  hl                         ; HL = msgbuf+3 = FNC
+    ld   a, (hl)
+    and  0x7f                       ; clamp 0..127
+    ld   l, a
+    ld   h, 0xec
+    set  7, l                       ; HL = 0xEC80 | (FNC & 0x7F)
+    ld   a, (hl)
+    inc  a
+    jr   z, 1f                      ; saturate at 0xFF
+    ld   (hl), a
+1:  pop  bc
+    pop  hl
+    pop  af
     ; Ensure SID is correct
     ld   a, (_cfgtbl + CFG_SLAVEID)
     inc  bc
