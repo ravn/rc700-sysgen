@@ -161,6 +161,19 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 15: Remote drives for slave workload (Apr 22, 2026)
+- **2026-04-22**: `z80pack/cpmsim/mpm-net2` launcher now stages four disks:
+  A=mpm-net2-1 (boot + CPNOS.IMG), B=cpm22-1 (DRI/MS assemblers: ASM, MAC,
+  RMAC, M80, L80, LINK, Z80ASM, SLRNK, CREF80 + DDT/SID/STAT/PIP),
+  C=cpm22-2 (sources: BIOS.Z80, BOOT.Z80, SURVEY.MAC, W.ASM, CLS.MAC,
+  BYE.ASM, SPEED.C), D=mpm-net2-2 (MP/M system image kept around for
+  tinkering).  Goal: prove CP/NET remote file access with a real workload
+  (e.g. `B:MAC C:SURVEY.MAC`).  **(Easy)** — slave `cfgtbl.c` already
+  declared A/B/C/D as network-mapped to master drives of the same letter,
+  so no slave-side change was needed.
+- **Pending:** confirm MP/M `SERVER.RSP` exposes B: and C: to slave
+  SID=0x01; if not, reconfigure via GENSYS or direct edit.
+
 ## Phase 14: RC702 retarget of DRI reference modules (Apr 22, 2026)
 - **2026-04-22**: Decision: the slave must NOT ship DRI's Altos-targeted
   reference code.  The stock `cpbios.asm` bangs ports 0x1C/0x1D/0x1E/0x1F
