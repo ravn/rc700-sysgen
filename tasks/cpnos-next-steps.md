@@ -5,6 +5,94 @@ details live in `session24-cpnos-snios.md` and
 `session29-ccp-prompt.md`; this doc is the short "where are we and
 what's next" snapshot.
 
+## Session 33 (2026-04-22) — cpnos-rom ↔ MP/M II + server rework
+
+### Milestone BB reached
+
+End-to-end CP/NOS boot against **stock MP/M II** (no proxy):
+
+  RC702 (MAME, cpnos-rom PROMs)
+    -> netboot_mpm (LOGIN fn 64 + OPEN CPNOS.IMG + READ-SEQ loop
+                    + CLOSE, standard CP/NET 1.2)
+    -> jp 0xD000
+    -> CP/NOS NDOS pulls CCP.SPR over CP/NET as usual
+    -> `RC702 CP/NOS v1.2  A>`  prompt
+
+Then user typed `dir` interactively — DIR listing served by MP/M.
+Interchangeable: the same cpnos-rom PROMs boot identically against
+the reworked `netboot_server.py` (now MP/M-wire-compatible).
+
+### What shipped
+
+| Piece | Where | Notes |
+|-------|-------|-------|
+| `netboot_mpm.c` | `cpnos-rom/` (PROM1, 179 B of code) | LOGIN+OPEN+READ+CLOSE over full SNIOS framing |
+| `-DNETBOOT_LEGACY` vs default | `cpnos-rom/Makefile` | `SERVER=mpm` default; `SERVER=proxy` keeps legacy 0xB0 via `netboot.c` |
+| `-DRC702_SLAVEID=0x01` | `cpnos-rom/Makefile` | was 0x70; matches z80pack convention |
+| `$(OBJS): Makefile` | `cpnos-rom/Makefile` | force rebuild on flag change — prevents stale cfgtbl.o |
+| `CPNOS   IMG` virtual file | `cpnos-rom/netboot_server.py` _build_file_map | maps to cpnos-build/d/cpnos.com |
+| Full CP/NET 1.2 wire | `cpnos-rom/netboot_server.py` | -195 lines; old 0xB0 / raw-byte protocol removed |
+| LOGIN (fn 64) + LOGOFF (fn 65) | `cpnos-rom/netboot_server.py` dispatch_sndmsg | accepts any password |
+| mpm-net2 launcher `cp` vs `ln` | `z80pack/cpmsim/mpm-net2` (submodule) | CCP deletes $$$.SUB per boot; cp keeps library pristine |
+| CPNOS.IMG + CCP.SPR + NDOS.SPR | `z80pack/cpmsim/disks/library/mpm-net2-1.dsk` (submodule) | stock DRI files on MP/M A: |
+| Provenance of mpm-net-1.2.tgz | `cpnet/Z80PACK_MPMNET.md` + tasks | cpmarchives.classiccmp.org mirror, 2008 |
+
+### Open issues (session 33)
+
+#### Issue W — smoke-plan tests not re-verified against new protocol stack
+
+`cpnos-netboot`, `cpnos-warmboot-test`, `cpnos-sub-test`,
+`cpnos-interactive` targets in `cpnos-rom/Makefile` were written
+against the legacy SERVER=proxy (0xB0) protocol.  With the default
+now SERVER=mpm, these may or may not work — not re-tested.
+Retest + adjust as needed (expect trivial fixes: they just invoke
+the server and MAME; both speak the new wire already).
+
+#### Issue X — login password hardcoded
+
+`netboot_mpm.c:53` defaults `RC702_LOGIN_PWD` to `"PASSWORD"` to
+match z80pack's default `G$PWD`.  Override with
+`-DRC702_LOGIN_PWD='"OTHER   "'` at build time.  For production use
+a DIP-switch-driven / CFGTBL slot would be better; out of scope.
+
+#### Issue Y — _seed_sub_file SID default stale
+
+`netboot_server.py:235`: `_seed_sub_file(slave_id=0x70, ...)`.
+Default should now be 0x01.  Only affects the $NN.SUB auto-submit
+path, which cpnos-rom doesn't exercise by default — low-priority
+cleanup.
+
+#### Issue Z — `netboot.c` (legacy 0xB0) not deleted
+
+Kept in-tree for `SERVER=proxy` builds, but `netboot_server.py`
+no longer speaks that protocol.  So the only way to exercise
+`netboot.c` is to git-revert `netboot_server.py`.  Decision:
+keep as reference, or delete and simplify the Makefile to drop
+the `SERVER=` switch.  No external user relies on either.
+
+#### Issue AA — z80pack netwrkif CONIN bug not fixed
+
+`z80pack/cpmsim/srcmpm/netwrkif-*.asm` still has the CONIN address
+calculation bug documented in `cpnet/MPMNET_ANALYSIS.md`.  Our
+setup sidesteps it via the 2007 prebuilt tarball disks.  Would need
+the fix + MAC+LINK+GENSYS+PUTSYS rebuild to produce fresh disks
+from sources.
+
+#### Issue BB — PCB530 real-hardware path blocked by 4 KB PROMs
+
+`netboot_mpm.c` lives in PROM1.  Real PCB530 hardware has only 2 KB
+PROMs per the user.  Need either to squeeze the loader into PROM0
+headroom (currently ~2 B free — not happening) or accept MAME-only
+for now.  Deferred pending HW validation interest.
+
+### What's usable right now
+
+- `python3 netboot_server.py 4002` → full CP/NOS boot + interactive A>.
+- `z80pack/cpmsim/mpm-net2` → full CP/NOS boot + interactive 0A> on
+  MP/M itself (observed SID 0x01 throughout after session 33 fixes).
+- Both consume the same cpnos-rom PROMs; flip between them by
+  starting the other server.
+
 ## Session 32 (2026-04-21 → 2026-04-22) — RC702 ↔ MP/M II GREEN
 
 ### Milestone AA reached — end-to-end LOGIN + remote file ops PASS
