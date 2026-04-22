@@ -161,6 +161,26 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 17 summary (wrap-up)
+- **Goal reached 2026-04-22**: "CP/NOS on a physical RC702 against a
+  live MP/M II over serial" validated in emulation — cpnet-smoke PASS
+  with stock MP/M (z80pack mpm-net2) serving a slave that assembles a
+  1000-iter unrolled program via M80 + L80, executes it, and prints
+  the correct checksum.  Eight commits this session; closed #40 and
+  #41; filed #43/#44/#45 for polish work.
+- **Lessons crystallized**:
+  - When the network clearly delivers correct bytes (TYPE works,
+    buffer dumps match disk), stop theorizing transport bugs and
+    look at *interpretation* differences (CRLF, segments, ABI).
+  - BDOS return codes are *function-specific*: OPEN (fn 15) returns
+    0..3 on success, 0xFF on fail — don't apply the generic
+    "0 ok / non-zero error" heuristic.
+  - A Lua tap on 0x0005 with per-call DMA-buffer dump is the single
+    most valuable diagnostic we have for slave-side BDOS behavior.
+    Kept as permanent infrastructure in mame_smoke_dump.lua.
+  - Any text file destined for a CP/M disk image needs CR+LF.  Saved
+    as a standing memory rule.
+
 ## Phase 17: cpnet-smoke harness + "DIR was a Python false positive" (Apr 22, 2026)
 - **2026-04-22**: User asked for a non-trivial regression test that
   exercises the OS end-to-end by having the on-master assembler (M80)
