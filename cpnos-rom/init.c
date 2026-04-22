@@ -40,21 +40,66 @@ extern uint8_t _ivt_start[];
 #define IVT_ENTRIES  18
 #define IVT_PIO_A    16
 
-static const uint8_t sio_a_init[] = {
-    0x18,           /* WR0: channel reset */
-    0x04, 0x44,     /* WR4: x16 clock, 1 stop, no parity */
-    0x03, 0xE1,     /* WR3: 8-bit Rx, auto enables, Rx enable */
-    0x05, 0x6A,     /* WR5: 8-bit Tx, Tx enable, RTS asserted */
-    0x01, 0x00      /* WR1: no interrupts (polled) */
-};
+/* Unified port-init table.  Each pair (port, value) is written in
+ * order with OUT (C),A.  Centralises ~30 scattered port writes into
+ * one table + one loop — smaller than inline port_out calls. */
+static const uint8_t port_init[] = {
+    /* CTC ch0: vector=0, SIO-A baud timer. */
+    PORT_CTC0, 0x00,   PORT_CTC0, 0x47,   PORT_CTC0, 0x01,
+    /* CTC ch1: SIO-B baud timer. */
+    PORT_CTC1, 0x47,   PORT_CTC1, 0x01,
+    /* CTC ch2: CRT VRTC counter, IRQ armed. */
+    PORT_CTC2, 0xD7,   PORT_CTC2, 0x01,
 
-static const uint8_t sio_b_init[] = {
-    0x18,           /* WR0: channel reset */
-    0x02, 0x10,     /* WR2: interrupt vector base 0x10 */
-    0x04, 0x44,     /* WR4: x16 clock, 1 stop, no parity */
-    0x03, 0xE1,     /* WR3: 8-bit Rx, auto enables, Rx enable */
-    0x05, 0x6A,     /* WR5: 8-bit Tx, Tx enable, RTS asserted */
-    0x01, 0x00      /* WR1: no interrupts (polled) */
+    /* SIO-A: WR0 reset, WR4 x16/1-stop/no-parity, WR3 Rx-enable,
+     * WR5 Tx-enable/RTS, WR1 no-interrupts (polled). */
+    PORT_SIO_A_CTRL, 0x18,
+    PORT_SIO_A_CTRL, 0x04, PORT_SIO_A_CTRL, 0x44,
+    PORT_SIO_A_CTRL, 0x03, PORT_SIO_A_CTRL, 0xE1,
+    PORT_SIO_A_CTRL, 0x05, PORT_SIO_A_CTRL, 0x6A,
+    PORT_SIO_A_CTRL, 0x01, PORT_SIO_A_CTRL, 0x00,
+
+    /* SIO-B: same + WR2=0x10 (interrupt vector base). */
+    PORT_SIO_B_CTRL, 0x18,
+    PORT_SIO_B_CTRL, 0x02, PORT_SIO_B_CTRL, 0x10,
+    PORT_SIO_B_CTRL, 0x04, PORT_SIO_B_CTRL, 0x44,
+    PORT_SIO_B_CTRL, 0x03, PORT_SIO_B_CTRL, 0xE1,
+    PORT_SIO_B_CTRL, 0x05, PORT_SIO_B_CTRL, 0x6A,
+    PORT_SIO_B_CTRL, 0x01, PORT_SIO_B_CTRL, 0x00,
+
+    /* PIO-A (keyboard): vector=0x20, mode 1 input + ICW, EI. */
+    PORT_PIO_A_CTRL, 0x20,
+    PORT_PIO_A_CTRL, 0x4F,
+    PORT_PIO_A_CTRL, 0x83,
+
+    /* 8237 DMA: master clear, ch2+ch3 single-mode mem->IO autoinit. */
+    PORT_DMA_CMD,  0x20,
+    PORT_DMA_MODE, 0x58 | 2,
+    PORT_DMA_MODE, 0x58 | 3,
+    /* Clear byte-pointer FF, ch2 base/wc for display. */
+    PORT_DMA_CLBP,      0,
+    PORT_DMA_CH2_ADDR,  DISPLAY_ADDR & 0xFF,
+    PORT_DMA_CH2_ADDR,  DISPLAY_ADDR >> 8,
+    PORT_DMA_CH2_WC,    (DISPLAY_SIZE - 1) & 0xFF,
+    PORT_DMA_CH2_WC,    (DISPLAY_SIZE - 1) >> 8,
+    PORT_DMA_CH3_WC,    0,
+    PORT_DMA_CH3_WC,    0,
+    /* Unmask ch2 and ch3. */
+    PORT_DMA_SMSK,      0x02,
+    PORT_DMA_SMSK,      0x03,
+
+    /* 8275 CRT: reset + geometry + start. 80x25, 7 scan lines/row,
+     * CM=01 blink underline — matches rcbios/MAME expectation. */
+    PORT_CRT_CMD,   0x00,
+    PORT_CRT_PARAM, 0x4F,
+    PORT_CRT_PARAM, 0x98,
+    PORT_CRT_PARAM, 0x7A,
+    PORT_CRT_PARAM, 0x6D,
+    PORT_CRT_CMD,   0x80,
+    PORT_CRT_PARAM, 0,
+    PORT_CRT_PARAM, 0,
+    PORT_CRT_CMD,   0xE0,
+    PORT_CRT_CMD,   0x23,
 };
 
 static void setup_ivt(void) {
@@ -70,131 +115,26 @@ static void setup_ivt(void) {
     enable_im2();
 }
 
-/* PIO-A keyboard: input mode with interrupt on any byte written by the
- * external agent (native keyboard MCU on real HW, MAME's generic keyboard
- * in emulation).  Control word sequence matches rcbios-in-c/bios_hw_init
- * so MAME's rc702 driver sees the same pattern it already handles.
- *
- *   0x20 — interrupt vector (slot 16 in our IVT = 0xF100+0x20)
- *   0x4F — mode 1 (input) + ICW-follows bit (M1=01, ICW=1)
- *   0x83 — enable interrupts (EI=1, ICW selector)
- *
- * Interrupts stay globally DI until resident_entry does EI, so the ISR
- * won't fire mid-init. */
-static void init_pio_kbd(void) {
-    _port_out(PORT_PIO_A_CTRL, 0x20);
-    _port_out(PORT_PIO_A_CTRL, 0x4F);
-    _port_out(PORT_PIO_A_CTRL, 0x83);
-}
+void init_hardware(void) {
+    /* IVT + IM2 first so any stray interrupt lands on isr_noop rather
+     * than the reset vector.  Interrupts stay disabled; resident_entry
+     * does EI after PROM disable. */
+    setup_ivt();
 
-static void init_display(void) {
-    /* 8237 DMA: master clear, then set ch2 + ch3 to auto-initialize
-     * single-mode mem->IO (bit 4 set = autoinit so each terminal count
-     * auto-reloads the programmed address + word count).  This lets
-     * the 8275 refresh continuously without an ISR reprogramming DMA
-     * every VRTC. */
-    _port_out(PORT_DMA_CMD, 0x20);
-    _port_out(PORT_DMA_MODE, 0x58 | 2);   /* ch2: display data */
-    _port_out(PORT_DMA_MODE, 0x58 | 3);   /* ch3: attributes */
+    /* Apply the unified port-init table — CTC, SIO-A/B, PIO-A, DMA,
+     * 8275.  All interrupts are still globally DI. */
+    for (uint8_t i = 0; i < sizeof(port_init); i += 2) {
+        _port_out(port_init[i], port_init[i + 1]);
+    }
 
-    /* Clear byte-pointer FF and program ch2 base/wc for the display. */
-    _port_out(PORT_DMA_CLBP, 0);
-    _port_out(PORT_DMA_CH2_ADDR, DISPLAY_ADDR & 0xFF);
-    _port_out(PORT_DMA_CH2_ADDR, DISPLAY_ADDR >> 8);
-    _port_out(PORT_DMA_CH2_WC,   (DISPLAY_SIZE - 1) & 0xFF);
-    _port_out(PORT_DMA_CH2_WC,   (DISPLAY_SIZE - 1) >> 8);
-    /* Attribute ch3: WC=0, address unused (no attr bytes). */
-    _port_out(PORT_DMA_CH3_WC,   0);
-    _port_out(PORT_DMA_CH3_WC,   0);
-
-    /* Unmask ch2 and ch3 so the 8275 can pull bytes each VRTC. */
-    _port_out(PORT_DMA_SMSK, 0x02);   /* mask clear ch2 */
-    _port_out(PORT_DMA_SMSK, 0x03);   /* mask clear ch3 */
+    /* Drain any stray RX on the SIOs (RRs can latch error bits from
+     * reset that block subsequent transmits until cleared by read). */
+    (void)_port_in(PORT_SIO_A_CTRL);
+    (void)_port_in(PORT_SIO_B_CTRL);
 
     /* Clear display with spaces so subsequent CONOUT output is
      * readable against a blank background. */
     for (uint16_t i = 0; i < DISPLAY_SIZE; ++i) {
         ((volatile uint8_t *)DISPLAY_ADDR)[i] = ' ';
     }
-
-    /* 8275 CRT: reset + geometry + start.  Constants from
-     * rcbios-in-c/boot_confi.c (80x25, 7 scan lines/row). */
-    _port_out(PORT_CRT_CMD,   0x00);
-    _port_out(PORT_CRT_PARAM, 0x4F);
-    _port_out(PORT_CRT_PARAM, 0x98);
-    _port_out(PORT_CRT_PARAM, 0x7A);
-    _port_out(PORT_CRT_PARAM, 0x6D);   /* CM=01 blink underline,
-                                        * 7 lines/row — same as rcbios,
-                                        * which is what MAME actually
-                                        * animates as a visible blink. */
-    _port_out(PORT_CRT_CMD,   0x80);
-    _port_out(PORT_CRT_PARAM, 0);
-    _port_out(PORT_CRT_PARAM, 0);
-    _port_out(PORT_CRT_CMD,   0xE0);
-    _port_out(PORT_CRT_CMD,   0x23);
-}
-
-/* Fill a RAM range with JR $ (18 FE, self-loop) so any stray PC that
- * lands here gets trapped in a tight 2-byte loop instead of walking
- * byte-by-byte through zero-initialised NOPs for thousands of cycles.
- * At odd offsets the CPU sees FE 18 = CP 0x18 and advances one pair,
- * then hits the next 18 FE and loops — still a stop, just one step
- * off the original PC. */
-static void fill_trap(uint16_t start, uint16_t end) {
-    volatile uint8_t *p = (volatile uint8_t *)(uintptr_t)start;
-    volatile uint8_t *q = (volatile uint8_t *)(uintptr_t)end;
-    while (p < q) {
-        *p++ = 0x18;
-        *p++ = 0xFE;
-    }
-}
-
-void init_hardware(void) {
-    /* Pre-fill the memory regions that could otherwise hold stray
-     * 0x00 NOPs.  We trap everything outside of:
-     *   - PROM windows 0x0000..0x07FF and 0x2000..0x27FF (PROM-mapped
-     *     until OUT (0x18); can't write there yet)
-     *   - scratch BSS 0xEC00..0xED1F (netboot msgbuf etc.)
-     *   - resident VMA 0xF200..0xF7FF
-     *   - IVT 0xF100..0xF123, cursor+stack 0xF200 down
-     *   - display RAM 0xF800.. (gets overwritten by init_display)
-     * TPA 0x0100..0xCFFF, unused-between-PROMs 0x0800..0x1FFF and
-     * 0x2800..0xCFFF, NDOS-BSS tail 0xEA00..0xEBFF — all get the
-     * trap pattern.  CCP/NDOS streaming overwrites 0xD000..0xE9FF
-     * later; filling here would just get overwritten, so skip it. */
-    /* Session 33 follow-up: fill_trap removed — it was diagnostic scaffolding
-     * for the ISR stack problem that's since been resolved.  The old ranges
-     * also reflected the pre-session-33 memory map (BIOS_BASE=0xF200) which
-     * no longer matches; leaving stale ranges here would clobber .resident
-     * and BSS.  If we need to re-trap, parameterise via linker symbols. */
-
-    /* IVT + IM2 first so any stray interrupt lands on isr_noop rather
-     * than the reset vector.  Interrupts stay disabled; resident_entry
-     * does EI after PROM disable. */
-    setup_ivt();
-
-    /* CTC ch0 vector = 0x00 (applies to ch0..ch3: slots 0..3).
-     * ch0/ch1: SIO baud timers.  ch2: CRT refresh (VRTC counter, IRQ
-     * armed).  ch3: unused. */
-    _port_out(PORT_CTC0, 0x00);
-    _port_out(PORT_CTC0, 0x47);
-    _port_out(PORT_CTC0, 0x01);
-    _port_out(PORT_CTC1, 0x47);
-    _port_out(PORT_CTC1, 0x01);
-    _port_out(PORT_CTC2, 0xD7);
-    _port_out(PORT_CTC2, 0x01);
-
-    for (uint8_t i = 0; i < sizeof(sio_a_init); ++i) {
-        _port_out(PORT_SIO_A_CTRL, sio_a_init[i]);
-    }
-    for (uint8_t i = 0; i < sizeof(sio_b_init); ++i) {
-        _port_out(PORT_SIO_B_CTRL, sio_b_init[i]);
-    }
-
-    (void)_port_in(PORT_SIO_A_CTRL);
-    (void)_port_in(PORT_SIO_B_CTRL);
-
-    init_pio_kbd();
-
-    init_display();
 }
