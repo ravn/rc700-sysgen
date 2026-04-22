@@ -161,6 +161,37 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 17: cpnet-smoke harness + "DIR was a Python false positive" (Apr 22, 2026)
+- **2026-04-22**: User asked for a non-trivial regression test that
+  exercises the OS end-to-end by having the on-master assembler (M80)
+  compile a computed program on the slave's behalf.  Scaffolded
+  `testutil/sumtest.asm` (fully unrolled sum-of-1..1000 = 0xA314),
+  `mksmokeasm.py`, `mksmokedisk.sh`, `smoke_inject.py` (prompt-aware
+  SIO-B sequencer with per-char pacing), and `Makefile: cpnet-smoke`.
+  Per user direction: pass oracle = what the program prints,
+  not byte-exactness of artifacts — any CP/NET read/write corruption
+  makes the assembler emit a wrong COM → program prints wrong
+  string → test fails.  **(Medium)** — several orchestration gotchas
+  (RMAC label mangling was old; new ones: M80 source extension,
+  SIO-B FIFO overrun from burst-inject).
+- **2026-04-22**: **Fourth fragility class discovered.**  Multiple
+  recent "A>" successes — including today's DIR test against what we
+  thought was MP/M — were actually served by a stray
+  `python3 netboot_server.py` still listening on :4002 from an
+  earlier manual test.  MAME's bitbanger bound to it instead of
+  cpmsim-hosted MP/M; Python's mock CP/NET responses looked plausible
+  enough to fool the test harness.  Killing the zombie Python exposed
+  that real MP/M gets past LOGIN (NB_step=0x03) but OPEN returns
+  rc=0x02.  **(Painful)** — had to backtrack days of work because
+  the oracle was wrong.  Filed #42 for test-hygiene guard.
+- **2026-04-22**: Related finding: `cpnos.com` on stock
+  `mpm-net2-1.dsk` (4292 B) targets z80pack's generic slave, not our
+  RC702 BIOS/SNIOS layout.  Even with MP/M serving correctly, the
+  fetched image would drive wrong I/O.  `mksmokedisk.sh` now
+  overwrites CPNOS.IMG with our `cpnos-build/d/cpnos.com`.
+- **Remaining:** #40 — real-MP/M OPEN rc=0x02 after LOGIN.  Harness
+  (#41) blocked on this.
+
 ## Phase 16: First end-to-end DIR against live MP/M (Apr 22, 2026)
 - **2026-04-22**: CONST/CONIN echoed `F G H I` (0x46..0x49) for input
   `d i r \r`.  Diagnosis via a 4-slot CONIN input ring at 0xEC46+:
@@ -243,6 +274,13 @@
   cleanly, both produce `JP 0x0000` at runtime, neither generates a warning.
 
 **Painful** (wasted time until caught):
+- **Stray Python server on :4002 fooling the oracle** — hours of
+  "real MP/M" tests were actually Python.  Kill-before-test guard
+  filed as #42.
+- **Stock CPNOS.IMG on MP/M disk was z80pack-generic, not our RC702
+  build** — even when MP/M was in the loop, the fetched image would
+  have driven wrong I/O ports.  `mksmokedisk.sh` now overwrites it.
+
 - Stale `.o` files after `-D` flag changes (SLAVEID=0x70 persisted despite
   source edit) — fixed by `$(OBJS): Makefile` dep.
 - PROM1 install step missing from `cpnos-install` when `.resident` LMA
