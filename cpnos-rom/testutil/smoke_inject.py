@@ -24,11 +24,15 @@ STEPS = [
     # (expected-prompt-tail, bytes-to-send-once-matched)
     # MP/M's CP/NET server only exposes its drive A: to the slave, so
     # everything runs out of slave A: (same physical disk as M80/L80).
-    # M80 syntax: OUTFILE,LISTFILE=SRCFILE.EXT ; '=' separates outputs
-    # from inputs, comma separates output files, '/N/E' tells L80 no-init/
-    # exit-on-link-done so the final COM ends up on disk and we return
-    # to the A> prompt.
+    # First TYPE the file to verify CP/NET READ returns the expected
+    # bytes — if TYPE shows garbage, the bug is in the read chain
+    # before M80 ever sees it.
+    (b'A>', b'type sumtest.asm\r'),
+    (b'A>', b'type tiny.asm\r'),
+    (b'A>', b'm80 tiny,=tiny.asm\r'),
+    (b'A>', b'dir tiny.*\r'),
     (b'A>', b'm80 sumtest,=sumtest.asm\r'),
+    (b'A>', b'dir sumtest.*\r'),
     (b'A>', b'l80 sumtest,sumtest/n/e\r'),
     (b'A>', b'sumtest\r'),
 ]
@@ -77,7 +81,7 @@ def main():
         if len(buf) > 4096:
             del buf[:-4096]
 
-        if FINISH_MARKER in buf and not saw_marker:
+        if step_idx >= len(STEPS) and FINISH_MARKER in buf and not saw_marker:
             saw_marker = True
             print('[marker] CPNET OK found', flush=True)
             # Keep a small tail so we capture the 4-digit result.

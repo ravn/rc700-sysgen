@@ -12,7 +12,7 @@ COM image itself, only on what the program computes and emits.
 """
 import os
 
-N = 1000                        # sum(1..N); adjust to change target
+N = 5                           # sum(1..N); adjust to change target
 # Sum exceeds 16 bits for N >= 362.  HL wraps mod 2^16 via DAD, which
 # is what we check against.  For N=1000, sum = 500500, HL = 500500 &
 # 0xFFFF = 0xA314.
@@ -103,7 +103,7 @@ pok:
 msg1:   db      'CPNET OK $'
 msg2:   db      0dh, 0ah, '$'
 
-        end     start
+        END
 """
 
 with open(OUT, 'w') as f:

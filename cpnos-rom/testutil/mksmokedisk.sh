@@ -43,6 +43,13 @@ done
 cpmrm -f ibm-3740 "$OUT_DISK" 0:SUMTEST.ASM 2>/dev/null || true
 cpmcp -f ibm-3740 "$OUT_DISK" "$HERE/sumtest.asm" 0:SUMTEST.ASM
 
+# Also stage a minimal tiny.asm for M80 diagnostic — smallest possible
+# valid M80 source.  If M80 fails even on this, the bug isn't in our
+# generated sumtest.asm at all.
+cpmrm -f ibm-3740 "$OUT_DISK" 0:TINY.ASM 2>/dev/null || true
+printf '\tORG\t100H\n\tRET\n\tEND\n' > /tmp/_tiny.asm
+cpmcp -f ibm-3740 "$OUT_DISK" /tmp/_tiny.asm 0:TINY.ASM
+
 # mpm-net2-1.dsk ships RMAC/M80/LINK/LOAD but no L80.  Our smoke script
 # uses Microsoft's M80+L80 pair, so pull L80.COM off cpm22-1.dsk.
 CPM22_DISK="$LIB/cpm22-1.dsk"
