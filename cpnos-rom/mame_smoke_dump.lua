@@ -9,6 +9,41 @@ local f = io.open("/tmp/cpnos_fnc_counters.txt", "w")
 f:write("tick   (per-FNC delta since last snapshot; '*' = saturated)\n")
 f:close()
 
+-- Tap every CPU fetch of 0x0005 (CP/M BDOS entry).  On hit, log
+-- C register (BDOS FN code) and DE (param).  Gives us the FULL
+-- BDOS call stream including local-only fns like SET_DMA (26) and
+-- PRINT_STRING (9) that our SNIOS counter misses.
+local bdos_log = io.open("/tmp/cpnos_bdos_trace.txt", "w")
+bdos_log:write("pc=0005 tap: fn de pc_caller\n")
+bdos_log:close()
+
+bdos_tap = nil
+bdos_tap_installed = false
+
+emu.register_periodic(function()
+    if bdos_tap_installed then return end
+    local cpu3 = manager.machine.devices[":maincpu"]
+    if cpu3 == nil then return end
+    local space = cpu3.spaces["program"]
+    if space == nil then return end
+    bdos_tap = space:install_read_tap(
+        0x0005, 0x0005, "bdos_entry",
+        function(offset, data)
+            local st = cpu3.state
+            local c = st["C"].value
+            local de = st["DE"].value
+            local sp = st["SP"].value
+            local caller_lo = space:read_u8(sp)
+            local caller_hi = space:read_u8(sp + 1)
+            local caller = caller_hi * 256 + caller_lo - 3
+            local bl = io.open("/tmp/cpnos_bdos_trace.txt", "a")
+            bl:write(string.format("fn=%3d DE=0x%04x caller=0x%04x\n",
+                                    c, de, caller))
+            bl:close()
+        end)
+    bdos_tap_installed = true
+end)
+
 local last_snapshot_tick = 0
 local prev = {}
 local prev_rs16 = 0
