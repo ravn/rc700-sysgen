@@ -112,8 +112,11 @@ uint16_t netboot_mpm(void) {
     /* Arm SNIOS.  Drains SIO RX and flips CFGTBL.NETST.ACTIVE. */
     if (snios_ntwkin() != 0) return 0;
 
-    /* --- LOGIN ----------------------------------------------------- */
-    __builtin_memcpy(&msg[DAT], RC702_LOGIN_PWD, 8);
+    /* --- LOGIN -----------------------------------------------------
+     * Plain byte loop; clang unrolls an 8-byte __builtin_memcpy as 4×
+     * 16-bit immediate stores (~40 B).  A byte loop against the runtime
+     * stub is far smaller. */
+    for (uint8_t i = 0; i < 8; ++i) msg[DAT + i] = RC702_LOGIN_PWD[i];
     if (cpnet_xact(64, 7) != 0) return 0;
 
     /* --- OPEN A:CPNOS.IMG ----------------------------------------- */
