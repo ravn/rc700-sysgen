@@ -64,10 +64,23 @@ else
 $(error SERVER must be 'mpm' or 'proxy')
 endif
 
-OBJS = clang/reset.o clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
-       clang/resident.o clang/cfgtbl.o clang/init.o clang/transport_sio.o \
-       $(NETBOOT_OBJ) clang/snios.o clang/isr.o
-LDSCRIPT = cpnos_rom.ld
+# ---- Payload (linked at 0xED00, no PROM knowledge) ----------------
+# The payload is the single contiguous blob of everything that runs
+# at runtime.  The payload linker doesn't know about the two EPROMs;
+# a separate relocator stitches it back together at cold boot.
+PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
+               clang/resident.o clang/cfgtbl.o clang/init.o \
+               clang/transport_sio.o $(NETBOOT_OBJ) \
+               clang/snios.o clang/isr.o
+PAYLOAD_LD = payload.ld
+
+# ---- Relocator (PROM0 reset + #embed'd payload halves) -----------
+# Tiny: reset.s for stack setup, relocator.c with two #embed arrays.
+# Linked with PROM knowledge so the chunks land in physical ROM.
+RELOC_OBJS = clang/reset.o clang/relocator.o
+RELOC_LD = relocator.ld
+
+ALL_OBJS = $(PAYLOAD_OBJS) $(RELOC_OBJS)
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
 
@@ -76,10 +89,7 @@ all: cpnos
 cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
 # Flag changes (e.g. -DRC702_SLAVEID=) must invalidate all objects.
-# Without this, a stale cfgtbl.o kept SLAVEID=0x70 in the image even
-# after the Makefile was edited to 0x01, causing wire-protocol SID
-# mismatches that are painful to diagnose.
-$(OBJS): Makefile
+$(ALL_OBJS): Makefile
 
 # ---- Compile ------------------------------------------------------
 
@@ -131,24 +141,45 @@ clang/netboot_mpm.o: netboot_mpm.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# ---- Link ---------------------------------------------------------
+# Relocator #embed's payload_a.bin/payload_b.bin — depend on them so
+# a payload change retriggers the relocator compile.
+clang/relocator.o: relocator.c clang/payload_a.bin clang/payload_b.bin
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/cpnos.elf: $(OBJS) $(LDSCRIPT)
-	$(LD) --gc-sections --emit-relocs -T $(LDSCRIPT) $(OBJS) -o $@
+# ---- Link payload (no PROM awareness) ----------------------------
 
-# The linker puts PROM0 at 0x0000 (2KB) and PROM1 at 0x2000 (2KB) with a
-# 6KB hole between them.  objcopy -O binary produces a 10KB file with
-# 6KB of zero fill between the two regions; we carve out each 2KB half,
-# pad empty halves with 0xFF, and concatenate for verification.
-clang/cpnos.bin: clang/cpnos.elf
+clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
+	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) $(PAYLOAD_OBJS) -o $@
+
+clang/payload.bin: clang/payload.elf
+	$(OBJCOPY) -O binary $< $@
+
+# Split payload into the two chunks the relocator #embed's.  Split
+# point matches relocator.ld's .prom0_tail base (0x80): 1920 bytes
+# fit in PROM0 after the relocator.
+PROM0_TAIL_SIZE = 1920
+clang/payload_a.bin clang/payload_b.bin: clang/payload.bin
+	dd if=$< of=clang/payload_a.bin bs=1 count=$(PROM0_TAIL_SIZE) status=none
+	dd if=$< of=clang/payload_b.bin bs=1 skip=$(PROM0_TAIL_SIZE) status=none
+
+# ---- Link relocator ----------------------------------------------
+# --defsym injects _cpnos_cold_entry's address from the payload ELF
+# (extracted via nm) so relocator.c's extern reference resolves.
+
+clang/relocator.elf: $(RELOC_OBJS) $(RELOC_LD) clang/payload.elf
+	@addr=$$($(NM) clang/payload.elf | awk '/ _cpnos_cold_entry$$/ {print "0x"$$1}'); \
+	 test -n "$$addr" || { echo "ERROR: _cpnos_cold_entry not found in payload"; exit 1; }; \
+	 echo "relocator: _cpnos_cold_entry=$$addr"; \
+	 $(LD) --gc-sections -T $(RELOC_LD) --defsym=_cpnos_cold_entry=$$addr \
+	       $(RELOC_OBJS) -o $@
+
+# ---- Produce prom0.bin / prom1.bin --------------------------------
+
+clang/cpnos.bin: clang/relocator.elf
 	$(OBJCOPY) -O binary --gap-fill=0xFF --pad-to=0x2800 $< clang/cpnos.raw
 	dd if=clang/cpnos.raw of=clang/prom0.bin bs=2048 count=1 status=none
 	dd if=clang/cpnos.raw of=clang/prom1.bin bs=2048 skip=4 count=1 status=none
-	@# If PROM1 is all zeros (unused), replace with 0xFF pad so an
-	@# unprogrammed EPROM is burned to a recognisable state.
-	@if ! od -An -tx1 clang/prom1.bin | grep -qv ' 00 '; then \
-	  perl -e 'print "\xff" x 2048' > clang/prom1.bin; \
-	fi
 	cat clang/prom0.bin clang/prom1.bin > $@
 
 # ---- Size check ---------------------------------------------------
@@ -156,15 +187,17 @@ clang/cpnos.bin: clang/cpnos.elf
 cpnos-size: clang/cpnos.bin
 	@P0=$$(wc -c < clang/prom0.bin | tr -d ' '); \
 	 P1=$$(wc -c < clang/prom1.bin | tr -d ' '); \
+	 PLD=$$(wc -c < clang/payload.bin | tr -d ' '); \
 	 TOTAL=$$(wc -c < clang/cpnos.bin | tr -d ' '); \
-	 echo "PROM0:  $$P0 / 2048 bytes"; \
-	 echo "PROM1:  $$P1 / 2048 bytes"; \
-	 echo "TOTAL:  $$TOTAL / 4096 bytes"; \
+	 echo "payload:  $$PLD bytes (linked at 0xED00)"; \
+	 echo "PROM0:    $$P0 / 2048 bytes"; \
+	 echo "PROM1:    $$P1 / 2048 bytes"; \
+	 echo "TOTAL:    $$TOTAL / 4096 bytes"; \
 	 test $$TOTAL -eq 4096 || { echo "ERROR: image not exactly 4096 bytes"; exit 1; }
-	@echo "--- section sizes ---"
-	@$(OBJDUMP) --headers clang/cpnos.elf | awk '/\.(reset|init|prom1|resident|scratch)/ { printf "%-16s 0x%s VMA=0x%s\n", $$2, $$3, $$4 }'
-	@echo "--- top symbols ---"
-	@$(NM) --numeric-sort --size-sort --reverse-sort clang/cpnos.elf | head -10
+	@echo "--- payload section sizes ---"
+	@$(OBJDUMP) --headers clang/payload.elf | awk '/\.(payload|scratch)/ { printf "%-16s 0x%s VMA=0x%s\n", $$2, $$3, $$4 }'
+	@echo "--- top payload symbols ---"
+	@$(NM) --numeric-sort --size-sort --reverse-sort clang/payload.elf | head -10
 	@echo "--- actual code bytes in PROM0 (non-0xFF) ---"
 	@od -An -tx1 clang/prom0.bin | tr -s ' ' '\n' | grep -v '^$$' | grep -v '^ff$$' | wc -l | awk '{ printf "%d non-padding bytes\n", $$1 }'
 
@@ -188,8 +221,10 @@ cpnos-burn: clang/cpnos.bin
 
 # ---- Inspection --------------------------------------------------
 
-cpnos-disasm: clang/cpnos.elf
-	$(OBJDUMP) -d --triple=z80 $<
+cpnos-disasm: clang/payload.elf clang/relocator.elf
+	$(OBJDUMP) -d --triple=z80 clang/payload.elf
+	@echo '=== relocator ==='
+	$(OBJDUMP) -d --triple=z80 clang/relocator.elf
 
 # ---- MAME boot test ----------------------------------------------
 
@@ -384,6 +419,50 @@ cpnos-sub-test: cpnos-install
 	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
+# ---- CONOUT acid test --------------------------------------------
+#
+# Builds testutil/acid.com with z88dk (+cpm), boots CP/NOS via
+# netboot_server.py with CPNOS_SUB='acid' so CCP runs it at first
+# prompt, then mame_acid_test.lua dumps the 8275 display RAM at
+# 0xF800 and asserts the known pixel pattern the 15 RC700 control
+# codes are supposed to produce.
+#
+# Finish marker: the .COM emits "DONE\r\n" through BIOS CONOUT,
+# which mirrors to SIO-B -- same gate as mame_sub_test.lua.
+Z88DK_ROOT = $(CURDIR)/../z88dk
+Z88DK_ZCC  = $(Z88DK_ROOT)/bin/zcc
+testutil/acid.com: testutil/acid.c
+	cd testutil && \
+	    PATH=$(Z88DK_ROOT)/bin:$$PATH \
+	    ZCCCFG=$(Z88DK_ROOT)/lib/config \
+	    zcc +cpm --opt-code-size \
+	    -create-app -o acid acid.c
+	@echo "built testutil/acid.com ($$(wc -c < testutil/acid.com | tr -d ' ') B)"
+
+conout-acid: cpnos-install testutil/acid.com
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log /tmp/cpnos_boot_result.txt /tmp/cpnos_display.txt
+	@CPNOS_SUB='acid|done' python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_netboot_server.pid
+	@python3 -u sio_b_driver.py $(SIOB_PORT) --timeout 90 \
+	    > /tmp/cpnos_siob_driver.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_siob_driver.pid
+	@sleep 0.3
+	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 100 \
+	    -rs232a null_modem \
+	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
+	    -rs232b null_modem \
+	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)" \
+	    -autoboot_script mame_acid_test.lua
+	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_siob_driver.pid) 2>/dev/null || true
+	@echo "--- display dump ---"
+	@cat /tmp/cpnos_display.txt 2>/dev/null || echo '(no display dump)'
+	@echo "--- result ---"
+	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
+	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
+
 # Interactive: boot CP/NOS, leave MAME running at the A> prompt so a
 # human can type on the native keyboard (PIO-A path).  SIO-B output
 # still streams to /tmp/cpnos_siob.raw so the other side can watch
@@ -421,11 +500,11 @@ cpnos-trace: cpnos-install
 
 # Source-interleaved disassembly (requires -g, enabled in CFLAGS).
 # The -S flag interleaves the original C lines with emitted Z80 asm.
-cpnos-lis: clang/cpnos.elf
+cpnos-lis: clang/payload.elf
 	$(OBJDUMP) -d -S -r --symbolize-operands --triple=z80 $< > clang/cpnos.lis
 	@echo "wrote clang/cpnos.lis (with C source + symbol-resolved operands)"
 
-cpnos-map: clang/cpnos.elf
+cpnos-map: clang/payload.elf
 	$(NM) --numeric-sort $<
 
 # Note: per-TU listings from .o files don't work reliably because

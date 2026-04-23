@@ -35,6 +35,37 @@ submodule bump 1858833b.
   Fixed by relocating IVT to 0xEC00 and running memcpy before
   setup_ivt.
 
+### Open: VT100 subset on top of RC700 CONOUT
+
+Investigate implementing a reasonable subset of VT100 terminal escape
+sequences in `impl_conout` if payload budget allows.  Motivation:
+lets modern CP/M software that assumes a VT100-ish host (many
+ports/newer ports) drive the RC702 display without per-app config.
+
+Sketch of scope: `ESC [` CSI parser feeding into the existing
+`curx`/`cury` machinery.  At minimum: `ED` (erase display), `EL`
+(erase in line), `CUP` (cursor position), `CUU/D/F/B` (cursor
+move), `SGR 0` (attribute reset).  More adventurous: a subset of
+`SGR` for reverse video if the 8275 attribute plane is ever wired
+up.  Excludes: scroll regions (`DECSTBM`), alternate-screen buffer,
+origin mode.
+
+Budget: Phase 19c audit notes current payload 2126 B with 688 B
+slack before the 0xF800 ceiling.  A minimal CSI parser + dispatch
+is probably ~150-250 B; fits.
+
+Caveats:
+- `ESC` (0x1B) currently falls through `impl_conout`'s `c < 0x20`
+  path into `specc()`'s default case (dropped).  Adding state for
+  the CSI parser means `impl_conout` grows a multi-byte state
+  machine like `xflg` already does for `start_xy`.
+- Need to decide interaction with the native RC700 codes: does
+  `ESC [2J` also invoke our `clear_screen`?  Probably yes — VT100
+  layer sits above the RC700 layer, not beside it.
+- Test coverage via extension to `testutil/acid.c`.
+
+Park until some user workload actually needs it.
+
 ### Open: `cpnos-rom/cpnos-build/RELOCATABLE_SPR.md`
 
 Design note captured mid-session — analysis + options for making

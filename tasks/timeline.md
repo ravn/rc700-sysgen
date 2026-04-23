@@ -161,6 +161,230 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 19: PROM-oblivious payload + C23 #embed relocator (Apr 23, 2026) — branch `conout-codes`
+
+- **Goal**: split the 2 KB PROM0 budget across both physical EPROMs
+  (PROM0 0x0000..0x07FF + PROM1 0x2000..0x27FF) to fit a full RC700
+  CONOUT control-code set (ported from `rcbios-in-c/bios.c:specc`),
+  AND restructure the build so the payload linker has *no* knowledge
+  of ROM geometry — class-of-bug elimination.
+
+- **Before**: one ELF, `.reset`+`.init` packed into PROM0, `.resident`
+  LMA'd into PROM0 tail, copied to 0xED00 at cold boot.  Switch
+  jumptables emitted to `.rodata` landed in `.init` (PROM0) with
+  absolute addresses baked in; after `OUT (0x18)` that RAM was
+  overwritten by CCP TPA and the dispatch table JP'd to garbage.
+  Root-caused during the first CONOUT refactor attempt when a new
+  `switch (c)` in `specc()` triggered exactly this — serial trace
+  showed banner then silence post-netboot.
+
+- **After** — new architecture in 4 new files + a refactor:
+  | File | Role |
+  |---|---|
+  | `payload.ld` | Links everything at VMA=LMA=0xED00 as one blob `.payload`.  No PROM regions, no AT(), no LMA tracking. |
+  | `relocator.c` | C23 `#embed` of `payload_a.bin` (PROM0 tail) and `payload_b.bin` (PROM1), two `__builtin_memcpy`s into 0xED00, tail call to `cpnos_cold_entry`. |
+  | `reset.s` | 3 instructions: `di; ld sp,0xED00; jp _relocate`.  Required because clang-z80 doesn't reliably honor `__attribute__((naked))` to set the stack before its own C prologue pushes. |
+  | `relocator.ld` | Places `.reset` at 0x0000, C body below 0x80, `.prom0_tail` at 0x80, `.prom1` at 0x2000.  Knows about PROMs — that knowledge is *only* here. |
+  | Makefile | Two-stage link: payload → `nm` extracts `_cpnos_cold_entry` → relocator linked with `--defsym` of that address.  `dd` splits `payload.bin` at byte 1920 into the two `#embed` inputs. |
+
+- **Side effects / collapses**:
+  - `cpnos_main.c`'s LMA-copy loop deleted (relocator does the copy).
+  - `resident_entry` merged into `cpnos_cold_entry`; two-stage
+    init/resident split was only there because of the LMA dance.
+  - `.resident`/`.init` section attributes kept for minimal churn
+    — the payload script just globs `.resident.*` + `.text.*` into
+    `.payload`.  No jumptable-routing footgun anymore: switch
+    tables and their readers are now co-located inside the payload.
+  - `cpnos_rom.ld` deleted.
+  - `impl_conout` gained full RC700 control-code dispatch (specc):
+    CR, LF, BS, TAB, BEL, clear, home, erase-EOL/EOS, insert/delete
+    line, cursor L/R/U/D, XY addressing (ctrl-F + two coord bytes).
+    Excludes bg/fg (0x13/14/15) — need BGSTAR buffer we don't carry.
+
+- **Sizes**: payload 2126 B at 0xED00.  PROM0 = 33 B relocator + 95 B
+  pad + 1920 B payload_a.  PROM1 = 206 B payload_b + 1842 B pad.
+  Both EPROMs actively used for the first time since Phase 18.
+
+- **Smoke**: `make cpnet-smoke` PASS end-to-end.  Full CCP + M80
+  assembly + L80 link + `sumtest.com` execution prints `CPNET OK A314`.
+
+- **Lessons**:
+  - A single switch statement was enough to trip the jumptable-
+    landed-in-wrong-PROM class of bug.  Architectural fix > local
+    workaround (`-fno-jump-tables` would have papered over it).
+  - C23 `#embed` is the right tool for carrying a binary payload
+    through a compile — it keeps the tool-flow declarative instead
+    of Python-shell-string-munging.  Two `#embed`s + linker-placed
+    sections is cleaner than one array + a runtime split.
+  - Clang-z80 lacks `naked` + reliable `[[noreturn]]` tail calls —
+    tiny asm shim for SP setup, accept `CALL` at end of `relocate`
+    (payload's cold entry is marked noreturn, so the return slot
+    is harmless).
+  - Reserving a fixed 128 B budget for the relocator code avoids
+    a chicken-and-egg (its size determines where payload_a lives,
+    but payload_a's size is known only after the split).
+
+- **Filed / TODO**:
+  - #50 — Investigate why `memcpy`/`memmove` compile to large code
+    at call sites (118 B for one `memmove` before inline-LDDR rewrite).
+  - #51 — Clean up dead `build_loader.py`, `cpnos-loader` target.
+  - #52 — Replace `EXX` in CRT/PIO ISRs with selective register
+    save: slave programs can legally use shadow regs (was #48).
+  - Earlier todo-laters still open: ISR-driven SIO-B RX ring (#44),
+    MEMORY_MAP.md needs a Phase 19 refresh.
+
+### Phase 19b: CONOUT acid test (Apr 23, 2026) — Medium
+
+- **Goal**: reproducible test that exercises all 15 RC700 CONOUT
+  control codes end-to-end (not just `make cpnet-smoke` which only
+  touches print+CR/LF) and asserts the resulting 8275 framebuffer.
+- **Shape**: `testutil/acid.c` — z88dk `+cpm` C program using
+  stdlib `bdos(6, c)` (Direct Console I/O) to bypass BDOS fn 2's
+  TAB-to-spaces expansion so raw control bytes reach our BIOS
+  CONOUT JT.  `mame_acid_test.lua` boots the slave, waits for
+  `DONE\r\n` on SIO-B, dumps 0xF800..0xFFFF, asserts 30 specific
+  cells.  `make conout-acid` target wires it up — runs in ~7 s.
+- **Lessons / footguns hit**:
+  - BDOS fn 2 expands TAB to spaces at the BDOS layer; fn 6 is
+    the right call for exercising raw BIOS CONOUT.
+  - Don't pass `--sdcccall 1` to z88dk when linking against the
+    default crt/stdlib — mismatch produces a working-looking
+    .COM that corrupts its first BDOS call arg.
+  - RC700 `start_xy` (0x06) coord bytes are ASCII-offset by `' '`
+    (matches rcbios `specc`).  Sending raw binary col/row
+    underflows `uint8_t` in `xy_step`, and our unrolled
+    `mod SCRN_ROWS` only subtracts 3× — residual `val` ≥ 25
+    makes `CELL()` write outside display RAM and corrupt the
+    payload.  Fixed in acid.c by adding 32 to both coords; file
+    a follow-up to either bound-check in `xy_step` or widen the
+    mod-unroll to cover 0..255 input.
+  - Netboot server's `_seed_sub_file` default was `slave_id=0x70`
+    but our build hardcodes `RC702_SLAVEID=0x01`.  Added
+    `CPNOS_SLAVEID` env var overriding the default to 0x01 so
+    `cpnos-sub-test` and `conout-acid` both hit the right `$nn.SUB`.
+- **Result**: `PASS: all 15 CONOUT codes verified at frame 370
+  (7.4s emulated)`.  Display shows the full intended pattern —
+  HELLO! at (20,5), smiley at rows 10-11, STAY/GONE preserved,
+  erase_to_eol/eos regions blank.
+
+### Phase 19c: payload size analysis + clang-z80 codegen audit (Apr 23, 2026) — Medium
+
+Read-only pass over the payload (2126 B at 0xED00; 688 B slack before
+the 0xF800 resident ceiling; PROM1 has 1842 B of pad).  Nothing
+ROM- or RAM-constrained; savings below are tidiness, not unblocking.
+
+- **Size-sorted symbol dump** (`llvm-nm --size-sort clang/payload.elf`):
+  top 6 by function size are `netboot_mpm` (170), `port_init` (104),
+  `specc` (101), `init_hardware` (99), `impl_conout` (97), `delete_line`
+  (76).  Biggest data: `_msg` 200 B (CP/NET frame, fixed), `_cfgtbl`
+  173 B (DRI layout, fixed).
+
+- **Tier 1 savings (~95 B, mechanical)**:
+  1. `scroll_up` triplicated — exists as 26 B symbol AND inlined in
+     `cursor_right` (25 B tail of 52 B) AND `cursor_down` (25 B tail
+     of 38 B).  `__attribute__((noinline))` reuses standalone copy.
+     ~50 B.
+  2. `xy_step` 3×-unrolled `mod SCRN_ROWS` — 48 of 68 B is two
+     triple-subtracts for row + col.  Replacing with a clamp-on-
+     overflow fixes the acid-test underflow bug AND shrinks the
+     function.  ~35 B.
+  3. `init_hardware` inlines a 4th copy of the scroll/clear LDIR —
+     calling `clear_screen` saves ~10 B.
+
+- **Tier 2 savings (~35 B, medium)**: impl_conout BSS spill of `c`
+  (~12 B), cfgtbl_init LDIR-template for pointer fields (~10 B),
+  port-init + IVT-fill 16-bit-for-small-count loops (~10-15 B).
+
+- **Tier 3 uncertain (~40-80 B)**: specc switch + 60 B jumptable →
+  hand-rolled dispatch; netboot_mpm `sframe` BSS spills.  Both
+  higher-effort, unclear savings.
+
+- **Nothing reclaimable**: `_msg`, `_cfgtbl`, `_FCB_HEAD`, and
+  clang's per-switch `LJTI_*` jumptable overhead — all intrinsic.
+
+- **Recursion check**: zero.  Call-graph is a DAG (Tarjan's on the
+  disasm), no self-loops.  Deepest chain: 5 levels
+  (`cpnos_cold_entry → netboot_mpm → cpnet_xact → snios_rcvmsg_c
+  → transport_recv_byte`).  Two `jp (hl)` sites exist — one is the
+  `specc` switch jumptable, other is the `_jump_to` CCP trampoline.
+  Neither introduces cycles.  ISRs contain zero `CALL`s so they
+  add nothing to stack depth when they fire.  Worst-case stack
+  high-water ~14 B against SP=0xED00.
+
+- **BSS spill attribution**: 13 B total across 6 functions
+  (`delete_line` 4 B, the rest 1-2 B).  **Zero** of it is parameter
+  overflow — every payload fn takes 0-2 args, well within
+  sdcccall(1)'s register budget.  All 13 B is register-alloc
+  spill of locals or parameters that can't stay live across a
+  CALL or LDIR setup.
+
+- **Push/pop vs BSS spill** (filed as ravn/llvm-z80#74): Z80
+  `push hl`/`pop hl` is 2 B / 21 T for a spill-reload pair vs
+  BSS `ld (nn),hl`/`ld hl,(nn)` at 6 B / 32 T.  Dropping
+  `+static-stack` doesn't help — clang falls back to SP-relative
+  alloca (10 B per spill side) which is +77 B worse across
+  resident.c.  Minimal self-contained repro posted on the issue.
+  Interesting: clang-z80 *does* use push/pop for simple "one
+  value crosses one CALL" but gives up on the multi-value
+  LDIR-setup shape.
+
+- **Tail-call peephole** (filed as ravn/llvm-z80#75): TCO exists at
+  `Z80LateOptimization.cpp:2913` but is MBB-local.  Common early-
+  return pattern produces `CALL` in one MBB that falls through to
+  a separate `RET`-only MBB — branch folding already handles the
+  explicit early-return (`ret c` in-place) but misses the CALL-
+  fall-through-to-RET case.  Likely pass-ordering (BranchFolding
+  considers the merge before `JR_C → RET_C` drops the other
+  predecessor).  Fix: run TCO peephole *after* branch folding,
+  or widen it to follow the fall-through edge.
+
+- **SDCC peephole.def vs clang**: 20+ rules in the custom
+  `sdcc/peephole.def` — ALL handled by clang natively at -Oz:
+  `ld a, 0 → xor a`, redundant trailing `xor a`, `out (p), a` A-
+  preservation, dead `jp`/`ret` sequences, `jp X; X:` fall-
+  through, `jr cond; jp` → inverted-cond consolidation.  Clang
+  goes *beyond* the rules in several cases: branchless ?: (r5
+  repro emits `sub 0; add ff; sbc a,a; and 1` — 7 B, zero
+  branches); vectorizes 4×byte-zero into `ld hl, 0; ld (n), hl;
+  ld (n+2), hl` (9 B vs SDCC's 13+ B); OUT-chain A reuse
+  generalizes beyond SDCC's 2-OUT rule.  The .def file exists to
+  paper over zsdcc gaps that clang doesn't have.  Nothing to
+  port.
+
+### Phase 19c follow-throughs (Apr 23, 2026) — applied
+
+Three commits after the audit:
+
+1. **CR inline fast-path** (`c38ff77`): `\r` (0x0D) was routing through
+   the `specc()` switch jumptable (two CALLs deep); hoisting it inline
+   alongside `\n` lets clang tail-merge both into the same
+   `xor a; ld (curx), a` tail.  +4 B impl_conout, ~-50 T per CR,
+   +7 T per printable char.
+2. **CRT-ISR-deferred cursor update** (`0773f09`): `impl_conout` used
+   to reprogram the 8275 cursor via 3 port OUTs per character —
+   visibly flickered on fast streams.  Replaced with `cur_dirty = 1`;
+   `_isr_crt` reads the flag at each VRTC and pushes curx/cury once
+   per frame.  impl_conout 101→88 B, -40 T per CONOUT call, bounded
+   flicker → zero.  Also trimmed two leading CR/LFs from the signon
+   banner in cpbios.asm.
+3. **Tier 1 shrink** (`03fbc78`): `scroll_up __attribute__((noinline))`
+   (cursor_right 52→30, cursor_down 38→15), `xy_step` clamp instead
+   of 3×-unrolled mod (68→50, also fixes the acid-test underflow
+   bug directly instead of just dodging it in acid.c), and
+   `init_hardware` calls `clear_screen` instead of inlining a 4th
+   LDIR copy (99→87).  Payload .text 2126 → 2054 B (−72 B).
+
+- Three issues filed against `ravn/llvm-z80` for codegen gaps
+  surfaced during the audit (all open, no PRs yet):
+  - **#74** register-alloc spills go to BSS instead of push/pop
+  - **#75** `CALL; RET → JP` peephole misses on fall-through MBB
+    pairs (common early-return fan-in pattern)
+  - **#76** `ld a, (hl); ld r, a` not peepholed to `ld r, (hl)`
+
+- Tier 2 (~35 B) and Tier 3 (~40-80 B) savings from the audit
+  remain on the table if payload pressure returns.  Not urgent:
+  760+ B slack remains below the 0xF800 resident ceiling.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature

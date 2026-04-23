@@ -124,6 +124,26 @@ _isr_crt:
     ld   a, 0x01            ; count = 1
     out  (0x0E), a
 
+    ; Deferred 8275 cursor update: if impl_conout set cur_dirty, push
+    ; the current curx/cury to the CRT and clear the flag.  Doing this
+    ; at frame rate instead of per-character eliminates visible flicker
+    ; on fast streams (netboot banner, CCP DIR, etc.).  Mainline writes
+    ; cur_dirty *after* writing curx/cury, so reading them here races
+    ; benignly: we may see a slightly-stale position one frame later,
+    ; but never a torn pair (single-byte stores are atomic on Z80).
+    ld   a, (_cur_dirty)
+    or   a
+    jr   z, _isr_crt_done
+    xor  a
+    ld   (_cur_dirty), a
+    ld   a, 0x80            ; 8275 "load cursor position" command
+    out  (0x01), a          ; PORT_CRT_CMD
+    ld   a, (_curx)
+    out  (0x00), a          ; PORT_CRT_PARAM (column)
+    ld   a, (_cury)
+    out  (0x00), a          ; PORT_CRT_PARAM (row)
+_isr_crt_done:
+
     .byte 0xD9              ; exx
     .byte 0x08              ; ex af,af'
     ei

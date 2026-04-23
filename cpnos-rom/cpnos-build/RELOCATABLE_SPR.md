@@ -91,8 +91,8 @@ trampoline overhead (~80 bytes across 17 entries).
 #### (b) Move impl_* into the monolith — CLEANEST LONG-TERM
 
 Absorb the RC702 hardware code (`impl_conout`, `impl_conin`, CRT scroll,
-SIO polling, keyboard ring, ISR) from cpnos-rom's `resident.c` /
-`rc700_console.c` into `cpnos-build/s/cpbios.s` or a new
+SIO polling, keyboard ring, ISR) from cpnos-rom's `resident.c` into
+`cpnos-build/s/cpbios.s` or a new
 `cpnos-build/s/cpbios_rc702.c`.  cpnos-rom's role shrinks to: PROM
 bootstrap + transport layer + netboot_mpm.  Monolith owns every
 RC702 port.

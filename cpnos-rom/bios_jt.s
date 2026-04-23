@@ -1,12 +1,20 @@
-; cpnos-rom BIOS jump table (Phase 1 skeleton)
+; cpnos-rom BIOS jump table
 ;
-; Standard CP/M 2.2 BIOS 17-entry table, placed at BIOS_BASE (0xF200
-; since session #24; was 0xF580).  CCP+BDOS (and in NOS mode, NDOS) call
-; these offsets; the addresses are the BIOS's public ABI and must not
-; drift between builds.
+; Standard CP/M 2.2 BIOS 17-entry table, placed at BIOS_BASE (currently
+; 0xED00; was 0xF200 pre-session-33, and 0xF580 before that).  CCP+BDOS
+; (and in NOS mode, NDOS) call these offsets; the addresses are the
+; BIOS's public ABI and must not drift between builds.
 ;
 ; The linker script KEEPs section .resident.jumptable at the very start
-; of the .resident region (VMA 0xF200), so `_bios_boot` equals BIOS_BASE.
+; of the .resident region (VMA 0xED00), so `_bios_boot` equals BIOS_BASE.
+; payload.ld asserts `_bios_boot == 0xED00` at link time.
+;
+; Naming convention: each `bios_<entry>` below is a 3-byte `jp <tgt>`
+; trampoline at the JT's fixed offset.  <tgt> is either a shared asm
+; stub (`_bios_stub_ret`) or a C function in resident.c named
+; `impl_<entry>`.  That pairing makes it obvious which asm vector goes
+; with which C body — renames must keep both sides in sync or the link
+; fails on an unresolved external.
 ;
 ; Most entries in the NOS-only build are thin stubs: CP/NOS routes disk
 ; I/O through NDOS -> SNIOS, so SELDSK/READ/WRITE never get called for
