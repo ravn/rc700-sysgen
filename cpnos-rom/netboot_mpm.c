@@ -23,6 +23,9 @@
 
 #include <stdint.h>
 
+/* memcpy from runtime.s — no libc headers in a freestanding build. */
+extern void *memcpy(void *dest, const void *src, unsigned int n);
+
 /* SNIOS C-wrappers from snios.s — pass msg buffer in HL (sdcccall(1)). */
 extern uint8_t snios_sndmsg_c(uint8_t *msg);
 extern uint8_t snios_rcvmsg_c(uint8_t *msg);
@@ -95,9 +98,7 @@ static uint8_t cpnet_xact(uint8_t fnc, uint8_t siz_minus_1) {
 /* Copy FCB_TEMPLATE into msg request area. */
 static void install_fcb(void) {
     msg[DAT] = 0;                    /* user number */
-    for (uint8_t i = 0; i < 36; ++i) {
-        msg[DAT + 1 + i] = FCB_TEMPLATE[i];
-    }
+    __builtin_memcpy(&msg[DAT + 1], FCB_TEMPLATE, 36);
 }
 
 /* Rewrite only DAT[0]=user.  FCB is already in msg[DAT+1..DAT+36] from
@@ -112,7 +113,7 @@ uint16_t netboot_mpm(void) {
     if (snios_ntwkin() != 0) return 0;
 
     /* --- LOGIN ----------------------------------------------------- */
-    for (uint8_t i = 0; i < 8; ++i) msg[DAT + i] = RC702_LOGIN_PWD[i];
+    __builtin_memcpy(&msg[DAT], RC702_LOGIN_PWD, 8);
     if (cpnet_xact(64, 7) != 0) return 0;
 
     /* --- OPEN A:CPNOS.IMG ----------------------------------------- */
@@ -129,9 +130,7 @@ uint16_t netboot_mpm(void) {
         if (rc == 1) break;          /* EOF */
         if (rc != 0) return 0;       /* error */
         /* Response: DAT[0]=rc, DAT[1..36]=FCB, DAT[37..164]=128B sector. */
-        for (uint16_t i = 0; i < 128; ++i) {
-            dma[i] = msg[DAT + 37 + i];
-        }
+        __builtin_memcpy(dma, &msg[DAT + 37], 128);
         dma += 128;
         impl_conout('.');            /* one dot per 128-byte sector */
         /* Safety: refuse to overflow into BIOS area (now 0xED00+). */

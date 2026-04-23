@@ -121,29 +121,13 @@ RESIDENT
      * to NDOS+3 (COLDST).  Our resident zero-page setup gets
      * overwritten — that's expected and correct for CP/NOS.
      *
-     * Fallback: if no netboot (entry==0), fall through to the
-     * diagnostic banner — useful when running without a server. */
+     * If netboot failed (entry==0) we have nothing useful to run,
+     * so halt.  The fallback diagnostic banner was useful while
+     * bringing up the boot path in Phases 16-17; with the path now
+     * green it's pure ROM weight. */
     if (entry != 0) {
         jump_to(0xD000);
     }
-
-    /* Fallback diagnostic banner (reached only when entry==0). */
-    *(volatile uint8_t *)0xEC00 = 0xA5;
-    DISPLAY[0] = 'C';
-    DISPLAY[1] = 'P';
-    DISPLAY[2] = 'N';
-    DISPLAY[3] = 'O';
-    DISPLAY[4] = 'S';
-    *(volatile uint8_t *)0xEC01 = 0x5A;
-
-    console_putc('C');
-    console_putc('P');
-    console_putc('N');
-    console_putc('O');
-    console_putc('S');
-    console_putc('\r');
-    console_putc('\n');
-
     for (;;) { }
 }
 
