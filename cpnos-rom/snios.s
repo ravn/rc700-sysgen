@@ -139,18 +139,14 @@ RECVBT:
     push hl
     ld   hl, RECV_TIMEOUT_TICKS
     call _transport_recv_byte
-    ld   a, d
-    inc  a                          ; D=0xFF -> Z (timeout)
-    jr   z, RECVBT_TMO
-    ld   a, e
-    pop  hl
+    ld   a, d                       ; grab result (D=0xFF => timeout)
+    inc  a                          ; Z=1 on timeout
+    ld   a, e                       ; A = byte (Z preserved by ld)
+    pop  hl                         ; (pop doesn't touch flags)
     pop  de
-    or   a                          ; clear carry (success)
-    ret
-RECVBT_TMO:
-    pop  hl
-    pop  de
-    scf
+    scf                             ; assume timeout: CY=1
+    ret  z                          ; timeout: return with CY set
+    or   a                          ; success: clear CY
     ret
 
 ;================================================
@@ -469,13 +465,16 @@ CNFTBL:
     ld   hl, _cfgtbl
     ret
 
-; NTWKBT - Warm boot hook.
-NTWKBT:
-    xor  a
+; NTWKER - Network error handler (device re-init if needed).  Falls
+; through into NTWKBT so the two share the trailing RET.  NTWKBT must
+; return A=0 (warm-boot OK); NTWKER returns whatever A was on entry,
+; which NDOS treats as "no error" if nonnegative — matches stock DRI.
+NTWKER:
     ret
 
-; NTWKER - Network error handler (device re-init if needed).
-NTWKER:
+; NTWKBT - Warm boot hook.  Must return A=0.
+NTWKBT:
+    xor  a
     ret
 
 ; NTWKDN - Network shutdown.  Sends FNC=0xFE to the server.
