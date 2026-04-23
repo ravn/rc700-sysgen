@@ -6,6 +6,8 @@ async 38400 baud, with optional 8" DSDD local diskette support.
 
 ## Status
 
+2026-04-23: Initial+minimal version of CP/NOS client ROM, fully functional in MAME against z80pack
+
 Phase 0 (scaffolding). See
 [`../rcbios-in-c/tasks/cpnos-rom-plan.md`](../rcbios-in-c/tasks/cpnos-rom-plan.md)
 for the full plan.
