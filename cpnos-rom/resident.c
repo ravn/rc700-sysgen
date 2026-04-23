@@ -101,22 +101,21 @@ uint8_t impl_const(void) {
 #define SCRN_COLS 80
 #define SCRN_ROWS 25
 
-/* Cursor + XY-addressing state.  Lives in .scratch_bss (zero-init). */
-static uint8_t curx;          /* 0..79 */
-static uint8_t cury;          /* 0..24 */
+/* Cursor + XY-addressing state.  Lives in .scratch_bss (zero-init).
+ *
+ * curx / cury / cur_dirty are non-static so _isr_crt (in isr.s) can
+ * reference them directly — the ISR consumes cur_dirty to reprogram
+ * the 8275 cursor registers once per vertical retrace instead of on
+ * every CONOUT, which was visibly flickering under fast streams. */
+uint8_t curx;                 /* 0..79 */
+uint8_t cury;                 /* 0..24 */
+uint8_t cur_dirty;            /* set by impl_conout, cleared by _isr_crt */
 static uint8_t xflg;          /* 0 = normal; 2/1 = awaiting XY coord bytes */
 static uint8_t xy_first;      /* first coord saved between XY calls */
 
 /* screen[row*80 + col].  Macro avoids a function-call overhead at each
  * site (clang-z80 doesn't inline small helpers reliably at -Oz). */
 #define CELL(x, y)  ((uint8_t *)DISPLAY_ADDR + (uint16_t)(y) * SCRN_COLS + (x))
-
-RESIDENT
-static void crt_set_cursor(uint8_t x, uint8_t y) {
-    _port_out(PORT_CRT_CMD,   0x80);   /* load cursor position */
-    _port_out(PORT_CRT_PARAM, x);
-    _port_out(PORT_CRT_PARAM, y);
-}
 
 RESIDENT
 static void scroll_up(void) {
@@ -300,7 +299,11 @@ void impl_conout(uint8_t c) {
         *CELL(curx, cury) = c;
         cursor_right();
     }
-    crt_set_cursor(curx, cury);
+    /* Defer 8275 cursor register update to _isr_crt (next VRTC): reduces
+     * visible cursor flicker under fast streams and saves ~40 T per
+     * character on the hot path.  The ISR reads curx/cury and clears
+     * cur_dirty atomically wrt the mainline's single-store pattern. */
+    cur_dirty = 1;
 }
 
 RESIDENT

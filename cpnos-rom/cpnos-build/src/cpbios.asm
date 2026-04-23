@@ -66,7 +66,7 @@ jpopc	equ	0c3h
 buff	equ	0080h
 ;
 signon:
-	db	cr,lf,lf
+;	db	cr,lf
 	db	'RC702 CP/NOS v1.2'
 	db	cr,lf,0
 ;
