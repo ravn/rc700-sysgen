@@ -261,8 +261,9 @@ def _seed_sub_file(slave_id=0x70, commands=None):
 
 
 _SUB_CMDS = os.environ.get('CPNOS_SUB', '')
+_SUB_SLAVE_ID = int(os.environ.get('CPNOS_SLAVEID', '0x01'), 0)
 if _SUB_CMDS:
-    _seed_sub_file(commands=_SUB_CMDS.split('|'))
+    _seed_sub_file(slave_id=_SUB_SLAVE_ID, commands=_SUB_CMDS.split('|'))
 
 
 def _all_keys():

@@ -419,6 +419,50 @@ cpnos-sub-test: cpnos-install
 	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
+# ---- CONOUT acid test --------------------------------------------
+#
+# Builds testutil/acid.com with z88dk (+cpm), boots CP/NOS via
+# netboot_server.py with CPNOS_SUB='acid' so CCP runs it at first
+# prompt, then mame_acid_test.lua dumps the 8275 display RAM at
+# 0xF800 and asserts the known pixel pattern the 15 RC700 control
+# codes are supposed to produce.
+#
+# Finish marker: the .COM emits "DONE\r\n" through BIOS CONOUT,
+# which mirrors to SIO-B -- same gate as mame_sub_test.lua.
+Z88DK_ROOT = $(CURDIR)/../z88dk
+Z88DK_ZCC  = $(Z88DK_ROOT)/bin/zcc
+testutil/acid.com: testutil/acid.c
+	cd testutil && \
+	    PATH=$(Z88DK_ROOT)/bin:$$PATH \
+	    ZCCCFG=$(Z88DK_ROOT)/lib/config \
+	    zcc +cpm --opt-code-size \
+	    -create-app -o acid acid.c
+	@echo "built testutil/acid.com ($$(wc -c < testutil/acid.com | tr -d ' ') B)"
+
+conout-acid: cpnos-install testutil/acid.com
+	@rm -f /tmp/cpnos_netboot_server.log /tmp/cpnos_siob.raw /tmp/cpnos_siob_driver.log /tmp/cpnos_boot_result.txt /tmp/cpnos_display.txt
+	@CPNOS_SUB='acid|done' python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_netboot_server.pid
+	@python3 -u sio_b_driver.py $(SIOB_PORT) --timeout 90 \
+	    > /tmp/cpnos_siob_driver.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_siob_driver.pid
+	@sleep 0.3
+	-$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 100 \
+	    -rs232a null_modem \
+	    -bitb1 "socket.127.0.0.1:$(NETBOOT_PORT)" \
+	    -rs232b null_modem \
+	    -bitb2 "socket.127.0.0.1:$(SIOB_PORT)" \
+	    -autoboot_script mame_acid_test.lua
+	@kill $$(cat /tmp/cpnos_netboot_server.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_siob_driver.pid) 2>/dev/null || true
+	@echo "--- display dump ---"
+	@cat /tmp/cpnos_display.txt 2>/dev/null || echo '(no display dump)'
+	@echo "--- result ---"
+	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
+	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
+
 # Interactive: boot CP/NOS, leave MAME running at the A> prompt so a
 # human can type on the native keyboard (PIO-A path).  SIO-B output
 # still streams to /tmp/cpnos_siob.raw so the other side can watch

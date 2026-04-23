@@ -233,6 +233,40 @@
   - Earlier todo-laters still open: ISR-driven SIO-B RX ring (#44),
     MEMORY_MAP.md needs a Phase 19 refresh.
 
+### Phase 19b: CONOUT acid test (Apr 23, 2026) — Medium
+
+- **Goal**: reproducible test that exercises all 15 RC700 CONOUT
+  control codes end-to-end (not just `make cpnet-smoke` which only
+  touches print+CR/LF) and asserts the resulting 8275 framebuffer.
+- **Shape**: `testutil/acid.c` — z88dk `+cpm` C program using
+  stdlib `bdos(6, c)` (Direct Console I/O) to bypass BDOS fn 2's
+  TAB-to-spaces expansion so raw control bytes reach our BIOS
+  CONOUT JT.  `mame_acid_test.lua` boots the slave, waits for
+  `DONE\r\n` on SIO-B, dumps 0xF800..0xFFFF, asserts 30 specific
+  cells.  `make conout-acid` target wires it up — runs in ~7 s.
+- **Lessons / footguns hit**:
+  - BDOS fn 2 expands TAB to spaces at the BDOS layer; fn 6 is
+    the right call for exercising raw BIOS CONOUT.
+  - Don't pass `--sdcccall 1` to z88dk when linking against the
+    default crt/stdlib — mismatch produces a working-looking
+    .COM that corrupts its first BDOS call arg.
+  - RC700 `start_xy` (0x06) coord bytes are ASCII-offset by `' '`
+    (matches rcbios `specc`).  Sending raw binary col/row
+    underflows `uint8_t` in `xy_step`, and our unrolled
+    `mod SCRN_ROWS` only subtracts 3× — residual `val` ≥ 25
+    makes `CELL()` write outside display RAM and corrupt the
+    payload.  Fixed in acid.c by adding 32 to both coords; file
+    a follow-up to either bound-check in `xy_step` or widen the
+    mod-unroll to cover 0..255 input.
+  - Netboot server's `_seed_sub_file` default was `slave_id=0x70`
+    but our build hardcodes `RC702_SLAVEID=0x01`.  Added
+    `CPNOS_SLAVEID` env var overriding the default to 0x01 so
+    `cpnos-sub-test` and `conout-acid` both hit the right `$nn.SUB`.
+- **Result**: `PASS: all 15 CONOUT codes verified at frame 370
+  (7.4s emulated)`.  Display shows the full intended pattern —
+  HELLO! at (20,5), smiley at rows 10-11, STAY/GONE preserved,
+  erase_to_eol/eos regions blank.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature
