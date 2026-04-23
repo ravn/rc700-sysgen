@@ -67,15 +67,14 @@ extern void impl_conout(uint8_t c);
 #define RC702_LOGIN_PWD "PASSWORD"
 #endif
 
-/* 36-byte FCB for A:CPNOS.IMG (pre-read state: ex=0 cr=0, blank alloc). */
-static const uint8_t FCB_TEMPLATE[36] = {
-    0x01,                                /* +0  drive A (1-based: 0=default,1=A) */
-    'C','P','N','O','S',' ',' ',' ',     /* +1..+8  name (8, space-padded) */
+/* FCB header for A:CPNOS.IMG (drive + 8.3 name).  Bytes +12..+35
+ * are left zero — msg[] lives in BSS so the zero tail is already
+ * there, and install_fcb only runs once before any FCB response
+ * has overwritten those slots. */
+static const uint8_t FCB_HEAD[12] = {
+    0x01,                                /* +0  drive A (1-based) */
+    'C','P','N','O','S',' ',' ',' ',     /* +1..+8  name */
     'I','M','G',                          /* +9..+11 ext */
-    0, 0, 0, 0,                          /* +12..+15 ex, s1, s2, rc */
-    0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,  /* +16..+31 alloc map */
-    0,                                    /* +32 cr */
-    0, 0, 0                              /* +33..+35 r0, r1, r2 */
 };
 
 static uint8_t msg[MSG_MAX];
@@ -95,10 +94,11 @@ static uint8_t cpnet_xact(uint8_t fnc, uint8_t siz_minus_1) {
     return msg[DAT];
 }
 
-/* Copy FCB_TEMPLATE into msg request area. */
+/* Copy the 12-byte FCB header into msg.  The 24-byte zero tail is
+ * already zero in BSS. */
 static void install_fcb(void) {
     msg[DAT] = 0;                    /* user number */
-    __builtin_memcpy(&msg[DAT + 1], FCB_TEMPLATE, 36);
+    __builtin_memcpy(&msg[DAT + 1], FCB_HEAD, 12);
 }
 
 /* Rewrite only DAT[0]=user.  FCB is already in msg[DAT+1..DAT+36] from

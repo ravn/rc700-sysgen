@@ -196,16 +196,12 @@ static void crt_set_cursor(uint8_t x, uint8_t y) {
 
 RESIDENT
 static void crt_scroll_up(void) {
-    /* Move rows 1..24 down to 0..23, clear row 24.  Each row is 80B.
-     * Straightforward copy — no LDIR intrinsic in this C file, rely
-     * on the compiler to unroll or let runtime.s helpers do it. */
-    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
-    for (uint16_t i = 0; i < 24U * 80U; ++i) {
-        d[i] = d[i + 80];
-    }
-    for (uint8_t i = 0; i < 80; ++i) {
-        d[24U * 80U + i] = ' ';
-    }
+    /* Move rows 1..24 down to 0..23, then clear row 24 with spaces.
+     * Use the runtime memcpy/memset stubs so these become single LDIR
+     * / LDIR pairs instead of per-cell C loops. */
+    uint8_t *d = (uint8_t *)DISPLAY_ADDR;
+    __builtin_memcpy(d, d + 80, 24U * 80U);
+    __builtin_memset(d + 24U * 80U, ' ', 80);
 }
 
 RESIDENT
