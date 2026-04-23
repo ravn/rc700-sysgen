@@ -35,6 +35,63 @@ submodule bump 1858833b.
   Fixed by relocating IVT to 0xEC00 and running memcpy before
   setup_ivt.
 
+### Open: delete or wire in `cpnos-rom/rc700_console.c`
+
+The file is 266 lines / ~26 functions — a parallel implementation of
+the RC700 CONOUT state machine alongside the live `resident.c` one,
+from an abandoned refactor attempt.  It isn't in `PAYLOAD_OBJS` so
+it never builds and its bit-rot is invisible to the smoke tests.
+
+Three tax points:
+- grep/Read hits both files for `specc`, `delete_line`, etc. —
+  anyone reading the source has to disambiguate every time.
+- `RESIDENT` macro, `DISPLAY_ADDR`, header wiring all duplicated.
+- CI noise: clangd flags issues in the file (seen in the live
+  diagnostics throughout Phase 19) since it uses `memcpy`/`memset`
+  as externs that don't resolve in the local build context.
+
+Decision fork: (a) delete it outright — the live `resident.c`
+already exercises the whole control-code set via `make conout-acid`,
+and the XY addressing convention has been cross-tested; or
+(b) replace `resident.c` with it — requires updating PAYLOAD_OBJS,
+wiring its public API (`rc700_console_putc`, `rc700_console_init`)
+into `impl_conout`, and re-running both integration tests.
+
+Recommendation: (a) delete.  Until/unless someone is actively
+porting the console to that shape, it's a tax with no offsetting
+benefit.  Can always be resurrected from git history.
+
+### Open: VT100 subset on top of RC700 CONOUT
+
+Investigate implementing a reasonable subset of VT100 terminal escape
+sequences in `impl_conout` if payload budget allows.  Motivation:
+lets modern CP/M software that assumes a VT100-ish host (many
+ports/newer ports) drive the RC702 display without per-app config.
+
+Sketch of scope: `ESC [` CSI parser feeding into the existing
+`curx`/`cury` machinery.  At minimum: `ED` (erase display), `EL`
+(erase in line), `CUP` (cursor position), `CUU/D/F/B` (cursor
+move), `SGR 0` (attribute reset).  More adventurous: a subset of
+`SGR` for reverse video if the 8275 attribute plane is ever wired
+up.  Excludes: scroll regions (`DECSTBM`), alternate-screen buffer,
+origin mode.
+
+Budget: Phase 19c audit notes current payload 2126 B with 688 B
+slack before the 0xF800 ceiling.  A minimal CSI parser + dispatch
+is probably ~150-250 B; fits.
+
+Caveats:
+- `ESC` (0x1B) currently falls through `impl_conout`'s `c < 0x20`
+  path into `specc()`'s default case (dropped).  Adding state for
+  the CSI parser means `impl_conout` grows a multi-byte state
+  machine like `xflg` already does for `start_xy`.
+- Need to decide interaction with the native RC700 codes: does
+  `ESC [2J` also invoke our `clear_screen`?  Probably yes — VT100
+  layer sits above the RC700 layer, not beside it.
+- Test coverage via extension to `testutil/acid.c`.
+
+Park until some user workload actually needs it.
+
 ### Open: `cpnos-rom/cpnos-build/RELOCATABLE_SPR.md`
 
 Design note captured mid-session — analysis + options for making

@@ -351,6 +351,40 @@ ROM- or RAM-constrained; savings below are tidiness, not unblocking.
   paper over zsdcc gaps that clang doesn't have.  Nothing to
   port.
 
+### Phase 19c follow-throughs (Apr 23, 2026) — applied
+
+Three commits after the audit:
+
+1. **CR inline fast-path** (`c38ff77`): `\r` (0x0D) was routing through
+   the `specc()` switch jumptable (two CALLs deep); hoisting it inline
+   alongside `\n` lets clang tail-merge both into the same
+   `xor a; ld (curx), a` tail.  +4 B impl_conout, ~-50 T per CR,
+   +7 T per printable char.
+2. **CRT-ISR-deferred cursor update** (`0773f09`): `impl_conout` used
+   to reprogram the 8275 cursor via 3 port OUTs per character —
+   visibly flickered on fast streams.  Replaced with `cur_dirty = 1`;
+   `_isr_crt` reads the flag at each VRTC and pushes curx/cury once
+   per frame.  impl_conout 101→88 B, -40 T per CONOUT call, bounded
+   flicker → zero.  Also trimmed two leading CR/LFs from the signon
+   banner in cpbios.asm.
+3. **Tier 1 shrink** (`03fbc78`): `scroll_up __attribute__((noinline))`
+   (cursor_right 52→30, cursor_down 38→15), `xy_step` clamp instead
+   of 3×-unrolled mod (68→50, also fixes the acid-test underflow
+   bug directly instead of just dodging it in acid.c), and
+   `init_hardware` calls `clear_screen` instead of inlining a 4th
+   LDIR copy (99→87).  Payload .text 2126 → 2054 B (−72 B).
+
+- Three issues filed against `ravn/llvm-z80` for codegen gaps
+  surfaced during the audit (all open, no PRs yet):
+  - **#74** register-alloc spills go to BSS instead of push/pop
+  - **#75** `CALL; RET → JP` peephole misses on fall-through MBB
+    pairs (common early-return fan-in pattern)
+  - **#76** `ld a, (hl); ld r, a` not peepholed to `ld r, (hl)`
+
+- Tier 2 (~35 B) and Tier 3 (~40-80 B) savings from the audit
+  remain on the table if payload pressure returns.  Not urgent:
+  760+ B slack remains below the 0xF800 resident ceiling.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature
