@@ -117,8 +117,11 @@ static uint8_t xy_first;      /* first coord saved between XY calls */
  * site (clang-z80 doesn't inline small helpers reliably at -Oz). */
 #define CELL(x, y)  ((uint8_t *)DISPLAY_ADDR + (uint16_t)(y) * SCRN_COLS + (x))
 
+/* noinline: clang -Oz inlines the LDIR body into both cursor_right and
+ * cursor_down, costing ~25 B of duplicated scroll code on top of the
+ * standalone symbol.  Forcing one call site shares the body. */
 RESIDENT
-static void scroll_up(void) {
+static __attribute__((noinline)) void scroll_up(void) {
     /* Move rows 1..24 to 0..23, blank row 24. */
     uint8_t *d = (uint8_t *)DISPLAY_ADDR;
     __builtin_memcpy(d, d + SCRN_COLS, (SCRN_ROWS - 1) * (unsigned)SCRN_COLS);
@@ -164,7 +167,9 @@ static void tab(void) {
 /* --- screen ops --------------------------------------------------- */
 
 RESIDENT
-static void clear_screen(void) {
+/* Non-static so init.c can CALL us at cold-boot instead of inlining
+ * a second LDIR-based memset of the 2000-byte display region. */
+void clear_screen(void) {
     __builtin_memset((void *)DISPLAY_ADDR, ' ',
                      (unsigned)SCRN_ROWS * SCRN_COLS);
     home();
@@ -221,13 +226,13 @@ static void xy_step(uint8_t c) {
         xy_first = val;                  /* first byte: save X */
         return;
     }
-    /* Second byte: Y, then place cursor.  Modular wrap matches rcbios's
-     * CHKDC.  Input range is 0..95, so unrolled subtract stays bounded
-     * — clang lowers `%` to a libcall (___umodqi3) which we don't link. */
-    if (val >= SCRN_ROWS)      val -= SCRN_ROWS;
-    if (val >= SCRN_ROWS)      val -= SCRN_ROWS;
-    if (val >= SCRN_ROWS)      val -= SCRN_ROWS;
-    if (xy_first >= SCRN_COLS) xy_first -= SCRN_COLS;
+    /* Second byte: Y, then place cursor.  Out-of-range coord bytes
+     * clamp to 0 — the previous 3×-unrolled "mod SCRN_ROWS" could
+     * not reach val < 25 from e.g. val=224 (raw binary 0 sent as
+     * coord underflows), and the resulting wild val made CELL()
+     * write outside display RAM.  Clamp is safer and smaller. */
+    if (val >= SCRN_ROWS)      val = 0;
+    if (xy_first >= SCRN_COLS) xy_first = 0;
     curx = xy_first;
     cury = val;
 }

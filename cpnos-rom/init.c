@@ -133,7 +133,8 @@ void init_hardware(void) {
     (void)_port_in(PORT_SIO_B_CTRL);
 
     /* Clear display with spaces so subsequent CONOUT output is
-     * readable against a blank background.  Use the runtime memset
-     * (LDIR-based) instead of a per-byte C loop. */
-    __builtin_memset((void *)(uintptr_t)DISPLAY_ADDR, ' ', DISPLAY_SIZE);
+     * readable against a blank background.  Call into resident.c's
+     * clear_screen instead of inlining a 4th copy of the LDIR set. */
+    extern void clear_screen(void);
+    clear_screen();
 }
