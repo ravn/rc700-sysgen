@@ -287,6 +287,13 @@ void impl_conout(uint8_t c) {
          * keeps LF as cursor-down only, but rcbios's CCP path differs. */
         cursor_down();
         curx = 0;
+    } else if (c == '\r') {
+        /* Hot-path CR inline alongside LF — CR/LF are the most common
+         * control codes (line framing) and must not pay the specc
+         * jumptable dispatch cost.  0x0A and 0x0D cannot appear as
+         * start_xy coord bytes (those are ASCII-offset >= 0x20), so
+         * short-circuiting them here is safe for the xy state machine. */
+        curx = 0;
     } else if (c < 0x20) {
         specc(c);
     } else {
