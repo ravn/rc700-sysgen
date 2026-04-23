@@ -223,46 +223,38 @@ uint8_t impl_conin(void) {
 }
 
 RESIDENT
+static void advance_row(void) {
+    /* CR+LF: column 0, next row, scroll if past the last. */
+    curx = 0;
+    if (cury + 1 >= 25) {
+        crt_scroll_up();
+    } else {
+        cury++;
+    }
+}
+
+RESIDENT
 void impl_conout(uint8_t c) {
     /* Minimal CP/M CONOUT: printable chars go to the current cursor
-     * position on the 8275 display; CR resets column; LF advances
-     * row and scrolls when the bottom row overflows.  Serial mirror
-     * goes to SIO-B so the null-modem log still captures output. */
+     * position on the 8275 display; CR resets column; LF (treated
+     * as CR+LF) advances row and scrolls at the bottom.  Serial
+     * mirror goes to SIO-B so the null-modem log captures output. */
     console_putc(c);
 
     volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
 
-    if (c == 0x0C) {
-        /* Ctrl-L / form feed: clear display, home cursor. */
-        for (uint16_t i = 0; i < DISPLAY_SIZE; ++i) {
-            d[i] = ' ';
-        }
-        curx = 0;
-        cury = 0;
-    } else if (c == '\r') {
+    if (c == '\r') {
         curx = 0;
     } else if (c == '\n') {
-        /* Treat LF as CR+LF so host-side text with '\n'-only line
-         * breaks renders correctly and the banner fits under 256 B. */
-        curx = 0;
-        if (cury + 1 >= 25) {
-            crt_scroll_up();
-        } else {
-            cury++;
-        }
+        advance_row();
     } else if (c >= 0x20) {
         d[(uint16_t)cury * 80U + curx] = c;
         if (++curx >= 80) {
-            curx = 0;
-            if (cury + 1 >= 25) {
-                crt_scroll_up();
-            } else {
-                cury++;
-            }
+            advance_row();
         }
     }
-    /* Other control chars (0x08 BS, 0x09 TAB, 0x07 BEL...) ignored
-     * for now — add as CCP output demands them. */
+    /* 0x0C form-feed, 0x08 BS, 0x09 TAB, 0x07 BEL: ignored — add
+     * as CCP output demands them. */
 
     crt_set_cursor(curx, cury);
 }
