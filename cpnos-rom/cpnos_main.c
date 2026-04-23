@@ -1,73 +1,102 @@
-/* cpnos-rom cold-boot driver (Phase 1 seed)
+/* cpnos-rom cold-boot driver.
  *
- * Runs from PROM0 after reset.s sets up the scratch stack.  Phase 1
- * responsibilities (this file grows to meet them):
- *   1. HW init: SIO-A/B, CTC, PIO, IVT stub
- *   2. Netboot: request CCP+BDOS from server, load into RAM
- *   3. Copy resident chunk from ROM (LMA) to RAM (VMA 0xF200)
- *   4. OUT (0x18),A  — disable both PROMs
- *   5. Jump to resident_entry() (or to CCP cold start once netboot works)
+ * Runs entirely from RAM at 0xED00+ after the PROM0 relocator has
+ * reconstructed the payload in place.  No more LMA-vs-VMA dance —
+ * what the compiler sees is what executes.
  *
- * This seed implements only steps 3, 4, 5 to verify the LMA→VMA copy.
- * Init code runs in place from ROM — no self-relocation hop (unlike the
- * current autoloader which bounces through 0x7000 because it reads
- * Track 0 into 0x0000).  Single-pass relocation: LMA→VMA once.
+ * Entry: _cpnos_cold_entry.  Tail call from relocator.s's `jp`.
+ *   1. init_hardware — CTC, SIO-A/B, PIO, DMA, 8275, IM2 IVT.
+ *   2. cfgtbl_init  — populate non-zero CFGTBL fields (everything else
+ *      stays zero from BSS power-on).
+ *   3. netboot       — fetch CCP+NDOS image from the master.
+ *   4. PROM disable (OUT 0x18) — safe, we're executing from 0xED00.
+ *   5. CP/M zero-page setup (JP WBOOT at 0x0000, JP BDOS at 0x0005).
+ *   6. SNIOS — drain SIO RX, seed NETST=ACTIVE.
+ *   7. Copy our SNIOS jump table to 0xEA00 where DRI NDOS expects it.
+ *   8. Enable interrupts (CRT refresh ISR wakes the display).
+ *   9. Jump to CP/NOS entry at 0xD000.
  */
 
 #include <stdint.h>
+#include "hal.h"
 
-/* Linker symbols — clang Z80 prepends one underscore, so C "_x" maps to
- * asm "__x" which matches the linker script's "__x" definitions. */
-extern uint8_t _resident_lma[];
-extern uint8_t _resident_start[];
-extern uint8_t _resident_end[];
+extern void init_hardware(void);
+extern void cfgtbl_init(void);
+extern uint8_t snios_ntwkin(void);
+extern void enable_interrupts(void);
+extern uint8_t snios_jt[24];
+extern void jump_to(uint16_t addr) __attribute__((noreturn));
 
-[[noreturn]] extern void resident_entry(uint16_t entry);
-extern void init_hardware(void);            /* init.c, runs from ROM */
-extern void cfgtbl_init(void);              /* cfgtbl.c, populates BSS */
-
-/* Network bootstrap entry.  Two implementations; only one lands in the
- * link, selected by SERVER=mpm|proxy in the Makefile.  Default is mpm:
- * standard CP/NET 1.2 LOGIN/OPEN/READ/CLOSE against z80pack MP/M II.
- * 'proxy' keeps the legacy FMT=0xB0 protocol for netboot_server.py. */
+/* Netboot: two implementations, one selected by SERVER=mpm|proxy in
+ * the Makefile.  Default is mpm — standard CP/NET 1.2 LOGIN / OPEN /
+ * READ / CLOSE against z80pack MP/M II. */
 #ifdef NETBOOT_LEGACY
-extern uint16_t netboot(void);              /* netboot.c, PROM0 */
+extern uint16_t netboot(void);
 #define NETBOOT() netboot()
 #else
-extern uint16_t netboot_mpm(void);          /* netboot_mpm.c, PROM1 */
+extern uint16_t netboot_mpm(void);
 #define NETBOOT() netboot_mpm()
 #endif
 
-[[noreturn]] void cpnos_main(void) {
-    /* Copy resident section from ROM (LMA) to high RAM (VMA 0xED00..)
-     * FIRST: the IVT at 0xF100..0xF123 lives inside this region, and
-     * init_hardware's setup_ivt writes there — but memcpy would then
-     * overwrite those IVT entries.  Do memcpy first so setup_ivt's
-     * writes stick.  (Pre-session-33 RESIDENT at 0xF200+ was above
-     * IVT, so the old order worked by accident.) */
-    uint8_t *src = _resident_lma;
-    uint8_t *dst = _resident_start;
-    while (dst < _resident_end) {
-        *dst++ = *src++;
-    }
+#define NDOS_SNIOS_ADDR  0xEA00  /* NDOS_BASE(0xDE00) + NDOS code_len(0xC00) */
 
-    /* Populate cfgtbl's non-zero fields (everything else stays
-     * zero from BSS clear). */
+[[noreturn]] void cpnos_cold_entry(void) {
+    /* PROMs are still mapped at 0x0000..0x07FF and 0x2000..0x27FF;
+     * we're running from RAM at 0xED00 so we don't care.  Leave them
+     * enabled until step (4) below. */
+
     cfgtbl_init();
-
-    /* Bring up CTC + SIO-A/B + IVT + CRT.  IVT lives at 0xEC00
-     * (moved from 0xF100 session 33 follow-up, because 0xF100 is now
-     * inside .resident code after BIOS_BASE dropped to 0xED00). */
     init_hardware();
 
-    /* Try to netboot.  Server streams CCP+BDOS into RAM and returns an
-     * entry point; if absent, recv times out and entry == 0. */
     uint16_t entry = NETBOOT();
 
-    /* Hand off to resident code.  It disables the PROMs (safe from
-     * 0xF200 — execution continues from RAM) and either jumps to the
-     * loaded entry or falls back to a diagnostic banner.  cpnos_main
-     * never runs again after this; the PROM is gone and so is the
-     * init code that lives underneath it. */
-    resident_entry(entry);
+    /* Disable the PROMs — exposes RAM underneath for the TPA and
+     * netboot-loaded image.  We're at 0xED00; still running fine. */
+    _port_out(PORT_RAMEN, 0x00);
+
+    /* CP/M 2.2 zero page:
+     *   0x0000..0x0002  JP _bios_wboot   (c3 03 ED)
+     *   0x0003          IOBYTE (default 0 = all TTY)
+     *   0x0004          current drive/user (default 0 = A:, user 0)
+     *   0x0005..0x0007  JP NDOS+6        (c3 06 DE)
+     *
+     * NDOS's COLDST reads TOP+1 and uses it as the BIOS base for its
+     * TLBIOS-walk that patches intercepts into the BIOS JT.  JP
+     * _bios_wboot (c3 03 ED) makes TOP+1=0xED03 — NDOS walks the BIOS
+     * JT where the intercepts belong.
+     *
+     * Inline LDIR: __builtin_memcpy to the literal address 0 is
+     * treated as UB by clang and the entire function gets deleted
+     * (see ravn/llvm-z80#49). */
+    static const uint8_t ZP_INIT[8] = {
+        0xC3, 0x03, 0xED,     /* JP _bios_wboot (BIOS JT at 0xED00+3) */
+        0x00,                  /* IOBYTE */
+        0x00,                  /* current drive/user */
+        0xC3, 0x06, 0xDE,     /* JP NDOS+6 (NDOS at 0xDE00) */
+    };
+    const void *src = ZP_INIT;
+    void       *dst = (void *)0;
+    unsigned    n   = 8;
+    __asm__ volatile("ldir"
+        : "+{de}"(dst), "+{hl}"(src), "+{bc}"(n)
+        :
+        : "memory");
+
+    /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
+     * own NTWKIN may re-run this; idempotent. */
+    snios_ntwkin();
+
+    /* Copy our 24-byte SNIOS jump table to the address where DRI
+     * NDOS.SPR expects SNIOS to live (NDOS + code_len). */
+    __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
+
+    enable_interrupts();
+
+    /* Hand off to cpnos.com's entry at 0xD000 (first byte of the
+     * netboot-loaded image = `JP BIOS` vector).  If netboot failed
+     * (entry == 0), halt — no useful fallback at this stage. */
+    if (entry != 0) {
+        jump_to(0xD000);
+    }
+    for (;;) { }
 }

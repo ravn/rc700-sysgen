@@ -1,9 +1,12 @@
 # CP/NOS RC702 Memory Map
 
-Layout as of 2026-04-23 (Phase 18, branch `snios-compact` — PROM0
-down to 0x05F4 = 524 B of slack).  Authoritative source for fixed
-addresses is `cpnos_rom.ld`; this document summarizes.  Update both
-sides when you move a boundary.
+Layout as of 2026-04-23 (Phase 19, branch `conout-codes` — payload
+is a single contiguous blob at 0xED00, split across PROM0 tail and
+PROM1 at cold boot by a C23 `#embed` relocator).
+
+Authoritative sources: `payload.ld` for VMA layout, `relocator.ld`
+for the PROM-side split.  The linker scripts contain the asserts —
+this document summarises.
 
 ## 64 KB RAM overview
 
@@ -57,28 +60,43 @@ sides when you move a boundary.
 
 ## ROM (until `OUT (0x18),A` disables both)
 
+Phase 19 re-architected the PROM usage.  The clang/ld link doesn't
+know about PROMs at all — it just links the payload at 0xED00.  A
+separate C23 relocator (`relocator.c` + `reset.s`) with PROM-aware
+linker script (`relocator.ld`) reconstructs the payload in RAM.
+
 ```
 0x0000 ┌────────────────────────┐
-       │ PROM0  (roa375.ic66)   │  2 KB.  Everything: reset.s, cpnos_main,
-       │ 0x0000..0x021B         │  init, netboot_mpm.  Followed by the
-       │                        │  resident LMA block (984 B) that is
-       │ 0x021C..0x05F3         │  memcpy'd to 0xED00 at cold boot.
-0x05F4 ├ 0xFF padding (524 B) ──┤
-0x07FF                          │
+       │ reset.s (3 ins)        │  di, ld sp, 0xED00, jp _relocate
+       │ 0x0000..0x0006         │
+0x0007 │ relocator.c            │  Two __builtin_memcpys + jp entry
+       │ 0x0007..~0x001F        │  (C23, ~26 B)
+0x0020 │ 0xFF padding           │  Reserved budget up to 0x0080
+0x0080 │ payload_a[]            │  PROM0 tail of the payload, first
+       │ 0x0080..0x07FF         │  1920 B of payload.bin, #embed'd
+       │                        │  into relocator.c's .prom0_tail
+0x0800 └────────────────────────┘
+...
 0x2000 ┌────────────────────────┐
-       │ PROM1  (prom1.ic65)    │  Empty.  Socket is wired but the
-       │ 0x2000..0x27FF         │  EPROM (if fitted) is all 0xFF.
-       │ (unused)               │  netboot_mpm used to live here;
-       │                        │  merged into PROM0 in Phase 18
-       │                        │  (issue #39).
-0x2800 └ 0xFF padding ──────────┘
+       │ payload_b[]            │  Rest of payload.bin (206 B), #embed'd
+       │ 0x2000..0x20CD         │  into relocator.c's .prom1 section
+0x20CE │ 0xFF padding (1842 B)  │
+0x2800 └────────────────────────┘
 ```
 
-Both PROMs are mapped at boot.  After the resident chunk is copied
-to 0xED00..~0xF283 and `OUT (0x18),A` fires, the EPROMs disappear
-and RAM shows through at 0x0000 + 0x2000.  Execution is already
-running from 0xED00+ when that happens — never branch back into ROM
-after the disable.
+Both PROMs are mapped at boot.  Cold flow:
+1. Z80 reset → fetch from PROM0 0x0000 (reset.s).
+2. Set SP, jump to `_relocate` at 0x0007.
+3. `_relocate` LDIRs payload_a (1920 B from PROM0 tail) then
+   payload_b (206 B from PROM1) into 0xED00.
+4. Tail-calls `cpnos_cold_entry` inside the payload at some address
+   in 0xED00+ (resolved via `--defsym` at relocator-link time).
+5. Payload runs init + netboot, then does `OUT (0x18),A` itself to
+   disable both PROMs (it's executing from 0xED00+ so that's safe).
+6. TPA at 0x0100+ now reads RAM; CP/M is online.
+
+Never branch back into ROM after the `OUT (0x18),A` — 0x0000..0x07FF
+and 0x2000..0x27FF are RAM content (CCP TPA, our zero-page setup).
 
 ## Reserved diagnostic slots (RAM 0xEC40..0xECFF)
 
@@ -107,10 +125,16 @@ This lives outside the PROM.
 ## Moving boundaries
 
 Before moving any of these boundaries:
-1. Update `cpnos_rom.ld` (MEMORY regions, ORIGIN/LENGTH, ASSERTs).
-2. Update the matching `#define` / `equ` in `resident.c`, `snios.s`,
+1. Update `payload.ld` (VMA, SCRATCH region, IVT placement, ASSERTs).
+2. Update the matching `#define` / `equ` in `cpnos_main.c`, `snios.s`,
    `cpnios-shim.asm`, and this file.
 3. Rebuild `cpnos.com` (so NDOS's baked-in SNIOS JT stub still
    points at the right resident address).
 4. Re-run `make cpnet-smoke` to confirm netboot + CCP + M80 still
    land correctly.
+
+If the relocator side (not the payload) needs to change:
+1. Update `relocator.ld` for the PROM split.
+2. Update `PROM0_TAIL_SIZE` in `Makefile` to match `.prom0_tail`'s
+   base (default 0x80 ⇒ 1920 B).
+3. `make cpnet-smoke`.

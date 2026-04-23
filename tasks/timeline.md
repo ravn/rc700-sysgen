@@ -161,6 +161,78 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 19: PROM-oblivious payload + C23 #embed relocator (Apr 23, 2026) — branch `conout-codes`
+
+- **Goal**: split the 2 KB PROM0 budget across both physical EPROMs
+  (PROM0 0x0000..0x07FF + PROM1 0x2000..0x27FF) to fit a full RC700
+  CONOUT control-code set (ported from `rcbios-in-c/bios.c:specc`),
+  AND restructure the build so the payload linker has *no* knowledge
+  of ROM geometry — class-of-bug elimination.
+
+- **Before**: one ELF, `.reset`+`.init` packed into PROM0, `.resident`
+  LMA'd into PROM0 tail, copied to 0xED00 at cold boot.  Switch
+  jumptables emitted to `.rodata` landed in `.init` (PROM0) with
+  absolute addresses baked in; after `OUT (0x18)` that RAM was
+  overwritten by CCP TPA and the dispatch table JP'd to garbage.
+  Root-caused during the first CONOUT refactor attempt when a new
+  `switch (c)` in `specc()` triggered exactly this — serial trace
+  showed banner then silence post-netboot.
+
+- **After** — new architecture in 4 new files + a refactor:
+  | File | Role |
+  |---|---|
+  | `payload.ld` | Links everything at VMA=LMA=0xED00 as one blob `.payload`.  No PROM regions, no AT(), no LMA tracking. |
+  | `relocator.c` | C23 `#embed` of `payload_a.bin` (PROM0 tail) and `payload_b.bin` (PROM1), two `__builtin_memcpy`s into 0xED00, tail call to `cpnos_cold_entry`. |
+  | `reset.s` | 3 instructions: `di; ld sp,0xED00; jp _relocate`.  Required because clang-z80 doesn't reliably honor `__attribute__((naked))` to set the stack before its own C prologue pushes. |
+  | `relocator.ld` | Places `.reset` at 0x0000, C body below 0x80, `.prom0_tail` at 0x80, `.prom1` at 0x2000.  Knows about PROMs — that knowledge is *only* here. |
+  | Makefile | Two-stage link: payload → `nm` extracts `_cpnos_cold_entry` → relocator linked with `--defsym` of that address.  `dd` splits `payload.bin` at byte 1920 into the two `#embed` inputs. |
+
+- **Side effects / collapses**:
+  - `cpnos_main.c`'s LMA-copy loop deleted (relocator does the copy).
+  - `resident_entry` merged into `cpnos_cold_entry`; two-stage
+    init/resident split was only there because of the LMA dance.
+  - `.resident`/`.init` section attributes kept for minimal churn
+    — the payload script just globs `.resident.*` + `.text.*` into
+    `.payload`.  No jumptable-routing footgun anymore: switch
+    tables and their readers are now co-located inside the payload.
+  - `cpnos_rom.ld` deleted.
+  - `impl_conout` gained full RC700 control-code dispatch (specc):
+    CR, LF, BS, TAB, BEL, clear, home, erase-EOL/EOS, insert/delete
+    line, cursor L/R/U/D, XY addressing (ctrl-F + two coord bytes).
+    Excludes bg/fg (0x13/14/15) — need BGSTAR buffer we don't carry.
+
+- **Sizes**: payload 2126 B at 0xED00.  PROM0 = 33 B relocator + 95 B
+  pad + 1920 B payload_a.  PROM1 = 206 B payload_b + 1842 B pad.
+  Both EPROMs actively used for the first time since Phase 18.
+
+- **Smoke**: `make cpnet-smoke` PASS end-to-end.  Full CCP + M80
+  assembly + L80 link + `sumtest.com` execution prints `CPNET OK A314`.
+
+- **Lessons**:
+  - A single switch statement was enough to trip the jumptable-
+    landed-in-wrong-PROM class of bug.  Architectural fix > local
+    workaround (`-fno-jump-tables` would have papered over it).
+  - C23 `#embed` is the right tool for carrying a binary payload
+    through a compile — it keeps the tool-flow declarative instead
+    of Python-shell-string-munging.  Two `#embed`s + linker-placed
+    sections is cleaner than one array + a runtime split.
+  - Clang-z80 lacks `naked` + reliable `[[noreturn]]` tail calls —
+    tiny asm shim for SP setup, accept `CALL` at end of `relocate`
+    (payload's cold entry is marked noreturn, so the return slot
+    is harmless).
+  - Reserving a fixed 128 B budget for the relocator code avoids
+    a chicken-and-egg (its size determines where payload_a lives,
+    but payload_a's size is known only after the split).
+
+- **Filed / TODO**:
+  - #50 — Investigate why `memcpy`/`memmove` compile to large code
+    at call sites (118 B for one `memmove` before inline-LDDR rewrite).
+  - #51 — Clean up dead `build_loader.py`, `cpnos-loader` target.
+  - #52 — Replace `EXX` in CRT/PIO ISRs with selective register
+    save: slave programs can legally use shadow regs (was #48).
+  - Earlier todo-laters still open: ISR-driven SIO-B RX ring (#44),
+    MEMORY_MAP.md needs a Phase 19 refresh.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature

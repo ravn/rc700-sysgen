@@ -1,146 +1,45 @@
-/* cpnos-rom resident chunk (Phase 1 seed)
+/* cpnos-rom BIOS implementation (RAM-resident).
  *
- * Code here lands in .resident: VMA at 0xF200, LMA packed into PROM0
- * after init code.  The cold-boot path memcpys LMA->VMA, then jumps.
+ * Linked into the payload at 0xED00+ as part of the single-blob build.
+ * Relocator reconstructs the payload from both EPROMs on cold boot
+ * (see relocator.s, payload.ld).  Code here starts executing after
+ * cpnos_main.c's _cpnos_cold_entry has done PROM disable, zero-page
+ * setup, SNIOS wiring, and JP to 0xD000.
  *
- * Phase 1 grows this to contain: BIOS jump table, console I/O, SNIOS
- * message layer, disk stubs, CFGTBL/DPH.
+ * Contents: BIOS jump-table implementations (CONOUT control codes,
+ * keyboard ring, disk stubs, boot/warm-boot handlers).
  */
 
 #include <stdint.h>
 #include "hal.h"
 
-/* Gate the section attribute on ELF output.  The Z80 cross-compiler
- * produces ELF — the attribute applies and RESIDENT code lands in
- * .resident at VMA 0xF200.  macOS system clang drives the editor's
- * LSP and produces Mach-O, which rejects a plain ELF section name;
- * leave the attribute off there so the IDE stops warning.  Code
- * sections are only consulted at link time, which always uses the
- * Z80 toolchain. */
+/* Historical section tag: keeps these symbols in `.resident`, which
+ * the payload linker script places at the start of the payload so
+ * the BIOS jump table lands at 0xED00 (ABI-fixed).  The section
+ * attribute only applies under the ELF compile path; macOS system
+ * clang (Mach-O, driving the IDE's LSP) rejects it. */
 #ifdef __ELF__
 #define RESIDENT __attribute__((section(".resident"), used))
 #else
 #define RESIDENT
 #endif
 
-static volatile uint8_t * const DISPLAY = (volatile uint8_t *)0xF800;
-
-RESIDENT
-static void disable_proms(void) {
-    _port_out(PORT_RAMEN, 0x00);
-}
-
-/* Busy-wait SIO-B transmit.  No hardware init yet — this is skeleton
- * code verifying that clang lowers to the expected IN/OUT sequence.
- * Next turn adds CTC+SIO init so this actually transmits. */
+/* Busy-wait SIO-B transmit.  Used by impl_conout to mirror every
+ * console byte to the null-modem log. */
 RESIDENT
 static void console_putc(uint8_t c) {
     while ((_port_in(PORT_SIO_B_CTRL) & SIO_RR0_TX_BUF_EMPTY) == 0) { }
     _port_out(PORT_SIO_B_DATA, c);
 }
 
-/* Resident tail-call trampoline: `JP (HL)` from snios.s, survives
- * PROM disable unlike clang's PROM-resident __call_iy helper. */
+/* Resident tail-call trampoline: `JP (HL)` from snios.s. */
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
-
-/* Interrupt enable helper from isr.s — deferred until after netboot
- * and SNIOS-JT copy so CRT refresh ISR doesn't race SIO polling. */
-extern void enable_interrupts(void);
-
-/* SNIOS NTWKIN is still called from the cold path as a sanity touch of
- * CFGTBL before NDOS takes over.  SNDMSG/RCVMSG smoke calls are gone —
- * NDOS drives the wire now. */
-extern uint8_t snios_ntwkin(void);
-
-/* SNIOS jump table from snios.s (8 x 3-byte `JP <impl>` = 24 bytes).
- * DRI NDOS.SPR is linked expecting SNIOS's JT at NDOS_BASE + code_len
- * (= 0xEA00 with NDOS at 0xDE00).  We copy our JT there at cold-boot
- * so NDOS's CALL NTWKIN/CNFTBL/SNDMSG/RCVMSG/etc. reach our SNIOS
- * implementation.  The JT entries use absolute targets, so the copy
- * works from either location. */
-extern uint8_t snios_jt[24];
-#define NDOS_SNIOS_ADDR  0xEA00  /* NDOS_BASE(0xDE00) + NDOS code_len(0xC00) */
-
-RESIDENT
-[[noreturn]] void resident_entry(uint16_t entry) {
-    /* We are at VMA 0xED00 (RAM), PROMs still mapped at 0x0000/0x2000.
-     * First act: disable the PROMs so 0x0000..0x07FF and 0x2000..0x27FF
-     * are RAM.  Safe because we execute from 0xED00+. */
-    disable_proms();
-
-    /* CP/M 2.2 zero page:
-     *   0x0000..0x0002  JP _bios_wboot   (c3 03 f2)
-     *   0x0003          IOBYTE (default 0 = all TTY)
-     *   0x0004          current drive/user (default 0 = A:, user 0)
-     *   0x0005..0x0007  JP NDOS+6        (c3 06 de)
-     *
-     * Session #28's null-trap (JP 0x0000) was a diagnostic that
-     * worked, but NDOS's COLDST reads TOP+1 and uses it as the BIOS
-     * base for its TLBIOS-walk that patches intercepts into BIOS JT.
-     * With TOP+1=0x0000 the walk scribbled wrapper addresses across
-     * page 0 and clobbered our BDOS vector at 0x0005.  Real JP
-     * _bios_wboot makes TOP+1=0xF203; NDOS walks the BIOS JT at
-     * 0xF200+ where the intercepts belong.
-     *
-     * The 0xC3 opcode at 0x0000 also doubles as the PROM-disable
-     * proof (would read back 0xF3 if PROM were still mapped). */
-    /* CP/M 2.2 zero page: JP _bios_wboot, IOBYTE, current-drive/user,
-     * JP NDOS+6.  Inline LDIR: __builtin_memcpy to a literal 0 address
-     * is treated as UB by clang and the entire function gets deleted;
-     * the loop version compiled but cost ~60 B over the raw LDIR. */
-    static const uint8_t ZP_INIT[8] = {
-        0xC3, 0x03, 0xED,     /* JP _bios_wboot (BIOS JT at 0xED00+3) */
-        0x00,                  /* IOBYTE */
-        0x00,                  /* current drive/user */
-        0xC3, 0x06, 0xDE,     /* JP NDOS+6 (NDOS at 0xDE00) */
-    };
-    const void *src = ZP_INIT;
-    void       *dst = (void *)0;
-    unsigned    n   = 8;
-    __asm__ volatile("ldir"
-        : "+{de}"(dst), "+{hl}"(src), "+{bc}"(n)
-        :
-        : "memory");
-
-    /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
-     * own NTWKIN may re-run this; that's fine (idempotent). */
-    snios_ntwkin();
-
-    /* Copy our 24-byte SNIOS jump table to the address where DRI
-     * NDOS.SPR expects SNIOS to live (NDOS + code_len). */
-    __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
-
-    /* Enable interrupts now that polled netboot is done and SNIOS is
-     * wired up.  CRT refresh ISR (IVT slot 2 = CTC ch2) starts firing
-     * and the display wakes up. */
-    enable_interrupts();
-
-    /* Hand off to cpnos.com's entry at 0xCC00 (first byte of the loaded
-     * image = cpnos.asm's `JP BIOS` vector).  BIOS's boot routine sets
-     * up the zero page (WBOOT vector -> NDOSRL+0x303, BDOS vector ->
-     * BDOS), copies its 17-entry BIOS JT to NDOSRL+0x300, then jumps
-     * to NDOS+3 (COLDST).  Our resident zero-page setup gets
-     * overwritten — that's expected and correct for CP/NOS.
-     *
-     * If netboot failed (entry==0) we have nothing useful to run,
-     * so halt.  The fallback diagnostic banner was useful while
-     * bringing up the boot path in Phases 16-17; with the path now
-     * green it's pure ROM weight. */
-    if (entry != 0) {
-        jump_to(0xD000);
-    }
-    for (;;) { }
-}
 
 /* -------------------------------------------------------------------
  * BIOS jump-table implementations.
  *
  * Targets of the `jp nn` entries in bios_jt.s.  Names follow the
  * pattern `impl_<entry>` so the linker resolves the asm references.
- * Phase 1 skeleton: CONOUT is real (SIO-B), CONST/CONIN are SIO-B
- * polled, disk entries are stubs because NDOS bypasses BIOS for
- * network drives.  Full NDOS hook-up comes with CFGTBL in a later
- * increment.
  * ------------------------------------------------------------------- */
 
 RESIDENT
@@ -183,10 +82,34 @@ uint8_t impl_const(void) {
     return 0x00;
 }
 
-/* Cursor position.  Lives in .scratch_bss (default-zero at BSS init),
- * updated by impl_conout and mirrored to the 8275 after each write. */
-static uint8_t curx;
-static uint8_t cury;
+/* -------------------------------------------------------------------
+ * CRT CONOUT — RC700 control code set.
+ *
+ * Ported from rcbios-in-c/bios.c:specc().  Skips bg/fg overlay codes
+ * (0x13/14/15) — they need a BGSTAR bitmap CP/NOS doesn't carry.
+ *
+ *   0x01 insert line        0x0C clear screen
+ *   0x02 delete line        0x0D carriage return
+ *   0x05 cursor left (ENQ)  0x18 cursor right
+ *   0x06 XY cursor addr     0x1A cursor up
+ *   0x07 bell               0x1D home
+ *   0x08 cursor left (BS)   0x1E erase to EOL
+ *   0x09 TAB (4 rights)     0x1F erase to EOS
+ *   0x0A cursor down
+ * ------------------------------------------------------------------- */
+
+#define SCRN_COLS 80
+#define SCRN_ROWS 25
+
+/* Cursor + XY-addressing state.  Lives in .scratch_bss (zero-init). */
+static uint8_t curx;          /* 0..79 */
+static uint8_t cury;          /* 0..24 */
+static uint8_t xflg;          /* 0 = normal; 2/1 = awaiting XY coord bytes */
+static uint8_t xy_first;      /* first coord saved between XY calls */
+
+/* screen[row*80 + col].  Macro avoids a function-call overhead at each
+ * site (clang-z80 doesn't inline small helpers reliably at -Oz). */
+#define CELL(x, y)  ((uint8_t *)DISPLAY_ADDR + (uint16_t)(y) * SCRN_COLS + (x))
 
 RESIDENT
 static void crt_set_cursor(uint8_t x, uint8_t y) {
@@ -196,14 +119,145 @@ static void crt_set_cursor(uint8_t x, uint8_t y) {
 }
 
 RESIDENT
-static void crt_scroll_up(void) {
-    /* Move rows 1..24 down to 0..23, then clear row 24 with spaces.
-     * Use the runtime memcpy/memset stubs so these become single LDIR
-     * / LDIR pairs instead of per-cell C loops. */
+static void scroll_up(void) {
+    /* Move rows 1..24 to 0..23, blank row 24. */
     uint8_t *d = (uint8_t *)DISPLAY_ADDR;
-    __builtin_memcpy(d, d + 80, 24U * 80U);
-    __builtin_memset(d + 24U * 80U, ' ', 80);
+    __builtin_memcpy(d, d + SCRN_COLS, (SCRN_ROWS - 1) * (unsigned)SCRN_COLS);
+    __builtin_memset(CELL(0, SCRN_ROWS - 1), ' ', SCRN_COLS);
 }
+
+/* --- cursor movement ---------------------------------------------- */
+
+RESIDENT
+static void cursor_right(void) {
+    if (++curx < SCRN_COLS) return;
+    curx = 0;
+    if (cury + 1 < SCRN_ROWS) cury++;
+    else scroll_up();
+}
+
+RESIDENT
+static void cursor_left(void) {
+    if (curx != 0) { curx--; return; }
+    curx = SCRN_COLS - 1;
+    cury = (cury != 0) ? cury - 1 : SCRN_ROWS - 1;
+}
+
+RESIDENT
+static void cursor_down(void) {
+    if (cury + 1 < SCRN_ROWS) cury++;
+    else scroll_up();
+}
+
+RESIDENT
+static void cursor_up(void) {
+    cury = (cury != 0) ? cury - 1 : SCRN_ROWS - 1;
+}
+
+RESIDENT
+static void home(void) { curx = 0; cury = 0; }
+
+RESIDENT
+static void tab(void) {
+    cursor_right(); cursor_right(); cursor_right(); cursor_right();
+}
+
+/* --- screen ops --------------------------------------------------- */
+
+RESIDENT
+static void clear_screen(void) {
+    __builtin_memset((void *)DISPLAY_ADDR, ' ',
+                     (unsigned)SCRN_ROWS * SCRN_COLS);
+    home();
+}
+
+RESIDENT
+static void erase_to_eol(void) {
+    __builtin_memset(CELL(curx, cury), ' ', SCRN_COLS - curx);
+}
+
+RESIDENT
+static void erase_to_eos(void) {
+    uint16_t pos = (uint16_t)cury * SCRN_COLS + curx;
+    __builtin_memset(CELL(curx, cury), ' ',
+                     (unsigned)SCRN_ROWS * SCRN_COLS - pos);
+}
+
+RESIDENT
+static void delete_line(void) {
+    /* Shift rows cury+1..24 up to cury..23, blank row 24. */
+    if (cury + 1 < SCRN_ROWS) {
+        __builtin_memcpy(CELL(0, cury), CELL(0, cury + 1),
+                         (unsigned)(SCRN_ROWS - 1 - cury) * SCRN_COLS);
+    }
+    __builtin_memset(CELL(0, SCRN_ROWS - 1), ' ', SCRN_COLS);
+}
+
+RESIDENT
+static void insert_line(void) {
+    /* Shift rows cury..23 down by one row, blank row cury.  Regions
+     * overlap (dst > src) so we need LDDR — inline-asm form is far
+     * smaller than memmove (which carries direction-compare logic). */
+    if (cury + 1 < SCRN_ROWS) {
+        uint16_t count = (uint16_t)(SCRN_ROWS - 1 - cury) * SCRN_COLS;
+        const void *src = CELL(SCRN_COLS - 1, SCRN_ROWS - 2);
+        void       *dst = CELL(SCRN_COLS - 1, SCRN_ROWS - 1);
+        __asm__ volatile("lddr"
+            : "+{de}"(dst), "+{hl}"(src), "+{bc}"(count)
+            :
+            : "memory");
+    }
+    __builtin_memset(CELL(0, cury), ' ', SCRN_COLS);
+}
+
+/* --- XY addressing (ctrl-F, then two coord bytes) ----------------- */
+
+RESIDENT
+static void start_xy(void) { xflg = 2; home(); }
+
+RESIDENT
+static void xy_step(uint8_t c) {
+    uint8_t val = (c & 0x7F) - 32;       /* coord bytes are offset by ' ' */
+    if (--xflg != 0) {
+        xy_first = val;                  /* first byte: save X */
+        return;
+    }
+    /* Second byte: Y, then place cursor.  Modular wrap matches rcbios's
+     * CHKDC.  Input range is 0..95, so unrolled subtract stays bounded
+     * — clang lowers `%` to a libcall (___umodqi3) which we don't link. */
+    if (val >= SCRN_ROWS)      val -= SCRN_ROWS;
+    if (val >= SCRN_ROWS)      val -= SCRN_ROWS;
+    if (val >= SCRN_ROWS)      val -= SCRN_ROWS;
+    if (xy_first >= SCRN_COLS) xy_first -= SCRN_COLS;
+    curx = xy_first;
+    cury = val;
+}
+
+/* --- control-byte dispatch (0x00..0x1F) --------------------------- */
+
+RESIDENT
+static void specc(uint8_t c) {
+    switch (c) {
+    case 0x01: insert_line();          break;
+    case 0x02: delete_line();          break;
+    case 0x05: cursor_left();          break;  /* ENQ = BS */
+    case 0x06: start_xy();             break;
+    case 0x07: _port_out(PORT_BIB, 0); break;  /* bell */
+    case 0x08: cursor_left();          break;
+    case 0x09: tab();                  break;
+    case 0x0A: cursor_down();          break;
+    case 0x0C: clear_screen();         break;
+    case 0x0D: curx = 0;               break;
+    case 0x18: cursor_right();         break;
+    case 0x1A: cursor_up();            break;
+    case 0x1D: home();                 break;
+    case 0x1E: erase_to_eol();         break;
+    case 0x1F: erase_to_eos();         break;
+    default:                           break;  /* unhandled ctrl: drop */
+    }
+}
+
+/* --- public CONIN / CONOUT ---------------------------------------- */
 
 RESIDENT
 uint8_t impl_conin(void) {
@@ -220,39 +274,25 @@ uint8_t impl_conin(void) {
 }
 
 RESIDENT
-static void advance_row(void) {
-    /* CR+LF: column 0, next row, scroll if past the last. */
-    curx = 0;
-    if (cury + 1 >= 25) {
-        crt_scroll_up();
-    } else {
-        cury++;
-    }
-}
-
-RESIDENT
 void impl_conout(uint8_t c) {
-    /* Minimal CP/M CONOUT: printable chars go to the current cursor
-     * position on the 8275 display; CR resets column; LF (treated
-     * as CR+LF) advances row and scrolls at the bottom.  Serial
-     * mirror goes to SIO-B so the null-modem log captures output. */
+    /* Serial mirror first — captures the raw byte stream for null-modem
+     * logs regardless of what we do to the CRT side. */
     console_putc(c);
 
-    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
-
-    if (c == '\r') {
-        curx = 0;
+    if (xflg != 0) {
+        xy_step(c);
     } else if (c == '\n') {
-        advance_row();
-    } else if (c >= 0x20) {
-        d[(uint16_t)cury * 80U + curx] = c;
-        if (++curx >= 80) {
-            advance_row();
-        }
+        /* Treat LF as CR+LF for compatibility with code that emits bare
+         * LFs (CCP and the netboot status line do this).  rcbios's specc
+         * keeps LF as cursor-down only, but rcbios's CCP path differs. */
+        cursor_down();
+        curx = 0;
+    } else if (c < 0x20) {
+        specc(c);
+    } else {
+        *CELL(curx, cury) = c;
+        cursor_right();
     }
-    /* 0x0C form-feed, 0x08 BS, 0x09 TAB, 0x07 BEL: ignored — add
-     * as CCP output demands them. */
-
     crt_set_cursor(curx, cury);
 }
 
