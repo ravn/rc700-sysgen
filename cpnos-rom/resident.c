@@ -84,30 +84,31 @@ RESIDENT
      *
      * The 0xC3 opcode at 0x0000 also doubles as the PROM-disable
      * proof (would read back 0xF3 if PROM were still mapped). */
-    *(volatile uint8_t *)0x0000 = 0xC3;     /* JP opcode */
-    *(volatile uint8_t *)0x0001 = 0x03;     /* lo(_bios_wboot) */
-    *(volatile uint8_t *)0x0002 = 0xED;     /* hi(_bios_wboot) = BIOS 0xED03
-                                             * (BIOS_BASE moved from 0xF200
-                                             * to 0xED00 session 33 follow-
-                                             * up — see cpnos_rom.ld). */
-    *(volatile uint8_t *)0x0003 = 0x00;     /* IOBYTE */
-    *(volatile uint8_t *)0x0004 = 0x00;     /* current drive/user */
-    *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
-    *(volatile uint8_t *)0x0006 = 0x06;     /* lo(NDOS_BASE + 6) */
-    *(volatile uint8_t *)0x0007 = 0xDE;     /* hi(NDOS_BASE + 6) — NDOS at 0xDE00 */
+    /* CP/M 2.2 zero page: JP _bios_wboot, IOBYTE, current-drive/user,
+     * JP NDOS+6.  Inline LDIR: __builtin_memcpy to a literal 0 address
+     * is treated as UB by clang and the entire function gets deleted;
+     * the loop version compiled but cost ~60 B over the raw LDIR. */
+    static const uint8_t ZP_INIT[8] = {
+        0xC3, 0x03, 0xED,     /* JP _bios_wboot (BIOS JT at 0xED00+3) */
+        0x00,                  /* IOBYTE */
+        0x00,                  /* current drive/user */
+        0xC3, 0x06, 0xDE,     /* JP NDOS+6 (NDOS at 0xDE00) */
+    };
+    const void *src = ZP_INIT;
+    void       *dst = (void *)0;
+    unsigned    n   = 8;
+    __asm__ volatile("ldir"
+        : "+{de}"(dst), "+{hl}"(src), "+{bc}"(n)
+        :
+        : "memory");
 
     /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
      * own NTWKIN may re-run this; that's fine (idempotent). */
     snios_ntwkin();
 
-    /* Copy our SNIOS jump table to the address where DRI NDOS.SPR
-     * expects SNIOS to live (NDOS + code_len).  Session #28 root
-     * cause of the null-loop: without this, NDOS's CALL NTWKIN goes
-     * to zero bytes and eventually dereferences BDOSE while BDOSE
-     * is still uninitialised. */
-    for (uint8_t i = 0; i < 24; ++i) {
-        ((volatile uint8_t *)NDOS_SNIOS_ADDR)[i] = snios_jt[i];
-    }
+    /* Copy our 24-byte SNIOS jump table to the address where DRI
+     * NDOS.SPR expects SNIOS to live (NDOS + code_len). */
+    __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
 
     /* Enable interrupts now that polled netboot is done and SNIOS is
      * wired up.  CRT refresh ISR (IVT slot 2 = CTC ch2) starts firing
