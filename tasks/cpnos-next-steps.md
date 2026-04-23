@@ -35,32 +35,6 @@ submodule bump 1858833b.
   Fixed by relocating IVT to 0xEC00 and running memcpy before
   setup_ivt.
 
-### Open: delete or wire in `cpnos-rom/rc700_console.c`
-
-The file is 266 lines / ~26 functions — a parallel implementation of
-the RC700 CONOUT state machine alongside the live `resident.c` one,
-from an abandoned refactor attempt.  It isn't in `PAYLOAD_OBJS` so
-it never builds and its bit-rot is invisible to the smoke tests.
-
-Three tax points:
-- grep/Read hits both files for `specc`, `delete_line`, etc. —
-  anyone reading the source has to disambiguate every time.
-- `RESIDENT` macro, `DISPLAY_ADDR`, header wiring all duplicated.
-- CI noise: clangd flags issues in the file (seen in the live
-  diagnostics throughout Phase 19) since it uses `memcpy`/`memset`
-  as externs that don't resolve in the local build context.
-
-Decision fork: (a) delete it outright — the live `resident.c`
-already exercises the whole control-code set via `make conout-acid`,
-and the XY addressing convention has been cross-tested; or
-(b) replace `resident.c` with it — requires updating PAYLOAD_OBJS,
-wiring its public API (`rc700_console_putc`, `rc700_console_init`)
-into `impl_conout`, and re-running both integration tests.
-
-Recommendation: (a) delete.  Until/unless someone is actively
-porting the console to that shape, it's a tax with no offsetting
-benefit.  Can always be resurrected from git history.
-
 ### Open: VT100 subset on top of RC700 CONOUT
 
 Investigate implementing a reasonable subset of VT100 terminal escape
