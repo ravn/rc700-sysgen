@@ -4,7 +4,7 @@
  *   .cpnos_code at 0xD000 (code: cpnos stub + cpndos + cpnios + cpbdos + cpbios)
  *   .cpnos_data at 0xCC00 (data: NDOSRL + BDOSDS)
  *
- * Must sit below our cpnos-rom BIOS at 0xF200 and far below display RAM
+ * Must sit below our cpnos-rom BIOS at 0xED00 and far below display RAM
  * at 0xF800 (hardware-fixed for 8275 DMA).  TPA = 0x0100..0xCBFF.
  *
  * The cpnos stub (cpnos.o) must appear first in .cpnos_code so BOOT
