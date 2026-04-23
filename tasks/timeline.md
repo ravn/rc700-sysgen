@@ -182,8 +182,29 @@
   10 s of SIO-B silence — practical workaround for issue #44 (the
   "had to type Enter manually" annoyance) until Tier 4 gives us an
   ISR-driven SIO-B ring.  Doesn't change PROM size.
-- **Current slack**: **171 B** (from 11 B).  Remaining Tier 2 + 3
-  items tracked in #47.
+- **Current slack after 12 commits**: **524 B** (from 11 B).
+  | Step | Delta | Slack |
+  |---|---|---|
+  | main@155cca7 baseline | — | 11 B |
+  | Tier 1: strip trace code | +121 | 132 B |
+  | port-init table | +39 | 171 B |
+  | netboot memcpy + banner trim | +90 | 261 B |
+  | impl_conout dedup + no-FF | +54 | 315 B |
+  | cfgtbl → BSS (runtime init) | +130 | 445 B |
+  | SNIOS RECVBT tail merge | +4 | 449 B |
+  | crt_scroll_up memcpy/memset + FCB trim | +29 | 478 B |
+  | zero-page + JT inline LDIR | +32 | 510 B |
+  | display-clear memset + 8-byte loop fix | +14 | 524 B |
+- **Filed along the way**: #47 (tracking issue), #48 (ISRs unconditionally
+  EXX/EX AF,AF' — unsafe), #49 (clang elides memcpy-to-0), and
+  ravn/llvm-z80#73 (8-byte inline memcpy cost model).
+- **Lessons**: (a) Compiler's `-Oz` inliner can still generate
+  pathological code for small memcpys — always disassemble and
+  measure, don't trust the intent; (b) BSS-as-ROM-substitute for
+  mostly-zero static data paid the biggest single win (130 B);
+  (c) Inline `ldir` via clang-z80's +{de}/+{hl}/+{bc} constraints
+  is the right tool when \_\_builtin_memcpy gets UB-elided or
+  cost-modeled into a pessimal inline.
 - **Lessons**: (a) kill diagnostic code with the bug it diagnosed,
   not later — it had been burning space in every boot for two
   phases; (b) when a pattern appears N times inline, a table + loop
