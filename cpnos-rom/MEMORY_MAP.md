@@ -1,8 +1,9 @@
 # CP/NOS RC702 Memory Map
 
-Layout as of 2026-04-22 (Phase 17 PASS).  Authoritative source of truth
-for fixed addresses is `cpnos_rom.ld` + `build_cpnos_layout.py`; this
-document summarizes.  Update both sides when you move a boundary.
+Layout as of 2026-04-23 (Phase 18, branch `snios-compact` — PROM0
+down to 0x05F4 = 524 B of slack).  Authoritative source for fixed
+addresses is `cpnos_rom.ld`; this document summarizes.  Update both
+sides when you move a boundary.
 
 ## 64 KB RAM overview
 
@@ -22,26 +23,25 @@ document summarizes.  Update both sides when you move a boundary.
        │                        │    0xDF21          BDOS entry
 0xEA00 ├────────────────────────┤
        │ SNIOS resident         │  Our Z80 port of DRI SNIOS (snios.s)
-       │ 0xEA00..0xEA??         │  Jump table (24 B) + body (~460 B).
+       │ 0xEA00..0xEA1F         │  NDOS expects SNIOS JT here.
        │                        │  cpnios-shim.asm forwards here.
 0xEA20 ├────────────────────────┤
-       │ SCRATCH (BSS)          │  netboot msgbuf, misc diag scratch
-       │ 0xEA20..0xEB1F         │  256 B (linker region SCRATCH)
-0xEB20 ├────────────────────────┤
-       │ Cold-boot stack        │  SP=0xED00 at entry; grows down.
-       │ 0xEB20..0xECFF         │  Shared with diag breadcrumbs below.
+       │ SCRATCH (BSS)          │  0xEA20..0xEBFF (widened to 0x200
+       │ kbd_head/tail          │    in Phase 18 to host cfgtbl).
+       │ 0xEA22..0xEA31 kbd_ring│   0xEA20 kbd_head
+       │ 0xEA32 curx            │   0xEA21 kbd_tail
+       │ 0xEA33 cury            │   0xEA22..0xEA31  kbd_ring[16]
+       │ 0xEA37..0xEAFE cfgtbl  │   0xEA32 curx
+       │ (cfgtbl=0xEA37, 173 B) │   0xEA33 cury
+       │                        │   0xEA37..0xEAFE  cfgtbl (173 B,
+       │                        │                   runtime-init'd)
+       │                        │   0xEAFF..0xEBxx  msg[] (netboot)
 0xEC00 ├────────────────────────┤
        │ IM2 IVT (36 B)         │  0xEC00..0xEC23 — 18 x u16 ISR ptrs.
-       │ Diag breadcrumbs       │  0xEC40 impl_conout count
-       │                        │  0xEC41 last conout byte
-       │                        │  0xEC42 impl_const count
-       │                        │  0xEC43 impl_conin count
-       │                        │  0xEC44 netboot step (0x01..0xFF)
-       │                        │  0xEC45 last netboot rc
-       │                        │  0xEC46..0xEC49  CONIN 4-slot ring
-       │                        │  0xEC4A CONIN ring head
-       │                        │  0xEC7E..0xEC7F  READ_SEQ 16-bit ct
-       │                        │  0xEC80..0xECFF  per-FNC SNDMSG ct
+       │ Cold-boot stack below  │  SP=0xED00 at cold-boot entry.
+       │ (diag breadcrumbs at   │  Diag scratch page 0xEC40..0xECFF
+       │  0xEC40..0xECFF were   │  stripped in Phase 18; region free
+       │  cleared in Phase 18)  │  for future use (see #47/#48).
 0xED00 ├────────────────────────┤
        │ BIOS resident          │  Our retargeted RC702 BIOS, in C:
        │ 0xED00..~0xF24F        │    0xED00  bios JT (51 B, 17 × 3)
@@ -60,10 +60,10 @@ document summarizes.  Update both sides when you move a boundary.
 ```
 0x0000 ┌────────────────────────┐
        │ PROM0  (roa375.ic66)   │  2 KB.  Everything: reset.s, cpnos_main,
-       │ 0x0000..0x0270         │  init, netboot_mpm.  Followed by the
-       │                        │  resident LMA block (1412 B) that is
-       │ 0x0271..0x07F4         │  memcpy'd to 0xED00 at cold boot.
-0x07F5 ├ 0xFF padding (11 B) ───┤
+       │ 0x0000..0x021B         │  init, netboot_mpm.  Followed by the
+       │                        │  resident LMA block (984 B) that is
+       │ 0x021C..0x05F3         │  memcpy'd to 0xED00 at cold boot.
+0x05F4 ├ 0xFF padding (524 B) ──┤
 0x07FF                          │
 0x2000 ┌────────────────────────┐
        │ PROM1  (prom1.ic65)    │  Empty.  Socket is wired but the
@@ -82,23 +82,14 @@ after the disable.
 
 ## Reserved diagnostic slots (RAM 0xEC40..0xECFF)
 
-This page is the agreed-on scratch for poke-to-reveal debugging.
-It survives the resident-copy (it's above the IVT at 0xEC00..0xEC23
-and below the BIOS at 0xED00), and it's easy to read via a MAME
-memory tap.
+All prod-build trace bumps were removed in Phase 18 (commit
+c54229c).  Page 0xEC40..0xECFF is free for future diagnostic
+scratch; reservations from Phase 16-17 are no longer live code.
 
-| Range          | Owner         | Purpose                          |
-|----------------|---------------|----------------------------------|
-| 0xEC40..0xEC43 | `resident.c`  | CONOUT/CONST/CONIN diag counters |
-| 0xEC44..0xEC45 | `netboot_mpm` | Netboot step code + last rc      |
-| 0xEC46..0xEC4A | `resident.c`  | CONIN 4-byte ring + head index   |
-| 0xEC7E..0xEC7F | `snios.s`     | 16-bit READ_SEQ counter          |
-| 0xEC80..0xECFF | `snios.s`     | Saturating uint8 per-FNC SNDMSG  |
-
-The `mame_smoke_dump.lua` script snapshots the 0xEC80 page every
-second and writes deltas to `/tmp/cpnos_fnc_counters.txt`.  A
-separate tap on CPU-fetch of 0x0005 dumps every BDOS call (fn, DE,
-caller, DMA-buffer contents) to `/tmp/cpnos_bdos_trace.txt`.
+A MAME Lua tap on CPU-fetch of 0x0005 (in `mame_smoke_dump.lua`)
+remains the primary external diagnostic — dumps every BDOS call
+(fn, DE, caller, DMA-buffer contents) to `/tmp/cpnos_bdos_trace.txt`.
+This lives outside the PROM.
 
 ## Key non-address facts
 

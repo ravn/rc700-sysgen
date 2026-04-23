@@ -84,30 +84,31 @@ RESIDENT
      *
      * The 0xC3 opcode at 0x0000 also doubles as the PROM-disable
      * proof (would read back 0xF3 if PROM were still mapped). */
-    *(volatile uint8_t *)0x0000 = 0xC3;     /* JP opcode */
-    *(volatile uint8_t *)0x0001 = 0x03;     /* lo(_bios_wboot) */
-    *(volatile uint8_t *)0x0002 = 0xED;     /* hi(_bios_wboot) = BIOS 0xED03
-                                             * (BIOS_BASE moved from 0xF200
-                                             * to 0xED00 session 33 follow-
-                                             * up — see cpnos_rom.ld). */
-    *(volatile uint8_t *)0x0003 = 0x00;     /* IOBYTE */
-    *(volatile uint8_t *)0x0004 = 0x00;     /* current drive/user */
-    *(volatile uint8_t *)0x0005 = 0xC3;     /* JP opcode */
-    *(volatile uint8_t *)0x0006 = 0x06;     /* lo(NDOS_BASE + 6) */
-    *(volatile uint8_t *)0x0007 = 0xDE;     /* hi(NDOS_BASE + 6) — NDOS at 0xDE00 */
+    /* CP/M 2.2 zero page: JP _bios_wboot, IOBYTE, current-drive/user,
+     * JP NDOS+6.  Inline LDIR: __builtin_memcpy to a literal 0 address
+     * is treated as UB by clang and the entire function gets deleted;
+     * the loop version compiled but cost ~60 B over the raw LDIR. */
+    static const uint8_t ZP_INIT[8] = {
+        0xC3, 0x03, 0xED,     /* JP _bios_wboot (BIOS JT at 0xED00+3) */
+        0x00,                  /* IOBYTE */
+        0x00,                  /* current drive/user */
+        0xC3, 0x06, 0xDE,     /* JP NDOS+6 (NDOS at 0xDE00) */
+    };
+    const void *src = ZP_INIT;
+    void       *dst = (void *)0;
+    unsigned    n   = 8;
+    __asm__ volatile("ldir"
+        : "+{de}"(dst), "+{hl}"(src), "+{bc}"(n)
+        :
+        : "memory");
 
     /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
      * own NTWKIN may re-run this; that's fine (idempotent). */
     snios_ntwkin();
 
-    /* Copy our SNIOS jump table to the address where DRI NDOS.SPR
-     * expects SNIOS to live (NDOS + code_len).  Session #28 root
-     * cause of the null-loop: without this, NDOS's CALL NTWKIN goes
-     * to zero bytes and eventually dereferences BDOSE while BDOSE
-     * is still uninitialised. */
-    for (uint8_t i = 0; i < 24; ++i) {
-        ((volatile uint8_t *)NDOS_SNIOS_ADDR)[i] = snios_jt[i];
-    }
+    /* Copy our 24-byte SNIOS jump table to the address where DRI
+     * NDOS.SPR expects SNIOS to live (NDOS + code_len). */
+    __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
 
     /* Enable interrupts now that polled netboot is done and SNIOS is
      * wired up.  CRT refresh ISR (IVT slot 2 = CTC ch2) starts firing
@@ -121,29 +122,13 @@ RESIDENT
      * to NDOS+3 (COLDST).  Our resident zero-page setup gets
      * overwritten — that's expected and correct for CP/NOS.
      *
-     * Fallback: if no netboot (entry==0), fall through to the
-     * diagnostic banner — useful when running without a server. */
+     * If netboot failed (entry==0) we have nothing useful to run,
+     * so halt.  The fallback diagnostic banner was useful while
+     * bringing up the boot path in Phases 16-17; with the path now
+     * green it's pure ROM weight. */
     if (entry != 0) {
         jump_to(0xD000);
     }
-
-    /* Fallback diagnostic banner (reached only when entry==0). */
-    *(volatile uint8_t *)0xEC00 = 0xA5;
-    DISPLAY[0] = 'C';
-    DISPLAY[1] = 'P';
-    DISPLAY[2] = 'N';
-    DISPLAY[3] = 'O';
-    DISPLAY[4] = 'S';
-    *(volatile uint8_t *)0xEC01 = 0x5A;
-
-    console_putc('C');
-    console_putc('P');
-    console_putc('N');
-    console_putc('O');
-    console_putc('S');
-    console_putc('\r');
-    console_putc('\n');
-
     for (;;) { }
 }
 
@@ -191,22 +176,8 @@ uint8_t kbd_ring[KBD_RING_SIZE];
 uint8_t kbd_head;   /* written by ISR */
 uint8_t kbd_tail;   /* written by CONIN */
 
-/* Breadcrumbs in scratch RAM for diagnosing issue #38 (netboot boot flaky,
- * CONOUT sometimes never called).  Keep in place until the boot path is
- * reliably green — see mame_boot_test.lua dump of 0xEC00+96.
- *   0xEC40  impl_conout call count
- *   0xEC41  last byte passed to impl_conout
- *   0xEC42  impl_const call count
- *   0xEC43  impl_conin call count
- */
-#define TRACE_CONOUT_CNT   ((volatile uint8_t *)0xEC40)
-#define TRACE_CONOUT_LAST  ((volatile uint8_t *)0xEC41)
-#define TRACE_CONST_CNT    ((volatile uint8_t *)0xEC42)
-#define TRACE_CONIN_CNT    ((volatile uint8_t *)0xEC43)
-
 RESIDENT
 uint8_t impl_const(void) {
-    (*TRACE_CONST_CNT)++;
     if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) return 0xFF;
     if (kbd_head != kbd_tail) return 0xFF;
     return 0x00;
@@ -226,86 +197,61 @@ static void crt_set_cursor(uint8_t x, uint8_t y) {
 
 RESIDENT
 static void crt_scroll_up(void) {
-    /* Move rows 1..24 down to 0..23, clear row 24.  Each row is 80B.
-     * Straightforward copy — no LDIR intrinsic in this C file, rely
-     * on the compiler to unroll or let runtime.s helpers do it. */
-    volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
-    for (uint16_t i = 0; i < 24U * 80U; ++i) {
-        d[i] = d[i + 80];
-    }
-    for (uint8_t i = 0; i < 80; ++i) {
-        d[24U * 80U + i] = ' ';
-    }
+    /* Move rows 1..24 down to 0..23, then clear row 24 with spaces.
+     * Use the runtime memcpy/memset stubs so these become single LDIR
+     * / LDIR pairs instead of per-cell C loops. */
+    uint8_t *d = (uint8_t *)DISPLAY_ADDR;
+    __builtin_memcpy(d, d + 80, 24U * 80U);
+    __builtin_memset(d + 24U * 80U, ' ', 80);
 }
 
 RESIDENT
 uint8_t impl_conin(void) {
-    (*TRACE_CONIN_CNT)++;
     for (;;) {
         if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) {
-            uint8_t c = _port_in(PORT_SIO_B_DATA);
-            /* Ring-log the 4 most recent SIO-B RX bytes at 0xEC46..0xEC49
-             * so we can tell whether impl_conin is delivering the real
-             * bytes or something else.  Issue #38 input diagnostic. */
-            uint8_t idx = (*(volatile uint8_t *)0xEC4A) & 0x03;
-            ((volatile uint8_t *)0xEC46)[idx] = c;
-            *(volatile uint8_t *)0xEC4A = (uint8_t)(idx + 1);
-            return c;
+            return _port_in(PORT_SIO_B_DATA);
         }
         if (kbd_head != kbd_tail) {
             uint8_t c = kbd_ring[kbd_tail];
             kbd_tail = (kbd_tail + 1) & (KBD_RING_SIZE - 1);
-            uint8_t idx = (*(volatile uint8_t *)0xEC4A) & 0x03;
-            ((volatile uint8_t *)0xEC46)[idx] = c;
-            *(volatile uint8_t *)0xEC4A = (uint8_t)(idx + 1);
             return c;
         }
+    }
+}
+
+RESIDENT
+static void advance_row(void) {
+    /* CR+LF: column 0, next row, scroll if past the last. */
+    curx = 0;
+    if (cury + 1 >= 25) {
+        crt_scroll_up();
+    } else {
+        cury++;
     }
 }
 
 RESIDENT
 void impl_conout(uint8_t c) {
     /* Minimal CP/M CONOUT: printable chars go to the current cursor
-     * position on the 8275 display; CR resets column; LF advances
-     * row and scrolls when the bottom row overflows.  Serial mirror
-     * goes to SIO-B so the null-modem log still captures output. */
-    (*TRACE_CONOUT_CNT)++;
-    *TRACE_CONOUT_LAST = c;
+     * position on the 8275 display; CR resets column; LF (treated
+     * as CR+LF) advances row and scrolls at the bottom.  Serial
+     * mirror goes to SIO-B so the null-modem log captures output. */
     console_putc(c);
 
     volatile uint8_t *d = (volatile uint8_t *)DISPLAY_ADDR;
 
-    if (c == 0x0C) {
-        /* Ctrl-L / form feed: clear display, home cursor. */
-        for (uint16_t i = 0; i < DISPLAY_SIZE; ++i) {
-            d[i] = ' ';
-        }
-        curx = 0;
-        cury = 0;
-    } else if (c == '\r') {
+    if (c == '\r') {
         curx = 0;
     } else if (c == '\n') {
-        /* Treat LF as CR+LF so host-side text with '\n'-only line
-         * breaks renders correctly and the banner fits under 256 B. */
-        curx = 0;
-        if (cury + 1 >= 25) {
-            crt_scroll_up();
-        } else {
-            cury++;
-        }
+        advance_row();
     } else if (c >= 0x20) {
         d[(uint16_t)cury * 80U + curx] = c;
         if (++curx >= 80) {
-            curx = 0;
-            if (cury + 1 >= 25) {
-                crt_scroll_up();
-            } else {
-                cury++;
-            }
+            advance_row();
         }
     }
-    /* Other control chars (0x08 BS, 0x09 TAB, 0x07 BEL...) ignored
-     * for now — add as CCP output demands them. */
+    /* 0x0C form-feed, 0x08 BS, 0x09 TAB, 0x07 BEL: ignored — add
+     * as CCP output demands them. */
 
     crt_set_cursor(curx, cury);
 }

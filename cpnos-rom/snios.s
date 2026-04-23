@@ -139,18 +139,14 @@ RECVBT:
     push hl
     ld   hl, RECV_TIMEOUT_TICKS
     call _transport_recv_byte
-    ld   a, d
-    inc  a                          ; D=0xFF -> Z (timeout)
-    jr   z, RECVBT_TMO
-    ld   a, e
-    pop  hl
+    ld   a, d                       ; grab result (D=0xFF => timeout)
+    inc  a                          ; Z=1 on timeout
+    ld   a, e                       ; A = byte (Z preserved by ld)
+    pop  hl                         ; (pop doesn't touch flags)
     pop  de
-    or   a                          ; clear carry (success)
-    ret
-RECVBT_TMO:
-    pop  hl
-    pop  de
-    scf
+    scf                             ; assume timeout: CY=1
+    ret  z                          ; timeout: return with CY set
+    or   a                          ; success: clear CY
     ret
 
 ;================================================
@@ -214,37 +210,6 @@ SNDMS0:
     ld   h, b
     ld   l, c
     ld   (MSGADR), hl
-    ; -- BDOS/CP-NET function trace (per-FNC saturating uint8) --
-    ; Counter table at 0xEC80..0xECFF; FNC byte is at msgbuf+3.
-    ; Additionally, 16-bit counter for FNC=20 (READ_SEQ) at
-    ; 0xEC7E..0xEC7F — so we can see if it exceeds 256.
-    push af
-    push hl
-    push bc
-    inc  hl
-    inc  hl
-    inc  hl                         ; HL = msgbuf+3 = FNC
-    ld   a, (hl)
-    push af                         ; save raw FNC
-    and  0x7f                       ; clamp 0..127
-    ld   l, a
-    ld   h, 0xec
-    set  7, l                       ; HL = 0xEC80 | (FNC & 0x7F)
-    ld   a, (hl)
-    inc  a
-    jr   z, 1f                      ; saturate at 0xFF
-    ld   (hl), a
-1:  pop  af                         ; restore raw FNC
-    cp   20                         ; READ_SEQ?
-    jr   nz, 2f
-    ld   hl, 0xec7e
-    inc  (hl)
-    jr   nz, 2f
-    inc  hl
-    inc  (hl)
-2:  pop  bc
-    pop  hl
-    pop  af
     ; Ensure SID is correct
     ld   a, (_cfgtbl + CFG_SLAVEID)
     inc  bc
@@ -500,13 +465,16 @@ CNFTBL:
     ld   hl, _cfgtbl
     ret
 
-; NTWKBT - Warm boot hook.
-NTWKBT:
-    xor  a
+; NTWKER - Network error handler (device re-init if needed).  Falls
+; through into NTWKBT so the two share the trailing RET.  NTWKBT must
+; return A=0 (warm-boot OK); NTWKER returns whatever A was on entry,
+; which NDOS treats as "no error" if nonnegative — matches stock DRI.
+NTWKER:
     ret
 
-; NTWKER - Network error handler (device re-init if needed).
-NTWKER:
+; NTWKBT - Warm boot hook.  Must return A=0.
+NTWKBT:
+    xor  a
     ret
 
 ; NTWKDN - Network shutdown.  Sends FNC=0xFE to the server.

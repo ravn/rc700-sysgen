@@ -161,7 +161,58 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
-## Phase 17 summary (wrap-up)
+## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
+- **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
+  slack after #39).  Target: ≥ 200 B for future work (signature
+  prefix for #46, ISR-driven SIO-B ring, etc.).
+- **Analysis-first**: built a per-function size breakdown of the
+  2037 B payload; cross-compared with `rcbios-in-c` patterns
+  (table-driven port init, shared ISR structure, SBC A,A idioms)
+  to pick high-yield / low-risk changes.  See
+  `cpnos-rom/MEMORY_MAP.md` + the GH issue #47 task list.
+- **Tier 1 (c54229c)**: strip all trace instrumentation added
+  during Phase 16-17 — SNIOS per-FNC counter, CONOUT/CONIN/CONST
+  counters, CONIN ring, netboot breadcrumbs.  **-121 B** (vs ~70 B
+  predicted — the compiler compacted adjacent basic blocks after
+  the bumps went).
+- **Tier 2a (0dae340)**: collapse ~30 inline `_port_out` calls
+  in `init_hardware` + folded-in `init_pio_kbd`/`init_display`
+  into one unified `port_init[]` table + for-loop.  **-39 B**.
+- **Interim (9add5ba)**: smoke_inject now sends a CR nudge after
+  10 s of SIO-B silence — practical workaround for issue #44 (the
+  "had to type Enter manually" annoyance) until Tier 4 gives us an
+  ISR-driven SIO-B ring.  Doesn't change PROM size.
+- **Current slack after 12 commits**: **524 B** (from 11 B).
+  | Step | Delta | Slack |
+  |---|---|---|
+  | main@155cca7 baseline | — | 11 B |
+  | Tier 1: strip trace code | +121 | 132 B |
+  | port-init table | +39 | 171 B |
+  | netboot memcpy + banner trim | +90 | 261 B |
+  | impl_conout dedup + no-FF | +54 | 315 B |
+  | cfgtbl → BSS (runtime init) | +130 | 445 B |
+  | SNIOS RECVBT tail merge | +4 | 449 B |
+  | crt_scroll_up memcpy/memset + FCB trim | +29 | 478 B |
+  | zero-page + JT inline LDIR | +32 | 510 B |
+  | display-clear memset + 8-byte loop fix | +14 | 524 B |
+- **Filed along the way**: #47 (tracking issue), #48 (ISRs unconditionally
+  EXX/EX AF,AF' — unsafe), #49 (clang elides memcpy-to-0), and
+  ravn/llvm-z80#73 (8-byte inline memcpy cost model).
+- **Lessons**: (a) Compiler's `-Oz` inliner can still generate
+  pathological code for small memcpys — always disassemble and
+  measure, don't trust the intent; (b) BSS-as-ROM-substitute for
+  mostly-zero static data paid the biggest single win (130 B);
+  (c) Inline `ldir` via clang-z80's +{de}/+{hl}/+{bc} constraints
+  is the right tool when \_\_builtin_memcpy gets UB-elided or
+  cost-modeled into a pessimal inline.
+- **Lessons**: (a) kill diagnostic code with the bug it diagnosed,
+  not later — it had been burning space in every boot for two
+  phases; (b) when a pattern appears N times inline, a table + loop
+  break-evens at N ≈ 3; (c) unify before optimising — consolidating
+  init_pio_kbd + init_display into one table was a bigger win than
+  any local micro-opt.
+
+
 - **Goal reached 2026-04-22**: "CP/NOS on a physical RC702 against a
   live MP/M II over serial" validated in emulation — cpnet-smoke PASS
   with stock MP/M (z80pack mpm-net2) serving a slave that assembles a

@@ -59,9 +59,11 @@ MEMORY {
    * TPA 0x0100..0xCFFF = ~51.75 KB.  Move CCP back up later once we
    * have a precise number for CCP+NDOS true extents. */
   /* SCRATCH (BSS) relocated 0xEC00 -> 0xEA20 in step with BIOS_BASE.
-   * 256 B (up to 0xEB20) is enough for current BSS (239 B) with slack.
-   * Stack lives in 0xEB20..0xED00 (480 B) — cold-boot SP = 0xED00. */
-  SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x100
+   * Session-18 shrink moved cfgtbl (173 B) out of .resident.data LMA
+   * into BSS, which pushed current BSS to ~400 B — widen SCRATCH and
+   * take the extra room out of the stack region (0xEB20..0xED00 was
+   * 480 B; dropping to ~280 B is still fine for cpnos_main's depth). */
+  SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x200
 }
 
 /* IVT location shared with init.c (setup_ivt).  Defined here so the
@@ -128,7 +130,7 @@ SECTIONS {
     __scratch_bss_end = .;
   } > SCRATCH
 
-  ASSERT(__scratch_bss_end <= 0xEB20,
+  ASSERT(__scratch_bss_end <= 0xEC20,
          "scratch_bss overflowed into stack region!")
 
   /* Issue #35: guard against the class of bug where .resident (or BSS)
