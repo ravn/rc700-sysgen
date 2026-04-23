@@ -24,6 +24,7 @@ extern uint8_t _resident_end[];
 
 [[noreturn]] extern void resident_entry(uint16_t entry);
 extern void init_hardware(void);            /* init.c, runs from ROM */
+extern void cfgtbl_init(void);              /* cfgtbl.c, populates BSS */
 
 /* Network bootstrap entry.  Two implementations; only one lands in the
  * link, selected by SERVER=mpm|proxy in the Makefile.  Default is mpm:
@@ -49,6 +50,10 @@ extern uint16_t netboot_mpm(void);          /* netboot_mpm.c, PROM1 */
     while (dst < _resident_end) {
         *dst++ = *src++;
     }
+
+    /* Populate cfgtbl's non-zero fields (everything else stays
+     * zero from BSS clear). */
+    cfgtbl_init();
 
     /* Bring up CTC + SIO-A/B + IVT + CRT.  IVT lives at 0xEC00
      * (moved from 0xF100 session 33 follow-up, because 0xF100 is now

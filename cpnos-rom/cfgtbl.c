@@ -26,7 +26,11 @@
 #define RC702_SLAVEID 0x70
 #endif
 
-#define RESIDENT_DATA __attribute__((section(".resident.data"), used))
+/* cfgtbl goes in .scratch_bss (zero-initialised at cold boot).  The
+ * non-zero fields are set at runtime by cfgtbl_init() — avoids burning
+ * 170+ B of explicit zero bytes in the PROM just to spell out MSGBUF
+ * and the unused upper drive slots. */
+#define RESIDENT_BSS __attribute__((section(".bss.cfgtbl"), used))
 
 /* Drive map entry encoding (per cpndos.asm:435-451 chkdsk):
  *   byte 0 (low):  bit 7 = 1 for network drive, bits 3..0 = remote drive letter
@@ -63,28 +67,21 @@ static_assert(__builtin_offsetof(struct cfgtbl, fmt) == 39, "FMT @ +39");
 static_assert(__builtin_offsetof(struct cfgtbl, sid) == 41, "SID @ +41");
 static_assert(__builtin_offsetof(struct cfgtbl, msgbuf) == 45, "MSGBUF @ +45");
 
-RESIDENT_DATA
-struct cfgtbl cfgtbl = {
-    .netst   = 0x00,            /* offline until NDOS brings us up */
-    .slaveid = RC702_SLAVEID,
+RESIDENT_BSS
+struct cfgtbl cfgtbl;
+
+/* Set the few non-zero fields.  Everything else stayed zero at BSS
+ * clear.  Must run before any SNIOS call (cpnos_main calls us before
+ * netboot). */
+void cfgtbl_init(void) {
+    cfgtbl.slaveid = RC702_SLAVEID;
     /* Drive A:-D: mapped to server master (slave ID 0x00) drives A:-D:.
-     * Remaining drives stay local.  NDOS's LOAD for CCP.SPR picks up
-     * CDISK (0 = A:) by default, so A: needs to be network. */
-    .drive   = { NET_DRV('A', 0x00),
-                 NET_DRV('B', 0x00),
-                 NET_DRV('C', 0x00),
-                 NET_DRV('D', 0x00),
-                 LOCAL, LOCAL, LOCAL, LOCAL,
-                 LOCAL, LOCAL, LOCAL, LOCAL,
-                 LOCAL, LOCAL, LOCAL, LOCAL },
-    .console = LOCAL,
-    .list    = LOCAL,
-    .bufidx  = 0,
-    .fmt     = 0x00,
-    .did     = 0x00,
-    .sid     = 0xFF,            /* SNIOS rewrites to SLAVEID at init */
-    .fnc     = 0x05,            /* LIST function */
-    .siz     = 0x00,
-    .msg0    = 0,
-    .msgbuf  = { 0 },
-};
+     * NDOS's LOAD for CCP.SPR picks up CDISK (0 = A:) by default, so
+     * A: needs to be network. */
+    cfgtbl.drive[0] = NET_DRV('A', 0x00);
+    cfgtbl.drive[1] = NET_DRV('B', 0x00);
+    cfgtbl.drive[2] = NET_DRV('C', 0x00);
+    cfgtbl.drive[3] = NET_DRV('D', 0x00);
+    cfgtbl.sid = 0xFF;          /* SNIOS rewrites to SLAVEID at init */
+    cfgtbl.fnc = 0x05;          /* LIST function */
+}
