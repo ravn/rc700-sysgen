@@ -267,6 +267,90 @@
   HELLO! at (20,5), smiley at rows 10-11, STAY/GONE preserved,
   erase_to_eol/eos regions blank.
 
+### Phase 19c: payload size analysis + clang-z80 codegen audit (Apr 23, 2026) — Medium
+
+Read-only pass over the payload (2126 B at 0xED00; 688 B slack before
+the 0xF800 resident ceiling; PROM1 has 1842 B of pad).  Nothing
+ROM- or RAM-constrained; savings below are tidiness, not unblocking.
+
+- **Size-sorted symbol dump** (`llvm-nm --size-sort clang/payload.elf`):
+  top 6 by function size are `netboot_mpm` (170), `port_init` (104),
+  `specc` (101), `init_hardware` (99), `impl_conout` (97), `delete_line`
+  (76).  Biggest data: `_msg` 200 B (CP/NET frame, fixed), `_cfgtbl`
+  173 B (DRI layout, fixed).
+
+- **Tier 1 savings (~95 B, mechanical)**:
+  1. `scroll_up` triplicated — exists as 26 B symbol AND inlined in
+     `cursor_right` (25 B tail of 52 B) AND `cursor_down` (25 B tail
+     of 38 B).  `__attribute__((noinline))` reuses standalone copy.
+     ~50 B.
+  2. `xy_step` 3×-unrolled `mod SCRN_ROWS` — 48 of 68 B is two
+     triple-subtracts for row + col.  Replacing with a clamp-on-
+     overflow fixes the acid-test underflow bug AND shrinks the
+     function.  ~35 B.
+  3. `init_hardware` inlines a 4th copy of the scroll/clear LDIR —
+     calling `clear_screen` saves ~10 B.
+
+- **Tier 2 savings (~35 B, medium)**: impl_conout BSS spill of `c`
+  (~12 B), cfgtbl_init LDIR-template for pointer fields (~10 B),
+  port-init + IVT-fill 16-bit-for-small-count loops (~10-15 B).
+
+- **Tier 3 uncertain (~40-80 B)**: specc switch + 60 B jumptable →
+  hand-rolled dispatch; netboot_mpm `sframe` BSS spills.  Both
+  higher-effort, unclear savings.
+
+- **Nothing reclaimable**: `_msg`, `_cfgtbl`, `_FCB_HEAD`, and
+  clang's per-switch `LJTI_*` jumptable overhead — all intrinsic.
+
+- **Recursion check**: zero.  Call-graph is a DAG (Tarjan's on the
+  disasm), no self-loops.  Deepest chain: 5 levels
+  (`cpnos_cold_entry → netboot_mpm → cpnet_xact → snios_rcvmsg_c
+  → transport_recv_byte`).  Two `jp (hl)` sites exist — one is the
+  `specc` switch jumptable, other is the `_jump_to` CCP trampoline.
+  Neither introduces cycles.  ISRs contain zero `CALL`s so they
+  add nothing to stack depth when they fire.  Worst-case stack
+  high-water ~14 B against SP=0xED00.
+
+- **BSS spill attribution**: 13 B total across 6 functions
+  (`delete_line` 4 B, the rest 1-2 B).  **Zero** of it is parameter
+  overflow — every payload fn takes 0-2 args, well within
+  sdcccall(1)'s register budget.  All 13 B is register-alloc
+  spill of locals or parameters that can't stay live across a
+  CALL or LDIR setup.
+
+- **Push/pop vs BSS spill** (filed as ravn/llvm-z80#74): Z80
+  `push hl`/`pop hl` is 2 B / 21 T for a spill-reload pair vs
+  BSS `ld (nn),hl`/`ld hl,(nn)` at 6 B / 32 T.  Dropping
+  `+static-stack` doesn't help — clang falls back to SP-relative
+  alloca (10 B per spill side) which is +77 B worse across
+  resident.c.  Minimal self-contained repro posted on the issue.
+  Interesting: clang-z80 *does* use push/pop for simple "one
+  value crosses one CALL" but gives up on the multi-value
+  LDIR-setup shape.
+
+- **Tail-call peephole** (filed as ravn/llvm-z80#75): TCO exists at
+  `Z80LateOptimization.cpp:2913` but is MBB-local.  Common early-
+  return pattern produces `CALL` in one MBB that falls through to
+  a separate `RET`-only MBB — branch folding already handles the
+  explicit early-return (`ret c` in-place) but misses the CALL-
+  fall-through-to-RET case.  Likely pass-ordering (BranchFolding
+  considers the merge before `JR_C → RET_C` drops the other
+  predecessor).  Fix: run TCO peephole *after* branch folding,
+  or widen it to follow the fall-through edge.
+
+- **SDCC peephole.def vs clang**: 20+ rules in the custom
+  `sdcc/peephole.def` — ALL handled by clang natively at -Oz:
+  `ld a, 0 → xor a`, redundant trailing `xor a`, `out (p), a` A-
+  preservation, dead `jp`/`ret` sequences, `jp X; X:` fall-
+  through, `jr cond; jp` → inverted-cond consolidation.  Clang
+  goes *beyond* the rules in several cases: branchless ?: (r5
+  repro emits `sub 0; add ff; sbc a,a; and 1` — 7 B, zero
+  branches); vectorizes 4×byte-zero into `ld hl, 0; ld (n), hl;
+  ld (n+2), hl` (9 B vs SDCC's 13+ B); OUT-chain A reuse
+  generalizes beyond SDCC's 2-OUT rule.  The .def file exists to
+  paper over zsdcc gaps that clang doesn't have.  Nothing to
+  port.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature
