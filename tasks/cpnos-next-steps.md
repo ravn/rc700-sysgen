@@ -632,6 +632,106 @@ we find a no-warm-boot use case.
 - **zmac instead of MAC** in step 7 — closes the 7-byte diff, but
   returns zero functional value.
 
+## Session 36 (2026-04-25/26) — RC code into PROM, cpnos.com → near-pure DRI
+
+Two-phase refactor that closes the architectural seam that bit us in
+session 35 (cpnos.com had stale `rbcout = 0xDE0C` after a resident
+BIOS-JT move).  Goal stated by user: "all RC-specific code in PROM,
+DRI code only knows where the BIOS lives, as much C as reasonable".
+
+**Phase 1** (commit a3941b2): moved CP/M↔clang-sdcccall(1) ABI shims
+from `cpnos-build/src/cpbios.asm` (network-loaded) into
+`cpnos-rom/bios_shims.s` (resident).  Resident BIOS-JT slots
+ED06/9/C now `JP bios_*_shim`; cpnos.com's BIOS table now `JMP rb*`
+direct.  cpnos.com -34 B.
+
+**Phase 2A** (commit 393606c): moved boot orchestration into PROM C.
+- Deleted `cpnos-build/src/cpbios.asm` (172 lines).
+- New C `nos_handoff()` in `cpnos_main.c`: signon via `impl_conout`,
+  memcpy resident JT 0xED00..0xED32 → 0xCF00 (NDOSRL+0x300), LDIR
+  ZP[0..4].
+- New thin `cpnos-build/src/cpnos.asm` (15 lines, no RC knowledge):
+  set SP, ZP[5..7] = JP BDOS, JP NDOS+3.
+- `cpnios-shim.asm` shrank to `NIOS EQU 0EA00h; public NIOS` — single
+  line of "where SNIOS lives" knowledge.
+- cpnos.com 3289 → 3099 B (-190 B total over both phases).
+- Disk-install wired into `make cpnos-install` so both
+  `mpm-net2-1.dsk` and `cpnetsmk-1.dsk` always carry the fresh blob.
+
+**Subtle gotcha:** ZP[5..7] must point at `BDOS`, not `BDOS+6`.
+`cpbdos.z80` puts the 6-byte serial number BEFORE the `BDOS` label,
+so `BDOS` is already the dispatch entry; +6 jumped 6 bytes past it
+into garbage and trapped NDOS in NWBOOT's 0x0E/0x27 retry loop.
+Caught by failed cpnet-smoke, fixed in the second iteration.
+
+**Memory note:** see `project_cpnos_address_coupling_brittle.md` for
+the architectural lesson + how to spot recurrences.
+
+## To do later
+
+### Phase 2B — eliminate the last RC knowledge from cpnos-build/
+
+cpnos-build/src/ still has two files of "code" though they're tiny:
+- `cpnios-shim.asm` (17 lines): one EQU resolving NDOS's `EXTRN NIOS`
+  to 0xEA00.  Could be replaced by `--defsym NIOS=0xEA00` at LINK
+  time — but DRI LINK doesn't support that syntax; it's a different
+  toolchain.  Alternative: have cpnos-rom build emit a tiny .REL with
+  the NIOS symbol, link with cpnos.com on demand.
+- `cpnos.asm` (15 lines): cold-entry stub.  Could be eliminated if
+  PROM jumps directly to NDOS+3 (0xD003) and writes ZP[5..7] from C
+  using BDOS_ADDR extracted from cpnos.sym at PROM build time.
+
+Both are doable but each is "more glue for marginal cleanup".  Filed
+here in case Phase 2 dogma matters more than the 32 lines saved.
+
+### Phase 3 — naked-C-ify resident asm where reasonable
+
+Today's resident asm files: `bios_jt.s`, `bios_shims.s`, `isr.s`,
+`runtime.s`, `reset.s`, `snios.s`.  The user accepted naked C
+(`__attribute__((naked))` + inline asm) as the preferred form for
+resident shim layers.  But: **clang Z80 historically doesn't support
+`__attribute__((naked))` properly** (rcbios docs note "clang: coldboot
+is in clang/bios_shims.s" — they fell back to .s).  Need to test with
+current clang Z80 build before committing to a migration plan.
+
+Candidates for migration if naked works:
+- `bios_shims.s` → naked functions in resident.c
+- `isr.s` ISR top-halves → naked C with inline `ex af,af'; exx`
+- `runtime.s` memcpy/jump_to → mostly clang builtins + one naked
+
+`reset.s` and `snios.s` stay as asm.
+
+### MP/M disk rebuild
+
+Today (2026-04-25/26) the pre-built `mpm-net2-1.dsk` / `cpnetsmk-1.dsk`
+are treated as opaque inputs.  `z80pack/cpmsim/srcmpm/` has Udo Munk's
+XIOS sources (bnkxios-net-{0,1,2}.mac, netwrkif-{0,1,2}.asm,
+ldrbios.mac, boot.asm, putsys.c) but no MP/M kernel source — so a
+full rebuild is not possible from the project tree alone.
+- Find DRI MP/M 2 kernel source (Tim Olmstead / Gaby DRI archive).
+- Wire a `make mpm-disks` target that assembles XIOS + kernel, runs
+  putsys, and produces fresh `mpm-net2-{1,2}.dsk` images.
+- Once buildable, increase number of slave-visible drives (the
+  "only A:" comment in `cpnos-rom/testutil/mksmokedisk.sh` claims this
+  as a server-side limit; needs source-level confirmation) and bump
+  drive sizes for larger working sets.
+
+### Open architectural questions
+
+- **NDOS-walk-in-place vs JT-copy.**  Phase 2A copies the resident
+  JT to 0xCF00 and lets NDOS walk that.  Could instead point ZP[1..2]
+  at 0xED03 directly and let NDOS walk our resident JT in place.  The
+  latter saves 51 bytes of RAM at 0xCF00 and one `__builtin_memcpy`
+  call but means our JT for slots 1-5+15 gets overwritten with NDOS
+  wrappers at runtime (cosmetic, since nothing else uses those slots
+  post-walk).  Worth ~30 minutes' experiment.
+- **BDOS_ADDR coupling.**  cpnos.asm's `lxi h, BDOS` resolves at
+  cpnos-build LINK time.  PROM doesn't know BDOS's address.  If we
+  ever want to drop cpnos.asm from cpnos.com, PROM needs BDOS_ADDR
+  from somewhere — either cpnos.sym extraction (Phase 2B above) or
+  a runtime probe (read cpnos.com's first 3 bytes after netboot to
+  derive it; needs a stable convention).
+
 ## Where files live
 
 - `cpnos-rom/netboot_server.py` — CP/NET server, dispatcher, file map
