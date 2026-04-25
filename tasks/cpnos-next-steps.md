@@ -35,6 +35,103 @@ submodule bump 1858833b.
   Fixed by relocating IVT to 0xEC00 and running memcpy before
   setup_ivt.
 
+### Closed (architecturally impossible): drive B: as a local floppy on CP/NOS
+
+**Finding (2026-04-25, branch `fdc-variant`):** Adding a local 8" floppy
+as drive B: to a CP/NOS slave is **impossible without replacing the
+BDOS** — and that's by DRI's intention, not an oversight.
+
+The smoking gun is the first line of `cpnet-z80/dist/src/cpbdos.asm`:
+
+```
+; diskless BDOS for CP/NOS - functions 0-12 only.
+; may be ROMable
+```
+
+CP/NOS was designed in 1982 as a "diskless workstation" — a slave node
+that boots over CP/NET and has *no* local mass storage.  Its BDOS is
+intentionally stripped down to console + string I/O (functions 0–12);
+all disk operations are handled by NDOS, which routes them over CP/NET
+to a master node with the actual disks.  `cpbdos.asm` contains zero
+references to `seldsk`, `read`, `write`, or any disk function — it
+simply does not implement BDOS fns 14, 15, 17, 18, 20, 21, or 22.
+
+The work on `fdc-variant` proved this end-to-end:
+- Built a complete FDC primitive layer (`fdc.c` — init, recalibrate,
+  seek, sense_int, READ DATA, DMA ch1 setup) from clean source
+  inspired by rcbios.  It is correct and reachable: `fdc_init` fires
+  at cold boot via `init_hardware`, and the SPECIFY command bytes
+  are observed leaving on FDC port 0x05.
+- Built a CP/M disk layer (`disk.c` — DPB via DISKDEF macro, DPH,
+  hostbuf-aliased dirbuf, `impl_read` with 128↔512 deblocking, real
+  15-entry skew-4 xlate table for 8" maxi MFM).
+- Wired BIOS JT entries SELDSK/SETTRK/SETSEC/SETDMA/READ to those
+  impls, including the asm push/pop ABI shims in `cpbios.asm` and
+  matching `rb*` equs in cpnos-build.
+- Confirmed that NDOS's `chkdsk` correctly classifies B: as LOCAL
+  when `cfgtbl.drive[1] = 0x0000` and routes via `tbdosp` (jump
+  back to BDOS) rather than the network path.
+- Built an MFI-format acceptance disk via a new `mkmfidisk.sh`
+  utility (kept on main; useful in its own right) populated with
+  RC703 CP/M utilities, mounted on MAME's `-flop1`.
+
+A MAME CPU-fetch trace of the resulting `dir b:` test showed the
+exact failure mode:
+- `fdc_init` fired once (cold boot), then 3× `fdc_write` for SPECIFY.
+- `_bios_seldsk` (our JT entry) — **0 fetches**.  Same for SETTRK,
+  SETSEC, SETDMA, READ.  Same for the NDOSRL+0x300 copies of those.
+- BDOS at 0xD9B1 — 1100+ fetches.
+- BIOS.CONST + BIOS.CONOUT — fetched, working as expected.
+
+So NDOS is reaching BDOS for fn 17 (SEARCH FIRST) on local B:, but
+BDOS has no fn-17 dispatch entry, returns with garbage HL/A, and
+CCP loops printing the residual "dir b:" bytes from the 0x0080
+DMA buffer (left over from CCP's earlier read of the SUB file via
+CP/NET on A:) until timeout.
+
+**Three theoretical paths forward, each substantial:**
+
+1. **Replace `cpbdos.asm` with a full CP/M 2.2 BDOS.**  NDOS keeps
+   its network intercept; for local drives, `tbdosp` lands on a
+   BDOS that does the standard SELDSK/SETTRK/READ chain through our
+   already-working BIOS shims.  Drops "diskless ROMable" property —
+   monolith grows from ~3.4 KB to ~6 KB, requiring TPA shrink.
+
+2. **Port disk fns into `cpbdos.asm` locally.**  Add fn 14/15/17/
+   18/20 (+ 16 close, optionally 21/22 for write).  ~600 lines of
+   asm from the public CP/M 2.2 BDOS source.  Same monolith-size
+   issue as (1).
+
+3. **Bypass BDOS for local drives.**  Have NDOS's `ckfcbd`-for-
+   local branch call our BIOS directly and reimplement directory-
+   scan logic inside NDOS.  Architecturally messy — NDOS would
+   start duplicating BDOS internals — but doesn't grow the
+   monolith as much.
+
+**Decision: parked.**  None of the three paths is a session-sized
+change, and the current CP/NET-based file workflow (`pip a:foo=b:bar`
+across master/slave) covers the practical "transfer files between
+machines" use case the local floppy was meant to enable.  The
+discovery itself is the deliverable; the dead-end branch
+`fdc-variant` is preserved in git for reference if anyone revisits.
+
+What was kept on main from the dead-end:
+- `cpnos-rom/PORT_OUTPUTS.md` — bit-level decode of every OUT byte
+  the payload writes; useful regardless of disk plans.
+- `cpnos-rom/testutil/mkmfidisk.sh` — folder → 8" DSDD MFI image
+  pipeline, useful for any future work that needs a CP/M floppy
+  in MAME (e.g. running the rcbios test suite).
+- `rcbios/bin2imd.py` 8" maxi auto-detect support.
+
+What got reverted:
+- `fdc.c`, `fdc.h`, `disk.c`, `disk.h` (FDC primitive + CP/M disk
+  layer — correct code, no path to use it).
+- BIOS_BASE move from 0xED00 → 0xDD00/0xDE00 (only needed because
+  the disk layer needed BSS room).
+- `cpbios.asm` disk shims (dskshim/trkshim/...).
+- `cfgtbl.drive[1] = LOCAL`.
+- `fdc-acceptance` Makefile target.
+
 ### Open: VT100 subset on top of RC700 CONOUT
 
 Investigate implementing a reasonable subset of VT100 terminal escape
