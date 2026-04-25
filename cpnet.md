@@ -4,6 +4,14 @@
 
 Quick reference: [CPNET_SYSTEM.md](cpnet/CPNET_SYSTEM.md) | [DRI_PROTOCOL.md](cpnet/DRI_PROTOCOL.md) | [TEST_RESULTS.md](cpnet/TEST_RESULTS.md)
 
+> **Future fast transport (2026-04-25):** the design for a faster
+> CP/NET path (Option P, PIO-B half-duplex via J3, ~30-50 KB/s
+> sustained vs the 3.8 KB/s async baseline) is pinned in
+> [`docs/cpnet_fast_link.md`](docs/cpnet_fast_link.md). Implementation
+> is deferred until Pi 4B host hardware is acquired; the 38400-baud
+> SIO-A path documented below remains the validated default and the
+> permanent fallback transport.
+
 ## Goal
 
 Run CP/NET client on RC702 CP/M over SIO Channel A serial port,
@@ -594,37 +602,20 @@ Reference: ~/git/cpnet-z80/src/ser-dri/snios.asm
 
 Reference for BDOS emulation: hperaza/cpnet-server (C, GPL-2.0)
 
-### TODO
+### TODO — DONE
 
-**Phase 1: PROM1 client (Z80 assembly)**
-- [ ] Create cpnet/ directory
-- [ ] Write RC702 chrio.asm (polled SIO Ch.A, CTC baud init)
-- [ ] Adapt serial SNIOS from cpnet-z80 (hex, CRC-16, send/receive)
-- [ ] Write netboot client (receive blocks, execute)
-- [ ] Write PROM1 entry (signature, init, display, boot)
-- [ ] Build with zmac, verify ≤ 2KB
-- [ ] Test in MAME
+The Phase 1-3 plan that used to live here is complete: PROM1 client
+(now `cpnos-rom/`), Python server (`cpnet/server.py`), CP/M runtime
+(NDOS + CCP + minimal BIOS), all working end-to-end against z80pack
+MP/M as the master. CP/NOS boots, CCP runs, DIR works against live
+MP/M. See [`tasks/timeline.md`](tasks/timeline.md) Phases 10 onward
+for the chronological record, and
+[`tasks/cpnos-next-steps.md`](tasks/cpnos-next-steps.md) for the
+active CP/NOS work.
 
-**Phase 2: Python server**
-- [ ] Serial framing + CRC-16
-- [ ] Init handshake (FNC=0xFF)
-- [ ] Netboot protocol (push boot image)
-- [ ] BDOS file operations against host filesystem
-- [ ] MAME null_modem TCP connection
-- [ ] Test full boot
-
-**Phase 3: CP/M runtime**
-- [ ] Build/adapt NDOS from cpnet-z80
-- [ ] Minimal BIOS (console only, no disk)
-- [ ] Standard CP/M 2.2 BDOS
-- [ ] Test: DIR, TYPE, PIP
-
-### Open questions
-- Use existing REL30 BIOS (with NDOS patching disk calls) or minimal BIOS?
-- Polled I/O in PROM1 (simpler) or interrupt-driven (more robust)?
-- PROM1 must not disable existing interrupts (CRT display ISR is running)
-  — polled SIO with interrupts enabled seems safest
-- MAME: exact command-line syntax for loading PROM1 ROM image?
+The old Phase 1-3 checklist (chrio.asm, netboot client, PROM1 entry,
+zmac build, MAME test, etc.) is preserved in git history (commit
+`97cc565^`).
 
 ## RC702 SIO Hardware Notes
 

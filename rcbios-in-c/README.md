@@ -407,7 +407,7 @@ at 0xDB00).  Every `__interrupt` in this project must use `(N)`.
 | `isr_sio_a_ext` | `__critical __interrupt` | Trivial body (port read + store) |
 | `isr_sio_a_spec` | `__critical __interrupt` | Trivial body (error reset + flush) |
 | `isr_hd` | `__interrupt` | Empty stub (hard disk not implemented) |
-| `isr_pio_par` | `__interrupt` | Empty stub (parallel port not used) |
+| `isr_pio_par` | `__interrupt` | Empty stub today; will host the PIO-B / J3 CP/NET RX path under Option P (`docs/cpnet_fast_link.md`) when bring-up phase opens |
 
 The 6 `__critical __interrupt` ISRs were originally `__naked` with a
 stack switch to ISTACK (0xF620).  The stack switch was removed because

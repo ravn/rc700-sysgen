@@ -44,38 +44,37 @@ Once hardware is connected via serial port:
 - **Architectural decisions** - Can propose elegantly; you decide what's right
 - **Server platform selection** - Needs your judgment on hardware/OS
 
-## Parallel Port CP/NET Transport (Optional, Long-Term)
+## Parallel-Port CP/NET Transport (Option P, design pinned 2026-04-25)
 
-**Scope**: Develop parallel port driver for CP/NET file transfers
+**Scope**: Implement the fast-link transport designed in
+[`docs/cpnet_fast_link.md`](docs/cpnet_fast_link.md) — Option P,
+PIO-B half-duplex via J3.
+
 - **What I can do**:
-  - Protocol design for 8-bit data + control line handshaking
-  - Z80 driver code (PIO initialization, byte-at-a-time I/O)
-  - Python server-side implementation
-  - Testing harness on MAME (simulated parallel port)
-  
+  - Z80 BIOS additions (cpnos-rom + rcbios-in-c) — PIO-B init, ISR,
+    direction-switching, transport vtable.
+  - Pi Pico firmware (Pico SDK + PIO state machines) for the J3
+    cable bridge.
+  - Pi-side Python bridge daemon (TCP <-> USB-CDC).
+  - MAME driver patch wiring PIO-B + a virtual host bridge.
+  - Lit tests for the BIOS additions.
+
 - **What you provide**:
-  - Hardware interface details (parallel port pinout, timing constraints)
-  - Testing on physical hardware (no MAME simulation for parallel FDC)
-  - Performance validation against serial baseline
+  - Pi 4B (or 3B) host hardware — currently not in hand.
+  - J3 cable fabrication (11 wires + 9 series resistors per the
+    design doc).
+  - Bench measurements once hardware is up.
 
-**Timeline**: After CP/NOS serial phase is stable (likely 2+ weeks out)
+**Timeline**: design phase done, implementation deferred until Pi
+host hardware is acquired.
 
-## J10 Connector Z80 Databus Access (Optional, Longest-Term)
+## J8 Z80-bus expansion (out of scope)
 
-**Scope**: MEMDISK-like device interface via J10 connector (if available)
-- **What I can do**:
-  - Reverse engineer databus protocol from documentation
-  - Design ROM code (PROM1) to interface with device
-  - Implement CP/M block I/O driver (BIOS READ/WRITE vectors)
-  - Create test firmware for protocol validation
-  
-- **What you provide**:
-  - J10 connector pinout and hardware specifications
-  - Device firmware or hardware design
-  - Real hardware testing (no emulation possible)
-  - Performance characteristics and constraints
-
-**Timeline**: Only after CP/NOS serial + parallel phases mature (likely month+ out)
+The original "J10 connector" item is now identified as J8 (Z80 bus
+expansion) per the corrected hardware reference. User excluded J8
+from current CP/NET work (2026-04-25). Documented for reference in
+[`docs/j8_bus_expansion.md`](docs/j8_bus_expansion.md); not a current
+target.
 
 ## Real Hardware Serial Connection Protocol
 
