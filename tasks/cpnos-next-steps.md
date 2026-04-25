@@ -667,22 +667,68 @@ Caught by failed cpnet-smoke, fixed in the second iteration.
 **Memory note:** see `project_cpnos_address_coupling_brittle.md` for
 the architectural lesson + how to spot recurrences.
 
+## Session 36 follow-up (2026-04-26) — probe wants refresh + Phase 2B
+
+### Probe `want` strings refreshed (issues D, F)
+
+`mame_boot_test.lua` had four hard-coded "want" comparators that
+silently drifted as resident layout / SLAVEID / Phase-2A entry stub
+moved.  Fixed in this session:
+- `BDOS vector want c3 06 de` → `c3 06 cc` (NDOS BDOSE intercept).
+- `cfg_addr = 0xF4D4` → `0xEA46` (current `_cfgtbl`; comment now
+  points at `payload.elf` for re-lookup).
+- `SLAVEID want 0x70` → `0x01` (session 33).
+- Removed the 0xDF21 monolith-BIOS-JT probe (cpbios.asm is gone).
+- `BOOT[0xD000..2]` reframed as `c3 ?? ??` (JP-opcode invariant);
+  byte 1..2 shift on every link.
+
+Ran `cpnos-netboot` after: all four "want" lines now match actual.
+
+### Phase 2B — cpnos.asm eliminated, NIOS-shim kept
+
+Did the cpnos.asm half of Phase 2B; **chose not** to eliminate
+cpnios-shim.asm.
+
+Done:
+- cpnos-build/Makefile: dropped `cpnos` from `MODULES`; LINK uses
+  destfile syntax `cpnos=cpndos,cpnios,cpbdos[...]`.  cpnos.com now
+  starts at NDOS+0 = `JP NDOSE`; NDOS+3 = COLDST = 0xD003.
+- cpnos-build/src/cpnos.asm — deleted (15 lines).
+- cpnos-rom/Makefile: new rule generates `clang/cpnos_addrs.h` from
+  `cpnos.sym` (one perl line; emits `#define CPNOS_BDOS_ADDR 0xD996`).
+  `cpnos_main.o` depends on the header.
+- `cpnos_main.c::nos_handoff()`: `ZP_INIT[5..7]` now set to
+  `JP CPNOS_BDOS_ADDR` (was: cpnos.asm's `lxi h, BDOS; shld 0006h`).
+- `resident.c`: new `enter_coldst()` (resets SP=0x100, JP 0xD003).
+  `impl_boot` and `impl_wboot` route through it; `cpnos_main`'s
+  tail also calls it.  Single source for "where COLDST lives".
+
+Caught en route by warm-boot smoke (would have shipped silently
+otherwise): pre-fix `impl_wboot` was `jump_to(0xD000)`, which after
+Phase 2B is `JP NDOSE` not the entry stub.  Warm boot landed in NDOS
+BDOS-dispatch with garbage args and never re-fetched CCP.SPR.
+
+Not done — kept cpnios-shim.asm:
+- DRI LINK has no `--defsym` equivalent.  cpndos's `EXTRN NIOS`
+  *needs* a `.rel` publishing `NIOS = 0xEA00`.  Alternatives were
+  (a) generate the `.asm` in a Makefile here-doc — moves the source
+  uglier without removing it, (b) write a custom `.REL` emitter —
+  significant code for zero functional gain.  Keeping the file is
+  the cleanest expression of the single fact "NIOS = 0xEA00".
+- Comment in `cpnios-shim.asm` documents this so future-me doesn't
+  re-attempt.
+
+Smoke (4/4 PASS post-Phase-2B):
+- `cpnos-netboot` cold boot to A>
+- `cpnos-warmboot-test` ^C → CCP.SPR re-fetch (3 OPENs)
+- `cpnos-sub-test 'dir'` 14 files from MP/M A:
+- `cpnos-sub-test 'mac sysgen|load sysgen'` 1401 B SYSGEN.COM (same
+  as Phase 2A baseline)
+
+cpnos-build/src/ is now down to the 17-line cpnios-shim.asm — single
+source file, single fact, no further reductions worth the glue.
+
 ## To do later
-
-### Phase 2B — eliminate the last RC knowledge from cpnos-build/
-
-cpnos-build/src/ still has two files of "code" though they're tiny:
-- `cpnios-shim.asm` (17 lines): one EQU resolving NDOS's `EXTRN NIOS`
-  to 0xEA00.  Could be replaced by `--defsym NIOS=0xEA00` at LINK
-  time — but DRI LINK doesn't support that syntax; it's a different
-  toolchain.  Alternative: have cpnos-rom build emit a tiny .REL with
-  the NIOS symbol, link with cpnos.com on demand.
-- `cpnos.asm` (15 lines): cold-entry stub.  Could be eliminated if
-  PROM jumps directly to NDOS+3 (0xD003) and writes ZP[5..7] from C
-  using BDOS_ADDR extracted from cpnos.sym at PROM build time.
-
-Both are doable but each is "more glue for marginal cleanup".  Filed
-here in case Phase 2 dogma matters more than the 32 lines saved.
 
 ### Phase 3 — naked-C-ify resident asm where reasonable
 
