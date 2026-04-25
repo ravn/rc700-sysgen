@@ -427,6 +427,48 @@ Three commits after the audit:
   Real mechanical wins cap around 7 B without compiler fixes;
   rest is gated on llvm-z80.  6 issues now open against codegen.
 
+### Phase 21b: cross-codebase codegen sweep (Apr 25, 2026) — Easy
+
+- User asked for a wider scan: walk BIOS + autoload + CP/NOS payload
+  for clang-z80 anti-patterns worth filing as enhancements against
+  ravn/llvm-z80.  Three Explore agents in parallel.
+
+- **rcbios-in-c** — clean against #74-#79.  The only oddity is the
+  `push hl; pop iy; call __call_iy` indirect-call thunk used for
+  `((void(*)(void))warmjp)()`; that's load-bearing for the chosen
+  sdcccall(1) ABI (no native indirect-call instruction; runtime.s
+  funnels through IY).  Volatile reloads in `isr_ctc_a` are
+  semantically required.  No new issues.
+
+- **autoload-in-c** — one new actionable pattern surfaced (filed
+  as #80).  The mask chain in `check_sysfile` is already covered
+  by #60.  Rest is clean.
+
+- **cpnos-rom** — the deep-scan agent flagged five candidates,
+  three of which are duplicates of existing issues (#60, #74) or
+  semantically required.  Two genuinely new patterns are minor:
+  - sequential 16-bit immediate stores to consecutive addresses
+    not folded to `ld hl, K; ld (a), hl; inc hl; ld (a+2), hl;...`
+    (cfgtbl_init: 4× `ld hl, $80..$83; ld (...), hl` could be
+    one `ld hl` + 3 `inc hl` + 4 stores — saves ~6 B).  Not filed:
+    very narrow, single-function impact.
+  - tail-merge of multiple `ld de, $0; ret` early-exit paths in
+    `netboot_mpm` (~3 sites).  Not filed: generic LLVM tail-merge
+    territory, may be Z80 ABI-specific quirk worth investigating
+    only if anyone hits it elsewhere.
+
+- One new issue filed:
+  - **#80** `ld bc, (nn)` / `ld de, (nn)` direct addressing not
+    used; clang loads to HL then `ld c, l; ld b, h`.  ~1 B per
+    site, mechanical fix.
+
+- Spurious agent finding worth recording: the autoload audit
+  suggested `ld (nn), (hl)` as a fold target.  **That instruction
+  does not exist on Z80** — agent hallucinated.  Pattern dropped.
+
+- 7 codegen issues open against ravn/llvm-z80 from the cpnos
+  audit cycle: #74, #75, #76, #77, #78, #79, #80.
+
 ### Phase 20: drive B: as local floppy on CP/NOS (Apr 24-25, 2026) — branch `fdc-variant` — Painful
 
 - **Goal**: give the RC702 slave a local 8" floppy as drive B:
