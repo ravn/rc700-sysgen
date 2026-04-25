@@ -12,6 +12,56 @@ Phase 0 (scaffolding). See
 [`../rcbios-in-c/tasks/cpnos-rom-plan.md`](../rcbios-in-c/tasks/cpnos-rom-plan.md)
 for the full plan.
 
+## How CP/NOS is split (the one-page version)
+
+A CP/NOS slave like our RC702 has three software layers stacked between
+the application program and "everything else". Two of those layers are
+RC702-specific and live in this PROM; the third is generic DRI code
+that arrives over the network as `cpnos.com`.
+
+```
+    +-------------------------------------+
+    |   user program (CCP, MBASIC, ...)   |
+    +-------------------------------------+
+    |   BDOS    |   NDOS                  |   <-- cpnos.com (DRI, generic)
+    +-----------+--------------+----------+
+    |   BIOS                   |  SNIOS   |   <-- this PROM (RC702-specific)
+    +--------------------------+----------+
+    |   8275 CRT, PIO kbd,     |  SIO-A   |
+    |   SIO-B console, FDC,    |  async   |
+    |   CTC, IM2 IVT           |  9600..  |
+    +--------------------------+----------+
+       local hardware             wire
+```
+
+- **BIOS — talks to local hardware.** CRT (8275), keyboard (PIO), SIO/serial
+  console, FDC, CTC, IM2 IVT. Exposes the standard 17-entry CP/M jump
+  table (BOOT/WBOOT/CONST/CONIN/CONOUT/LIST/PUNCH/READER/HOME/SELDSK/
+  SETTRK/SETSEC/SETDMA/READ/WRITE/LISTST/SECTRAN). Lives at 0xED00 in
+  the resident image.
+
+- **SNIOS — talks to the CP/NET server, "somehow".** 8 entries at 0xEA00
+  (NTWKIN/NTWKST/CNFTBL/SNDMSG/RCVMSG/NTWKER/NTWKBT/NTWKDN). Today
+  "somehow" = SIO-A async to z80pack on TCP 4002. Tomorrow it could be
+  J3 parallel to a Pico bridge — only the SNIOS body changes; NDOS
+  above it never notices.
+
+- **NDOS — the router.** Sits in front of BDOS in `cpnos.com`. Decides per
+  BDOS call whether to handle it locally (via BDOS+BIOS) or send it
+  out over the wire (via SNIOS). Generic DRI code, vendor-neutral.
+
+So the rule of thumb:
+
+- **BIOS = local I/O, one box.**
+- **SNIOS = remote I/O, one wire to one server.**
+- **NDOS = decides which of the two each BDOS call goes to.**
+
+Everything RC702-specific is in this PROM (BIOS + SNIOS). `cpnos.com`'s
+only piece of RC702 knowledge is the address `NIOS = 0xEA00` — i.e.
+"the SNIOS jump table lives here" — resolved at link time. Swap the
+RC702 for a different CP/NOS slave and you'd rewrite this PROM; you'd
+not touch `cpnos.com`.
+
 ## Build configurations
 
 - `make cpnos ENABLE_FDC=0` — NOS-only, targets ~55–56 KB TPA
