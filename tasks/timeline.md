@@ -592,18 +592,40 @@ Three commits after the audit:
   alternative / future upgrade" subsection retitled "long-term
   comparison target" to match.
 
-- **MAME bridge design specified** (same day, post-cleanup): expanded
-  the "MAME side" section of `docs/cpnet_fast_link.md` from a 3-bullet
-  stub to a full design spec covering current `rc702.cpp` state, the
-  three-part patch scope (PIO-B activation, new
-  `rc702_cpnet_bridge_device` class, machine_config wiring), the
-  socket-based wire protocol that matches the eventual Pi+Pico
-  USB-CDC stream, the `make cpnet-mame-test` test-harness shape, and
-  the implementation sequencing.  Bridge is the first concrete
-  bring-up step — needs only a working `ravn/mame` build (already
-  maintained) and a stub `isr_pio_par` on the Z80 side, no Pi 4B or
-  J3 cable required.  Issue against `ravn/mame` to be filed when
-  implementation phase opens.
+- **MAME bridge design specified** (same day, post-cleanup):
+  expanded the "MAME side" section of `docs/cpnet_fast_link.md` from
+  a 3-bullet stub to a full design spec.  Initially scoped narrowly
+  (CP/NET-specific PIO-B wiring); user redirected the same day to
+  a generic-slot pattern that mirrors how MAME exposes RS-232 ports.
+  Branch: `cpnet-fast-link`.
+
+  Final shape (4 changes in `ravn/mame`):
+  - (1) `rc702_pio_slot_device` — generic 8-bit + STB/RDY/MODE slot
+    that mirrors `rs232_port_device` for PIO ports.
+  - (2) `rc702_pio_devices` slot-option list — peripherals: `nothing`
+    (default empty slot), `keyboard` (existing model, slot-ified),
+    `cpnet_bridge` (new, see #4), open for future entries.
+  - (3) Refactor `rc702.cpp` to expose PIO-A and PIO-B as slots.
+    Default config: PIO-A=keyboard, PIO-B=nothing.  Matches today's
+    behaviour exactly when no `-piob` argument given.  Drops the
+    incorrect 2016 comment "Printer (PIO port B commented out)" —
+    PIO-B was never the printer port (printer is on a SIO channel
+    per the hardware reference and per `bios.h:185-195`).
+  - (4) `rc702_cpnet_bridge_device` peripheral implementing the
+    slot interface — talks Z80-PIO handshake on one side, Unix/TCP
+    socket on the other, same wire protocol the Pi+Pico USB-CDC
+    bridge will speak in production.
+
+  Why generic-slot framing matters: lets us run any historical
+  RC702 software (CP/M, COMAL, BASIC) in MAME with PIO-B simply
+  empty, exactly as on real hardware.  CP/NET activation becomes
+  a `-piob cpnet_bridge:localhost:4003` command-line argument,
+  not a build-time wiring decision.  Steps (1)-(3) are also a
+  credible upstream MAME contribution candidate; only the bridge
+  peripheral (step 4) needs to stay fork-only.  Bridge is the
+  first concrete bring-up step — needs only a working `ravn/mame`
+  build (already maintained) and a stub `isr_pio_par` on the Z80
+  side, no Pi 4B or J3 cable required.
 
 - **Level-shifter requirement dropped** (same day, post-rationale):
   user pointed out that the existing `ravn/cbl923` Pi Pico keyboard
