@@ -105,10 +105,14 @@ static const uint8_t port_init[] = {
 static void setup_ivt(void) {
     /* 18 x 16-bit slots at IVT_ADDR (page-aligned).  All slots default
      * to isr_noop; CTC ch2 (slot 2) gets the CRT refresh ISR. */
+    /* Pointer-walk + countdown: clang otherwise uses a 16-bit BC
+     * counter for the 18-iteration loop because uint16_t* indexing
+     * widens i to 16-bit pointer arithmetic. */
     volatile uint16_t *ivt = (volatile uint16_t *)IVT_ADDR;
-    for (uint8_t i = 0; i < IVT_ENTRIES; ++i) {
-        ivt[i] = (uint16_t)(uintptr_t)&isr_noop;
+    for (uint8_t n = IVT_ENTRIES; n; --n) {
+        *ivt++ = (uint16_t)(uintptr_t)&isr_noop;
     }
+    ivt = (volatile uint16_t *)IVT_ADDR;
     ivt[2] = (uint16_t)(uintptr_t)&isr_crt;
     ivt[IVT_PIO_A] = (uint16_t)(uintptr_t)&isr_pio_kbd;
     set_i_reg(IVT_ADDR >> 8);
@@ -122,9 +126,14 @@ void init_hardware(void) {
     setup_ivt();
 
     /* Apply the unified port-init table — CTC, SIO-A/B, PIO-A, DMA,
-     * 8275.  All interrupts are still globally DI. */
-    for (uint8_t i = 0; i < sizeof(port_init); i += 2) {
-        _port_out(port_init[i], port_init[i + 1]);
+     * 8275.  All interrupts are still globally DI.  Pointer-walk
+     * with countdown so clang generates a DJNZ-style 8-bit loop
+     * rather than a 16-bit pointer compare. */
+    const uint8_t *p = port_init;
+    for (uint8_t n = sizeof(port_init) / 2; n; --n) {
+        uint8_t port = *p++;
+        uint8_t value = *p++;
+        _port_out(port, value);
     }
 
     /* Drain any stray RX on the SIOs (RRs can latch error bits from

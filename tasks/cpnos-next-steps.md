@@ -35,7 +35,12 @@ submodule bump 1858833b.
   Fixed by relocating IVT to 0xEC00 and running memcpy before
   setup_ivt.
 
-### Closed (architecturally impossible): drive B: as a local floppy on CP/NOS
+### Closed (out of scope, scope-locked 2026-04-25): drive B: as a local floppy on CP/NOS
+
+**Scope decision (user, 2026-04-25):** "I do not want local floppy
+support in CP/NOS. It was not designed for that, and bolting it on is
+out of scope for now." Future sessions: do not re-propose this. If
+the scope is reopened, a new decision must be recorded here first.
 
 **Finding (2026-04-25, branch `fdc-variant`):** Adding a local 8" floppy
 as drive B: to a CP/NOS slave is **impossible without replacing the

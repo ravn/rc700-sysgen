@@ -385,6 +385,48 @@ Three commits after the audit:
   remain on the table if payload pressure returns.  Not urgent:
   760+ B slack remains below the 0xF800 resident ceiling.
 
+### Phase 21: Tier 2 mini-pass (Apr 25, 2026) — Easy
+
+- Investigated the audit's Tier 2 candidates.  Shipped what worked,
+  filed issues for the rest.  Payload .text 2054 → 2047 B (-7 B).
+
+- **Applied** (`init.c`):
+  - `setup_ivt`: pointer-walk + 8-bit countdown loop instead of
+    `for (i=0; i<18; ++i) ivt[i]=...`.  -1 B.  clang still emits a
+    parallel BC pointer dance and `dec a; ld d, a; or a; jr nz`
+    instead of `dec d; jr nz` — see #77.
+  - `init_hardware` port-init loop: pointer-walk + 8-bit countdown,
+    same shape.  Drops 16-bit DE counter for 8-bit L counter.  -7 B.
+    Same flag-routing pessimism applies.
+
+- **Tried, rejected**:
+  - `cfgtbl_init` 4× sequential `cfgtbl.drive[i] = 0x80+i` →
+    `__builtin_memcpy(const)`: **+19 B**.  clang refuses to inline
+    LDIR for 8-byte memcpy, unrolls into a base-pointer dance.
+    Worse than direct stores.
+  - `impl_const` invert second `if`: 0 B.  The 12 B
+    `(x != y) ? 0xFF : 0` mask chain is the same regardless of
+    polarity — see #79.
+
+- **Blocked, deferred to llvm-z80 fixes**:
+  - `impl_conout` BSS spill of `c`: ~12 B, blocked on #74.
+  - `netboot_mpm` `sframe` reload-after-LDIR: ~7 B, file as #78.
+  - `impl_const` mask chain: ~7 B, file as #79.
+
+- Three more issues filed against `ravn/llvm-z80` from this
+  mini-pass (all open, with self-contained C reproducers):
+  - **#77** 8-bit countdown loops emit `dec a; ld r, a; or a` instead
+    of flag-using `dec r` (or `djnz`) — hits every countdown loop.
+  - **#78** LDIR's post-state `DE = dst+count` not used; subsequent
+    `dst += count` reloads from BSS.  ~10 B per occurrence.
+  - **#79** `(x != y) ? 0xFF : 0` materialised as 7-instruction mask
+    chain instead of 2-instruction `add a,$ff; sbc a,a`.  ~9 B per
+    occurrence.
+
+- **Verdict**: audit's "~35 B" Tier 2 estimate optimistic by ~5×.
+  Real mechanical wins cap around 7 B without compiler fixes;
+  rest is gated on llvm-z80.  6 issues now open against codegen.
+
 ### Phase 20: drive B: as local floppy on CP/NOS (Apr 24-25, 2026) — branch `fdc-variant` — Painful
 
 - **Goal**: give the RC702 slave a local 8" floppy as drive B:
