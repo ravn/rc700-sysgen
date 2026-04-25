@@ -25,7 +25,7 @@ export CPMDrive_D := $(CURDIR)/d
 export CPMDrive_A := $(CURDIR)/a
 export CPMDefault := d:
 
-MODULES := cpnos cpndos cpnios cpbdos cpbios
+MODULES := cpnos cpndos cpnios cpbdos
 
 .PHONY: all clean
 all: d/cpnos.com
@@ -52,7 +52,7 @@ d/%.rel: d/%.asm
 	cd $(CURDIR) && $(VCPM) rmac $* 2>&1 | tail -3
 
 d/cpnos.com: $(addsuffix .rel,$(addprefix d/,$(MODULES)))
-	cd $(CURDIR) && $(VCPM) link 'cpnos,cpndos,cpnios,cpbdos,cpbios[$(CODE_BASE),$(DATA_BASE)]' 2>&1 | tail -15
+	cd $(CURDIR) && $(VCPM) link 'cpnos,cpndos,cpnios,cpbdos[$(CODE_BASE),$(DATA_BASE)]' 2>&1 | tail -15
 
 clean:
 	rm -f d/*.rel d/*.prn d/*.sym d/*.com d/tiny*.* d/test.*
