@@ -592,6 +592,19 @@ Three commits after the audit:
   alternative / future upgrade" subsection retitled "long-term
   comparison target" to match.
 
+- **MAME bridge design specified** (same day, post-cleanup): expanded
+  the "MAME side" section of `docs/cpnet_fast_link.md` from a 3-bullet
+  stub to a full design spec covering current `rc702.cpp` state, the
+  three-part patch scope (PIO-B activation, new
+  `rc702_cpnet_bridge_device` class, machine_config wiring), the
+  socket-based wire protocol that matches the eventual Pi+Pico
+  USB-CDC stream, the `make cpnet-mame-test` test-harness shape, and
+  the implementation sequencing.  Bridge is the first concrete
+  bring-up step — needs only a working `ravn/mame` build (already
+  maintained) and a stub `isr_pio_par` on the Z80 side, no Pi 4B or
+  J3 cable required.  Issue against `ravn/mame` to be filed when
+  implementation phase opens.
+
 - **Level-shifter requirement dropped** (same day, post-rationale):
   user pointed out that the existing `ravn/cbl923` Pi Pico keyboard
   rig drives the Z80 PIO directly from 3.3V GPIO without level

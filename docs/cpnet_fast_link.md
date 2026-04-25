@@ -578,14 +578,185 @@ are functionally interchangeable.
 
 ## MAME side
 
-`mame/src/mame/skeleton/rc702.cpp` currently has PIO-B commented out and
-unwired. Need a patch that:
+The MAME RC702 driver lives at
+`mame/src/mame/regnecentralen/rc702.cpp` (~555 lines, original author
+Robbbert 2016). User maintains `ravn/mame` fork. Recent CP/NET-related
+work in that fork: ravn/mame#1 (rs232b null_modem default + DCD
+wiring), ravn/mame#3 (z80dart_device -> z80sio_device migration). For
+Option P bring-up we want a fourth patch that gives us protocol-level
+iteration entirely in emulation before any J3 cable is fabricated.
 
-1. Instantiates PIO-B as an active device with BSTB/BRDY connected.
-2. Adds a virtual "host bridge" device that talks the same TCP wire
-   protocol as the production Pi/Mac bridge — letting us iterate the
-   protocol entirely in MAME before any cables exist.
-3. Filed as `ravn/mame#N` when the implementation phase begins.
+This subsection is the design spec for that patch. Implementation is
+deferred (design-only phase); the spec is what gets attached to the
+`ravn/mame` issue when implementation opens.
+
+### Current state in `rc702.cpp`
+
+What's there today (per project notes through 2026-04-25):
+
+- Z80-PIO device instantiated; **Port A wired to keyboard input**
+  (KEY_DAT on port 0x10), ASTB strobed by the keyboard model.
+- **Port B is instantiated but its data lines and BSTB/BRDY handshake
+  are not wired to anything externally.** A comment in the driver
+  notes "Printer (PIO port B commented out)".
+- Z80-SIO/2 (post-ravn/mame#3) wired with both channels connected to
+  `rs232_port_device` instances. SIO-A -> rs232a, SIO-B -> rs232b.
+  Both rs232 ports default to `null_modem` and accept `-bitb1`/`-bitb2`
+  command-line options for socket / pipe / stdio backends.
+- IM2 daisy chain: CTC -> SIO -> PIO (priority order). PIO-A
+  interrupts already routed; PIO-B INT line free since Port B is dead.
+- IVT slot 17 (vector 0x22) is what the Z80 BIOS will use for PIO-B
+  per the Z80-side design above.
+- No equivalent of the rs232 null_modem / bitbanger pattern exists for
+  parallel I/O in MAME upstream.
+
+### Patch scope
+
+Three changes, all in `ravn/mame`:
+
+**(1) Activate PIO-B handshake on the MAME side.**
+
+Bind PIO-B's read/write handlers to a new pseudo-device (see (2)).
+Connect the BSTB input from the device into PIO-B's strobe input.
+Wire PIO-B's BRDY output back out to the device. Connect Port B's
+INT line into the daisy chain immediately after Port A (Port A
+priority preserved).
+
+Concretely in driver terms (illustrative, not final code):
+
+```
+PIO_B.in_pa_callback().set( ... )           // Port A unchanged (kbd)
+PIO_B.in_pb_callback().set("cpnet_bridge", FUNC(...::data_r))
+PIO_B.out_pb_callback().set("cpnet_bridge", FUNC(...::data_w))
+PIO_B.out_brdy_callback().set("cpnet_bridge", FUNC(...::brdy_w))
+"cpnet_bridge".out_bstb_callback().set(PIO_B, FUNC(z80pio_device::strobe_b))
+```
+
+**(2) Add a virtual host-bridge device.**
+
+A new MAME device class, scoped to the `ravn/mame` fork (not for
+upstream initially). Working name: `rc702_cpnet_bridge_device`.
+File: `src/mame/regnecentralen/rc702_cpnet_bridge.{cpp,h}` so it
+lives next to the driver and doesn't pollute upstream namespaces.
+
+Responsibilities:
+
+- **Z80-facing side:** present an 8-bit data register that PIO-B reads
+  from / writes to. Generate BSTB pulses to PIO-B in response to host
+  input. React to PIO-B's BRDY edges to know when an output byte has
+  been placed on the data lines.
+- **Host-facing side:** open a Unix domain socket (or TCP) on a
+  configurable address (default: `socket.localhost:4003`, sibling to
+  the existing `:4002` z80pack CP/NET TCP port). Speak the same
+  byte-stream wire protocol that the Pi+Pico bridge will speak in
+  production — see "Wire protocol" below.
+- **Direction tracking:** mirror the Z80's PIO-B Mode 0/1 switch.
+  When Z80 OUTs the Mode 1 control word (0x4F), bridge knows it's
+  "host -> Z80 next" and forwards incoming socket bytes via BSTB.
+  When Z80 OUTs Mode 0 control word (0x0F), bridge knows it's
+  "Z80 -> host next" and consumes BRDY-strobed bytes from PIO-B's
+  output register, sending them out the socket.
+
+The control-word OUT is observable by the bridge because the Z80-PIO
+device exposes the mode setting through its public interface (or via
+sniffing port 0x13 writes if that's cleaner).
+
+**(3) Hook up the bridge in the driver config.**
+
+In `rc702.cpp` `machine_config`:
+
+- Instantiate `rc702_cpnet_bridge_device` with a tag like `"cpnet"`.
+- Wire its callbacks per (1).
+- Add a slot option / command-line knob: `-cpnet socket.localhost:4003`
+  (or `:none` to disable, default).
+
+### Wire protocol (MAME bridge <-> external client)
+
+This is the same protocol the production Pi-side daemon will speak
+to the Pi Pico over USB-CDC. By making MAME speak it identically,
+the host-side Python code is unchanged between dev and production.
+
+Bytes on the socket carry CP/NET frames in both directions. Framing
+matches the Z80-side ISR's expectations: each frame is a CP/NET SCB
+(5-byte header carrying length, then payload) — no extra envelope
+needed. Direction is implicit: if the bridge is in "host -> Z80"
+state (Z80's PIO-B is in Mode 1), socket-received bytes go to PIO-B;
+if in "Z80 -> host" state (Mode 0), PIO-B-produced bytes go to the
+socket.
+
+Edge events (mode switches, BRDY/BSTB edges) are not transmitted
+over the socket — the protocol relies on the receiver counting bytes
+against the SCB length field, just like the Z80-side ISR does. This
+keeps the wire protocol minimal: it's a pure bidirectional byte
+stream with frame boundaries derivable from the payload itself.
+
+If we later need out-of-band events (resync, reset, error notif) we
+can borrow MAME's existing pattern of escape sequences — but until
+empirical bring-up shows a need, keep it byte-stream-pure.
+
+### Testing harness
+
+A new top-level make target, mirroring the existing `make
+sio-echo-test` shape:
+
+```
+make cpnet-mame-test
+  -> launches MAME with -cpnet socket.localhost:4003
+  -> runs a Python harness that:
+       - connects to :4003
+       - sends a known CP/NET request frame (e.g. console-status)
+       - waits for the RC702 response
+       - asserts the bytes match expected
+       - exits 0 on PASS
+```
+
+Same harness reused later against the Pi+Pico bridge — only the
+endpoint changes. The Python bridge daemon (`pi_cpnet_bridge.py`)
+already proxies TCP <-> USB-CDC, so the test harness sees a uniform
+TCP interface in both topologies.
+
+### What gets filed against ravn/mame
+
+When implementation opens, file one tracking issue (working title:
+"RC702: PIO-B + virtual CP/NET host bridge for Option P"). The
+issue body is essentially this subsection plus a link back to
+`docs/cpnet_fast_link.md`. Implementation lands as a series of
+commits on a `cpnet-bridge` branch in `ravn/mame`.
+
+### Sequencing
+
+The MAME bridge is the first concrete bring-up step — it does not
+need the Pi 4B, the J3 cable, or the second Pico. It only needs a
+working `ravn/mame` build (already maintained by the user) and the
+Z80-side BIOS additions to be at least at "PIO-B init + a stub
+isr_pio_par that increments a byte counter" level.
+
+Dependencies (in order from most independent first):
+
+1. Z80-side stub: PIO-B init in `cpnos-rom/init.c` port_init table,
+   `isr_pio_par` set to a trivial byte-counter ISR. ~10 lines of C.
+2. MAME bridge device class — items (1)-(3) above.
+3. Integration: Python test harness + `make cpnet-mame-test` target.
+4. Iterate the wire protocol against (1)-(3) until a CP/NET console-
+   status round trip works.
+5. Real-hardware bring-up — replace MAME bridge with Pi+Pico+cable;
+   nothing else changes.
+
+### Open questions for implementation phase
+
+- Whether to sniff port-0x13 writes for direction tracking or query
+  the z80pio_device public interface. Pick the cleaner of the two
+  once we're in the code.
+- Whether to expose the Mode 0/1 state on the socket as a
+  diagnostic (escape-byte event), or rely purely on byte counting
+  derived from CP/NET SCB. Default to the latter; revisit if
+  debugging gets painful.
+- Default socket address: localhost:4003 chosen to sit next to
+  z80pack's :4002. If the eventual production deployment exposes
+  the bridge on the Pi over LAN, the address scheme generalises.
+- Whether `rc702_cpnet_bridge_device` is a candidate for upstream
+  MAME contribution after the design has been bench-validated.
+  Defer that decision; it's a standalone gesture, not load-bearing.
 
 ## Bring-up sequence (deferred until hardware available)
 
