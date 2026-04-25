@@ -1,26 +1,25 @@
 # Parallel Host Interface via PIO-A
 
-> **⚠ HARDWARE VERIFICATION NEEDED (session 16, 2026-04-08).**
-> Reading sheet MIC07 of the RC702 technical manual suggests the Mode 2
-> plan below **does not work on stock hardware**. Specifically:
+> **SUPERSEDED 2026-04-25.** This Mode 2 plan was abandoned. The current
+> design is **Option P** in [`docs/cpnet_fast_link.md`](../../docs/cpnet_fast_link.md):
+> CP/NET goes on PIO-B / J3 (which has both BSTB and BRDY routed),
+> the RC722 keyboard stays on PIO-A / J4 unchanged, and the machine
+> continues to be usable normally with the link unplugged.
 >
-> - **ARDY** (Z80 PIO chip pin 18, required by Mode 2) appears not to
->   be wired to any external connector. The original RC702 designer
->   only needed strobed *input* from the keyboard, so ARDY was
->   apparently left dangling.
-> - **BSTB and BRDY** (also required by Mode 2 on Port A) are wired to
->   J3 (Port B's connector), not J4 (Port A's connector). A single
->   DSUB-25 cable into J4 cannot pick them up.
+> The Mode 2 PIO-A plan was ruled out because:
 >
-> See `docs/schematics/MIC07_pinout.md` and `tasks/session16-summary.md`
-> for the full reading and the three workaround options (half-duplex
-> with no rewiring; Y-cable into both J3 and J4; or open the case and
-> run 1–3 wires from the PIO chip / J3 over to spare J4 pins). The
-> schematic reading is not yet hardware-verified — the next step is to
-> ring out the connectors with a meter on the actual machine.
+> - **ARDY** (Z80 PIO chip pin 28, required by Mode 2) is not wired to
+>   any external connector — the original RC702 designer only needed
+>   strobed *input* from the keyboard. Verified from sheet MIC07 of the
+>   technical manual; see `docs/schematics/MIC07_pinout.md`.
+> - **BSTB and BRDY** are wired to J3 (PIO Port B's connector), not J4.
+>   A single DSUB-25 into J4 cannot pick them up.
+> - Even if ARDY were patched in, the RC722 keyboard requirement (see
+>   2026-04-25 scope clarification) means PIO-A / J4 has to remain
+>   dedicated to the keyboard in production.
 >
-> The rest of this document describes the *intended* Mode 2 design and
-> still applies once the hardware question is resolved.
+> The text below is preserved for archaeological reference only — do
+> not implement against it.
 
 ## Concept
 

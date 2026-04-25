@@ -210,105 +210,47 @@ Still fits MAXI disk (9984B limit, 3367B headroom). Consider removing
 
 Sizes: with +static-stack 5709B, without 6617B, SDCC 5570B.
 
-## Parallel host link (PIO Port A bidirectional)
+## CP/NET fast host link (PIO-B / J3)
 
-Goal: replace the 38400-baud serial transport with a fast parallel link
-between RC700 and a modern host machine (e.g. a Linux box with a real
-DSUB-25 LPT port — 5 V TTL, electrically compatible with the Z80 PIO).
+**Design committed (2026-04-25):** `docs/cpnet_fast_link.md` — Option P.
+PIO-B half-duplex via J3, keyboard untouched on PIO-A / J4, machine
+remains usable normally with the link unplugged.
 
-Design doc: `rcbios-in-c/docs/parallel_host_interface.md`.
-Schematic analysis: `docs/schematics/MIC07_pinout.md`.
-Investigation log: `tasks/session16-summary.md`.
+Supersedes the earlier Mode-2 plan. The previous "Three options to
+choose from" / "Hardware verification" / cable shopping notes are now
+obsolete — see deprecation banner on
+`rcbios-in-c/docs/parallel_host_interface.md`.
 
-### Status
+### Phase
 
-- Design doc exists from before session 16, assuming Mode 2
-  (bidirectional with full hardware handshake) on PIO Port A.
-- Session 16 read MIC07 and found that Mode 2 likely **does not work
-  on stock hardware** — ARDY appears unwired and BSTB/BRDY are on the
-  wrong DSUB-25 connector. Schematic reading is not yet
-  hardware-verified.
-- `KBDPORT=B` compile-time flag implemented and verified on both
-  clang and SDCC (commit b746c0c). Default build unchanged.
-- **Blocked: waiting for DB-25 M/M cable.**
-  Candidate: elextra.dk H11461 (49 DKK, 2m) or H11463 (79 DKK, 5m).
-  Confirm 1:1 straight-through wiring before buying (phone 9684 0619).
-  Alternative host hardware: Arduino Micro (elextra H36812, 199 DKK,
-  5V native, no level shifter needed).
+- [x] **Design phase** — pinned in `docs/cpnet_fast_link.md`
+- [ ] Implementation phase — **deferred**: user does not currently have
+      Pi 4B / 3B host hardware on hand. Do NOT write Pico firmware,
+      Z80 bench tests, MAME patches, or host daemons until an explicit
+      "start coding" signal that follows hardware acquisition.
 
-### When the cable arrives — investigation plan
+### Deferred bring-up sequence (when hardware available)
 
-Prerequisites: cable, Linux PC with real LPT port (`/dev/parport0`),
-RC700 with serial console working, keyboard unplugged from J4.
+1. PIO-B input bench (mirror cbl923 keyboard rig but on J3).
+2. PIO-B output bench (Z80 OTIR + host BSTB ack).
+3. Direction-switch bench (mode-1 <-> mode-0 transitions clean).
+4. End-to-end CP/NET frame test.
+5. MAME parity (rc702.cpp PIO-B + virtual host bridge).
+6. Pi 4B native deployment (Topology B, headless production).
+7. Outside-world services on Pi (out of scope for this link).
 
-1. Write `pioprobe.com` — small CP/M test program loaded over serial.
-   Takes single-letter commands, configures PIO modes, reads/writes
-   ports, reports results back on serial console.
-2. Write `lptprobe.py` — Linux-side script using `ppdev`/`pyparallel`.
-   Drives LPT data + control lines, reads status lines.
-3. **Cable mapping** (investigation #1): drive each LPT data line
-   high one at a time, read PIO port on RC700 → builds the complete
-   "LPT pin → J4 pin → PIO bit" map for this specific cable.
-4. **ARDY discovery** (investigation #2, the critical one): configure
-   PIO-A as Mode 0 output on RC700, write a byte, read all 5 LPT
-   status inputs on Linux. Any status pin that toggles in step with
-   the RC700 OUT instruction is ARDY wired through. Settles the
-   load-bearing question without a meter or opening the case.
-5. **Confirm J4 = Port A** (investigation #3): drive LPT line, read
-   both port 0x10 and 0x11 on RC700, see which responds.
-6. **Mode feasibility**: try Mode 0/1/2/3, see which round-trips data.
-7. **Throughput benchmark**: push 64 KB block, time it, compare to
-   38400 baud serial.
-8. Based on results → pick option 1/2/3, start BIOS + host firmware.
+### Open design questions (resolvable on paper)
 
-### Hardware verification (do these on the actual machine)
-
-- [ ] Confirm J4 = PIO Port A by ringing out J4 pin 21 (alleged A0)
-      with a meter back to a known Port A data pin on the Z80 PIO chip.
-- [ ] Confirm J3 = PIO Port B the same way (J3 pin 22 → B0).
-- [ ] **Critical:** check whether ARDY (Z80 PIO chip pin 18) is wired
-      to *any* J4 pin. If yes, Mode 2 is much closer to viable. If no,
-      see option 3 below.
-- [ ] Confirm BSTB's exact pin number on J3 — partly obscured in the
-      schematic crop.
-- [ ] Identify which J4 pins are unused (i.e. not data, not strobe,
-      not power, not ground). These are candidates for option 3 wiring.
-
-### Schematic re-read tasks (do at the keyboard)
-
-- [ ] Re-render MIC07 *uncropped* and trace one `KEY n` wire
-      pin-by-pin from J4 back to a clearly-numbered Port A pin on the
-      PIO chip. Confirms the J4 = Port A claim from the schematic
-      side, independent of the BIOS port mapping.
-- [ ] Look for ARDY in the left half of MIC07 (cropped out in
-      session 16) and on adjacent sheets (MIC06, MIC08).
-- [ ] Look for a tabular connector pinout appendix in the manual
-      text — many RC manuals have one separate from the schematic
-      sheets. Would settle the J3/J4 question definitively.
-
-### Three options to choose from once hardware is verified
-
-1. **Half-duplex, no rewiring.** Mode 0/1 + ASTB-driven RX
-   interrupt. Host→Z80 fully handshaked. Z80→host polled with fixed
-   timing or bit-banged via Mode 3. Slowest, simplest, no soldering.
-
-2. **Y-cable into J3 + J4.** Picks up BSTB/BRDY from J3 and the
-   data bus + ASTB from J4. Still missing ARDY (host inserts fixed
-   delay). Non-standard cable, no soldering.
-
-3. **Open the case, run 1–3 wires.** ARDY (PIO pin 18) → spare J4
-   pin, optionally also BSTB/BRDY → spare J4 pins. Single DSUB-25
-   into J4 then becomes a complete Mode 2 link with the full
-   ~25–30 KB/s the design doc estimated.
-
-### Once an option is picked
-
-- [ ] Update `rcbios-in-c/docs/parallel_host_interface.md` to match
-      reality (drop the warning header, document the chosen option).
-- [ ] BIOS work: PIO init swap (Port A to chosen mode, Port B to
-      Mode 1 input for keyboard), ISR rename, parallel ring buffer.
-- [ ] Move keyboard cable from J4 to J3 physically.
-- [ ] Host-side firmware/driver for the chosen option.
-- [ ] Lit test for the new BIOS init bytes per CLAUDE.md
-      "always add a lit test" rule (where applicable).
+- [ ] Sentinel-byte option for keyboard/CP-NET multiplexing on PIO-A is
+      no longer needed under Option P. Remove if it appears anywhere.
+- [ ] Optional 1-byte XOR checksum at frame end: yes/no decision after
+      Step 4 above.
+- [x] Level-shifter chip choice — **resolved 2026-04-25**: no chip
+      needed.  Pico drives Z80 PIO directly (cbl923 rig empirically
+      proves the Pico->Z80 direction); add 470 Ω - 1 kΩ series
+      resistor on each Pico-input pin to current-limit the protection
+      diode in the reverse direction.  Fallback to TXS0108E breakout
+      only if Z80 PIO VOH measures above ~3.7V at bring-up.
+- [ ] Pi-side z80pack invocation: in-process Python binding vs
+      subprocess with TCP loopback.
 

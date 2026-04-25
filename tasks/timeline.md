@@ -525,6 +525,89 @@ Three commits after the audit:
     linked, because nothing called them.  Made the experiment
     cheap to keep around (no PROM cost) and clean to revert.
 
+### Phase 22: CP/NET fast-link design — Option P pinned (Apr 25, 2026) — Easy
+
+- **Goal**: pick a host<->RC702 transport that beats the current 38400-
+  baud async path (~3.8 KB/s) for CP/NET + CP/NOS traffic, without PCB
+  modifications, while leaving the machine "usable normally" — physical
+  RC722 keyboard plugged into J4, both SIOs free for terminal/printer.
+
+- **Design phase only.** User does not have Pi 4B / 3B host hardware on
+  hand and explicitly asked for design artifacts only — no Pico
+  firmware, no Z80 bench tests, no MAME patches yet. Bring-up deferred
+  until hardware is acquired.
+
+- **Investigated scenarios** (using SIO and PIO ports, no J8):
+  - SIO-only async tweaks — capped at 38400 baud, dead-end without mods.
+  - SIO-only SDLC — TX works but RX blocked by missing DPLL + NC TxC/RxC
+    pins on J1.  Asymmetric only.
+  - PIO-A (J4) repurposed for fast link — ruled out by RC722-keyboard
+    constraint and missing ARDY chip pin (Mode 2 impossible).
+  - PIO-B half-duplex via J3 — full handshake (BSTB+BRDY both routed),
+    keyboard untouched, SIOs untouched.  ~30-50 KB/s sustained.
+  - Hybrid PIO-B in + SIO-A SDLC TX — ~70 KB/s response side, costs
+    SIO-A.  Documented as future upgrade if response throughput needs.
+
+- **Pinned**: Option P — PIO-B half-duplex via J3, direction-switched at
+  CP/NET frame boundaries.  Design doc at `docs/cpnet_fast_link.md`.
+  Hard upper bound: ~30 KB/s in, ~50 KB/s out (8-13× current).
+  Production target: Pi 4B running z80pack-as-CP/NET-master natively,
+  driving J3 cable through level shifter (Topology B).  Development
+  iteration shape: Mac + Pico USB-CDC (Topology A), same wire protocol.
+
+- **Languages locked**: C (clang-z80) for Z80 BIOS, Python 3 for host
+  bridge, C with Pico SDK for optional Pico firmware, C++ for MAME.
+
+- **Superseded**: `rcbios-in-c/docs/parallel_host_interface.md`
+  Mode-2-on-PIO-A plan.  Deprecation banner added; previous "three
+  options" / cable-shopping notes in `tasks/todo.md` rewritten.
+
+- **Verified hardware facts** (consolidated from sessions 16/18/20-21
+  and the schematic):
+  - SIO-A bit clock at ÷1 = ~614 kbaud TX-direction signaling works.
+    Framing layer (SDLC vs monosync) **uncertain** — earlier
+    "SDLC specifically verified" claims should be treated as
+    unverified bit-level signaling only.
+  - PIO-A Mode 1 input + ASTB strobe works on this RC702 (`ravn/cbl923`
+    Pico keyboard rig is the existence proof).
+  - PIO-B (J3) is electrically symmetric to PIO-A but has never been
+    bench-tested — first bring-up step when hardware arrives.
+
+- **Memory pinned**: project goal "fast link is CP/NET-only", "physical
+  RC722 keyboard remains attached", "Pi as production sidecar (Pi
+  hardware not yet acquired)" all recorded in user memory so future
+  sessions inherit the constraints without re-deriving them.
+
+- **Decision rationale formalised** (later in same day, after the
+  initial design pin): user requested a thorough report in the project
+  on the Option-P decision and why the alternatives were rejected.
+  Added a "Decision rationale" section at the top of
+  `docs/cpnet_fast_link.md` with: priority-ordered constraint list,
+  full options-considered matrix (P, H, H', Mode-2, K, A1-A4, B/C
+  variants, Y-cable, keyboard-relocation, J8), per-option rejection
+  analysis, and an explicit "Long-term: full-speed SIO TX comparison"
+  subsection capturing the user's plan to ship P, bench it, then
+  build an H prototype to determine empirically whether the response-
+  side throughput improvement justifies H's costs.  Existing "Option H
+  alternative / future upgrade" subsection retitled "long-term
+  comparison target" to match.
+
+- **Level-shifter requirement dropped** (same day, post-rationale):
+  user pointed out that the existing `ravn/cbl923` Pi Pico keyboard
+  rig drives the Z80 PIO directly from 3.3V GPIO without level
+  shifting, and the Z80 reads it cleanly (TTL VIH min 2.0V).  Z80 PIO
+  is signal-only on J3 (no +5V or +12V rail — unlike J4 which powers
+  the keyboard).  Updated `docs/cpnet_fast_link.md` cable spec, host
+  side, and constraint-#5 satisfaction text:  no TXS0108E / 74LVC245
+  / shifter chip required;  add 470 Ω - 1 kΩ series resistor on each
+  Pico-input pin to current-limit protection diodes in the
+  Z80-drives-Pico direction;  Topology B switched from "Pi 4B GPIO
+  direct + level shifter" to "Pi 4B + Pi Pico over USB-CDC" so one
+  firmware codepath covers both dev and production.  Cable BOM is
+  now 11 wires + 9 series resistors.  Open question retained:
+  measure Z80 PIO VOH on this RC702 at bring-up to confirm the
+  no-shifter cable holds.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature
