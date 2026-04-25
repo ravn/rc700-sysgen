@@ -40,13 +40,17 @@ rblist	equ	0ED0Fh
 	CSEG
 BIOS:
 	public	BIOS
-;	jump vector for individual routines
+;	jump vector for individual routines.  Console entries jump
+;	directly into the resident BIOS JT — register translation /
+;	BC,DE preservation lives in cpnos-rom's bios_shims.s now,
+;	not in this file.  See memory note
+;	project_cpnos_address_coupling_brittle.
 	jmp	boot		; +0
 wboote:	jmp	error		; +3  wboot (unused in CP/NOS)
-	jmp	cshim	; +6
-	jmp	cishim	; +9
-	jmp	coshim	; +12
-	jmp	lshim	; +15
+	jmp	rbconst	; +6  CONST  (rbconst = 0xED06 = resident JT)
+	jmp	rbconin	; +9  CONIN
+	jmp	rbcout	; +12 CONOUT
+	jmp	rblist	; +15 LIST
 	jmp	error		; +18 PUNCH
 	jmp	error		; +21 READER
 	jmp	error		; +24 HOME
@@ -56,7 +60,7 @@ wboote:	jmp	error		; +3  wboot (unused in CP/NOS)
 	jmp	error		; +36 SETDMA
 	jmp	error		; +39 READ
 	jmp	error		; +42 WRITE
-	jmp	lsshim	; +45 LISTST
+	jmp	lsshim	; +45 LISTST (local stub; resident has no impl)
 	jmp	error		; +48 SECTRAN
 BIOSlen	equ	$-BIOS
 ;
@@ -109,69 +113,22 @@ prmsg:	; print zero-terminated string at HL
 	rz
 	push	h
 	mov	c,a
-	call	coshim
+	call	rbcout	; resident bios_conout_shim handles BC/DE preservation
 	pop	h
 	inx	h
 	jmp	prmsg
 ;
-; ---- ABI shims: CP/M BIOS <-> cpnos-rom resident ---------------
-;
-; CP/M:   CONOUT(c in C),  CONIN(→A), CONST(→A), LIST(c in C),
-;         LISTST(→A).  All regs preserved except the A return.
-; clang sdcccall(1):  arg in A, 8-bit return in L, all caller-saved.
-;
-; Without push/pop wrappers the CCP/NDOS loop counters in BC/DE get
-; trashed and CCP spins emitting a single char (symptom seen during
-; issue #36 rc700_console integration attempt).
-; HL is the return register on the clang side so we do NOT preserve
-; it; CP/M callers don't expect HL to survive either.
-;
-; NOTE on sdcccall(1) 8-bit return: clang Z80 sdcccall(1) returns
-; 8-bit values in A (NOT L as we initially assumed).  Confirmed
-; 2026-04-22 from impl_conin / impl_const disassembly — both end
-; with `ld a,d; ret`.  Do NOT do `mov a,l` here: it would overwrite
-; the correct return with the stale HL low byte.  (That bug made
-; CCP echo `F G H I` = 0x46..0x49 for input `d i r \r` because
-; HL happened to track the input-ring scratch address 0xEC46+.)
-cshim:
-	push	b
-	push	d
-	call	rbconst	; A = status (0x00 or 0xFF)
-	pop	d
-	pop	b
-	ret
-;
-cishim:
-	push	b
-	push	d
-	call	rbconin	; A = char
-	pop	d
-	pop	b
-	ret
-;
-coshim:
-	push	b
-	push	d
-	mov	a,c		; CP/M: char in C; clang: char in A
-	call	rbcout
-	pop	d
-	pop	b
-	ret
-;
-lshim:
-	push	b
-	push	d
-	mov	a,c
-	call	rblist
-	pop	d
-	pop	b
-	ret
-;
+; LISTST stub — no list device on RC702.  Returns A=0 ("not ready"),
+; matching original Altos behaviour when the port was absent.  Kept
+; local because the resident's bios_jt routes LIST/LISTST to
+; bios_stub_ret (a bare RET that leaves A undefined); cpnos.com
+; callers expect a deterministic A on return.
 lsshim:
-	; No list device on RC702; return "ready" (0xff) so prints
-	; don't block.  (Matches original Altos listst behaviour when
-	; the port was absent.)
 	xra	a
 	ret
+;
+; ABI shims for CONST/CONIN/CONOUT/LIST live in cpnos-rom/bios_shims.s
+; (see memory: project_cpnos_address_coupling_brittle).  The cpnos.com
+; side now just `JP rb<entry>`s into the resident BIOS JT slots.
 ;
 	end

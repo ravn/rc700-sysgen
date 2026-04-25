@@ -34,9 +34,9 @@
 _bios_jt:
 _bios_boot:     jp _impl_boot
 _bios_wboot:    jp _impl_wboot
-_bios_const:    jp _impl_const
-_bios_conin:    jp _impl_conin
-_bios_conout:   jp _impl_conout
+_bios_const:    jp bios_const_shim    ; CP/M ABI shim — see bios_shims.s
+_bios_conin:    jp bios_conin_shim
+_bios_conout:   jp bios_conout_shim
 _bios_list:     jp _bios_stub_ret
 _bios_punch:    jp _bios_stub_ret
 _bios_reader:   jp _bios_stub_ret

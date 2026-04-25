@@ -68,7 +68,8 @@ endif
 # The payload is the single contiguous blob of everything that runs
 # at runtime.  The payload linker doesn't know about the two EPROMs;
 # a separate relocator stitches it back together at cold boot.
-PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
+PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o clang/bios_shims.o \
+               clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
                clang/transport_sio.o $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o
@@ -102,6 +103,10 @@ clang/runtime.o: runtime.s
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 clang/bios_jt.o: bios_jt.s
+	@mkdir -p clang
+	$(CC) $(ASFLAGS) -c $< -o $@
+
+clang/bios_shims.o: bios_shims.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 
@@ -230,12 +235,41 @@ cpnos-disasm: clang/payload.elf clang/relocator.elf
 
 MAME = /Users/ravn/git/mame
 MAME_PROM0 = $(MAME)/roms/rc702/roa375.ic66
+MAME_PROM1 = $(MAME)/roms/rc702/prom1.ic65
+
+# Disk-image install: rebuild cpnos.com from cpnos-build/ and inject the
+# fresh blob into both MP/M library disks.  Prevents the "PROM updated
+# but disk still has stale cpnos.com" trap (2026-04-25 incident — see
+# memory: project_cpnos_address_coupling_brittle).  The launcher prefers
+# cpnetsmk-1.dsk if present, so updating only mpm-net2-1.dsk silently
+# fails to take effect — both must be refreshed.
+MPM_DISK_LIB = ../z80pack/cpmsim/disks/library
+cpnos-disk-install: cpnos-build/d/cpnos.com
+	@echo "=== installing cpnos.com onto MP/M library disks ==="
+	@cpmrm -f ibm-3740 $(MPM_DISK_LIB)/mpm-net2-1.dsk 0:cpnos.img 2>/dev/null || true
+	cpmcp -f ibm-3740 $(MPM_DISK_LIB)/mpm-net2-1.dsk \
+	    cpnos-build/d/cpnos.com 0:cpnos.img
+	@if [ -f $(MPM_DISK_LIB)/cpnetsmk-1.dsk ]; then \
+	    cpmrm -f ibm-3740 $(MPM_DISK_LIB)/cpnetsmk-1.dsk 0:cpnos.img 2>/dev/null || true; \
+	    cpmcp -f ibm-3740 $(MPM_DISK_LIB)/cpnetsmk-1.dsk \
+	        cpnos-build/d/cpnos.com 0:cpnos.img; \
+	    echo "  refreshed cpnos.img on cpnetsmk-1.dsk"; \
+	 fi
+	@echo "  refreshed cpnos.img on mpm-net2-1.dsk"
+
+# Force cpnos.com to rebuild whenever any of its sources change.
+.PHONY: cpnos-disk-install
+cpnos-build/d/cpnos.com: $(wildcard cpnos-build/src/*.asm cpnos-build/src/*.s) cpnos-build/Makefile
+	$(MAKE) -C cpnos-build all
 
 # Install prom0.bin into MAME (4KB slot, pad with 0xFF).  PROM1 at
 # 0x2000 in MAME is 0xFF by default — fine for Phase 1 where our
 # PROM1 is unused.
-MAME_PROM1 = $(MAME)/roms/rc702/prom1.ic65
-cpnos-install: clang/cpnos.bin
+#
+# Depends on cpnos-disk-install so a single `make cpnos-install` (and
+# anything that pulls in cpnos-install — cpnet-smoke, cpnos-mame, etc.)
+# guarantees the disk-side cpnos.com matches the freshly-built PROM.
+cpnos-install: clang/cpnos.bin cpnos-disk-install
 	@P0=$$(wc -c < clang/prom0.bin | tr -d ' '); \
 	 { cat clang/prom0.bin; perl -e "print \"\\xff\" x (4096 - $$P0)"; } \
 	   > clang/prom0_padded.ic66
