@@ -385,6 +385,62 @@ Three commits after the audit:
   remain on the table if payload pressure returns.  Not urgent:
   760+ B slack remains below the 0xF800 resident ceiling.
 
+### Phase 20: drive B: as local floppy on CP/NOS (Apr 24-25, 2026) — branch `fdc-variant` — Painful
+
+- **Goal**: give the RC702 slave a local 8" floppy as drive B:
+  alongside its existing CP/NET-served drives.  Read-only initially,
+  with `pip a:foo=b:bar` style file movement as the acceptance test.
+- **What got built (correct, on the dead branch)**:
+  - `fdc.c`/`fdc.h` — clean µPD765 primitives (init/recal/seek/sense_int/
+    READ DATA + DMA ch1 setup).  Globals-based arg passing to dodge
+    clang-z80's IX-frame overhead.  ~330 B.
+  - `disk.c`/`disk.h` — CP/M disk layer.  rcbios's DISKDEF macro
+    verbatim for byte-identical DPB derivation; `dpb_maxi_data =
+    DISKDEF(15,512,2,2048,450,128,1,2)`; DPH with `xlt=NULL` so BDOS
+    skips SECTRAN; xlt_maxi_side[15] real skew-4 table; impl_read
+    with 128↔512 deblocking; hostbuf-aliased dirbuf saves 128 B BSS.
+  - `cpbios.asm` shims (dskshim/trkshim/...) tail-calling our BIOS.
+  - `cfgtbl.drive[1] = LOCAL` so NDOS's chkdsk classifies B: local.
+  - BIOS_BASE relocation from 0xED00 → 0xDD00 → 0xDE00 to make
+    room for the disk BSS region.
+  - 8"-DSDD MFI disk-builder pipeline (`mkmfidisk.sh` +
+    `bin2imd.py` 8" maxi auto-detect).
+- **Wall hit**: instrumented MAME CPU-fetch trace showed
+  `_bios_seldsk` and `_bios_read` get **0** fetches during
+  `dir b:`.  NDOS correctly classified B: local and JP'd to BDOS,
+  but BDOS never made the BIOS calls.
+- **Root cause** (the deliverable): `cpnet-z80/dist/src/cpbdos.asm`
+  line 1: *"diskless BDOS for CP/NOS - functions 0-12 only.  may be
+  ROMable"*.  By design.  CP/NOS was a 1982 diskless-workstation
+  spec — no BDOS fns 14/15/17/18/20/21/22.  Local disks need a
+  different BDOS.  See `tasks/cpnos-next-steps.md` for the three
+  non-session-sized fix paths (replace BDOS / port disk fns / NDOS
+  bypasses BDOS).
+- **Resolution**: parked.  `pip a:=b:` over CP/NET already covers
+  practical file transfer.  Cherry-picked the standalone-useful
+  artifacts onto main:
+  - `PORT_OUTPUTS.md` (621-line bit-level OUT-byte reference).
+  - `cpnos-rom/testutil/mkmfidisk.sh` + `rcbios/bin2imd.py`
+    8" maxi support (any future CP/M-floppy work benefits).
+  Reverted on main: fdc.c, disk.c, BIOS_BASE move, cpbios.asm
+  shims, cfgtbl.drive[1]=LOCAL, fdc-acceptance target.  Branch
+  `fdc-variant` preserved locally for reference.
+- **Lessons**:
+  - Read the asm source headers FIRST.  The "diskless BDOS" comment
+    on line 1 of cpbdos.asm was the answer to the entire mystery,
+    visible the whole time.  ~3 sessions of debugging in BIOS/JT/
+    NDOS/cfgtbl space could have been minutes of reading.
+  - RMAC 1.1 silently emits `c3 0000` for forward references >
+    ~0x90 bytes (no error, no warning, just `I` prefix in the
+    listing).  And RMAC 1.1 is ASCII-only — UTF-8 em-dashes/
+    arrows in comments break the parser silently.  Two foot-guns
+    worth a comment in `tasks/cpnos-next-steps.md` for any future
+    cpnos-build edit.
+  - clang-z80's `--gc-sections` is good — fdc.c/disk.c never made
+    it into the live payload bytes despite being compiled and
+    linked, because nothing called them.  Made the experiment
+    cheap to keep around (no PROM cost) and clean to revert.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature
