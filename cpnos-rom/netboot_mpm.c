@@ -22,6 +22,7 @@
  */
 
 #include <stdint.h>
+#include "hal.h"
 
 /* memcpy from runtime.s — no libc headers in a freestanding build. */
 extern void *memcpy(void *dest, const void *src, unsigned int n);
@@ -109,8 +110,10 @@ static void reuse_fcb(void) {
 
 PROM1_CODE
 uint16_t netboot_mpm(void) {
+    BOOT_MARK(8, 'N');               /* entered netboot_mpm */
     /* Arm SNIOS.  Drains SIO RX and flips CFGTBL.NETST.ACTIVE. */
     if (snios_ntwkin() != 0) return 0;
+    BOOT_MARK(9, 'I');               /* NTWKIN ok */
 
     /* --- LOGIN -----------------------------------------------------
      * Plain byte loop; clang unrolls an 8-byte __builtin_memcpy as 4×
@@ -118,12 +121,14 @@ uint16_t netboot_mpm(void) {
      * stub is far smaller. */
     for (uint8_t i = 0; i < 8; ++i) msg[DAT + i] = RC702_LOGIN_PWD[i];
     if (cpnet_xact(64, 7) != 0) return 0;
+    BOOT_MARK(10, 'L');              /* LOGIN ok */
 
     /* --- OPEN A:CPNOS.IMG ----------------------------------------- */
     install_fcb();
     /* BDOS OPEN returns directory code 0..3 on success, 0xFF on
      * not-found; MP/M passes that raw return through (issue #40). */
     if (cpnet_xact(15, 36) >= 0x04) return 0;
+    BOOT_MARK(11, 'O');              /* OPEN ok */
 
     /* --- READ-SEQ loop -------------------------------------------- */
     uint8_t *dma = IMG_BASE;
@@ -132,6 +137,7 @@ uint16_t netboot_mpm(void) {
         uint8_t rc = cpnet_xact(20, 36);
         if (rc == 1) break;          /* EOF */
         if (rc != 0) return 0;       /* error */
+        BOOT_MARK(12, 'R');          /* first/each READ ok (idempotent) */
         /* Response: DAT[0]=rc, DAT[1..36]=FCB, DAT[37..164]=128B sector. */
         __builtin_memcpy(dma, &msg[DAT + 37], 128);
         dma += 128;
@@ -139,11 +145,13 @@ uint16_t netboot_mpm(void) {
         /* Safety: refuse to overflow into BIOS area (now 0xED00+). */
         if (dma >= (uint8_t *)0xEC00) return 0;
     }
+    BOOT_MARK(13, 'E');              /* EOF reached */
     impl_conout(0x0d); impl_conout(0x0a);
 
     /* --- CLOSE ---------------------------------------------------- */
     reuse_fcb();
     (void)cpnet_xact(16, 36);        /* ignore — file close errors are not fatal */
+    BOOT_MARK(14, 'C');              /* CLOSE done */
 
     return ENTRY_ADDR;
 }

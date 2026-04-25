@@ -157,4 +157,14 @@ void init_hardware(void) {
      * clear_screen instead of inlining a 4th copy of the LDIR set. */
     extern void clear_screen(void);
     clear_screen();
+
+    /* Visible bring-up marker: row 1, cols 0..6, so we can eyeball
+     * init_hardware completion.  Row 0 is left for CCP/loader output;
+     * row 1 is the dedicated boot-progress strip (see BOOT_MARK). */
+    {
+        static const char marker[] = "INIT OK";
+        for (uint8_t i = 0; i < sizeof(marker) - 1; ++i) {
+            BOOT_MARK(i, marker[i]);
+        }
+    }
 }
