@@ -1039,9 +1039,19 @@ routed to TxC/RxC (PCB modification). With the stock 0.6144 MHz
 oscillator, the maximum is 38400 (divisor 1, ×16).
 
 **Alternative fast paths** (no PCB modification required):
-- PIO parallel port (J3/J4) — 8-bit handshaked transfers, ~150-286 KB/s
+- PIO-B / J3 — 8-bit handshaked transfers, ~30-50 KB/s sustained
+  (Z80 ISR + handshake bound), ~50-80 KB/s peak in tight polled
+  loops. See [`docs/cpnet_fast_link.md`](docs/cpnet_fast_link.md)
+  Option P for the committed fast-link design over this connector.
+  PIO-A / J4 is reserved for the RC722 keyboard and is not available
+  as a fast-link connector.
+- SIO-A sync-mode TX at the ÷1 clock — ~614 kbaud bit rate,
+  ~70 KB/s after framing. TX-only on this hardware (sync RX needs an
+  external clock not routed to J1). See `docs/cpnet_fast_link.md`
+  Option H for the comparison-target design.
 - J8 bus expansion connector — polled I/O ~150-286 KB/s, DMA channel 0
   ~500-1000 KB/s. See `docs/j8_bus_expansion.md` for full analysis.
+  Out of scope for current CP/NET work.
 
 ### Peripheral Handshake
 

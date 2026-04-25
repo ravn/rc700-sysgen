@@ -220,11 +220,11 @@ runs at ~30 KB/s bulk down, ~23 KB/s bulk up.
 
 ## Next actions
 
-- [ ] Build or source the cable specified above.
-- [ ] Write a tiny Python `ppdev` demo that sends a counter byte every
-      few ms, and a RC702 test program that reads PIO-B in Mode 1 and
-      echoes received bytes on SIO-B. First smoke test of the new cable.
-- [ ] Measure actual throughput on the real path; compare with 30 KB/s
-      estimate.
-- [ ] Update `cpnet/SPLIT_CHANNEL_TRANSPORT.md` with measured numbers
-      once known.
+These were the next steps for the now-superseded plan. Current bring-up
+sequence lives in
+[`../../docs/cpnet_fast_link.md`](../../docs/cpnet_fast_link.md)
+"Bring-up sequence (deferred until hardware available)" — same shape
+but PIO-B (J3) instead of PIO-A (J4) target, Pi 4B + Pi Pico host stack
+instead of Linux PC + LPT, and measurements feed into
+`docs/cpnet_fast_link.md` rather than the now-tombstoned
+`SPLIT_CHANNEL_TRANSPORT.md`.
