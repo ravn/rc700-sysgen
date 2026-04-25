@@ -118,7 +118,20 @@ clang/isr.o: isr.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-clang/cpnos_main.o: cpnos_main.c
+# Phase 2B: cpnos_main.c (nos_handoff) writes ZP[5..7] = JP BDOS
+# itself, replacing cpnos-build's deleted cpnos.asm entry stub.
+# BDOS's address is link-time-determined inside cpnos.com; extract it
+# from cpnos.sym into a generated header.
+clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
+	@mkdir -p clang
+	@perl -ne 'while (/([0-9A-Fa-f]{4})\s+BDOS\b/g) { print "#define CPNOS_BDOS_ADDR 0x$$1\n"; last }' \
+	    cpnos-build/d/cpnos.sym > $@.tmp
+	@grep -q '^#define CPNOS_BDOS_ADDR' $@.tmp || \
+	    { echo "ERROR: BDOS symbol missing from cpnos.sym"; rm -f $@.tmp; exit 1; }
+	@mv $@.tmp $@
+	@echo "cpnos_addrs.h: $$(grep CPNOS_BDOS_ADDR $@)"
+
+clang/cpnos_main.o: cpnos_main.c clang/cpnos_addrs.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 

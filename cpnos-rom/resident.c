@@ -45,23 +45,35 @@ extern void jump_to(uint16_t addr) __attribute__((noreturn));
 RESIDENT
 void bios_stub_ret(void) { }
 
+/* Re-enter NDOS COLDST.  Phase 2B (2026-04-26): cpnos.com no longer
+ * has an entry stub at 0xD000 — that address is now NDOS+0 = JP NDOSE
+ * (BDOS dispatch).  COLDST is at NDOS+3 = 0xD003.  Setting SP back to
+ * the CP/M-convention TPA top (0x0100) before the jump matches what
+ * cpnos_cold_entry's tail does on first boot. */
+RESIDENT
+[[noreturn]] void enter_coldst(void) {
+    __asm__ volatile(
+        "ld sp, 0x0100\n\t"
+        "jp 0xD003"
+        : : : "memory");
+    __builtin_unreachable();
+}
+
 RESIDENT
 [[noreturn]] void impl_boot(void) {
     /* CP/M cold-boot entry.  cpnos_main tail-called resident_entry
      * directly once already, so the normal boot flow doesn't come
      * through here.  If CP/NOS itself ever jumps here (e.g. during
      * its post-handoff init before it has patched the zero page
-     * to point at NDOSRL's BIOS JT), re-run the cpnos stub rather
-     * than dropping into a fallback trap.  Was Issue U. */
-    jump_to(0xD000);
+     * to point at NDOSRL's BIOS JT), re-enter NDOS COLDST.  Was Issue U. */
+    enter_coldst();
 }
 
 RESIDENT
 [[noreturn]] void impl_wboot(void) {
     /* CP/M warm boot.  In CP/NOS the whole OS image is in RAM and
-     * re-runnable from its BOOT label at 0xD000, so re-entering the
-     * cpnos stub is an acceptable warm-boot.  Was Issue U. */
-    jump_to(0xD000);
+     * re-runnable from COLDST, which re-fetches CCP.SPR via NDOS. */
+    enter_coldst();
 }
 
 /* PIO-A keyboard ring buffer.  Populated by isr_pio_kbd (isr.s) on each

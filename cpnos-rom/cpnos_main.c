@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include "hal.h"
+#include "cpnos_addrs.h"     /* CPNOS_BDOS_ADDR — extracted from cpnos.sym */
 
 extern void init_hardware(void);
 extern void cfgtbl_init(void);
@@ -26,6 +27,7 @@ extern uint8_t snios_ntwkin(void);
 extern void enable_interrupts(void);
 extern uint8_t snios_jt[24];
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
+extern void enter_coldst(void) __attribute__((noreturn));
 
 /* Netboot: two implementations, one selected by SERVER=mpm|proxy in
  * the Makefile.  Default is mpm — standard CP/NET 1.2 LOGIN / OPEN /
@@ -67,15 +69,26 @@ static void nos_handoff(void) {
      * disk-style call falls through to our impl_seldsk_null/disk_err. */
     __builtin_memcpy((void *)0xCF00, (const void *)0xED00, 51);
 
-    /* CP/M 2.2 zero page (low 5 bytes; ZP[5..7] is set by cpnos.asm):
+    /* CP/M 2.2 zero page bytes 0..7.  Phase 2B: ZP[5..7] is also set
+     * here now (was: cpnos.asm).  BDOS's address is link-time-determined
+     * inside cpnos.com; CPNOS_BDOS_ADDR comes from cpnos.sym extraction
+     * at PROM build time.
      *   0x0000..0x0002 = JP 0xCF03 (= NDOSRL+0x303 — NDOS's BIOS-JT
      *                    walk target)
      *   0x0003         = IOBYTE = 0 (all TTY)
-     *   0x0004         = current drive/user = 0 (A:, user 0) */
-    static const uint8_t ZP_INIT[5] = {
-        0xC3, 0x03, 0xCF,     /* JP 0xCF03 (NDOSRL+0x303) */
-        0x00,                  /* IOBYTE */
-        0x00,                  /* drive/user */
+     *   0x0004         = current drive/user = 0 (A:, user 0)
+     *   0x0005..0x0007 = JP CPNOS_BDOS_ADDR (= cpnos.com's BDOSE).
+     *                    NDOS COLDST overwrites this with its own
+     *                    intercept entry as soon as it runs, so this
+     *                    is only the seed CCP would observe before
+     *                    COLDST — kept for ABI conformance. */
+    static const uint8_t ZP_INIT[8] = {
+        0xC3, 0x03, 0xCF,                          /* JP 0xCF03 */
+        0x00,                                       /* IOBYTE */
+        0x00,                                       /* drive/user */
+        0xC3,
+        (uint8_t)(CPNOS_BDOS_ADDR & 0xFF),          /* BDOS lo */
+        (uint8_t)((CPNOS_BDOS_ADDR >> 8) & 0xFF),   /* BDOS hi */
     };
     const void *src = ZP_INIT;
     void       *dst = (void *)0;
@@ -113,12 +126,15 @@ static void nos_handoff(void) {
 
     enable_interrupts();
 
-    /* Phase 2A: signon + JT copy + ZP[0..4] all happen in C now.
-     * cpnos.com's entry stub finishes ZP[5..7] and JPs NDOS COLDST. */
+    /* Phase 2B: cpnos.asm entry stub deleted.  PROM C does signon +
+     * JT copy + ZP[0..7] entirely (nos_handoff above), then enters
+     * NDOS COLDST.  enter_coldst lives in resident.c so the
+     * "where's COLDST" knowledge has one home (impl_wboot/impl_boot
+     * call it too on warm-boot re-entry). */
     if (entry != 0) {
         nos_handoff();
-        BOOT_MARK(18, 'J');             /* about to JP cpnos.com entry */
-        jump_to(0xD000);
+        BOOT_MARK(18, 'J');             /* about to JP NDOS COLDST */
+        enter_coldst();
     }
     for (;;) { }
 }
