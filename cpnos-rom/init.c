@@ -14,6 +14,7 @@
 extern void isr_crt(void);
 extern void isr_noop(void);
 extern void isr_pio_kbd(void);
+extern void isr_pio_par(void);
 extern void set_i_reg(uint8_t page);
 extern void enable_im2(void);
 
@@ -39,6 +40,7 @@ extern uint8_t _ivt_start[];
 #define IVT_ADDR     ((uint16_t)(uintptr_t)_ivt_start)
 #define IVT_ENTRIES  18
 #define IVT_PIO_A    16
+#define IVT_PIO_B    17
 
 /* Unified port-init table.  Each pair (port, value) is written in
  * order with OUT (C),A.  Centralises ~30 scattered port writes into
@@ -71,6 +73,14 @@ static const uint8_t port_init[] = {
     PORT_PIO_A_CTRL, 0x20,
     PORT_PIO_A_CTRL, 0x4F,
     PORT_PIO_A_CTRL, 0x83,
+
+    /* PIO-B (CP/NET fast link, J3): vector=0x22, mode 1 input + ICW, EI.
+     * Bring-up stub feeds isr_pio_par which counts bytes; replaced by
+     * real frame ring once Option P protocol layer lands.
+     * See docs/cpnet_fast_link.md. */
+    PORT_PIO_B_CTRL, 0x22,
+    PORT_PIO_B_CTRL, 0x4F,
+    PORT_PIO_B_CTRL, 0x83,
 
     /* 8237 DMA: master clear, ch2+ch3 single-mode mem->IO autoinit. */
     PORT_DMA_CMD,  0x20,
@@ -115,6 +125,7 @@ static void setup_ivt(void) {
     ivt = (volatile uint16_t *)IVT_ADDR;
     ivt[2] = (uint16_t)(uintptr_t)&isr_crt;
     ivt[IVT_PIO_A] = (uint16_t)(uintptr_t)&isr_pio_kbd;
+    ivt[IVT_PIO_B] = (uint16_t)(uintptr_t)&isr_pio_par;
     set_i_reg(IVT_ADDR >> 8);
     enable_im2();
 }

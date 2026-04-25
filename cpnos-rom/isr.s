@@ -192,3 +192,28 @@ _isr_pio_kbd_done:
     .byte 0x08              ; ex af,af'
     ei
     reti
+
+; PIO-B parallel ISR — CP/NET fast-link bring-up stub.
+; Fires on each PIO-B interrupt (one per byte strobed in via BSTB
+; while PIO-B is in Mode 1 input).  Reads the byte, stores into
+; _pio_par_byte, bumps _pio_par_count.  Both BSS vars live in
+; resident.c.  Shadow regs preserved so the ISR doesn't perturb
+; whatever the foreground was doing.  Replaced by the real CP/NET
+; RX ring once protocol-layer work lands; for now the counter is
+; just a "bytes flowed through" indicator that the test harness
+; polls via MAME Lua memory tap.
+    .global _isr_pio_par
+_isr_pio_par:
+    .byte 0x08              ; ex af,af'
+    .byte 0xD9              ; exx
+
+    in   a, (0x11)          ; PORT_PIO_B_DATA -> A
+    ld   (_pio_par_byte), a
+
+    ld   hl, _pio_par_count
+    inc  (hl)
+
+    .byte 0xD9              ; exx
+    .byte 0x08              ; ex af,af'
+    ei
+    reti

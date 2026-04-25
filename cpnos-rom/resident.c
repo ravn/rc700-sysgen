@@ -75,6 +75,15 @@ uint8_t kbd_ring[KBD_RING_SIZE];
 uint8_t kbd_head;   /* written by ISR */
 uint8_t kbd_tail;   /* written by CONIN */
 
+/* CP/NET fast-link bring-up stub (Option P, see docs/cpnet_fast_link.md).
+ * isr_pio_par stores the most-recent byte received on PIO-B and bumps
+ * the counter.  External tooling (MAME bridge + Python harness) reads
+ * these via memory tap to verify the host->Z80 path end-to-end.  This
+ * is bring-up scaffolding; replaced by the real CP/NET RX ring once
+ * the protocol layer goes in. */
+uint8_t pio_par_byte;   /* last byte received on PIO-B */
+uint8_t pio_par_count;  /* count of bytes received (wraps at 0xFF) */
+
 RESIDENT
 uint8_t impl_const(void) {
     if (_port_in(PORT_SIO_B_CTRL) & SIO_RR0_RX_CHAR_AVAIL) return 0xFF;
