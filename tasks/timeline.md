@@ -612,23 +612,36 @@ Three commits after the audit:
   - **No upstream generic 8-bit + STB/RDY slot exists**.
     `centronics_device` is wrong topology (unidirectional
     Centronics-shaped); `cg_parallel_slot_device` lacks STB/RDY.
-  - **Verified gap**: `z80pio_device` has no MODE-change callback,
-    so peripherals cannot observe Mode 0 <-> Mode 1 switches
-    through the chip interface.  Bridge resolves this with a
-    port-0x13 write sniff (option a, default); fallback is to
-    add `out_mode_callback()` to z80pio_device in the fork
-    (option b, upstream-patch candidate) if (a) proves flaky.
+  - **Verified gap, then closed**: `z80pio_device` has no
+    MODE-change callback — but neither does the physical Z80-PIO
+    chip (no mode-signal pin; per-port external signals are only
+    data + STB + RDY + INT, verified Zilog datasheet).  Real
+    peripherals don't observe mode either — they cope by being
+    fixed-mode (printer, keyboard) or by following higher-level
+    protocol on the wire.  The CP/NET bridge takes the latter
+    route: implements both `read()` and `write()` and lets the
+    chip route events to the right one based on its current mode;
+    direction state on the socket-facing side comes from CP/NET
+    SCB length counting.  No port-0x13 sniff, no upstream PIO
+    patch, no control-word parser in the bridge.  (Earlier draft
+    had option-(a)/option-(b) hedging; closed by realising the
+    bridge mirrors real hardware and doesn't need to know mode.)
 
   - (1) `rc702_pio_port_device` in `bus/rc702/pio_port/` — modelled
     verbatim on Einstein userport; `device_single_card_slot_interface`
     with `read()` / `write(uint8_t)` / `brdy_w(int)` interface.
     Promotable to `bus/z80pio_port/` later if it earns adoption.
   - (2) `rc702_pio_port_cards` slot-option list mirroring
-    `default_rs232_devices`: `null_pio` (default empty slot),
-    `keyboard` (existing model, slot-ified), `cpnet_bridge` (new),
-    open for future entries.
+    `default_rs232_devices`: `keyboard` (existing model,
+    slot-ified), `cpnet_bridge` (new), open for future entries.
+    No "null_pio" entry — MAME's idiom for "no default card" is
+    passing `nullptr` as the slot's third argument, not a named
+    no-op card.  (`null_modem` is a misleading naming
+    inspiration: it actually forwards bytes to a host bytestream;
+    not the same as "empty slot".)
   - (3) Refactor `rc702.cpp` to expose PIO-A and PIO-B as slots.
-    Default config: PIO-A=keyboard, PIO-B=null_pio.  Matches today's
+    Default config: PIO-A=keyboard, PIO-B=nullptr (empty slot).
+    Matches today's
     behaviour exactly when no `-piob` argument given.  Drops the
     incorrect 2016 comment "Printer (PIO port B commented out)" —
     PIO-B was never the printer port (printer is on a SIO channel

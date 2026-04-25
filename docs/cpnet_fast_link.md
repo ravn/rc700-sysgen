@@ -651,9 +651,13 @@ What's there today (per project notes through 2026-04-25):
   z80pio_device class has no `out_mode_callback()` or equivalent —
   peripherals cannot watch a Mode 0 <-> Mode 1 switch through the
   device interface. (Verified from `src/devices/machine/z80pio.h`.)
-  The CP/NET bridge spec below works around this with a port-0x13
-  write sniff; cleaner alternatives would need a small upstream PIO
-  patch that adds the callback.
+  This **mirrors real hardware**: the physical Z80-PIO chip has no
+  external pin that signals a mode change either; per-port external
+  signals are only data + STB + RDY + INT (verified from Zilog
+  datasheet). The CP/NET bridge handles this the way real
+  peripherals do — by following the higher-level wire protocol —
+  not by observing chip mode. See "Direction tracking" in the
+  bridge spec below.
 
 ### Patch scope (generic-slot pattern, Einstein-userport-modelled)
 
@@ -710,7 +714,6 @@ in `src/devices/bus/rs232/rs232.cpp`:
 
 | option | card | notes |
 |---|---|---|
-| `null_pio` | empty slot, no-op | default; PIO port behaves as if disconnected |
 | `keyboard` | RC702 keyboard, lifted out of the driver | natural fit for PIO-A |
 | `cpnet_bridge` | new — see (4) | natural fit for PIO-B; CP/NET only |
 | (future: `printer`, `tape`, expansion peripherals) | — | open |
@@ -719,13 +722,22 @@ Each card derives from `device_rc702_pio_port_interface` and a
 `device_t` of its own (multiple-inheritance pattern, same as
 `device_rs232_port_interface` cards).
 
+The slot's "empty" state is **not** a named card — MAME's idiom is
+to pass `nullptr` as the slot's default-card argument when no card
+should be plugged in by default. (The Einstein userport does the
+same.) Don't invent a "null_pio" no-op card analogous to
+`null_modem` — that would be misleading: `null_modem` actually
+*does* something (forwards bytes to a host bytestream via
+bitbanger). Empty rs232 slots aren't `null_modem` either; they're
+just `nullptr`.
+
 **(3) Refactor the driver to use slots for both PIO ports.**
 
 In `rc702.cpp` `machine_config`:
 
 ```cpp
 RC702_PIO_PORT(config, "pioa", rc702_pio_port_cards, "keyboard");
-RC702_PIO_PORT(config, "piob", rc702_pio_port_cards, "null_pio");
+RC702_PIO_PORT(config, "piob", rc702_pio_port_cards, nullptr);
 m_pio->in_pa_callback().set("pioa",
     FUNC(rc702_pio_port_device::read));
 m_pio->out_pa_callback().set("pioa",
@@ -736,13 +748,19 @@ m_pio->out_ardy_callback().set("pioa",
 // symmetric block for piob
 ```
 
-Defaults match today's behaviour: PIO-A=keyboard, PIO-B=disconnected.
-No command-line argument required to reproduce factory state.
+Defaults match today's behaviour: PIO-A=keyboard, PIO-B=disconnected
+(slot empty). No command-line argument required to reproduce factory
+state.
 
 The current inline keyboard wiring in `rc702.cpp` is lifted into the
 new `keyboard` slot card. Removing the keyboard from PIO-A and
-putting it on PIO-B is now a one-line config change
-(`-pioa null_pio -piob keyboard`), not a `#ifdef KBD_PIO_B`.
+putting it on PIO-B is now a one-line config change. Two paths,
+depending on how MAME's command-line slot semantics treat empty:
+either `-pioa "" -piob keyboard` (some MAME versions accept empty
+string for unplug) or just `-piob keyboard` (with `pioa` left at
+default `keyboard` — both ports active, redundant but harmless if
+nothing else cares which port the keyboard is on). Either way, no
+`#ifdef KBD_PIO_B` needed.
 
 Drop the misleading "Printer (PIO port B commented out)" comment
 in the same diff. PIO-B was never the printer port; the printer is
@@ -769,22 +787,37 @@ Responsibilities:
   byte-stream wire protocol that the Pi+Pico bridge will speak in
   production — see "Wire protocol" below. Address overridable via
   the slot option string: `-piob cpnet_bridge:localhost:4003`.
-- **Direction tracking:** the z80pio_device exposes no MODE-change
-  callback (verified from `src/devices/machine/z80pio.h`). So the
-  bridge cannot observe the Z80's PIO-B mode switch via the chip
-  interface. Two options for resolving the gap, decided at
-  implementation time:
-  - **(a) Sniff port 0x13 writes** by attaching a memory-tap on the
-    Z80's I/O space. When the Z80 writes a control word matching
-    Mode 1 (0x4F) or Mode 0 (0x0F) to PIO-B's control port,
-    update the bridge's direction state. Self-contained, no
-    upstream MAME patch.
-  - **(b) Add an `out_mode_callback()` to z80pio_device** in the
-    fork; small upstream-candidate change. Cleaner abstraction;
-    requires an extra patch.
-  Default: (a) for the first cut, since it keeps changes localised
-  to the bridge card. Revisit (b) if the sniff turns out flaky or
-  multiple peripherals end up needing MODE awareness.
+- **Direction tracking — bridge does not observe chip mode at all.**
+  The physical Z80-PIO chip has no mode-signal pin, so real
+  peripherals can't observe mode either; they cope by being
+  fixed-mode (printer, keyboard) or by following the higher-level
+  protocol over the wire. The CP/NET bridge takes the latter route:
+
+  - The bridge implements both `read()` and `write()`. The chip
+    only fires the one that matches its current mode (in Mode 1 it
+    pulls via `read()`; in Mode 0 it pushes via `write()`). The
+    chip routes the event automatically based on its own internal
+    mode state; the bridge doesn't need to know which mode is
+    active.
+  - The bridge maintains two unidirectional FIFOs: `host_to_z80`
+    (drained by `read()`) and `z80_to_host` (filled by `write()`).
+    Bytes get routed to the right FIFO automatically by which
+    callback fires.
+  - The bridge asserts STB after each `read()` (signals "new data"
+    in Mode 1) and after each `write()` (signals "I took it" in
+    Mode 0). Both go through the same `out_strobe_callback`.
+    BRDY edges from the chip gate flow regardless of direction.
+
+  Direction state on the **socket-facing** side (which is real and
+  needed) lives in the wire protocol: the bridge counts bytes
+  against CP/NET SCB length fields to know when a frame ends and
+  the protocol's logical "direction" flips. That's a property of
+  CP/NET, not of the PIO chip.
+
+  No port-0x13 sniff. No upstream `out_mode_callback()` patch.
+  No control-word parser inside the bridge. The chip's own mode
+  routing does the heavy lifting; the bridge is purely event-
+  driven on the data + handshake callbacks.
 
 ### Default and command-line shape
 
@@ -891,16 +924,15 @@ merits; (3) carries the CP/NET-specific code and stays in the fork.
 
 ### Open questions for implementation phase
 
-- MODE-change event delivery (resolved at design time, choice
-  deferred to implementation): default to **(a) port-0x13 sniff**
-  inside the bridge card. If that proves flaky, switch to **(b)**
-  adding an `out_mode_callback()` to `z80pio_device` in the fork
-  and propose it upstream. Verified there is no existing
-  MODE-change callback on the upstream chip class, so option (b)
-  is a real upstream-patch candidate.
-- Whether to expose MODE state on the socket as a diagnostic (escape
-  byte), or rely purely on byte counting derived from CP/NET SCB.
-  Default to the latter; revisit if debugging gets painful.
+- ~~MODE-change event delivery~~ — **closed at design time**: the
+  bridge does not observe chip mode at all; it relies on the chip's
+  own callback routing (Mode 1 fires `read()`, Mode 0 fires
+  `write()`) plus protocol-level direction tracking on the
+  socket-facing side. Mirrors how real hardware peripherals work.
+- Whether to expose protocol-level direction state on the socket
+  as a diagnostic (escape byte), or rely purely on byte counting
+  derived from CP/NET SCB. Default to the latter; revisit if
+  debugging gets painful.
 - Default socket address `localhost:4003` chosen to sit next to
   z80pack's `:4002`. If a production Pi sidecar exposes the bridge
   over LAN, the address scheme generalises.
