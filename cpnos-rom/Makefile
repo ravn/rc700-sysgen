@@ -512,6 +512,15 @@ cpnos-map: clang/payload.elf
 # until link).  The linked-ELF listing from cpnos-lis gives the same
 # C-source-interleaved output for the whole program; see it there.
 
+# ---- CP/NET fast-link MAME bridge smoke test ---------------------
+# Prerequisite: ravn/mame:cpnet-fast-link branch built; a CP/NET
+# server (z80pack on :4002) running so cpnos-rom actually loads via
+# netboot in MAME — without it the Z80 sits in the autoload PROM and
+# isr_pio_par never gets a chance to fire.  See
+# ../tests/cpnet_bridge/README.md for the full prereq list.
+cpnet-mame-test: cpnos
+	cd .. && python3 tests/cpnet_bridge/harness.py
+
 # ---- Clean --------------------------------------------------------
 
 cpnos-clean:
