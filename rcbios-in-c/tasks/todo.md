@@ -73,7 +73,10 @@ timer vs counter CTC, FTDI adapter upgrade) tested and documented as
 ineffective in `session17-siob-console.md`. TX works at 250000 x1.
 
 **Follow-up tasks spawned:**
-- [ ] `parallel-port-transfer.md` — investigate PIO Ch.A for faster host I/O
+- [x] `parallel-port-transfer.md` — investigate PIO Ch.A for faster
+      host I/O. **Resolved 2026-04-25**: superseded by Option P design
+      on PIO-B / J3, see `../../docs/cpnet_fast_link.md`. The
+      `parallel-port-transfer.md` task doc carries a SUPERSEDED banner.
 - [ ] `siob-console-dipswitch.md` — replace ENQ probe with DIP switch
 - [ ] `two-port-deploy-script.md` — formalize SIO-B console deploy flow
 

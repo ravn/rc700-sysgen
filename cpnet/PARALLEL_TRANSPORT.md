@@ -1,11 +1,19 @@
 # CP/NET Parallel Port Transport (Future)
 
-> **See also `SPLIT_CHANNEL_TRANSPORT.md`** for an alternative that reaches
-> comparable throughput *without* RC702 hardware modifications by using the
-> stock J4 parallel connector for PC → RC702 traffic and the existing SIO-B
-> serial line at 250 kbaud for RC702 → PC traffic. The Mode 2 design below
-> remains viable but requires rewiring per `parallel_host_interface.md` and
-> `docs/schematics/MIC07_pinout.md`.
+> **SUPERSEDED 2026-04-25.** The Mode 2 plan below is **abandoned**.
+> Current design is **Option P** in
+> [`docs/cpnet_fast_link.md`](../docs/cpnet_fast_link.md): PIO-B
+> half-duplex via J3, keyboard untouched on PIO-A / J4, no PCB
+> modifications, no level-shifter chip.
+>
+> Mode 2 was ruled out because (a) ARDY is not routed to any external
+> connector — verified MIC07 schematic, session 16 — making Mode 2
+> impossible without case-opening; and (b) the 2026-04-25 keyboard
+> constraint locks PIO-A to the RC722 keyboard in production.
+> `SPLIT_CHANNEL_TRANSPORT.md` (referenced below) is also superseded
+> by the same Option P design — see its own banner.
+>
+> The text below is preserved for archaeological reference only.
 
 ## Overview
 

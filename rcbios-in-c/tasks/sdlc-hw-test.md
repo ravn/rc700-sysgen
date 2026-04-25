@@ -1,5 +1,19 @@
 # SDLC on Physical Hardware — Test Prep Notes (2026-04-18)
 
+> **Status note 2026-04-25.** This doc remains useful as bench-test
+> methodology for the eventual Option H prototype (SIO sync TX),
+> kept against
+> [`../../docs/cpnet_fast_link.md`](../../docs/cpnet_fast_link.md).
+> Two factual updates supersede content below: (1) the verified TX
+> bit clock is **~614 kbaud (÷1)**, not 250 kbaud as estimated in
+> session 18; (2) the framing layer that was actually verified is
+> **uncertain** — the user has confirmed only that the bit clock
+> works at ÷1 in TX direction. Treat references to "SDLC bench-
+> verified" below as "synchronous-TX bench-verified, framing TBD".
+> The current default transport is Option P (PIO-B / J3 half-duplex)
+> per the new doc; this SDLC bench plan is needed only when the
+> Option H comparison work begins.
+
 Follow-up to `session18-serial-speed.md`. Session 18 established the plan
 (SDLC at 250 kbaud via CTC timer mode, ×1 clock, SIO-B first). This doc
 captures what changed once we started preparing for a real-hardware run

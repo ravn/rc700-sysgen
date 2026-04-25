@@ -1,5 +1,17 @@
 # Parallel-Port Cable Investigation (2026-04-17)
 
+> **PARTIALLY SUPERSEDED 2026-04-25.** The cable diagnosis below
+> remains useful as background — straight-through DB-25 is unfit, a
+> custom cable is required. The host side has changed:
+> [`../../docs/cpnet_fast_link.md`](../../docs/cpnet_fast_link.md)
+> (Option P) replaces the Linux-PC-with-LPT host with a Pi 4B + Pi
+> Pico over USB-CDC, and the cable target shifts from J4 / PIO-A to
+> **J3 / PIO-B** (only port with both BSTB and BRDY routed). The new
+> doc has the current cable specification (11 wires + 9 series
+> resistors). The pin-mapping investigation below still documents
+> what's wrong with the existing straight-through DB-25, useful when
+> reusing connector hardware.
+
 Diagnoses the DB-25 cable currently running between the Linux host's
 parallel port (ASIX AX99100, see `linux_host_hardware.md`) and the RC702,
 and specifies the custom cable we need to get a working high-speed

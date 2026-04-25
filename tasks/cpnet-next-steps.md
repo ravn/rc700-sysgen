@@ -2,6 +2,17 @@
 
 Date: 2026-04-15 (updated end of session 18)
 
+> **Update 2026-04-25.** The fast-transport design is now pinned in
+> [`../docs/cpnet_fast_link.md`](../docs/cpnet_fast_link.md) (Option
+> P — PIO-B half-duplex via J3, no PCB mods, no level shifter). The
+> 38400-baud serial CP/NET path described below remains the *fallback*
+> transport and the validated default; Option P is opt-in once the
+> bring-up phase begins (deferred until Pi 4B host hardware is on
+> hand). The "Parallel host link" / Mode 2 references in the original
+> text below should be read in light of that supersession — see the
+> banners on `cpnet/PARALLEL_TRANSPORT.md` and
+> `cpnet/SPLIT_CHANNEL_TRANSPORT.md`.
+
 ## Current State
 
 CP/NET is working in MAME with the DRI binary protocol (SNIOS + server.py).

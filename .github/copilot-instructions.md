@@ -23,8 +23,9 @@ This project aims to make the RC702 family fully usable in MAME with preservatio
 4. **CP/NET Networking** - Implement CP/NET for transparent file transfers:
    - Phase 1: Serial port transport (SIO, ~3.8 KB/s at 38400 baud) — working
    - Phase 2: DRI binary protocol — working, testing with CpnetSerialServer.jar pending
-   - Phase 3: Parallel port transport (PIO Mode 2, ~150 KB/s) — future
-   - Phase 4: Z80 bus connector (J10, ~500 KB/s) — long-term hardware project
+   - Phase 3: Fast parallel transport (PIO-B / J3, half-duplex, ~30-50 KB/s) — design pinned 2026-04-25 in `docs/cpnet_fast_link.md` (Option P); implementation deferred until Pi 4B host hardware acquired
+   - Phase 4: Full-speed SIO TX comparison (Option H, ~70 KB/s response side, sync ÷1 mode) — long-term comparison goal once Option P is benched
+   - Phase 5: J8 Z80-bus expansion — out of scope for now
 
 5. **CP/NOS Diskless Client** - Create CP/NOS for the maxi (8") machine (no drives attached):
    - Boot PROM1 with minimal code
@@ -35,15 +36,18 @@ This project aims to make the RC702 family fully usable in MAME with preservatio
    - Validate MAME emulation against real hardware behavior
    - Target machine: maxi drive model (without drives attached)
 
-7. **Parallel Port CP/NET** - Bidirectional PIO transfers (~40x faster than serial):
-   - Move keyboard from PIO Port A to Port B (Mode 2 bidirectional is Port A only)
-   - New NIOS driver for parallel transport
-   - Custom cable + server-side parallel port driver
-   - See `cpnet/PARALLEL_TRANSPORT.md` for technical details
+7. **Parallel-Port CP/NET (Option P, design 2026-04-25)** — PIO-B / J3
+   half-duplex transport (~8-13× faster than current 38400 async):
+   - Keyboard stays on PIO-A / J4. SIO-A keeps RDR + PUN + LST roles.
+   - PIO-B direction-switched at CP/NET frame boundaries.
+   - Custom 11-wire J3 cable + 9 series resistors (no level-shifter chip).
+   - Pi 4B + Pi Pico over USB-CDC as the host stack.
+   - See `docs/cpnet_fast_link.md` for the full design + decision
+     rationale. The earlier `cpnet/PARALLEL_TRANSPORT.md` Mode 2 plan
+     and `cpnet/SPLIT_CHANNEL_TRANSPORT.md` are superseded.
 
-8. **J10 Bus Interface** - Direct Z80 bus access for maximum bandwidth:
-   - Custom hardware on J10 connector (bus-speed memdisk-like device)
-   - Requires hardware development and bus timing analysis
+8. **J8 Z80-bus expansion** — out of scope for now (user excluded
+   2026-04-25). Documented in `docs/j8_bus_expansion.md` for reference.
 
 9. **MEMDISK Recovery** - Understand and restore MEMDISK functionality (deferred)
 

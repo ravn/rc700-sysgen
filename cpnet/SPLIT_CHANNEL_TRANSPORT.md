@@ -1,5 +1,33 @@
 # CP/NET Split-Channel Transport
 
+> **SUPERSEDED 2026-04-25.** This split-channel design (J4 / PIO-A
+> for PC -> RC702 + SIO-A at 250 kbaud sync for RC702 -> PC) is
+> **abandoned**. Current design is **Option P** in
+> [`docs/cpnet_fast_link.md`](../docs/cpnet_fast_link.md): PIO-B
+> half-duplex via J3, keeping the keyboard on PIO-A / J4 and SIO-A
+> free (RDR + PUN + LST preserved).
+>
+> Why this design was set aside:
+>
+> - The 2026-04-25 keyboard-on-J4 constraint rules out reusing J4 /
+>   PIO-A for PC -> RC702 traffic. The Pico would have to either
+>   replace the RC722 keyboard or pass it through, neither acceptable
+>   in production.
+> - The 2026-04-25 SIO-A-keeps-RDR/PUN/LST constraint rules out
+>   consuming SIO-A for the RC702 -> PC sync TX. (`bios.h:185-195`
+>   maps RDR + PUN to SIO-A under all default IOBYTE presets.)
+> - Bench-verified bit-rate is ~614 kbaud (÷1 clock), not 250 kbaud
+>   as estimated here; doesn't change the design choice but does
+>   change Option H's response-side throughput projection in the
+>   replacement doc.
+>
+> An "Option H" variant in the replacement doc revives the SIO-A
+> sync-TX direction as a long-term comparison target for Option P
+> once we have empirical throughput numbers. See "Long-term:
+> full-speed SIO TX comparison" subsection there.
+>
+> The text below is preserved for archaeological reference only.
+
 **Status:** design proposal, 2026-04-17. Not yet implemented.
 
 Alternative to `PARALLEL_TRANSPORT.md`. Delivers similar throughput **without

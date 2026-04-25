@@ -1010,14 +1010,23 @@ Higher rates are not possible without hardware modification:
   detection — x1 was designed for synchronous protocols where the clock
   is phase-aligned by the transmitter). TX works at x1 because the
   transmitter generates its own timing.
-- Synchronous mode (SDLC/HDLC) should work with the existing CTC clock
-  at x1 — sync mode has no start-bit detection problem, so the x1
-  framing issue doesn't apply. The SIO handles SDLC framing (0x7E flags,
-  zero-insertion, CRC-CCITT) in hardware. At CTC timer mode divisor 1,
-  this gives 250 kbaud SDLC bidirectional. Note: the SIO does NOT have
-  a DPLL or BRG (those are Z85C30 SCC features); "SIO/2" means bonding
-  option 2, not version 2. The host FTDI must match the baud rate exactly.
-  See `cpnet/SPLIT_CHANNEL_TRANSPORT.md` for the CP/NET transport plan.
+- Synchronous mode TX works with the existing CTC clock at ÷1 — sync
+  mode has no start-bit detection problem, so the ÷1 framing issue
+  doesn't apply on the transmit side. The SIO supports SDLC framing
+  (0x7E flags, zero-insertion, CRC-CCITT) in hardware. At CTC timer
+  mode divisor 1, **TX achieves the full ~614 kbaud** bit clock
+  (bench-verified 2026-04 on real hardware; updated from earlier
+  250 kbaud session-summary estimates). **Sync RX is not viable**
+  because pins 15/17 (TxC/RxC from the cable) are NC on
+  MIC702/MIC703 boards and the Z80-SIO/2 has no on-chip DPLL — the
+  receiver cannot recover a clock from RxD data. So SIO sync mode is
+  TX-only on this hardware. Note: the SIO does NOT have a DPLL or
+  BRG (those are Z85C30 SCC features); "SIO/2" means bonding option
+  2, not version 2.
+  See `docs/cpnet_fast_link.md` for the current CP/NET fast-link
+  design (Option P uses PIO-B / J3 half-duplex; Option H is the
+  long-term comparison target that revives SIO sync TX). Earlier
+  `cpnet/SPLIT_CHANNEL_TRANSPORT.md` is superseded.
 - DMA-assisted serial is not possible (SIO has no DREQ output to the Am9517A)
 - The 0.6144 MHz clock could be doubled to 1.2288 MHz by tapping the 74LS393
   divider chain one stage earlier (÷16 instead of ÷32), but this requires a

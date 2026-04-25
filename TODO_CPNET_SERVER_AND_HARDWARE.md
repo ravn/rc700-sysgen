@@ -1,5 +1,13 @@
 # TODO: CP/NET Physical Server and Diskless Boot
 
+> **Update 2026-04-25.** Phase 2 of this doc ("Standalone Server on
+> Raspberry Pi / PC") has been formally designed at the transport
+> layer — see [`docs/cpnet_fast_link.md`](docs/cpnet_fast_link.md)
+> (Option P: PIO-B / J3 half-duplex). The Pi-as-server target there
+> matches Phase 2 here; the J3 transport replaces the serial path
+> for CP/NET frames once the bring-up phase opens. Implementation
+> deferred until Pi 4B host hardware is acquired.
+
 ## Prerequisites
 
 - CP/NET working with the C-BIOS in MAME (serial path, current SNIOS)

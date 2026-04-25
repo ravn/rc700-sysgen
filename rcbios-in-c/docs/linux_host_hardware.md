@@ -1,5 +1,13 @@
 # Linux Host Hardware for RC702 Transfers
 
+> **CONTEXT NOTE 2026-04-25.** The CP/NET fast-link host design has
+> moved to **Pi 4B + Pi Pico over USB-CDC** (see
+> [`../../docs/cpnet_fast_link.md`](../../docs/cpnet_fast_link.md),
+> Option P). The Linux-workstation-with-PCIe-parallel-port path
+> documented below is no longer the planned production target. The
+> info here remains useful for ad-hoc transfers, BIOS flashing over
+> serial, and as reference if the parallel-port path is ever revived.
+
 Reference for the USB-serial and PCIe-parallel interfaces on the Linux
 workstation used to flash the RC702 BIOS and run other data transfers.
 Captured 2026-04-17 on Ubuntu 24.04, kernel 6.17.

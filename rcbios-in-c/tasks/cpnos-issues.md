@@ -68,9 +68,14 @@ or during implementation. Live next to `cpnos-rom-plan.md`.
 
 ## Parked / future
 
-- [ ] **Parallel-port transport (J3/J4 PIO Mode 2).** Design the transport
-      vtable in Phase 1 so this drops in without restructuring. ~520B
-      reserved in the budget but not implemented.
+- [ ] **Parallel-port transport (PIO-B / J3 half-duplex, Option P).**
+      Design pinned 2026-04-25 in
+      `../../docs/cpnet_fast_link.md`. Implementation deferred until
+      Pi 4B host hardware is acquired. Earlier "PIO Mode 2 on J3/J4"
+      framing is obsolete: Mode 2 is impossible (ARDY not routed),
+      and the keyboard-on-J4 constraint locks PIO-A. Transport vtable
+      slot in Phase 1 still planned so this drops in cleanly. ~520 B
+      reserved in the budget; size estimate stands.
 
 - [ ] **Local-diskette cache policy.** Phase 3 benchmark: is local 8" DSDD
       read meaningfully faster than SIO-A 38400 for the CCP+BDOS image?

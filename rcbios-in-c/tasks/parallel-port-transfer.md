@@ -1,5 +1,19 @@
 # Parallel port as high-throughput host link
 
+> **SUPERSEDED 2026-04-25.** This investigation plan targeted PIO
+> Channel A (J4) with the `KBDPORT=B` keyboard relocation. Both
+> assumptions are now obsolete:
+>
+> - Current design is **Option P** in
+>   [`../../docs/cpnet_fast_link.md`](../../docs/cpnet_fast_link.md)
+>   — PIO-B half-duplex via J3, keyboard stays on PIO-A / J4.
+> - `KBDPORT=B` is no longer used; the keyboard remains on PIO-A
+>   under the 2026-04-25 keyboard-on-J4 constraint.
+> - The Linux-PC-with-LPT host approach is replaced by Pi 4B + Pi
+>   Pico over USB-CDC; see the new doc.
+>
+> The text below is preserved for archaeological reference only.
+
 ## Motivation
 
 Session 17 established that SIO-A async RX is hard-limited to 38400 baud by

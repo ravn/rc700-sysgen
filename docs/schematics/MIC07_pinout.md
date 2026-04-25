@@ -106,9 +106,9 @@ Corrections vs. prior OCR pass:
 
 ## Implications for the bidirectional host link plan
 
-We wanted to put PIO Port A in **Mode 2** (bidirectional) and use J4 as
-a single-cable host link. Mode 2 needs four handshake lines on Port A:
-ASTB, ARDY, BSTB, BRDY. From this sheet:
+The original design intent was PIO Port A in **Mode 2** (bidirectional)
+using J4 as a single-cable host link. Mode 2 needs four handshake lines
+on Port A: ASTB, ARDY, BSTB, BRDY. From this sheet:
 
 | Signal | Wired on... |
 |--------|-------------|
@@ -118,38 +118,20 @@ ASTB, ARDY, BSTB, BRDY. From this sheet:
 | BSTB | J3 (would be needed on J4 for Mode 2) ✗ |
 | BRDY | J3 (would be needed on J4 for Mode 2) ✗ |
 
-**Mode 2 cannot work through J4 alone.** Three options, in increasing
-order of effort:
+**Mode 2 cannot work through J4 alone.** Combined with the 2026-04-25
+keyboard-on-J4 constraint (the physical RC722 keyboard must remain
+plugged into J4 in production), the original three workaround options
+(half-duplex on J4, Y-cable J3+J4, case-open ARDY rewire) are all dead.
 
-1. **Half-duplex, no rewiring.** Stay in Mode 0/1 + interrupt-driven
-   RX via ASTB. Host→Z80 transfers work fine. Z80→host is unhandshaked
-   — host has to poll the data lines on a known schedule, or we drop
-   into Mode 3 (bit control) and bit-bang a software handshake on a
-   spare data line. Slow but no soldering.
+**Resolution (2026-04-25):** the network channel moved entirely to
+**PIO-B / J3** instead of PIO-A / J4. J3 has both BSTB and BRDY routed
+natively, so Port B can run a full-handshake Mode 1 input or Mode 0
+output without any rewiring. The keyboard stays on PIO-A / J4. See
+[`../cpnet_fast_link.md`](../cpnet_fast_link.md) for the committed
+design ("Option P", PIO-B half-duplex, direction-switched at CP/NET
+frame boundaries). The schematic findings above remain useful as the
+load-bearing evidence behind that pivot.
 
-2. **Y-cable into J3 + J4.** Wire a single host-side connector to
-   *both* J3 and J4. This gets us BSTB and BRDY (from J3) plus the data
-   bus and ASTB (from J4). **Still missing ARDY.** Without ARDY the
-   PIO can't tell the host "I've taken your input byte, you can drop
-   ASTB". The host would have to insert a fixed delay, which is fragile
-   but works for a slow link.
-
-3. **Open the machine, add 1–3 wires.** Run ARDY (PIO chip pin 28) to a
-   spare J4 pin, and optionally also run BSTB and BRDY from their J3
-   pins over to spare J4 pins. Then a single DSUB-25 cable into J4 is
-   a complete Mode 2 link. This is the only option that gives the
-   full ~25–30 KB/s the design doc estimated.
-
-A PC LPT port is still electrically compatible with all three options
-(5 V TTL on both sides), so the level-shifter discussion doesn't
-change.
-
-## Open items before committing to a hardware plan
-
-- Confirm the J4 pin numbers above by re-reading MIC07 at higher zoom,
-  particularly the +5V/0V pin assignments.
-- Check whether the J4 connector has unused pins available to take
-  ARDY (and optionally BSTB/BRDY) without colliding with anything.
-- Cross-check J3's BSTB pin number — the crop is partly obscured.
-- Decide which of the three options above is acceptable. If option 3
-  (open the case) is on the table, this becomes a much nicer protocol.
+Earlier "open items" about ringing out J4 pins for ARDY routing or
+identifying spare J4 pins are no longer relevant — Option P touches
+neither J4 nor the PIO chip's ARDY pin.
