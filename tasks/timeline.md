@@ -599,22 +599,44 @@ Three commits after the audit:
   a generic-slot pattern that mirrors how MAME exposes RS-232 ports.
   Branch: `cpnet-fast-link`.
 
-  Final shape (4 changes in `ravn/mame`):
-  - (1) `rc702_pio_slot_device` — generic 8-bit + STB/RDY/MODE slot
-    that mirrors `rs232_port_device` for PIO ports.
-  - (2) `rc702_pio_devices` slot-option list — peripherals: `nothing`
-    (default empty slot), `keyboard` (existing model, slot-ified),
-    `cpnet_bridge` (new, see #4), open for future entries.
+  Final shape (4 changes in `ravn/mame`), anchored after a source
+  survey of upstream MAME conventions for Z80-PIO peripherals:
+
+  - **Precedent identified**: `einstein_userport_device`
+    (`src/devices/bus/einstein/userport/`) is the closest existing
+    upstream pattern — a `device_single_card_slot_interface` with
+    exactly the methods we want (`read()`, `write(uint8_t)`,
+    `brdy_w(int)`).  Verified by source fetch.  Most other Z80-PIO
+    drivers (`mz700`, `pasopia`, `kc`, `prof80`, `rt1715`)
+    hardcode their peripherals.
+  - **No upstream generic 8-bit + STB/RDY slot exists**.
+    `centronics_device` is wrong topology (unidirectional
+    Centronics-shaped); `cg_parallel_slot_device` lacks STB/RDY.
+  - **Verified gap**: `z80pio_device` has no MODE-change callback,
+    so peripherals cannot observe Mode 0 <-> Mode 1 switches
+    through the chip interface.  Bridge resolves this with a
+    port-0x13 write sniff (option a, default); fallback is to
+    add `out_mode_callback()` to z80pio_device in the fork
+    (option b, upstream-patch candidate) if (a) proves flaky.
+
+  - (1) `rc702_pio_port_device` in `bus/rc702/pio_port/` — modelled
+    verbatim on Einstein userport; `device_single_card_slot_interface`
+    with `read()` / `write(uint8_t)` / `brdy_w(int)` interface.
+    Promotable to `bus/z80pio_port/` later if it earns adoption.
+  - (2) `rc702_pio_port_cards` slot-option list mirroring
+    `default_rs232_devices`: `null_pio` (default empty slot),
+    `keyboard` (existing model, slot-ified), `cpnet_bridge` (new),
+    open for future entries.
   - (3) Refactor `rc702.cpp` to expose PIO-A and PIO-B as slots.
-    Default config: PIO-A=keyboard, PIO-B=nothing.  Matches today's
+    Default config: PIO-A=keyboard, PIO-B=null_pio.  Matches today's
     behaviour exactly when no `-piob` argument given.  Drops the
     incorrect 2016 comment "Printer (PIO port B commented out)" —
     PIO-B was never the printer port (printer is on a SIO channel
     per the hardware reference and per `bios.h:185-195`).
-  - (4) `rc702_cpnet_bridge_device` peripheral implementing the
-    slot interface — talks Z80-PIO handshake on one side, Unix/TCP
-    socket on the other, same wire protocol the Pi+Pico USB-CDC
-    bridge will speak in production.
+  - (4) `rc702_cpnet_bridge_device` slot card implementing the
+    `device_rc702_pio_port_interface` — talks Z80-PIO handshake on
+    one side, Unix/TCP socket on the other, same wire protocol the
+    Pi+Pico USB-CDC bridge will speak in production.
 
   Why generic-slot framing matters: lets us run any historical
   RC702 software (CP/M, COMAL, BASIC) in MAME with PIO-B simply
