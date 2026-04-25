@@ -592,6 +592,35 @@ Three commits after the audit:
   alternative / future upgrade" subsection retitled "long-term
   comparison target" to match.
 
+- **MAME side implemented** (2026-04-25, follow-on to design):
+  branches `ravn/mame:cpnet-fast-link` (slot device + bridge card)
+  and `ravn/rc700-gensmedet:cpnet-fast-link` (Z80 stub + harness).
+  Three commits land the work:
+  - `mame 0e6ee52260d` — `bus/rc702/pio_port/` slot infrastructure
+    (modelled on Einstein userport), keyboard slot card refactor,
+    `cpnet_bridge` slot card (POSIX TCP listener), `rc702.cpp`
+    machine_config refactored, misleading "parallel port" comment
+    dropped.  690 insertions / 27 deletions across 8 files.
+  - `rc700-gensmedet bcdb181` — `cpnos-rom/init.c` PIO-B init triplet
+    + IVT slot 17 routed to new `_isr_pio_par` (in `isr.s`) which
+    counts received bytes into resident.c BSS variables.  ~40 byte
+    PROM growth, well within budget.
+  - `rc700-gensmedet a71d7c1` — `tests/cpnet_bridge/` Python+Lua
+    harness that drives the host -> Z80 byte path end-to-end inside
+    MAME via TCP localhost:4003 and a write-tap on the BSS counter.
+    `make cpnet-mame-test` target wires it in.
+
+  Verification done so far: `mame -validate rc702` passes,
+  `-listdevices`/`-listslots` show pioa/keyboard/kbd nesting + empty
+  piob, both slots accept `keyboard` and `cpnet_bridge` options,
+  `make cpnos` builds clean with the new ISR.  End-to-end harness
+  PASS gate is conditional on the CP/NET netboot server being up
+  (z80pack-as-master on :4002) — without it the Z80 stays in the
+  autoload PROM and `_isr_pio_par` never fires.
+
+  Topology B production deployment (Pi 4B + Pi Pico) still parked
+  pending hardware acquisition, per the original phase 22 scope.
+
 - **MAME bridge design specified** (same day, post-cleanup):
   expanded the "MAME side" section of `docs/cpnet_fast_link.md` from
   a 3-bullet stub to a full design spec.  Initially scoped narrowly

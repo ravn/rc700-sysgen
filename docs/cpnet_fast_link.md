@@ -1,7 +1,14 @@
 # CP/NET Fast Host Link — Design
 
-> **Status:** design only (2026-04-25). No bring-up code yet — user does not
-> have the host-side Pi hardware on hand. Supersedes the Mode 2 plan in
+> **Status:** MAME-side implemented 2026-04-25 on branches
+> `ravn/mame:cpnet-fast-link` (slot infrastructure + bridge slot card)
+> and `ravn/rc700-gensmedet:cpnet-fast-link` (Z80 stub +
+> Python+Lua harness).  Pi 4B host hardware not yet acquired; the
+> production Pi+Pico path stays deferred.  MAME-side bring-up
+> (host -> Z80 byte path inside MAME) is testable today via
+> `make cpnet-mame-test` once a CP/NET netboot server is up.
+>
+> Supersedes the Mode 2 plan in
 > [`rcbios-in-c/docs/parallel_host_interface.md`](../rcbios-in-c/docs/parallel_host_interface.md).
 
 ## Goal
@@ -594,9 +601,18 @@ software running on the same MAME executable (the original RC702
 CP/M, BASIC, COMAL, anything historical) sees PIO-B as an idle
 parallel port — exactly as on real hardware.
 
-This subsection is the design spec for that patch. Implementation is
-deferred (design-only phase); the spec is what gets attached to the
-`ravn/mame` issue when implementation opens.
+**Status (2026-04-25):** implementation landed on branch
+`ravn/mame:cpnet-fast-link`, commit `0e6ee52260d`.  All four patches
+described below are committed; `mame -validate rc702` passes,
+`-listdevices` and `-listslots` show the slot system working.  The
+Z80-side stub (`isr_pio_par` byte counter) lives on
+`ravn/rc700-gensmedet:cpnet-fast-link` (commit `bcdb181`); the
+Python+Lua test harness in `tests/cpnet_bridge/` (commit `a71d7c1`)
+exercises the host -> Z80 byte path end-to-end inside MAME.  The
+end-to-end PASS gate requires a CP/NET netboot server up so cpnos-rom
+actually loads — see `tests/cpnet_bridge/README.md` for prerequisites.
+
+The original "what we'll build" spec is preserved below for reference.
 
 ### Correcting a misreading from 2016
 
