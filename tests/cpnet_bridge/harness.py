@@ -307,12 +307,13 @@ def main():
 			"-nothrottle",
 			"-window",
 			"-skip_gameinfo",
+			"-log",
 			"-seconds_to_run", str(args.mame_seconds),
 			"-rs232a", "null_modem",
 			"-bitb1", f"socket.127.0.0.1:{MPM_PORT}",
 			"-piob", "cpnet_bridge",
 			"-autoboot_script", str(TAP_LUA),
-		], log_path=MAME_LOG)
+		], log_path=MAME_LOG, cwd=str(MAME_DIR))
 		cleanup.push(lambda: kill_group(mame_p) if not args.keep_alive else None)
 
 		# Step 7: wait until the cpnet_bridge MAME slot card binds :4003.
