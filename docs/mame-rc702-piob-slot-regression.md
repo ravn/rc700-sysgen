@@ -222,6 +222,51 @@ I did not find any precedent in MAME that exercises the same code
 path.  This is consistent with — but does not prove — the hypothesis
 that the issue lies in an unexercised slot/PIO interaction.
 
+## Multi-slot per chip — the proven-working pattern (factual)
+
+For comparison, every chip in MAME that successfully exposes multiple
+peripheral connection points as slot devices uses **per-channel
+`device_t` subdevices**:
+
+| Chip | Subdevice class | Drivers using both channels as slots |
+|---|---|---|
+| **Z80-SIO / DART** | `z80sio_channel` | `rc702.cpp` (ours), `kaypro.cpp`, `bullet.cpp`, `osbexec.cpp`, `attache.cpp`, `tiki100.cpp`, `bw12.cpp`, `apricotf.cpp`, `ampro.cpp` … (>20 drivers) |
+| **Z80-SCC** (8530) | `z80scc_channel` | similar |
+| **scnxx562** DUART | per-channel subdevice | similar |
+| **upd765a / wd17xx** | each drive is a `floppy_connector` slot | every floppy-equipped driver |
+
+RC702 itself uses this pattern successfully for `sio1` (rs232a +
+rs232b slots, no issues).
+
+**Z80-PIO is the only multi-channel-callback chip in MAME without
+per-channel subdevices.**  In `src/devices/machine/z80pio.h` (lines
+47-68) all seven port-side callbacks (`m_in_pa_cb`, `m_out_pa_cb`,
+`m_out_ardy_cb`, `m_in_pb_cb`, `m_out_pb_cb`, `m_out_brdy_cb`,
+`m_out_int_cb`) are flat members of `z80pio_device`.  An internal
+`pio_port` struct in `z80pio.cpp` holds per-port state but is **not**
+a `device_t` — it has no `device_start`/`device_reset` of its own and
+is `start()`ed/`reset()`ed from the parent's lifecycle methods.
+
+The bug almost certainly sits at this seam: two slot wrappers binding
+callbacks on the same flat `z80pio_device` hits a path nobody else has
+tested, while the Z80-SIO path is well-trodden because each slot
+binds to its own channel subdevice.
+
+## Two fix paths
+
+1. **Refactor `z80pio_device` to introduce a `z80pio_channel`
+   subdevice.**  Architecturally correct — matches every other
+   dual-channel chip in MAME — but touches a widely-used chip model.
+   Probably needs upstream MAME review even on the `ravn/` fork.
+2. **Avoid the unexercised path in `rc702.cpp`.**  Wire PIO-A's
+   keyboard directly (no slot wrapper), keep PIO-B as a slot for
+   `cpnet_bridge`.  Matches the proven Einstein topology (one PIO
+   chip, one slot port + one direct port).  Localized; loses the
+   never-exercised "PIO-A keyboard as runtime slot card" property.
+
+Path 2 is the minimum-disruption workaround.  Path 1 is the
+upstream-quality fix.
+
 ## Suggested workaround (not a fix)
 
 Match the proven Einstein topology: keep PIO-B as a slot for the
