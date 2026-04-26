@@ -69,20 +69,13 @@ Exit codes:
 
 ## Address pinning
 
-The tap watches:
-
-| BSS variable    | Address  | Source                         |
-|-----------------|----------|--------------------------------|
-| `pio_par_byte`  | `0xEA39` | `cpnos-rom/resident.c`         |
-| `pio_par_count` | `0xEA3A` | `cpnos-rom/resident.c`         |
-
-Re-derive after BSS-layout changes:
-
-```
-grep _pio_par cpnos-rom/clang/cpnos.lis
-```
-
-Update `tap.lua` if these shift.
+The tap watches the BSS variables `_pio_par_byte` and `_pio_par_count`
+in `cpnos-rom/resident.c`.  Their addresses are not hardcoded — the
+harness extracts them from `cpnos-rom/clang/payload.elf` via
+`llvm-nm` on every run and writes them as a Lua table to
+`/tmp/cpnos_bridge_addrs.lua`, which `tap.lua` reads via `dofile`.
+This survives BSS-layout shifts (which silently broke the test before
+2026-04-26).
 
 ## Caveats
 
