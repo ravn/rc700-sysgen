@@ -1,7 +1,9 @@
 # MAME bug report — `rc702`: any card on PIO-B blocks guest initialization
 
-> Status: **open**, drafted 2026-04-26 against `ravn/mame:cpnet-fast-link`.
-> Drafted as a candidate issue for `ravn/mame`; not yet filed. See
+> **Filed as [ravn/mame#6](https://github.com/ravn/mame/issues/6)** on
+> 2026-04-26.  Track progress on the issue; this file is the local
+> mirror of the body for offline reference.  Update both this file and
+> the issue when status changes.  See
 > [`cpnet_fast_link.md`](cpnet_fast_link.md) for the design context
 > (Option P, host bridge over PIO-B / J3).
 

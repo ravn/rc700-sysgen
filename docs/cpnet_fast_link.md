@@ -612,6 +612,19 @@ exercises the host -> Z80 byte path end-to-end inside MAME.  The
 end-to-end PASS gate requires a CP/NET netboot server up so cpnos-rom
 actually loads — see `tests/cpnet_bridge/README.md` for prerequisites.
 
+**Blocker (2026-04-26):** any card plugged into PIO-B (`-piob keyboard`
+or `-piob cpnet_bridge`) prevents the cpnos-rom guest from completing
+its IM2 IRQ initialization — no interrupts fire, the screen stays
+black, the CCP never loads.  PIO-A (with default `keyboard` card) and
+PIO-B (empty) both work individually; only the "card on PIO-B"
+configuration regresses.  The bridge byte path itself is verified —
+6 test bytes flow through listener -> chip `read()` in order — but the
+Z80 ISR never enters because no IRQ reaches the CPU.  Tracked in
+**[ravn/mame#6](https://github.com/ravn/mame/issues/6)** with full
+reproduction + topology survey;
+[`docs/mame-rc702-piob-slot-regression.md`](mame-rc702-piob-slot-regression.md)
+mirrors the issue body for offline reference.
+
 The original "what we'll build" spec is preserved below for reference.
 
 ### Correcting a misreading from 2016
