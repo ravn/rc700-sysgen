@@ -4,16 +4,21 @@
 
 Moving `BIOS_BASE` (the address of cpnos-rom's BIOS jump table) is currently
 painful because `cpnos-build/d/cpnos.com` is statically linked with fixed
-addresses baked into every module: data at 0xCC00, code at 0xD000, and the
-RC702 trampolines in `s/cpbios.s` hardcode calls to cpnos-rom's resident
-impls at `0xF200+offset`.
+addresses baked into every module: data at 0xCC00, code at 0xD000, and
+cross-boundary references into cpnos-rom's resident BIOS JT resolved at
+LINK time (currently `BIOS_BASE = 0xED00`).
 
-Any change to `BIOS_BASE` requires:
-- Editing the trampolines in `cpnos-build/s/cpbios.s`
-- Rebuilding `cpnos.com` in lockstep with cpnos-rom
-
-This couples two otherwise-independent codebases at address level, and makes
+Any change to `BIOS_BASE` requires re-linking `cpnos.com` in lockstep with
+cpnos-rom and refreshing every disk image that carries `cpnos.com`.  This
+couples two otherwise-independent codebases at address level, and makes
 experimentation with the memory map expensive.
+
+Phase 1/2A/2B (April 2026) cut down the cross-boundary surface:
+ABI shims migrated from cpbios.asm into `cpnos-rom/resident.c`, the
+cpnos.asm entry stub was eliminated, and PROM-side references *into*
+cpnos.com (BDOS dispatch entry) are now generated from `cpnos.sym` via
+`clang/cpnos_addrs.h`.  The remaining baked direction is cpnos.com's
+references *into* cpnos-rom's BIOS JT.
 
 ## Observation
 
@@ -61,41 +66,31 @@ need re-linking.
 
 ### Snag: cross-boundary references
 
-`cpnos-build/s/cpbios.s` calls cpnos-rom's resident impls — `impl_conout`
-at `0xF200+12`, etc.  Those are symbols **outside** the monolith.  SPR
-relocation can't help because its bitmap only describes *intra-monolith*
-addresses.  The external references stay baked.
+`cpndos.asm` and `cpbdos.asm` reference cpnos-rom's resident BIOS JT at
+`BIOS_BASE` (currently 0xED00) — DRI LINK resolves these at link time
+against the EQU exposed by a small shim like `cpnios-shim.asm` does for
+NIOS.  Those addresses are **outside** the monolith.  SPR relocation
+can't help because its bitmap only describes *intra-monolith* addresses.
+The external references stay baked.
 
 Three ways to resolve:
 
 #### (a) Single-variable patching — MINIMUM VIABLE
 
-Introduce one 2-byte variable in the monolith, say `BIOS_JT_BASE`.
-`cpbios.s` trampolines become:
+Introduce one 2-byte variable in the monolith, say `BIOS_JT_BASE`,
+written once by the loader.  Replace each direct `JP BIOS+N` call site
+with an indirect-through-`BIOS_JT_BASE` sequence.
 
-```asm
-    ; instead of: ld a,c; jp 0xF20C
-    ld   hl, (BIOS_JT_BASE)
-    ld   a, c
-    ld   de, 12            ; offset of CONOUT in BIOS JT
-    add  hl, de
-    jp   (hl)
-```
+Trivially simple; trivially fixed.  Adds a handful of bytes per BIOS
+call site in indirection overhead.
 
-cpnos-rom's loader writes `BIOS_JT_BASE` once at load time with the
-current JT address.  One patch point, one write.
-
-Trivially simple; trivially fixed.  Adds ~5 bytes per BIOS entry in
-trampoline overhead (~80 bytes across 17 entries).
-
-#### (b) Move impl_* into the monolith — CLEANEST LONG-TERM
+#### (b) Move BIOS into the monolith — CLEANEST LONG-TERM
 
 Absorb the RC702 hardware code (`impl_conout`, `impl_conin`, CRT scroll,
-SIO polling, keyboard ring, ISR) from cpnos-rom's `resident.c` into
-`cpnos-build/s/cpbios.s` or a new
-`cpnos-build/s/cpbios_rc702.c`.  cpnos-rom's role shrinks to: PROM
-bootstrap + transport layer + netboot_mpm.  Monolith owns every
-RC702 port.
+SIO polling, keyboard ring, ISR) from cpnos-rom's `resident.c` into a
+new `cpbios_rc702.c` linked into the monolith.  cpnos-rom's role
+shrinks to: PROM bootstrap + transport layer + netboot_mpm.  Monolith
+owns every RC702 port.
 
 - No cross-boundary calls at all — the whole BIOS is inside the monolith.
 - cpnos-rom's `.resident` region shrinks dramatically; RAM map gets simpler.
@@ -120,7 +115,7 @@ level without restructuring either.
 
 Work estimate, focused session: 1 day.
 - 1-2 hours: ELF→SPR post-processor in Python
-- 1-2 hours: trampoline rewrite in `s/cpbios.s`
+- 1-2 hours: rewrite BIOS call sites against `BIOS_JT_BASE`
 - 2 hours: inbound relocation in Z80 inside `netboot_mpm.c` (or have the
   Python server pre-relocate before sending — skips the Z80 work entirely)
 - rest: testing + fix-up
@@ -137,9 +132,10 @@ build with 2 KB PROMs, or an RC703 variant with different BIOS space.
 - `cpnet-z80/dist/doc/` — DRI CP/NET 1.2 documentation (if present)
 - `cpnos-rom/netboot_server.py:spr_relocate` — reference SPR loader
 - `cpnos-rom/cpnos-build/` — current statically-linked monolith build
-- `cpnos-rom/cpnos-build/s/cpbios.s` — trampolines with baked BIOS_BASE
+- `cpnos-rom/cpnos-build/src/cpnios-shim.asm` — example of the `EXTRN`-via-shim
+  pattern that BIOS_JT_BASE would follow
 - `cpnos-rom/cpnos_rom.ld` — cpnos-rom linker script with the fixed
-  `_bios_boot == 0xF200` ASSERT
+  `_bios_boot == 0xED00` ASSERT
 
 ## History
 

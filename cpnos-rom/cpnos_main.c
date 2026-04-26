@@ -65,8 +65,9 @@ static void nos_handoff(void) {
      * 0x300 = 0xCF00.  NDOS COLDST reads ZP[1..2] = 0xCF03 and walks
      * 0xCF02..0xCF34 in place, replacing slots 1..5 + 15 with NDOS
      * wrapper addresses.  Other slots (BOOT, PUNCH/READER/HOME,
-     * SELDSK..WRITE, SECTRAN) keep their resident-JT targets, so any
-     * disk-style call falls through to our impl_seldsk_null/disk_err. */
+     * SELDSK..WRITE, SECTRAN) keep their resident-JT targets — all
+     * unreachable in CP/NOS (cpbdos implements only fn 0..12, no disk
+     * dispatch), so they all land harmlessly on bios_stub_ret. */
     __builtin_memcpy((void *)0xCF00, (const void *)0xED00, 51);
 
     /* CP/M 2.2 zero page bytes 0..7.  Phase 2B: ZP[5..7] is also set

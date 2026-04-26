@@ -41,11 +41,11 @@ _bios_list:     jp _bios_stub_ret
 _bios_punch:    jp _bios_stub_ret
 _bios_reader:   jp _bios_stub_ret
 _bios_home:     jp _bios_stub_ret
-_bios_seldsk:   jp _impl_seldsk_null
+_bios_seldsk:   jp _bios_stub_ret
 _bios_settrk:   jp _bios_stub_ret
 _bios_setsec:   jp _bios_stub_ret
 _bios_setdma:   jp _bios_stub_ret
-_bios_read:     jp _impl_disk_err
-_bios_write:    jp _impl_disk_err
+_bios_read:     jp _bios_stub_ret
+_bios_write:    jp _bios_stub_ret
 _bios_listst:   jp _bios_stub_ret
 _bios_sectran:  jp _bios_stub_ret          ; identity in NOS-only build

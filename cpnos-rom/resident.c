@@ -389,15 +389,3 @@ void bios_conout_shim(void) {
     );
 }
 
-RESIDENT
-uint16_t impl_seldsk_null(void) {
-    /* No DPH — CP/M treats HL=0 as "drive not present". NDOS intercepts
-     * SELDSK for network drives before this stub is reached. */
-    return 0;
-}
-
-RESIDENT
-uint8_t impl_disk_err(void) {
-    /* READ/WRITE error. Not expected to be called in NOS-only mode. */
-    return 1;
-}
