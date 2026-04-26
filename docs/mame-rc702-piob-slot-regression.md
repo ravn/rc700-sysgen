@@ -252,6 +252,46 @@ callbacks on the same flat `z80pio_device` hits a path nobody else has
 tested, while the Z80-SIO path is well-trodden because each slot
 binds to its own channel subdevice.
 
+### Two-channels vs two-slots — what is and isn't supported
+
+It is worth being precise about what the Z80-PIO emulation does and
+doesn't anticipate, because the answer is not "one channel only" and
+not "two channels via two slots is supposed to work":
+
+- **Two channels on a Z80-PIO chip: intended, supported, well-tested.**
+  The chip model has per-port `pio_port` state structs, the API
+  exposes seven distinct port-side bindings, and >20 MAME drivers
+  successfully wire up both ports directly (`xerox820/kbpio`,
+  `attache`, `altos5`, `jupace`, `tiki100`, `meritm`, `kminus`,
+  several DDR machines, …).  This pattern has worked since the chip
+  model was first written.
+
+- **Two channels each routed through a MAME slot wrapper on a single
+  Z80-PIO: never tried before RC702.**  Z80-PIO predates the modern
+  `device_slot_interface` / `device_single_card_slot_interface`
+  pattern by years.  When the chip author wrote it, "either port can
+  be wired to a peripheral" assumed the peripheral was **direct** —
+  a function, an `output_latch_device`, a centronics interface —
+  known at machine-config time, no late-binding.
+
+- **Slot infrastructure grew up against chips that already had
+  per-channel `device_t` subdevices** (Z80-SIO with `z80sio_channel`,
+  Z80-SCC with `z80scc_channel`, scnxx562, upd765a/wd17xx with
+  `floppy_connector`).  When `option_replace` resolves a slot at
+  machine_start, it composes naturally with per-channel subdevice
+  start order.  No one wrote a driver that connected two slots to
+  the same flat-model chip.
+
+So the missing case is not "the author forbade two channels" and not
+"two-channel-via-slot is supposed to work but is broken" — it is the
+unswept seam between two abstractions that grew up at different
+times: a flat chip model from the pre-slot era, and a slot mechanism
+that's only been validated against chips with per-channel
+subdevices.  Einstein's "PIO-A direct + PIO-B userport slot" topology
+exercises the **one-slot-per-Z80-PIO** composition (one slot, one
+direct), and that works.  RC702 is the first driver to push to **two
+slots per Z80-PIO**, and that's where the regression lives.
+
 ## Two fix paths
 
 1. **Refactor `z80pio_device` to introduce a `z80pio_channel`
