@@ -25,7 +25,7 @@ export CPMDrive_D := $(CURDIR)/d
 export CPMDrive_A := $(CURDIR)/a
 export CPMDefault := d:
 
-MODULES := cpnos cpndos cpnios cpbdos cpbios
+MODULES := cpndos cpnios cpbdos
 
 .PHONY: all clean
 all: d/cpnos.com
@@ -51,8 +51,17 @@ d/%.asm: $(SRC)/%.asm
 d/%.rel: d/%.asm
 	cd $(CURDIR) && $(VCPM) rmac $* 2>&1 | tail -3
 
+# Phase 2B (2026-04-26): cpnos.asm entry stub deleted.  cpnos.com now
+# starts directly at NDOS+0 (cpndos's first byte = JP NDOSE).  PROM C
+# (cpnos-rom/cpnos_main.c::nos_handoff) sets ZP[5..7] = JP BDOS using
+# an address extracted from cpnos.sym at PROM build time, then enters
+# at 0xD003 (NDOS+3 = COLDST).
+#
+# `cpnos=cpndos,...` is DRI LINK's explicit destination-filename
+# syntax — output goes to cpnos.com regardless of which module is
+# first in the input list.
 d/cpnos.com: $(addsuffix .rel,$(addprefix d/,$(MODULES)))
-	cd $(CURDIR) && $(VCPM) link 'cpnos,cpndos,cpnios,cpbdos,cpbios[$(CODE_BASE),$(DATA_BASE)]' 2>&1 | tail -15
+	cd $(CURDIR) && $(VCPM) link 'cpnos=cpndos,cpnios,cpbdos[$(CODE_BASE),$(DATA_BASE)]' 2>&1 | tail -15
 
 clean:
 	rm -f d/*.rel d/*.prn d/*.sym d/*.com d/tiny*.* d/test.*

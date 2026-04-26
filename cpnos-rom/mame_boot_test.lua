@@ -8,6 +8,11 @@ local done = false
 local DSPSTR = 0xF800
 local RESULT_FILE = "/tmp/cpnos_boot_result.txt"
 
+-- Always-on snapshot at end of run so display state is verifiable
+-- (logs and BSS counters can lie about init; the screen can't).
+local _final_snap_done = false
+local _final_snap_t = -1
+
 -- After the PASS/FAIL condition is first detected, keep the emulation
 -- running for this many frames so SIO-B TX finishes draining (at 38400
 -- baud a byte needs ~13 frames of 1/50 s to transmit; 15 frames covers
@@ -100,21 +105,16 @@ local function finish(result, space)
 
     f:write("\n--- 0x0000 (reset vector / PROM0 shadow + BDOS vector) ---\n")
     f:write(hex_dump(space, 0x0000, 48) .. "\n")
-    -- Expected: 00=0xA5, 01=0x5A (sentinels), 05=0xC3 06 DE (JP 0xDE06 BDOS).
-    f:write(string.format("BDOS vector [0x0005..7]=%02x %02x %02x (want c3 06 de)\n",
+    -- After NDOS COLDST: ZP[5..7] = JP NDOS-BDOSE-intercept @ NDOSRL+6
+    -- = 0xCC06.  cpnos.asm initially writes JP BDOS (link-time addr in
+    -- cpnos.com), but NDOS overwrites with its own intercept so CCP's
+    -- BDOS calls flow through NDOS's network/local router.
+    f:write(string.format("BDOS vector [0x0005..7]=%02x %02x %02x (want c3 06 cc)\n",
         space:read_u8(0x0005), space:read_u8(0x0006), space:read_u8(0x0007)))
-    f:write("\n--- 0xD000 (BOOT = cpnos stub: JP BIOS) ---\n")
+    f:write("\n--- 0xD000 (cpnos.asm entry stub: LXI SP, 0x0100; ...) ---\n")
     f:write(hex_dump(space, 0xD000, 16) .. "\n")
     f:write("\n--- 0xD003 (NDOS = JP NDOSE, JP COLDST) ---\n")
     f:write(hex_dump(space, 0xD003, 16) .. "\n")
-    -- Monolith's BIOS JT lives at 0xDF21 since we replaced the Altos
-    -- cpbios with our RC702 trampoline (previous address 0xDC10 was
-    -- stale from before the session-33 cpbios trampoline rework).
-    -- Expected: 17 × 3-byte JP entries, first = JP boot (c3 LL HH
-    -- pointing inside the monolith), WBOOT = JP error, CONST/CONIN/
-    -- CONOUT/LIST = JP *_shim.
-    f:write("\n--- 0xDF21 (monolith BIOS JT after cpbios trampoline rewire) ---\n")
-    f:write(hex_dump(space, 0xDF21, 51) .. "\n")
     -- NDOS COLDST walks TOP+1 (our BIOS JT at 0xED00) and writes a
     -- patched copy at NDOSRL+0x300 = 0xCC00+0x300 = 0xCF00 with
     -- intercepts for CONOUT/LIST/etc.  CCP calls BIOS through this
@@ -130,12 +130,13 @@ local function finish(result, space)
     -- contain c3 + an address, that's why CONOUT is broken.
     f:write("\n--- 0xED00 (our BIOS JT VMA) ---\n")
     f:write(hex_dump(space, 0xED00, 51) .. "\n")
-    -- Image signature: BOOT at 0xD000 is `JP BIOS` (= JP 0xDF21 = c3 21 df).
-    local boot0 = space:read_u8(0xD000)
-    local boot2 = space:read_u8(0xD002)
+    -- Image signature (Phase 2B): cpnos.com starts at NDOS = JP NDOSE.
+    -- Byte 0 must be 0xC3 (JP opcode); bytes 1..2 are NDOSE's address,
+    -- which shifts whenever cpndos.z80 or any preceding module changes
+    -- size, so the probe doesn't pin them.
     f:write(string.format(
-        "BOOT[0xD000..2]=%02x ?? %02x (want c3 21 df)\n",
-        boot0, boot2))
+        "BOOT[0xD000..2]=%02x %02x %02x (want c3 ?? ?? — JP NDOSE)\n",
+        space:read_u8(0xD000), space:read_u8(0xD001), space:read_u8(0xD002)))
     f:write("\n--- 0xEC00 (breadcrumbs; 0xEC20 = CRT ISR tick counter) ---\n")
     -- Dump through 0xEC5F so the impl_conout/const/conin breadcrumb
     -- counters at 0xEC40..0xEC43 (resident.c) are visible.  Keep until
@@ -145,13 +146,15 @@ local function finish(result, space)
         space:read_u8(0xEC20)))
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
-    f:write("\n--- CFGTBL (SLAVEID must be 0x70 at +1) ---\n")
-    local cfg_addr = 0xF4D4                 -- _cfgtbl (check with `llvm-nm --numeric-sort cpnos.elf | grep _cfgtbl`)
+    f:write("\n--- CFGTBL (SLAVEID at +1, NETST at +0) ---\n")
+    -- _cfgtbl moves whenever resident layout shifts.  Re-check with
+    --   llvm-nm --numeric-sort clang/payload.elf | grep ' _cfgtbl$'
+    local cfg_addr = 0xEA46
     f:write(hex_dump(space, cfg_addr, 48) .. "\n")
     local slaveid = space:read_u8(cfg_addr + 1)
-    f:write(string.format("SLAVEID = 0x%02x (want 0x70)\n", slaveid))
+    f:write(string.format("SLAVEID = 0x%02x (want 0x01)\n", slaveid))
     local netst = space:read_u8(cfg_addr + 0)
-    f:write(string.format("NETST   = 0x%02x (want 0x10 after NTWKIN)\n", netst))
+    f:write(string.format("NETST   = 0x%02x (want 0x10 after NTWKIN — ACTIVE bit)\n", netst))
     -- SNIOS SNDMSG/RCVMSG smoke probes removed: NDOS now drives SNIOS.
 
     f:write("\n--- 0xF200 (resident VMA) ---\n")
@@ -170,6 +173,15 @@ emu.register_frame_done(function()
     frame = frame + 1
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
+
+    -- Snapshot the display every 50 frames (~1 emulated second) up to
+    -- 8 captures so we can eyeball init state regardless of whether
+    -- the PASS/FAIL gate fires.  Required by feedback_screenshot_to_verify.
+    if not _final_snap_done and frame >= _final_snap_t + 50 then
+        manager.machine.video:snapshot()
+        _final_snap_t = frame
+        if frame >= 400 then _final_snap_done = true end
+    end
 
     -- If a result is pending, hold the frame loop open for DRAIN_FRAMES
     -- before calling finish() so SIO-B TX has time to flush.

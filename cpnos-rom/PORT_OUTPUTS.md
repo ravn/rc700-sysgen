@@ -543,11 +543,12 @@ requirements.
 
 ## µPD765 FDC — 0x04 (STATUS) / 0x05 (DATA)
 
-**Not currently driven by cpnos-rom** — the payload is built with
-`ENABLE_FDC=0` and the BIOS JT's disk slots land on `impl_disk_err`
-or `impl_seldsk_null`.  This section is a forward-looking placeholder
-for the `fdc-variant` branch; it will be filled in when the FDC code
-lands in `fdc.c`.
+**Not driven by cpnos-rom** — CP/NOS is a diskless slave by design:
+all storage goes over CP/NET to the host (see
+`tasks/cpnos-next-steps.md` Phase 20 / `project_cpnos_no_local_floppy`).
+cpbdos implements only BDOS fn 0..12, so the BIOS JT's disk slots are
+never reached and are wired to `bios_stub_ret`.  Section retained as a
+forward-looking reference for any future non-CP/NOS variant.
 
 Short preview: the FDC takes commands as a sequence of bytes written
 to the DATA port, with **readiness** polled on the STATUS port via

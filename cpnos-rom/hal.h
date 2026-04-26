@@ -64,4 +64,20 @@ enum : uint16_t {
 #define DISPLAY_ADDR 0xF800
 #define DISPLAY_SIZE 2000        /* 80 x 25 */
 
+/* Boot-progress marker: write a char to display row 1, column `col`.
+ * Row 1 is reserved for boot stages so it stays clean — netboot's
+ * impl_conout('.') loader dots and CCP's prompt land on row 0.
+ * Call only after init_hardware (CRT alive).  Reserved columns
+ * 0..6 = "INIT OK" written by init_hardware.
+ *
+ * The local volatile `_dst` is *not* cosmetic.  Without it clang's
+ * Z80 backend folds `((uint8_t*)0xF800)[80 + const]` as `0xF800 +
+ * const`, dropping the `+80` (UB-class fold for casts of integer
+ * literals — same issue family as ravn/llvm-z80#49).  Forcing the
+ * base through a variable defeats the fold. */
+#define BOOT_MARK(col, ch) do { \
+    volatile uint8_t *_dst = (volatile uint8_t *)DISPLAY_ADDR; \
+    _dst[80 + (col)] = (uint8_t)(ch); \
+} while (0)
+
 #endif /* CPNOS_HAL_H */

@@ -1,7 +1,14 @@
 # CP/NET Fast Host Link — Design
 
-> **Status:** design only (2026-04-25). No bring-up code yet — user does not
-> have the host-side Pi hardware on hand. Supersedes the Mode 2 plan in
+> **Status:** MAME-side implemented 2026-04-25 on branches
+> `ravn/mame:cpnet-fast-link` (slot infrastructure + bridge slot card)
+> and `ravn/rc700-gensmedet:cpnet-fast-link` (Z80 stub +
+> Python+Lua harness).  Pi 4B host hardware not yet acquired; the
+> production Pi+Pico path stays deferred.  MAME-side bring-up
+> (host -> Z80 byte path inside MAME) is testable today via
+> `make cpnet-mame-test` once a CP/NET netboot server is up.
+>
+> Supersedes the Mode 2 plan in
 > [`rcbios-in-c/docs/parallel_host_interface.md`](../rcbios-in-c/docs/parallel_host_interface.md).
 
 ## Goal
@@ -582,93 +589,285 @@ The MAME RC702 driver lives at
 `mame/src/mame/regnecentralen/rc702.cpp` (~555 lines, original author
 Robbbert 2016). User maintains `ravn/mame` fork. Recent CP/NET-related
 work in that fork: ravn/mame#1 (rs232b null_modem default + DCD
-wiring), ravn/mame#3 (z80dart_device -> z80sio_device migration). For
-Option P bring-up we want a fourth patch that gives us protocol-level
-iteration entirely in emulation before any J3 cable is fabricated.
+wiring), ravn/mame#3 (z80dart_device -> z80sio_device migration).
 
-This subsection is the design spec for that patch. Implementation is
-deferred (design-only phase); the spec is what gets attached to the
-`ravn/mame` issue when implementation opens.
+For Option P bring-up we want a fourth patch — but the right framing
+is **not** "wire CP/NET into the driver". It's "expose the PIO ports
+the way the rs232 ports are exposed: as generic slot devices with
+peripherals attached at MAME-config time". The CP/NET bridge then
+becomes one peripheral choice among several, selected at the
+command line only when the payload running in MAME wants it. Other
+software running on the same MAME executable (the original RC702
+CP/M, BASIC, COMAL, anything historical) sees PIO-B as an idle
+parallel port — exactly as on real hardware.
+
+**Status (2026-04-25):** implementation landed on branch
+`ravn/mame:cpnet-fast-link`, commit `0e6ee52260d`.  All four patches
+described below are committed; `mame -validate rc702` passes,
+`-listdevices` and `-listslots` show the slot system working.  The
+Z80-side stub (`isr_pio_par` byte counter) lives on
+`ravn/rc700-gensmedet:cpnet-fast-link` (commit `bcdb181`); the
+Python+Lua test harness in `tests/cpnet_bridge/` (commit `a71d7c1`)
+exercises the host -> Z80 byte path end-to-end inside MAME.  The
+end-to-end PASS gate requires a CP/NET netboot server up so cpnos-rom
+actually loads — see `tests/cpnet_bridge/README.md` for prerequisites.
+
+**Blocker (2026-04-26):** any card plugged into PIO-B (`-piob keyboard`
+or `-piob cpnet_bridge`) prevents the cpnos-rom guest from completing
+its IM2 IRQ initialization — no interrupts fire, the screen stays
+black, the CCP never loads.  PIO-A (with default `keyboard` card) and
+PIO-B (empty) both work individually; only the "card on PIO-B"
+configuration regresses.  The bridge byte path itself is verified —
+6 test bytes flow through listener -> chip `read()` in order — but the
+Z80 ISR never enters because no IRQ reaches the CPU.  Tracked in
+**[ravn/mame#6](https://github.com/ravn/mame/issues/6)** with full
+reproduction + topology survey;
+[`docs/mame-rc702-piob-slot-regression.md`](mame-rc702-piob-slot-regression.md)
+mirrors the issue body for offline reference.
+
+The original "what we'll build" spec is preserved below for reference.
+
+### Correcting a misreading from 2016
+
+The current `rc702.cpp` has a comment along the lines of "Printer
+(PIO port B commented out)". This is **incorrect** — the original
+2016 author misunderstood the RC702's I/O mapping. The serial
+printer on this machine is on a SIO channel (per the hardware
+reference: SIO-A as LST in some IOBYTE presets; per the current
+`rcbios-in-c` BIOS: SIO-A as LST in IOB_BAT and IOB_UC1, SIO-B as
+LST in IOB_TTY). PIO-B has always been a **generic 8-bit parallel
+I/O port** with full handshake — not a printer port and not
+purpose-built for anything in particular. The factory RC702
+shipped with PIO-B unpopulated at the connector level too (J3 has
+no power rails); it was always an expansion port awaiting a
+peripheral.
+
+So the patch should not bake "this is the CP/NET bridge port" into
+the driver. PIO-B is a slot. CP/NET bridge is just one of many
+peripherals that *can* be plugged into that slot.
 
 ### Current state in `rc702.cpp`
 
 What's there today (per project notes through 2026-04-25):
 
-- Z80-PIO device instantiated; **Port A wired to keyboard input**
+- Z80-PIO device instantiated; **Port A hardcoded to keyboard input**
   (KEY_DAT on port 0x10), ASTB strobed by the keyboard model.
 - **Port B is instantiated but its data lines and BSTB/BRDY handshake
-  are not wired to anything externally.** A comment in the driver
-  notes "Printer (PIO port B commented out)".
-- Z80-SIO/2 (post-ravn/mame#3) wired with both channels connected to
-  `rs232_port_device` instances. SIO-A -> rs232a, SIO-B -> rs232b.
-  Both rs232 ports default to `null_modem` and accept `-bitb1`/`-bitb2`
-  command-line options for socket / pipe / stdio backends.
+  are not wired to anything externally** — no slot, no peripheral.
+  The misleading "Printer" comment sits next to this dead code.
+- Z80-SIO/2 (post-ravn/mame#3) wired with both channels exposed as
+  `rs232_port_device` slots. SIO-A -> rs232a, SIO-B -> rs232b.
+  Both rs232 slots default to `null_modem` and accept `-bitb1` /
+  `-bitb2` command-line options for socket / pipe / stdio backends.
 - IM2 daisy chain: CTC -> SIO -> PIO (priority order). PIO-A
   interrupts already routed; PIO-B INT line free since Port B is dead.
 - IVT slot 17 (vector 0x22) is what the Z80 BIOS will use for PIO-B
   per the Z80-side design above.
-- No equivalent of the rs232 null_modem / bitbanger pattern exists for
-  parallel I/O in MAME upstream.
+- No generic "8-bit + STB/RDY" slot device exists in MAME upstream
+  (verified by source survey 2026-04-25):
+  - `centronics_device` is a slot but unidirectional/Centronics-shaped
+    (data + strobe one way; busy/ack/perror/select/fault the other)
+    — wrong topology for a Z80-PIO port.
+  - `cg_parallel_slot_device` (Colour Genie) exposes pa_r/pa_w/pb_r/
+    pb_w but **no** STB/RDY handshake.
+  - **`einstein_userport_device`** (Tatung Einstein, in
+    `src/devices/bus/einstein/userport/`) is the closest match —
+    a `device_single_card_slot_interface` that exposes `read()`,
+    `write(uint8_t)`, and `brdy_w(int)` to plug-in cards. Tagged
+    Einstein-specific by location but the *shape* is exactly what
+    we want.
+- **MODE-change is not observable through the PIO callback API.** The
+  z80pio_device class has no `out_mode_callback()` or equivalent —
+  peripherals cannot watch a Mode 0 <-> Mode 1 switch through the
+  device interface. (Verified from `src/devices/machine/z80pio.h`.)
+  This **mirrors real hardware**: the physical Z80-PIO chip has no
+  external pin that signals a mode change either; per-port external
+  signals are only data + STB + RDY + INT (verified from Zilog
+  datasheet). The CP/NET bridge handles this the way real
+  peripherals do — by following the higher-level wire protocol —
+  not by observing chip mode. See "Direction tracking" in the
+  bridge spec below.
 
-### Patch scope
+### Patch scope (generic-slot pattern, Einstein-userport-modelled)
 
-Three changes, all in `ravn/mame`:
+Four changes, all in `ravn/mame`. The first three are RC702-generic
+infrastructure; only the fourth is CP/NET-specific. The slot
+infrastructure is a deliberate clone of the Tatung Einstein
+userport pattern (`src/devices/bus/einstein/userport/`), which is
+the closest existing precedent in upstream MAME for an 8-bit-with-
+handshake Z80-PIO peripheral slot.
 
-**(1) Activate PIO-B handshake on the MAME side.**
+**(1) Define a slot device class for the PIO ports.**
 
-Bind PIO-B's read/write handlers to a new pseudo-device (see (2)).
-Connect the BSTB input from the device into PIO-B's strobe input.
-Wire PIO-B's BRDY output back out to the device. Connect Port B's
-INT line into the daisy chain immediately after Port A (Port A
-priority preserved).
+Working name: `rc702_pio_port_device`. Location:
+`src/devices/bus/rc702/pio_port/pio_port.{cpp,h}` — a fresh bus
+namespace under `bus/rc702/`. RC702-scoped initially. Promotable to
+`bus/z80pio_port/` later if other Z80-PIO drivers adopt the pattern.
 
-Concretely in driver terms (illustrative, not final code):
+Class shape (modelled on Einstein userport + rs232_port_device):
 
+```cpp
+class rc702_pio_port_device :
+    public device_t,
+    public device_single_card_slot_interface<device_rc702_pio_port_interface>
+{
+    // outbound (port -> Z80 PIO chip)
+    auto out_strobe_callback();   // calls m_pio->strobe_b() or strobe_a()
+    auto in_data_callback();      // PIO data input handler (chip pulls)
+    auto out_data_callback();     // PIO data output handler (chip pushes)
+    auto out_brdy_callback();     // BRDY edges propagate to card
+    // ...standard MAME boilerplate (device_start, device_reset)
+};
+
+class device_rc702_pio_port_interface : public device_interface
+{
+public:
+    virtual uint8_t read() = 0;          // chip is reading: card produces a byte
+    virtual void write(uint8_t data) = 0;// chip wrote: card consumes a byte
+    virtual void brdy_w(int state) = 0;  // BRDY edge from chip
+    // card asserts STB into chip via the port's out_strobe_callback
+};
 ```
-PIO_B.in_pa_callback().set( ... )           // Port A unchanged (kbd)
-PIO_B.in_pb_callback().set("cpnet_bridge", FUNC(...::data_r))
-PIO_B.out_pb_callback().set("cpnet_bridge", FUNC(...::data_w))
-PIO_B.out_brdy_callback().set("cpnet_bridge", FUNC(...::brdy_w))
-"cpnet_bridge".out_bstb_callback().set(PIO_B, FUNC(z80pio_device::strobe_b))
-```
 
-**(2) Add a virtual host-bridge device.**
+The Einstein userport already has exactly `read()`, `write(uint8_t)`,
+and `brdy_w(int)` as its interface methods (verified from
+`src/devices/bus/einstein/userport/userport.h`). We mirror that
+verbatim. The Einstein userport is tagged Einstein-specific by
+location only; the *shape* is generic.
 
-A new MAME device class, scoped to the `ravn/mame` fork (not for
-upstream initially). Working name: `rc702_cpnet_bridge_device`.
-File: `src/mame/regnecentralen/rc702_cpnet_bridge.{cpp,h}` so it
-lives next to the driver and doesn't pollute upstream namespaces.
+**(2) Define the slot option list.**
 
-Responsibilities:
+A function `rc702_pio_port_cards(device_slot_interface &device)`
+populates the slot's option list, mirroring `default_rs232_devices`
+in `src/devices/bus/rs232/rs232.cpp`:
 
-- **Z80-facing side:** present an 8-bit data register that PIO-B reads
-  from / writes to. Generate BSTB pulses to PIO-B in response to host
-  input. React to PIO-B's BRDY edges to know when an output byte has
-  been placed on the data lines.
-- **Host-facing side:** open a Unix domain socket (or TCP) on a
-  configurable address (default: `socket.localhost:4003`, sibling to
-  the existing `:4002` z80pack CP/NET TCP port). Speak the same
-  byte-stream wire protocol that the Pi+Pico bridge will speak in
-  production — see "Wire protocol" below.
-- **Direction tracking:** mirror the Z80's PIO-B Mode 0/1 switch.
-  When Z80 OUTs the Mode 1 control word (0x4F), bridge knows it's
-  "host -> Z80 next" and forwards incoming socket bytes via BSTB.
-  When Z80 OUTs Mode 0 control word (0x0F), bridge knows it's
-  "Z80 -> host next" and consumes BRDY-strobed bytes from PIO-B's
-  output register, sending them out the socket.
+| option | card | notes |
+|---|---|---|
+| `keyboard` | RC702 keyboard, lifted out of the driver | natural fit for PIO-A |
+| `cpnet_bridge` | new — see (4) | natural fit for PIO-B; CP/NET only |
+| (future: `printer`, `tape`, expansion peripherals) | — | open |
 
-The control-word OUT is observable by the bridge because the Z80-PIO
-device exposes the mode setting through its public interface (or via
-sniffing port 0x13 writes if that's cleaner).
+Each card derives from `device_rc702_pio_port_interface` and a
+`device_t` of its own (multiple-inheritance pattern, same as
+`device_rs232_port_interface` cards).
 
-**(3) Hook up the bridge in the driver config.**
+The slot's "empty" state is **not** a named card — MAME's idiom is
+to pass `nullptr` as the slot's default-card argument when no card
+should be plugged in by default. (The Einstein userport does the
+same.) Don't invent a "null_pio" no-op card analogous to
+`null_modem` — that would be misleading: `null_modem` actually
+*does* something (forwards bytes to a host bytestream via
+bitbanger). Empty rs232 slots aren't `null_modem` either; they're
+just `nullptr`.
+
+**(3) Refactor the driver to use slots for both PIO ports.**
 
 In `rc702.cpp` `machine_config`:
 
-- Instantiate `rc702_cpnet_bridge_device` with a tag like `"cpnet"`.
-- Wire its callbacks per (1).
-- Add a slot option / command-line knob: `-cpnet socket.localhost:4003`
-  (or `:none` to disable, default).
+```cpp
+RC702_PIO_PORT(config, "pioa", rc702_pio_port_cards, "keyboard");
+RC702_PIO_PORT(config, "piob", rc702_pio_port_cards, nullptr);
+m_pio->in_pa_callback().set("pioa",
+    FUNC(rc702_pio_port_device::read));
+m_pio->out_pa_callback().set("pioa",
+    FUNC(rc702_pio_port_device::write));
+m_pio->out_ardy_callback().set("pioa",
+    FUNC(rc702_pio_port_device::brdy_w));
+// (pioa's out_strobe_callback wired to m_pio->strobe_a)
+// symmetric block for piob
+```
+
+Defaults match today's behaviour: PIO-A=keyboard, PIO-B=disconnected
+(slot empty). No command-line argument required to reproduce factory
+state.
+
+The current inline keyboard wiring in `rc702.cpp` is lifted into the
+new `keyboard` slot card. Removing the keyboard from PIO-A and
+putting it on PIO-B is now a one-line config change. Two paths,
+depending on how MAME's command-line slot semantics treat empty:
+either `-pioa "" -piob keyboard` (some MAME versions accept empty
+string for unplug) or just `-piob keyboard` (with `pioa` left at
+default `keyboard` — both ports active, redundant but harmless if
+nothing else cares which port the keyboard is on). Either way, no
+`#ifdef KBD_PIO_B` needed.
+
+Drop the misleading "Printer (PIO port B commented out)" comment
+in the same diff. PIO-B was never the printer port; the printer is
+on a SIO channel per the hardware reference and per
+`rcbios-in-c/bios.h:185-195`. The 2016 author misunderstood RC702's
+I/O mapping.
+
+**(4) Implement the `cpnet_bridge` slot card.**
+
+A new device class implementing `device_rc702_pio_port_interface`,
+scoped to the `ravn/mame` fork. Working name:
+`rc702_cpnet_bridge_device`. Location:
+`src/devices/bus/rc702/pio_port/cpnet_bridge.{cpp,h}` (next to the
+slot definition, like rs232 cards live under `bus/rs232/`).
+
+Responsibilities:
+
+- **PIO-facing side:** implement `read()`, `write(uint8_t)`, and
+  `brdy_w(int)`. Use the port_device's `out_strobe_callback` to
+  pulse STB into the chip when host bytes arrive.
+- **Host-facing side:** open a Unix domain socket (or TCP) on a
+  configurable address. Default `socket.localhost:4003`, sibling to
+  the existing `:4002` z80pack CP/NET TCP port. Speak the same
+  byte-stream wire protocol that the Pi+Pico bridge will speak in
+  production — see "Wire protocol" below. Address overridable via
+  the slot option string: `-piob cpnet_bridge:localhost:4003`.
+- **Direction tracking — bridge does not observe chip mode at all.**
+  The physical Z80-PIO chip has no mode-signal pin, so real
+  peripherals can't observe mode either; they cope by being
+  fixed-mode (printer, keyboard) or by following the higher-level
+  protocol over the wire. The CP/NET bridge takes the latter route:
+
+  - The bridge implements both `read()` and `write()`. The chip
+    only fires the one that matches its current mode (in Mode 1 it
+    pulls via `read()`; in Mode 0 it pushes via `write()`). The
+    chip routes the event automatically based on its own internal
+    mode state; the bridge doesn't need to know which mode is
+    active.
+  - The bridge maintains two unidirectional FIFOs: `host_to_z80`
+    (drained by `read()`) and `z80_to_host` (filled by `write()`).
+    Bytes get routed to the right FIFO automatically by which
+    callback fires.
+  - The bridge asserts STB after each `read()` (signals "new data"
+    in Mode 1) and after each `write()` (signals "I took it" in
+    Mode 0). Both go through the same `out_strobe_callback`.
+    BRDY edges from the chip gate flow regardless of direction.
+
+  Direction state on the **socket-facing** side (which is real and
+  needed) lives in the wire protocol: the bridge counts bytes
+  against CP/NET SCB length fields to know when a frame ends and
+  the protocol's logical "direction" flips. That's a property of
+  CP/NET, not of the PIO chip.
+
+  No port-0x13 sniff. No upstream `out_mode_callback()` patch.
+  No control-word parser inside the bridge. The chip's own mode
+  routing does the heavy lifting; the bridge is purely event-
+  driven on the data + handshake callbacks.
+
+### Default and command-line shape
+
+Default config (no command-line PIO arguments):
+
+```
+mame rc702
+  # PIO-A: keyboard (matches real hardware)
+  # PIO-B: nothing  (matches factory)
+  # SIO-A, SIO-B: rs232 ports with null_modem (existing behaviour)
+```
+
+CP/NET in MAME (Option P, this branch's bring-up target):
+
+```
+mame rc702 -piob cpnet_bridge:localhost:4003
+```
+
+Other historical exercises that don't touch CP/NET (CP/M, COMAL,
+BASIC, the original test PROMs) just run with the default config.
+PIO-B is empty, no socket, no daemon required.
 
 ### Wire protocol (MAME bridge <-> external client)
 
@@ -684,8 +883,8 @@ state (Z80's PIO-B is in Mode 1), socket-received bytes go to PIO-B;
 if in "Z80 -> host" state (Mode 0), PIO-B-produced bytes go to the
 socket.
 
-Edge events (mode switches, BRDY/BSTB edges) are not transmitted
-over the socket — the protocol relies on the receiver counting bytes
+Edge events (mode switches, RDY/STB edges) are not transmitted over
+the socket — the protocol relies on the receiver counting bytes
 against the SCB length field, just like the Z80-side ISR does. This
 keeps the wire protocol minimal: it's a pure bidirectional byte
 stream with frame boundaries derivable from the payload itself.
@@ -701,7 +900,7 @@ sio-echo-test` shape:
 
 ```
 make cpnet-mame-test
-  -> launches MAME with -cpnet socket.localhost:4003
+  -> launches MAME with -piob cpnet_bridge:localhost:4003
   -> runs a Python harness that:
        - connects to :4003
        - sends a known CP/NET request frame (e.g. console-status)
@@ -718,10 +917,13 @@ TCP interface in both topologies.
 ### What gets filed against ravn/mame
 
 When implementation opens, file one tracking issue (working title:
-"RC702: PIO-B + virtual CP/NET host bridge for Option P"). The
+"RC702: generic PIO slot devices + CP/NET bridge peripheral"). The
 issue body is essentially this subsection plus a link back to
 `docs/cpnet_fast_link.md`. Implementation lands as a series of
-commits on a `cpnet-bridge` branch in `ravn/mame`.
+commits on a `pio-slots` branch in `ravn/mame`. Note: framing the
+patch as "generic slots" — not "CP/NET bridge" — is what makes it
+a credible upstream candidate later. CP/NET-specific code lives in
+the bridge peripheral, which can stay in the fork.
 
 ### Sequencing
 
@@ -735,28 +937,46 @@ Dependencies (in order from most independent first):
 
 1. Z80-side stub: PIO-B init in `cpnos-rom/init.c` port_init table,
    `isr_pio_par` set to a trivial byte-counter ISR. ~10 lines of C.
-2. MAME bridge device class — items (1)-(3) above.
-3. Integration: Python test harness + `make cpnet-mame-test` target.
-4. Iterate the wire protocol against (1)-(3) until a CP/NET console-
+2. MAME refactor — items (1)-(3) above (generic PIO slots, keyboard
+   moved to a slot peripheral, default config preserves today's
+   behaviour).
+3. MAME peripheral — item (4) above (cpnet_bridge implementation).
+4. Integration: Python test harness + `make cpnet-mame-test` target.
+5. Iterate the wire protocol against (1)-(4) until a CP/NET console-
    status round trip works.
-5. Real-hardware bring-up — replace MAME bridge with Pi+Pico+cable;
+6. Real-hardware bring-up — replace MAME bridge with Pi+Pico+cable;
    nothing else changes.
+
+Steps (2) and (3) can be split into separate commits / PRs. (2) is
+a clean refactor that's a candidate for upstream MAME on its own
+merits; (3) carries the CP/NET-specific code and stays in the fork.
 
 ### Open questions for implementation phase
 
-- Whether to sniff port-0x13 writes for direction tracking or query
-  the z80pio_device public interface. Pick the cleaner of the two
-  once we're in the code.
-- Whether to expose the Mode 0/1 state on the socket as a
-  diagnostic (escape-byte event), or rely purely on byte counting
+- ~~MODE-change event delivery~~ — **closed at design time**: the
+  bridge does not observe chip mode at all; it relies on the chip's
+  own callback routing (Mode 1 fires `read()`, Mode 0 fires
+  `write()`) plus protocol-level direction tracking on the
+  socket-facing side. Mirrors how real hardware peripherals work.
+- Whether to expose protocol-level direction state on the socket
+  as a diagnostic (escape byte), or rely purely on byte counting
   derived from CP/NET SCB. Default to the latter; revisit if
   debugging gets painful.
-- Default socket address: localhost:4003 chosen to sit next to
-  z80pack's :4002. If the eventual production deployment exposes
-  the bridge on the Pi over LAN, the address scheme generalises.
-- Whether `rc702_cpnet_bridge_device` is a candidate for upstream
-  MAME contribution after the design has been bench-validated.
-  Defer that decision; it's a standalone gesture, not load-bearing.
+- Default socket address `localhost:4003` chosen to sit next to
+  z80pack's `:4002`. If a production Pi sidecar exposes the bridge
+  over LAN, the address scheme generalises.
+- Whether the *generic PIO slot infrastructure* (steps 1-3) gets
+  promoted from `bus/rc702/pio_port/` to `bus/z80pio_port/` and
+  proposed upstream after bench-validation. Likely yes — the shape
+  is verbatim Einstein userport (which is itself
+  driver-namespaced), and a generic sibling is a small, defensible
+  upstream contribution. Defer the rename until the abstraction has
+  taken its first non-RC702 user, real or hypothetical.
+- Whether to slot-ify PIO-A's keyboard during the same patch (per
+  step 3 default) or leave PIO-A's wiring inline as a smaller diff.
+  Default: do both, since the slot abstraction is identical and the
+  payoff (one-line keyboard relocation, future expansion-card test
+  fixtures) is real.
 
 ## Bring-up sequence (deferred until hardware available)
 

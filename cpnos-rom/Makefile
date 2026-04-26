@@ -68,7 +68,8 @@ endif
 # The payload is the single contiguous blob of everything that runs
 # at runtime.  The payload linker doesn't know about the two EPROMs;
 # a separate relocator stitches it back together at cold boot.
-PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o clang/cpnos_main.o \
+PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
+               clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
                clang/transport_sio.o $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o
@@ -109,11 +110,20 @@ clang/snios.o: snios.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-clang/isr.o: isr.s
+# Phase 2B: cpnos_main.c (nos_handoff) writes ZP[5..7] = JP BDOS
+# itself, replacing cpnos-build's deleted cpnos.asm entry stub.
+# BDOS's address is link-time-determined inside cpnos.com; extract it
+# from cpnos.sym into a generated header.
+clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
 	@mkdir -p clang
-	$(CC) $(ASFLAGS) -c $< -o $@
+	@perl -ne 'while (/([0-9A-Fa-f]{4})\s+BDOS\b/g) { print "#define CPNOS_BDOS_ADDR 0x$$1\n"; last }' \
+	    cpnos-build/d/cpnos.sym > $@.tmp
+	@grep -q '^#define CPNOS_BDOS_ADDR' $@.tmp || \
+	    { echo "ERROR: BDOS symbol missing from cpnos.sym"; rm -f $@.tmp; exit 1; }
+	@mv $@.tmp $@
+	@echo "cpnos_addrs.h: $$(grep CPNOS_BDOS_ADDR $@)"
 
-clang/cpnos_main.o: cpnos_main.c
+clang/cpnos_main.o: cpnos_main.c clang/cpnos_addrs.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -126,6 +136,10 @@ clang/cfgtbl.o: cfgtbl.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/init.o: init.c
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/isr.o: isr.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -230,12 +244,41 @@ cpnos-disasm: clang/payload.elf clang/relocator.elf
 
 MAME = /Users/ravn/git/mame
 MAME_PROM0 = $(MAME)/roms/rc702/roa375.ic66
+MAME_PROM1 = $(MAME)/roms/rc702/prom1.ic65
+
+# Disk-image install: rebuild cpnos.com from cpnos-build/ and inject the
+# fresh blob into both MP/M library disks.  Prevents the "PROM updated
+# but disk still has stale cpnos.com" trap (2026-04-25 incident — see
+# memory: project_cpnos_address_coupling_brittle).  The launcher prefers
+# cpnetsmk-1.dsk if present, so updating only mpm-net2-1.dsk silently
+# fails to take effect — both must be refreshed.
+MPM_DISK_LIB = ../z80pack/cpmsim/disks/library
+cpnos-disk-install: cpnos-build/d/cpnos.com
+	@echo "=== installing cpnos.com onto MP/M library disks ==="
+	@cpmrm -f ibm-3740 $(MPM_DISK_LIB)/mpm-net2-1.dsk 0:cpnos.img 2>/dev/null || true
+	cpmcp -f ibm-3740 $(MPM_DISK_LIB)/mpm-net2-1.dsk \
+	    cpnos-build/d/cpnos.com 0:cpnos.img
+	@if [ -f $(MPM_DISK_LIB)/cpnetsmk-1.dsk ]; then \
+	    cpmrm -f ibm-3740 $(MPM_DISK_LIB)/cpnetsmk-1.dsk 0:cpnos.img 2>/dev/null || true; \
+	    cpmcp -f ibm-3740 $(MPM_DISK_LIB)/cpnetsmk-1.dsk \
+	        cpnos-build/d/cpnos.com 0:cpnos.img; \
+	    echo "  refreshed cpnos.img on cpnetsmk-1.dsk"; \
+	 fi
+	@echo "  refreshed cpnos.img on mpm-net2-1.dsk"
+
+# Force cpnos.com to rebuild whenever any of its sources change.
+.PHONY: cpnos-disk-install
+cpnos-build/d/cpnos.com: $(wildcard cpnos-build/src/*.asm cpnos-build/src/*.s) cpnos-build/Makefile
+	$(MAKE) -C cpnos-build all
 
 # Install prom0.bin into MAME (4KB slot, pad with 0xFF).  PROM1 at
 # 0x2000 in MAME is 0xFF by default — fine for Phase 1 where our
 # PROM1 is unused.
-MAME_PROM1 = $(MAME)/roms/rc702/prom1.ic65
-cpnos-install: clang/cpnos.bin
+#
+# Depends on cpnos-disk-install so a single `make cpnos-install` (and
+# anything that pulls in cpnos-install — cpnet-smoke, cpnos-mame, etc.)
+# guarantees the disk-side cpnos.com matches the freshly-built PROM.
+cpnos-install: clang/cpnos.bin cpnos-disk-install
 	@P0=$$(wc -c < clang/prom0.bin | tr -d ' '); \
 	 { cat clang/prom0.bin; perl -e "print \"\\xff\" x (4096 - $$P0)"; } \
 	   > clang/prom0_padded.ic66
@@ -511,6 +554,15 @@ cpnos-map: clang/payload.elf
 # unlinked object files have incomplete DWARF (relocations unresolved
 # until link).  The linked-ELF listing from cpnos-lis gives the same
 # C-source-interleaved output for the whole program; see it there.
+
+# ---- CP/NET fast-link MAME bridge smoke test ---------------------
+# Prerequisite: ravn/mame:cpnet-fast-link branch built; a CP/NET
+# server (z80pack on :4002) running so cpnos-rom actually loads via
+# netboot in MAME — without it the Z80 sits in the autoload PROM and
+# isr_pio_par never gets a chance to fire.  See
+# ../tests/cpnet_bridge/README.md for the full prereq list.
+cpnet-mame-test: cpnos
+	cd .. && python3 tests/cpnet_bridge/harness.py
 
 # ---- Clean --------------------------------------------------------
 

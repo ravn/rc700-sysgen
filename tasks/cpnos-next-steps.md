@@ -632,6 +632,230 @@ we find a no-warm-boot use case.
 - **zmac instead of MAC** in step 7 — closes the 7-byte diff, but
   returns zero functional value.
 
+## Session 36 (2026-04-25/26) — RC code into PROM, cpnos.com → near-pure DRI
+
+Two-phase refactor that closes the architectural seam that bit us in
+session 35 (cpnos.com had stale `rbcout = 0xDE0C` after a resident
+BIOS-JT move).  Goal stated by user: "all RC-specific code in PROM,
+DRI code only knows where the BIOS lives, as much C as reasonable".
+
+**Phase 1** (commit a3941b2): moved CP/M↔clang-sdcccall(1) ABI shims
+from `cpnos-build/src/cpbios.asm` (network-loaded) into
+`cpnos-rom/bios_shims.s` (resident).  Resident BIOS-JT slots
+ED06/9/C now `JP bios_*_shim`; cpnos.com's BIOS table now `JMP rb*`
+direct.  cpnos.com -34 B.
+
+**Phase 2A** (commit 393606c): moved boot orchestration into PROM C.
+- Deleted `cpnos-build/src/cpbios.asm` (172 lines).
+- New C `nos_handoff()` in `cpnos_main.c`: signon via `impl_conout`,
+  memcpy resident JT 0xED00..0xED32 → 0xCF00 (NDOSRL+0x300), LDIR
+  ZP[0..4].
+- New thin `cpnos-build/src/cpnos.asm` (15 lines, no RC knowledge):
+  set SP, ZP[5..7] = JP BDOS, JP NDOS+3.
+- `cpnios-shim.asm` shrank to `NIOS EQU 0EA00h; public NIOS` — single
+  line of "where SNIOS lives" knowledge.
+- cpnos.com 3289 → 3099 B (-190 B total over both phases).
+- Disk-install wired into `make cpnos-install` so both
+  `mpm-net2-1.dsk` and `cpnetsmk-1.dsk` always carry the fresh blob.
+
+**Subtle gotcha:** ZP[5..7] must point at `BDOS`, not `BDOS+6`.
+`cpbdos.z80` puts the 6-byte serial number BEFORE the `BDOS` label,
+so `BDOS` is already the dispatch entry; +6 jumped 6 bytes past it
+into garbage and trapped NDOS in NWBOOT's 0x0E/0x27 retry loop.
+Caught by failed cpnet-smoke, fixed in the second iteration.
+
+**Memory note:** see `project_cpnos_address_coupling_brittle.md` for
+the architectural lesson + how to spot recurrences.
+
+## Session 36 follow-up (2026-04-26) — probe wants refresh + Phase 2B
+
+### Probe `want` strings refreshed (issues D, F)
+
+`mame_boot_test.lua` had four hard-coded "want" comparators that
+silently drifted as resident layout / SLAVEID / Phase-2A entry stub
+moved.  Fixed in this session:
+- `BDOS vector want c3 06 de` → `c3 06 cc` (NDOS BDOSE intercept).
+- `cfg_addr = 0xF4D4` → `0xEA46` (current `_cfgtbl`; comment now
+  points at `payload.elf` for re-lookup).
+- `SLAVEID want 0x70` → `0x01` (session 33).
+- Removed the 0xDF21 monolith-BIOS-JT probe (cpbios.asm is gone).
+- `BOOT[0xD000..2]` reframed as `c3 ?? ??` (JP-opcode invariant);
+  byte 1..2 shift on every link.
+
+Ran `cpnos-netboot` after: all four "want" lines now match actual.
+
+### Phase 2B — cpnos.asm eliminated, NIOS-shim kept
+
+Did the cpnos.asm half of Phase 2B; **chose not** to eliminate
+cpnios-shim.asm.
+
+Done:
+- cpnos-build/Makefile: dropped `cpnos` from `MODULES`; LINK uses
+  destfile syntax `cpnos=cpndos,cpnios,cpbdos[...]`.  cpnos.com now
+  starts at NDOS+0 = `JP NDOSE`; NDOS+3 = COLDST = 0xD003.
+- cpnos-build/src/cpnos.asm — deleted (15 lines).
+- cpnos-rom/Makefile: new rule generates `clang/cpnos_addrs.h` from
+  `cpnos.sym` (one perl line; emits `#define CPNOS_BDOS_ADDR 0xD996`).
+  `cpnos_main.o` depends on the header.
+- `cpnos_main.c::nos_handoff()`: `ZP_INIT[5..7]` now set to
+  `JP CPNOS_BDOS_ADDR` (was: cpnos.asm's `lxi h, BDOS; shld 0006h`).
+- `resident.c`: new `enter_coldst()` (resets SP=0x100, JP 0xD003).
+  `impl_boot` and `impl_wboot` route through it; `cpnos_main`'s
+  tail also calls it.  Single source for "where COLDST lives".
+
+Caught en route by warm-boot smoke (would have shipped silently
+otherwise): pre-fix `impl_wboot` was `jump_to(0xD000)`, which after
+Phase 2B is `JP NDOSE` not the entry stub.  Warm boot landed in NDOS
+BDOS-dispatch with garbage args and never re-fetched CCP.SPR.
+
+Not done — kept cpnios-shim.asm:
+- DRI LINK has no `--defsym` equivalent.  cpndos's `EXTRN NIOS`
+  *needs* a `.rel` publishing `NIOS = 0xEA00`.  Alternatives were
+  (a) generate the `.asm` in a Makefile here-doc — moves the source
+  uglier without removing it, (b) write a custom `.REL` emitter —
+  significant code for zero functional gain.  Keeping the file is
+  the cleanest expression of the single fact "NIOS = 0xEA00".
+- Comment in `cpnios-shim.asm` documents this so future-me doesn't
+  re-attempt.
+
+Smoke (4/4 PASS post-Phase-2B):
+- `cpnos-netboot` cold boot to A>
+- `cpnos-warmboot-test` ^C → CCP.SPR re-fetch (3 OPENs)
+- `cpnos-sub-test 'dir'` 14 files from MP/M A:
+- `cpnos-sub-test 'mac sysgen|load sysgen'` 1401 B SYSGEN.COM (same
+  as Phase 2A baseline)
+
+cpnos-build/src/ is now down to the 17-line cpnios-shim.asm — single
+source file, single fact, no further reductions worth the glue.
+
+## To do later
+
+### Phase 3 — naked-C-ify resident asm where reasonable
+
+Today's resident asm files: `bios_jt.s`, `bios_shims.s`, `isr.s`,
+`runtime.s`, `reset.s`, `snios.s`.  The user accepted naked C
+(`__attribute__((naked))` + inline asm) as the preferred form for
+resident shim layers.
+
+**Gate-check 2026-04-26: GO.**  Probed current `llvm-z80/build-macos`
+clang with `__attribute__((naked))` + `__asm__ volatile(...)`.  Output
+for `bare_naked`:
+
+    _bare_naked:
+        ;APP
+        ld   a,66
+        out  (24),a
+        ret
+        ;NO_APP
+
+Zero compiler-inserted prologue/epilogue; `ret` lives inside the asm
+body; arg-in-register (`naked_with_arg(uint8_t c)` reads `l` directly,
+no spill) works under sdcccall(1).  The rcbios `clang/intrinsic.h`
+`#define __naked` to nothing + `bios_shims.s` fallback was a workaround
+for an older clang gap that has since been closed.
+
+cpnos-rom is clang-only (no SDCC dual-build constraint), so we use the
+GCC-attribute form directly; no `__naked`/`__asm__(x)` macro shim
+needed.  Probe source: `/tmp/naked_probe.c`; emitted asm:
+`/tmp/naked_probe.s`.
+
+Migration plan (revised after reading the .s files):
+
+- ~~`runtime.s` first~~ — **dropped**.  runtime.s is libc primitives
+  (memcpy/memset/memchr/memmove + `__call_iy`) that the linker emits
+  CALLs to from `__builtin_memcpy` etc.  Wrapping them in naked C buys
+  nothing: same instructions inside `__asm__ volatile(...)`, no C body
+  to co-locate with.  Pure ceremony.  Stay as asm.
+- **`bios_shims.s` — DONE 2026-04-26.**  Three CP/M-ABI translators
+  (const/conin/conout shim) moved into `resident.c` as
+  `__attribute__((naked, used))` functions next to their `impl_*`
+  bodies.  `bios_jt.s` updated to reference `_bios_*_shim`
+  (C-emitted symbol naming).  Disassembly byte-for-byte identical
+  (8 B per shim).  Payload size: 1937 B (no change).  Smoke:
+  cold-boot PASS, warm-boot PASS (3 CCP.SPR opens), `dir` PASS.
+  See cpnos-rom/resident.c for the single-source-of-truth shim layer.
+- **`isr.s` — DONE 2026-04-26.**  All four ISRs (`isr_noop`, `isr_crt`,
+  `isr_pio_kbd`, `isr_pio_par`) plus the four init helpers (`set_i_reg`,
+  `enable_im2`, `enable_interrupts`, `disable_interrupts`) moved into
+  `isr.c` as `__attribute__((naked, used))` functions.  Each ISR uses
+  `.byte 0x08` for `ex af,af'` (clang integrated assembler chokes on
+  the apostrophe — same as GNU-as; investigation TODO further down).
+  Disassembly byte-for-byte identical, payload size 1937 B (no change).
+  Smoke: cold-boot PASS (CRT ISR ticks=101), warm-boot ^C PASS, `dir`
+  PASS.  PIO-A keyboard path not in the cpnos-rom smoke set; verified
+  via disassembly equivalence only.  Section attribute gated on
+  `__ELF__` so macOS LSP doesn't flag false-positives.
+- `reset.s`, `snios.s`, `bios_jt.s`, `runtime.s` — STAY AS ASM.
+  reset.s is the physical PROM entry (linker placement matters);
+  snios.s is the JT pointed at by 0xEA00 (8 entries, layout-locked);
+  bios_jt.s is the 17-entry BIOS JT (data, not code); runtime.s is
+  pure libc with no co-location partner.
+
+Phase 3 result: cpnos-rom is down from 6 .s files to 4.  bios_shims.s
+and isr.s consolidated into resident.c / isr.c respectively.  The
+remaining four `.s` files all hold layout-locked or content-locked
+material that wouldn't benefit from naked C.
+
+Pre-flight checklist before starting (now applies to isr.s):
+- DONE: lit test `llvm-z80/llvm/test/CodeGen/Z80/naked.ll` locks the
+  no-prologue property at -O0 and -O2.  Three CHECK groups: no
+  push/pop ix, expected inline-asm bytes emitted verbatim, naked-with-
+  arg keeps register intact.
+- For isr.s: validate that clang preserves register-bank intent across
+  the `exx` boundary (probably needs `clobber` lists or per-asm `volatile`
+  fences).  Probably worth a separate gate-check before committing.
+
+Remaining migration targets (post-step-1):
+- rcbios-in-c/bios_shims.s — same pattern as cpnos-rom/bios_shims.s,
+  but rcbios is dual-compiler (SDCC + clang).  Migration would either
+  require dropping SDCC support (large policy change) or keeping the
+  current SDCC-naked + clang-stub-redirect arrangement.  Skip until
+  dual-compiler decision is revisited.
+- cpnos-rom/isr.s — Phase 3 step 2.
+
+### Investigate: clang Z80 integrated assembler rejects `ex af,af'`
+
+Both GNU-as and clang's integrated assembler choke on the apostrophe
+in `ex af, af'` (encoded `0x08`).  Phase 3 step 2 works around this
+with `.byte 0x08`, same as isr.s did.  Worth investigating at the
+backend level — the Z80 MC parser should be able to accept the
+apostrophe given the AF' register name is well-defined.  Likely a
+tokeniser issue (apostrophe terminates a string token).  Fix would
+clean up two `.byte 0x08` workarounds in cpnos-rom/isr.c and any
+similar pattern in rcbios.  Low priority; mechanical wart, not a
+correctness gap.
+
+### MP/M disk rebuild
+
+Today (2026-04-25/26) the pre-built `mpm-net2-1.dsk` / `cpnetsmk-1.dsk`
+are treated as opaque inputs.  `z80pack/cpmsim/srcmpm/` has Udo Munk's
+XIOS sources (bnkxios-net-{0,1,2}.mac, netwrkif-{0,1,2}.asm,
+ldrbios.mac, boot.asm, putsys.c) but no MP/M kernel source — so a
+full rebuild is not possible from the project tree alone.
+- Find DRI MP/M 2 kernel source (Tim Olmstead / Gaby DRI archive).
+- Wire a `make mpm-disks` target that assembles XIOS + kernel, runs
+  putsys, and produces fresh `mpm-net2-{1,2}.dsk` images.
+- Once buildable, increase number of slave-visible drives (the
+  "only A:" comment in `cpnos-rom/testutil/mksmokedisk.sh` claims this
+  as a server-side limit; needs source-level confirmation) and bump
+  drive sizes for larger working sets.
+
+### Open architectural questions
+
+- **NDOS-walk-in-place vs JT-copy.**  Phase 2A copies the resident
+  JT to 0xCF00 and lets NDOS walk that.  Could instead point ZP[1..2]
+  at 0xED03 directly and let NDOS walk our resident JT in place.  The
+  latter saves 51 bytes of RAM at 0xCF00 and one `__builtin_memcpy`
+  call but means our JT for slots 1-5+15 gets overwritten with NDOS
+  wrappers at runtime (cosmetic, since nothing else uses those slots
+  post-walk).  Worth ~30 minutes' experiment.
+- **BDOS_ADDR coupling.**  cpnos.asm's `lxi h, BDOS` resolves at
+  cpnos-build LINK time.  PROM doesn't know BDOS's address.  If we
+  ever want to drop cpnos.asm from cpnos.com, PROM needs BDOS_ADDR
+  from somewhere — either cpnos.sym extraction (Phase 2B above) or
+  a runtime probe (read cpnos.com's first 3 bytes after netboot to
+  derive it; needs a stable convention).
+
 ## Where files live
 
 - `cpnos-rom/netboot_server.py` — CP/NET server, dispatcher, file map

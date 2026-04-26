@@ -45,23 +45,35 @@ extern void jump_to(uint16_t addr) __attribute__((noreturn));
 RESIDENT
 void bios_stub_ret(void) { }
 
+/* Re-enter NDOS COLDST.  Phase 2B (2026-04-26): cpnos.com no longer
+ * has an entry stub at 0xD000 — that address is now NDOS+0 = JP NDOSE
+ * (BDOS dispatch).  COLDST is at NDOS+3 = 0xD003.  Setting SP back to
+ * the CP/M-convention TPA top (0x0100) before the jump matches what
+ * cpnos_cold_entry's tail does on first boot. */
+RESIDENT
+[[noreturn]] void enter_coldst(void) {
+    __asm__ volatile(
+        "ld sp, 0x0100\n\t"
+        "jp 0xD003"
+        : : : "memory");
+    __builtin_unreachable();
+}
+
 RESIDENT
 [[noreturn]] void impl_boot(void) {
     /* CP/M cold-boot entry.  cpnos_main tail-called resident_entry
      * directly once already, so the normal boot flow doesn't come
      * through here.  If CP/NOS itself ever jumps here (e.g. during
      * its post-handoff init before it has patched the zero page
-     * to point at NDOSRL's BIOS JT), re-run the cpnos stub rather
-     * than dropping into a fallback trap.  Was Issue U. */
-    jump_to(0xD000);
+     * to point at NDOSRL's BIOS JT), re-enter NDOS COLDST.  Was Issue U. */
+    enter_coldst();
 }
 
 RESIDENT
 [[noreturn]] void impl_wboot(void) {
     /* CP/M warm boot.  In CP/NOS the whole OS image is in RAM and
-     * re-runnable from its BOOT label at 0xD000, so re-entering the
-     * cpnos stub is an acceptable warm-boot.  Was Issue U. */
-    jump_to(0xD000);
+     * re-runnable from COLDST, which re-fetches CCP.SPR via NDOS. */
+    enter_coldst();
 }
 
 /* PIO-A keyboard ring buffer.  Populated by isr_pio_kbd (isr.s) on each
@@ -74,6 +86,15 @@ RESIDENT
 uint8_t kbd_ring[KBD_RING_SIZE];
 uint8_t kbd_head;   /* written by ISR */
 uint8_t kbd_tail;   /* written by CONIN */
+
+/* CP/NET fast-link bring-up stub (Option P, see docs/cpnet_fast_link.md).
+ * isr_pio_par stores the most-recent byte received on PIO-B and bumps
+ * the counter.  External tooling (MAME bridge + Python harness) reads
+ * these via memory tap to verify the host->Z80 path end-to-end.  This
+ * is bring-up scaffolding; replaced by the real CP/NET RX ring once
+ * the protocol layer goes in. */
+uint8_t pio_par_byte;   /* last byte received on PIO-B */
+uint8_t pio_par_count;  /* count of bytes received (wraps at 0xFF) */
 
 RESIDENT
 uint8_t impl_const(void) {
@@ -311,15 +332,60 @@ void impl_conout(uint8_t c) {
     cur_dirty = 1;
 }
 
-RESIDENT
-uint16_t impl_seldsk_null(void) {
-    /* No DPH — CP/M treats HL=0 as "drive not present". NDOS intercepts
-     * SELDSK for network drives before this stub is reached. */
-    return 0;
+/* --- CP/M BIOS ABI shims ------------------------------------------ *
+ *
+ * Bridge between CP/M BIOS register convention and clang sdcccall(1):
+ *
+ *   CP/M:    CONST/CONIN no args, byte return in A.
+ *            CONOUT/LIST char arg in C.
+ *            BC and DE must survive across the call (CCP/NDOS use
+ *            them as loop counters; HL clobber tolerated).
+ *   clang:   First 8-bit arg in A.  8-bit return in A.  No callee-save.
+ *
+ * Each shim saves BC/DE, translates C->A where needed, calls impl_*,
+ * restores BC/DE, returns.  7 bytes, ~50 T-states.  Console traffic
+ * isn't hot-path so the call+pop+ret cost is acceptable.
+ *
+ * Phase 3 (2026-04-26): replaced bios_shims.s.  Naked C keeps the
+ * register-translation logic next to the impl bodies it wraps; if an
+ * impl ever changes its return convention, both halves are visible
+ * in one diff.
+ * ------------------------------------------------------------------ */
+
+__attribute__((naked, used))
+void bios_const_shim(void) {
+    __asm__ volatile(
+        "push bc\n\t"
+        "push de\n\t"
+        "call _impl_const\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "ret\n\t"
+    );
 }
 
-RESIDENT
-uint8_t impl_disk_err(void) {
-    /* READ/WRITE error. Not expected to be called in NOS-only mode. */
-    return 1;
+__attribute__((naked, used))
+void bios_conin_shim(void) {
+    __asm__ volatile(
+        "push bc\n\t"
+        "push de\n\t"
+        "call _impl_conin\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "ret\n\t"
+    );
 }
+
+__attribute__((naked, used))
+void bios_conout_shim(void) {
+    __asm__ volatile(
+        "push bc\n\t"
+        "push de\n\t"
+        "ld   a, c\n\t"           /* CP/M: char in C -> clang: char in A */
+        "call _impl_conout\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "ret\n\t"
+    );
+}
+
