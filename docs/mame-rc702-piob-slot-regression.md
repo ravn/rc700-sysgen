@@ -292,6 +292,50 @@ exercises the **one-slot-per-Z80-PIO** composition (one slot, one
 direct), and that works.  RC702 is the first driver to push to **two
 slots per Z80-PIO**, and that's where the regression lives.
 
+### Historical note (factual, from upstream `mamedev/mame` history)
+
+- `src/devices/machine/z80pio.cpp` was present at the MAME 0.121
+  initial checkin on **2007-12-17** (`7b77f12186…`); predates the
+  modern slot infrastructure.  Renamed `.c → .cpp` in 2015.
+- The Einstein driver was merged from MESS into MAME on
+  **2012-08-21** (it pre-dates the merge in MESS).
+- The Einstein userport slot device was added by Dirk Best on
+  **2017-10-31** (`908529aa32`, "einstein: Add bus interface for
+  the user port and emulate speech cart").
+
+Looking at the diff in `908529aa32`:
+
+```
+# Before
+MCFG_Z80PIO_OUT_PA_CB(DEVWRITE8("cent_data_out", output_latch_device, write))
+MCFG_Z80PIO_OUT_PB_CB(DEVWRITELINE("centronics", centronics_device, write_strobe))
+
+# After
+MCFG_Z80PIO_OUT_PA_CB(DEVWRITE8("cent_data_out", output_latch_device, write))   // unchanged
+MCFG_Z80PIO_OUT_ARDY_CB(DEVWRITELINE("centronics", centronics_device, write_strobe))
+MCFG_Z80PIO_IN_PB_CB(DEVREAD8("user", einstein_userport_device, read))
+MCFG_Z80PIO_OUT_PB_CB(DEVWRITE8("user", einstein_userport_device, write))
+MCFG_Z80PIO_OUT_BRDY_CB(DEVWRITELINE("user", einstein_userport_device, brdy_w))
+```
+
+Port A stayed wired direct to the centronics interface (fixed
+peripheral on real Einstein hardware — no reason to make it
+runtime-configurable).  Port B was promoted to a slot because the
+physical "user port" on the Einstein is, by definition, a
+runtime-pluggable connection point — the slot abstraction matches
+the real hardware, and the peripherals added in the same commit
+(speech cart) and later (mouse) are the cards that plug into it.
+
+So **Einstein having only one slot port is incidental, not
+deliberate.**  Nobody decided "max one slot per Z80-PIO" — the
+Einstein simply has one fixed-wiring peripheral (centronics) and
+one slot-shaped port (the user port) at the hardware level.  RC702
+is the first machine where both ports of a single Z80-PIO are
+slot-shaped on the real hardware (PIO-A is J4/keyboard, PIO-B is
+J3/expansion — both physical connectors with runtime-pluggable
+peripherals), and so it is the first driver to push two slots
+through the same flat-model chip.
+
 ## Two fix paths
 
 1. **Refactor `z80pio_device` to introduce a `z80pio_channel`
