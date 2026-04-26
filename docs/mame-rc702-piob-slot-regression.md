@@ -294,14 +294,35 @@ slots per Z80-PIO**, and that's where the regression lives.
 
 ### Historical note (factual, from upstream `mamedev/mame` history)
 
-- `src/devices/machine/z80pio.cpp` was present at the MAME 0.121
-  initial checkin on **2007-12-17** (`7b77f12186…`); predates the
-  modern slot infrastructure.  Renamed `.c → .cpp` in 2015.
-- The Einstein driver was merged from MESS into MAME on
-  **2012-08-21** (it pre-dates the merge in MESS).
-- The Einstein userport slot device was added by Dirk Best on
-  **2017-10-31** (`908529aa32`, "einstein: Add bus interface for
-  the user port and emulate speech cart").
+| Date | Event |
+|---|---|
+| 2007-12-17 | `z80pio.cpp` present at MAME 0.121 initial checkin (`7b77f12186…`); predates the modern slot infrastructure.  Renamed `.c → .cpp` in 2015. |
+| 2010-06-15 | Image-device infrastructure ported from MESS to MAME (`791a3515b9b`). |
+| 2011-05-04 | **`device_slot_interface` introduced into MAME** by Miodrag Milanovic (`eeff4d51337`, `92ce55d23ca`). |
+| 2012-08-21 | Einstein driver merged from MESS into MAME (pre-existed in MESS). |
+| 2014-10-28 | Centronics consolidated into shared device list. |
+| 2015-09-30 | **MESS sources merged into MAME** (`1fc48ce120a`). |
+| 2017-10-31 | **First slot wrapper around a Z80-PIO port:** `einstein_userport_device` added by Dirk Best (`908529aa32`).  Wraps PIO Port B only.  PIO Port A stays direct to centronics. |
+| 2026-04-25 | **Second slot wrapper around a Z80-PIO port:** `rc702_pio_port_device` (this driver).  Wraps both Port A and Port B. |
+
+Two further notes:
+
+- **`z80pio.cpp` itself has never been modified to add slot support.**
+  The chip API has been callback-based since 2007 and that's all the
+  slot wrappers need.  Slot-related work lives entirely in
+  `src/devices/bus/<machine>/...`, bound to the chip's existing
+  `in_p[ab]_callback` / `out_p[ab]_callback` / `out_[ab]rdy_callback`
+  / `strobe_[ab]` API.
+- **The userport-slot-on-Z80-PIO design was not pre-existing in MESS,
+  and not part of the 2015 merge.**  It was introduced in unified
+  MAME in 2017 — slot infrastructure was 6 years old by then, but
+  Z80-PIO had no slot consumers until Einstein got one.
+
+So 6 and a half years passed between the first slot-on-Z80-PIO
+(Einstein, single port) and the second (RC702, both ports).  It is
+not surprising that the two-wrappers-on-one-flat-chip composition
+wasn't exercised before — Einstein, the only prior consumer of this
+slot-wrapping idiom, only does the one-port case.
 
 Looking at the diff in `908529aa32`:
 
