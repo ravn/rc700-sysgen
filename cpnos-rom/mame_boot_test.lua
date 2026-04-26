@@ -8,6 +8,11 @@ local done = false
 local DSPSTR = 0xF800
 local RESULT_FILE = "/tmp/cpnos_boot_result.txt"
 
+-- Always-on snapshot at end of run so display state is verifiable
+-- (logs and BSS counters can lie about init; the screen can't).
+local _final_snap_done = false
+local _final_snap_t = -1
+
 -- After the PASS/FAIL condition is first detected, keep the emulation
 -- running for this many frames so SIO-B TX finishes draining (at 38400
 -- baud a byte needs ~13 frames of 1/50 s to transmit; 15 frames covers
@@ -168,6 +173,15 @@ emu.register_frame_done(function()
     frame = frame + 1
 
     local space = manager.machine.devices[":maincpu"].spaces["program"]
+
+    -- Snapshot the display every 50 frames (~1 emulated second) up to
+    -- 8 captures so we can eyeball init state regardless of whether
+    -- the PASS/FAIL gate fires.  Required by feedback_screenshot_to_verify.
+    if not _final_snap_done and frame >= _final_snap_t + 50 then
+        manager.machine.video:snapshot()
+        _final_snap_t = frame
+        if frame >= 400 then _final_snap_done = true end
+    end
 
     -- If a result is pending, hold the frame loop open for DRAIN_FRAMES
     -- before calling finish() so SIO-B TX has time to flush.
