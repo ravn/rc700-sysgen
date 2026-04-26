@@ -735,17 +735,70 @@ source file, single fact, no further reductions worth the glue.
 Today's resident asm files: `bios_jt.s`, `bios_shims.s`, `isr.s`,
 `runtime.s`, `reset.s`, `snios.s`.  The user accepted naked C
 (`__attribute__((naked))` + inline asm) as the preferred form for
-resident shim layers.  But: **clang Z80 historically doesn't support
-`__attribute__((naked))` properly** (rcbios docs note "clang: coldboot
-is in clang/bios_shims.s" — they fell back to .s).  Need to test with
-current clang Z80 build before committing to a migration plan.
+resident shim layers.
 
-Candidates for migration if naked works:
-- `bios_shims.s` → naked functions in resident.c
-- `isr.s` ISR top-halves → naked C with inline `ex af,af'; exx`
-- `runtime.s` memcpy/jump_to → mostly clang builtins + one naked
+**Gate-check 2026-04-26: GO.**  Probed current `llvm-z80/build-macos`
+clang with `__attribute__((naked))` + `__asm__ volatile(...)`.  Output
+for `bare_naked`:
 
-`reset.s` and `snios.s` stay as asm.
+    _bare_naked:
+        ;APP
+        ld   a,66
+        out  (24),a
+        ret
+        ;NO_APP
+
+Zero compiler-inserted prologue/epilogue; `ret` lives inside the asm
+body; arg-in-register (`naked_with_arg(uint8_t c)` reads `l` directly,
+no spill) works under sdcccall(1).  The rcbios `clang/intrinsic.h`
+`#define __naked` to nothing + `bios_shims.s` fallback was a workaround
+for an older clang gap that has since been closed.
+
+cpnos-rom is clang-only (no SDCC dual-build constraint), so we use the
+GCC-attribute form directly; no `__naked`/`__asm__(x)` macro shim
+needed.  Probe source: `/tmp/naked_probe.c`; emitted asm:
+`/tmp/naked_probe.s`.
+
+Migration plan (revised after reading the .s files):
+
+- ~~`runtime.s` first~~ — **dropped**.  runtime.s is libc primitives
+  (memcpy/memset/memchr/memmove + `__call_iy`) that the linker emits
+  CALLs to from `__builtin_memcpy` etc.  Wrapping them in naked C buys
+  nothing: same instructions inside `__asm__ volatile(...)`, no C body
+  to co-locate with.  Pure ceremony.  Stay as asm.
+- **`bios_shims.s` — DONE 2026-04-26.**  Three CP/M-ABI translators
+  (const/conin/conout shim) moved into `resident.c` as
+  `__attribute__((naked, used))` functions next to their `impl_*`
+  bodies.  `bios_jt.s` updated to reference `_bios_*_shim`
+  (C-emitted symbol naming).  Disassembly byte-for-byte identical
+  (8 B per shim).  Payload size: 1937 B (no change).  Smoke:
+  cold-boot PASS, warm-boot PASS (3 CCP.SPR opens), `dir` PASS.
+  See cpnos-rom/resident.c for the single-source-of-truth shim layer.
+- `isr.s` ISR top-halves — naked C with `ex af,af'; exx` then call into
+  C body with shadow regs in scope.  Trickier: must verify clang
+  doesn't reorder around the inline asm or assume primary regs intact.
+- `reset.s`, `snios.s`, `bios_jt.s`, `runtime.s` — STAY AS ASM.
+  reset.s is the physical PROM entry (linker placement matters);
+  snios.s is the JT pointed at by 0xEA00 (8 entries, layout-locked);
+  bios_jt.s is the 17-entry BIOS JT (data, not code); runtime.s is
+  pure libc with no co-location partner.
+
+Pre-flight checklist before starting (now applies to isr.s):
+- DONE: lit test `llvm-z80/llvm/test/CodeGen/Z80/naked.ll` locks the
+  no-prologue property at -O0 and -O2.  Three CHECK groups: no
+  push/pop ix, expected inline-asm bytes emitted verbatim, naked-with-
+  arg keeps register intact.
+- For isr.s: validate that clang preserves register-bank intent across
+  the `exx` boundary (probably needs `clobber` lists or per-asm `volatile`
+  fences).  Probably worth a separate gate-check before committing.
+
+Remaining migration targets (post-step-1):
+- rcbios-in-c/bios_shims.s — same pattern as cpnos-rom/bios_shims.s,
+  but rcbios is dual-compiler (SDCC + clang).  Migration would either
+  require dropping SDCC support (large policy change) or keeping the
+  current SDCC-naked + clang-stub-redirect arrangement.  Skip until
+  dual-compiler decision is revisited.
+- cpnos-rom/isr.s — Phase 3 step 2.
 
 ### MP/M disk rebuild
 

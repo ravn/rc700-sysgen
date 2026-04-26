@@ -332,6 +332,63 @@ void impl_conout(uint8_t c) {
     cur_dirty = 1;
 }
 
+/* --- CP/M BIOS ABI shims ------------------------------------------ *
+ *
+ * Bridge between CP/M BIOS register convention and clang sdcccall(1):
+ *
+ *   CP/M:    CONST/CONIN no args, byte return in A.
+ *            CONOUT/LIST char arg in C.
+ *            BC and DE must survive across the call (CCP/NDOS use
+ *            them as loop counters; HL clobber tolerated).
+ *   clang:   First 8-bit arg in A.  8-bit return in A.  No callee-save.
+ *
+ * Each shim saves BC/DE, translates C->A where needed, calls impl_*,
+ * restores BC/DE, returns.  7 bytes, ~50 T-states.  Console traffic
+ * isn't hot-path so the call+pop+ret cost is acceptable.
+ *
+ * Phase 3 (2026-04-26): replaced bios_shims.s.  Naked C keeps the
+ * register-translation logic next to the impl bodies it wraps; if an
+ * impl ever changes its return convention, both halves are visible
+ * in one diff.
+ * ------------------------------------------------------------------ */
+
+__attribute__((naked, used))
+void bios_const_shim(void) {
+    __asm__ volatile(
+        "push bc\n\t"
+        "push de\n\t"
+        "call _impl_const\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "ret\n\t"
+    );
+}
+
+__attribute__((naked, used))
+void bios_conin_shim(void) {
+    __asm__ volatile(
+        "push bc\n\t"
+        "push de\n\t"
+        "call _impl_conin\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "ret\n\t"
+    );
+}
+
+__attribute__((naked, used))
+void bios_conout_shim(void) {
+    __asm__ volatile(
+        "push bc\n\t"
+        "push de\n\t"
+        "ld   a, c\n\t"           /* CP/M: char in C -> clang: char in A */
+        "call _impl_conout\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "ret\n\t"
+    );
+}
+
 RESIDENT
 uint16_t impl_seldsk_null(void) {
     /* No DPH — CP/M treats HL=0 as "drive not present". NDOS intercepts

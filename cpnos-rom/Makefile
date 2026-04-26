@@ -68,7 +68,7 @@ endif
 # The payload is the single contiguous blob of everything that runs
 # at runtime.  The payload linker doesn't know about the two EPROMs;
 # a separate relocator stitches it back together at cold boot.
-PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o clang/bios_shims.o \
+PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
                clang/transport_sio.o $(NETBOOT_OBJ) \
@@ -103,10 +103,6 @@ clang/runtime.o: runtime.s
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 clang/bios_jt.o: bios_jt.s
-	@mkdir -p clang
-	$(CC) $(ASFLAGS) -c $< -o $@
-
-clang/bios_shims.o: bios_shims.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 
