@@ -1,17 +1,28 @@
-# MAME bug report — `rc702`: any card on PIO-B blocks guest initialization
+# MAME bug report — `rc702`: any slot wrapper on PIO-B blocks guest IM2 IRQs
 
 > **Filed as [ravn/mame#6](https://github.com/ravn/mame/issues/6)** on
 > 2026-04-26.  Track progress on the issue; this file is the local
 > mirror of the body for offline reference.  Update both this file and
 > the issue when status changes.  See
 > [`cpnet_fast_link.md`](cpnet_fast_link.md) for the design context
-> (Option P, host bridge over PIO-B / J3).
+> (Option P, host bridge over PIO-B / J3) and
+> [`cpnet_slot_work_history.md`](cpnet_slot_work_history.md) for the
+> full timeline including failed workarounds.
+>
+> **Update 2026-04-27**: the original "empty slot is benign" claim was
+> wrong for cpnos-rom.  Empty PIO-B slot wrapper still breaks cpnos-rom
+> boot (PC=0x0039 hang, no ENQ on SIO-A, no A>) because cpnos-rom uses
+> PIO-B's IM2 vector for `isr_pio_par`.  Autoload-PROM CP/M boot is
+> unaffected because it doesn't engage that vector.  Title amended
+> from "any card on PIO-B" to "any slot wrapper on PIO-B".
 
 ## Title
 
-`rc702`: cpnos-rom guest fails to complete initialization when any card
-is plugged into the PIO-B slot (`-piob <card>`), even though both PIO-A
-(with default `keyboard` card) and PIO-B (empty) work individually.
+`rc702`: cpnos-rom guest fails to complete initialization when the
+`RC702_PIO_PORT` slot wrapper is present on PIO-B — even with no card
+plugged in.  Autoload-PROM CP/M boot from floppy is unaffected because
+it doesn't use PIO-B's IM2 IRQ vector; cpnos-rom does (for `isr_pio_par`)
+and stalls at `PC=0x0039` before its first SIO-A transmit.
 
 ## Summary
 

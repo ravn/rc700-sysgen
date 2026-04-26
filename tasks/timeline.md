@@ -707,6 +707,74 @@ Three commits after the audit:
   measure Z80 PIO VOH on this RC702 at bring-up to confirm the
   no-shifter cable holds.
 
+### Phase 23: Option P MAME bring-up — slot infra and unwinding (Apr 26-27, 2026) — Painful
+
+- **Goal**: implement the Option P host bridge in MAME so external
+  Pi/Mac processes can plumb CP/NET frames into the Z80's PIO-B port.
+
+- **Path 1 — slot device** (committed on `cpnet-fast-link` branch,
+  merged via `588658b4327`).  Built `src/devices/bus/rc702/pio_port/`
+  with `pio_port`, `keyboard`, `cpnet_bridge` cards; wired both PIO-A
+  and PIO-B as `device_single_card_slot_interface` slots in
+  `rc702.cpp`.  POSIX socket listener on :4003 + listener thread +
+  FIFO + emu_timer + STB pulse logic.  Filed
+  [ravn/mame#6](https://github.com/ravn/mame/issues/6) when
+  `-piob cpnet_bridge` (or `-piob keyboard`) blocked cpnos-rom IM2
+  IRQ delivery — VRTC stops firing, CRT goes black, CCP never loads.
+
+- **Path 2 — Einstein topology** (commit `54cccdbc3af`).  PIO-A
+  reverted to direct keyboard wiring, PIO-B kept as the lone slot.
+  `-piob keyboard` still produced the regression.  **Falsified** the
+  "two slots on one chip" hypothesis.
+
+- **Path 3 — bypass slot, wire `cpnet_bridge_device` directly to
+  chip callbacks** (devcb_write_line / std::function flavours).
+  Both crashed at MAME config time
+  (`device_t::config_complete + 428`) before any data flowed.
+  Discarded.
+
+- **Empty-slot regression discovered (2026-04-27)**: even with NO
+  card plugged in, the bare `RC702_PIO_PORT(config, m_pio_b)` slot
+  wrapper breaks cpnos-rom boot.  Hangs at `PC=0x0039` before its
+  first SIO-A transmit, never sends ENQ, never reaches A>.  The
+  earlier "empty slot is benign" claim on ravn/mame#6 was true only
+  for autoload-PROM CP/M floppy boot, which doesn't engage PIO-B's
+  IM2 IRQ vector.  cpnos-rom uses that vector for `isr_pio_par`,
+  hence sensitive.  Issue title amended.
+
+- **Path 4 — direct (no-slot) bridge** (designed in
+  `docs/cpnet_pio_direct_design.md`, branch `cpnet-pio-direct`).
+  Drop slot/card entirely; `m_pio->in_pb_callback().set(FUNC(rc702_state::cpnet_pb_r))`
+  directly to driver methods; use MAME's `osd_file` as TCP listener
+  (no POSIX socket); single emu thread via 1 ms `emu_timer`; raw byte
+  logs to `/tmp/cpnet_pio_rx.bin` + `tx.bin`.  Implementation written
+  + built once.  Byte-level path verified working (6 bytes from
+  harness arrived in rx.bin, strobe fired, in_pb_callback returned
+  the right byte) but PIO-B IRQ never delivered — chip log showed
+  `IE=0 IP=1` because cpnos-rom itself wasn't booting through to its
+  PIO-B init phase, the slot-infra regression masking everything.
+  Implementation code lost in a stash/checkout cycle.
+
+- **Master reverted** to `b06f303737a` "Revert merge".  Working tree
+  byte-identical to `1f2d4d000db` (verified via `git diff --stat`).
+  Open puzzle: a freshly-built revert binary fails cpnos-rom boot
+  the same way the merge did, while the April-21 daily-use binary at
+  `/Users/ravn/git/mame/regnecentralend` (built from the same SHA)
+  succeeds.  Suspects: stale `.o` cache or build-flag drift.  Under
+  investigation.
+
+- **Painful** because three workarounds in a row didn't fix the
+  underlying break, the empty-slot finding invalidated yesterday's
+  ravn/mame#6 comment, and the direct-bridge code was lost in a
+  git stash/checkout cycle and will need re-implementation.
+
+- **What survives**:
+  `docs/cpnet_pio_direct_design.md`, `docs/cpnet_slot_work_history.md`
+  (this work's connective tissue), `tests/cpnet_bridge/harness.py`
+  switched from mpm-net2 to `netboot_server.py`,
+  `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
+  `docs/mame-rc702-piob-slot-regression.md`.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature

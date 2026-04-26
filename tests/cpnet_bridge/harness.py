@@ -263,8 +263,9 @@ def main():
 		fail(f"{mame} not found — build ravn/mame:cpnet-fast-link first")
 	if not TAP_LUA.exists():
 		fail(f"{TAP_LUA} missing")
-	if not (Z80PACK / "mpm-net2").exists():
-		fail(f"{Z80PACK / 'mpm-net2'} missing — z80pack submodule incomplete")
+	netboot_py = CPNOS_DIR / "netboot_server.py"
+	if not netboot_py.exists():
+		fail(f"{netboot_py} missing — cpnos-rom layout changed?")
 
 	cleanup = Cleanup()
 
@@ -275,24 +276,22 @@ def main():
 		print("[harness] step 1b: extract live BSS addrs into addrs.lua")
 		emit_addrs_lua()
 
-		print("[harness] step 2: ensure cpmsim built")
-		ensure_cpmsim_built()
-
-		print("[harness] step 3: warn on NDOS freshness")
-		warn_ndos_freshness()
-
 		print(f"[harness] step 4: kill stale listener on :{MPM_PORT}")
 		kill_stale(MPM_PORT)
-		# Bridge port is bound by MAME's cpnet_bridge device, not by a
-		# leftover process — but kill any straggler just in case.
+		# Bridge port is bound by MAME's rc702_state directly (osd_file
+		# socket, no slot card) — but kill any straggler just in case.
 		kill_stale(BRIDGE_PORT)
 
 		reset_state()
 
-		print(f"[harness] step 5: launch z80pack MP/M (-> :{MPM_PORT})")
-		restore_conf = free_bridge_port_in_mpm_conf()
-		cleanup.push(restore_conf)
-		mpm = spawn_group(["./mpm-net2"], cwd=str(Z80PACK), log_path=MPM_LOG)
+		# netboot_server.py is the synthetic CP/NET responder that
+		# cpnos-netboot uses; mpm-net2 is the real-but-slow MP/M which
+		# does not currently boot cpnos-rom in MAME within the test
+		# window (verified 2026-04-26 — black screen against mpm-net2,
+		# clean banner against netboot_server.py).
+		print(f"[harness] step 5: launch netboot_server.py (-> :{MPM_PORT})")
+		mpm = spawn_group(["python3", "-u", str(netboot_py), str(MPM_PORT)],
+		                  cwd=str(CPNOS_DIR), log_path=MPM_LOG)
 		cleanup.push(lambda: kill_group(mpm) if not args.keep_alive else None)
 
 		try:
@@ -300,7 +299,20 @@ def main():
 		except TimeoutError as e:
 			fail(f"MP/M did not start: {e}; see {MPM_LOG}", cleanup)
 
-		print("[harness] step 6: launch MAME with -piob cpnet_bridge")
+		# SIO-B sink: mirror cpnos-netboot Makefile target which spawns
+		# sio_b_driver.py.  Without it, MAME's rs232b null_modem has no
+		# host connection and cpnos-rom hangs early in boot (verified
+		# 2026-04-26: -rs232a only -> "client closed waiting for ENQ").
+		SIOB_PORT = 9001
+		print(f"[harness] step 5b: launch sio_b_driver.py (-> :{SIOB_PORT})")
+		kill_stale(SIOB_PORT)
+		siob_py = CPNOS_DIR / "sio_b_driver.py"
+		siob = spawn_group(["python3", "-u", str(siob_py), str(SIOB_PORT)],
+		                   cwd=str(CPNOS_DIR), log_path=Path("/tmp/cpnos_bridge_siob.log"))
+		cleanup.push(lambda: kill_group(siob) if not args.keep_alive else None)
+		wait_for_listen(SIOB_PORT, deadline_s=5.0)
+
+		print("[harness] step 6: launch MAME (PIO-B bridge wired direct in driver)")
 		mame_p = spawn_group([
 			str(mame), "rc702",
 			"-rompath", args.roms,
@@ -311,16 +323,18 @@ def main():
 			"-seconds_to_run", str(args.mame_seconds),
 			"-rs232a", "null_modem",
 			"-bitb1", f"socket.127.0.0.1:{MPM_PORT}",
-			"-piob", "cpnet_bridge",
+			"-rs232b", "null_modem",
+			"-bitb2", f"socket.127.0.0.1:{SIOB_PORT}",
 			"-autoboot_script", str(TAP_LUA),
 		], log_path=MAME_LOG, cwd=str(MAME_DIR))
 		cleanup.push(lambda: kill_group(mame_p) if not args.keep_alive else None)
 
-		# Step 7: wait until the cpnet_bridge MAME slot card binds :4003.
-		# That happens during MAME machine_start, well before cpnos-rom
-		# enables interrupts.  We don't need cpnos-rom to be "ready" —
-		# any pre-EI byte will sit in PIO-B's input latch and fire the
-		# ISR the moment cpnos_main calls enable_interrupts().
+		# Step 7: wait until rc702_state's machine_start opens the
+		# osd_file listening socket on :4003.  That happens during MAME
+		# init, well before cpnos-rom enables interrupts.  We don't need
+		# cpnos-rom to be "ready" — any pre-EI byte will sit in the rx
+		# queue and get strobed in the moment cpnos_main calls
+		# enable_interrupts() and BRDY rises.
 		print(f"[harness] step 7: wait for bridge listener on :{BRIDGE_PORT}")
 		try:
 			wait_for_listen(BRIDGE_PORT, deadline_s=15.0)
