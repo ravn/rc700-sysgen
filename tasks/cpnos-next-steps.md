@@ -774,14 +774,27 @@ Migration plan (revised after reading the .s files):
   (8 B per shim).  Payload size: 1937 B (no change).  Smoke:
   cold-boot PASS, warm-boot PASS (3 CCP.SPR opens), `dir` PASS.
   See cpnos-rom/resident.c for the single-source-of-truth shim layer.
-- `isr.s` ISR top-halves — naked C with `ex af,af'; exx` then call into
-  C body with shadow regs in scope.  Trickier: must verify clang
-  doesn't reorder around the inline asm or assume primary regs intact.
+- **`isr.s` — DONE 2026-04-26.**  All four ISRs (`isr_noop`, `isr_crt`,
+  `isr_pio_kbd`, `isr_pio_par`) plus the four init helpers (`set_i_reg`,
+  `enable_im2`, `enable_interrupts`, `disable_interrupts`) moved into
+  `isr.c` as `__attribute__((naked, used))` functions.  Each ISR uses
+  `.byte 0x08` for `ex af,af'` (clang integrated assembler chokes on
+  the apostrophe — same as GNU-as; investigation TODO further down).
+  Disassembly byte-for-byte identical, payload size 1937 B (no change).
+  Smoke: cold-boot PASS (CRT ISR ticks=101), warm-boot ^C PASS, `dir`
+  PASS.  PIO-A keyboard path not in the cpnos-rom smoke set; verified
+  via disassembly equivalence only.  Section attribute gated on
+  `__ELF__` so macOS LSP doesn't flag false-positives.
 - `reset.s`, `snios.s`, `bios_jt.s`, `runtime.s` — STAY AS ASM.
   reset.s is the physical PROM entry (linker placement matters);
   snios.s is the JT pointed at by 0xEA00 (8 entries, layout-locked);
   bios_jt.s is the 17-entry BIOS JT (data, not code); runtime.s is
   pure libc with no co-location partner.
+
+Phase 3 result: cpnos-rom is down from 6 .s files to 4.  bios_shims.s
+and isr.s consolidated into resident.c / isr.c respectively.  The
+remaining four `.s` files all hold layout-locked or content-locked
+material that wouldn't benefit from naked C.
 
 Pre-flight checklist before starting (now applies to isr.s):
 - DONE: lit test `llvm-z80/llvm/test/CodeGen/Z80/naked.ll` locks the
@@ -799,6 +812,18 @@ Remaining migration targets (post-step-1):
   current SDCC-naked + clang-stub-redirect arrangement.  Skip until
   dual-compiler decision is revisited.
 - cpnos-rom/isr.s — Phase 3 step 2.
+
+### Investigate: clang Z80 integrated assembler rejects `ex af,af'`
+
+Both GNU-as and clang's integrated assembler choke on the apostrophe
+in `ex af, af'` (encoded `0x08`).  Phase 3 step 2 works around this
+with `.byte 0x08`, same as isr.s did.  Worth investigating at the
+backend level — the Z80 MC parser should be able to accept the
+apostrophe given the AF' register name is well-defined.  Likely a
+tokeniser issue (apostrophe terminates a string token).  Fix would
+clean up two `.byte 0x08` workarounds in cpnos-rom/isr.c and any
+similar pattern in rcbios.  Low priority; mechanical wart, not a
+correctness gap.
 
 ### MP/M disk rebuild
 

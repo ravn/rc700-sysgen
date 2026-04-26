@@ -110,10 +110,6 @@ clang/snios.o: snios.s
 	@mkdir -p clang
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-clang/isr.o: isr.s
-	@mkdir -p clang
-	$(CC) $(ASFLAGS) -c $< -o $@
-
 # Phase 2B: cpnos_main.c (nos_handoff) writes ZP[5..7] = JP BDOS
 # itself, replacing cpnos-build's deleted cpnos.asm entry stub.
 # BDOS's address is link-time-determined inside cpnos.com; extract it
@@ -140,6 +136,10 @@ clang/cfgtbl.o: cfgtbl.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/init.o: init.c
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/isr.o: isr.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
