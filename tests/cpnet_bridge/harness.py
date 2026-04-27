@@ -825,6 +825,21 @@ def main():
 		                  cwd=str(CPNOS_DIR), log_path=MPM_LOG)
 		cleanup.push(lambda: kill_group(mpm) if not args.keep_alive else None)
 
+		# For pio-netboot: spawn the PIO server EARLY so its slow
+		# Python import (~80 ms wall) finishes before MAME starts and
+		# Z80's probe runs.  The server retries connect every 0.2 s
+		# for 30 s, so it doesn't matter that the bridge isn't bound
+		# yet; it just sits waiting.
+		if args.mode == "pio-netboot":
+			pio_server = CPNOS_DIR / "cpnet_pio_server.py"
+			print(f"[harness] step 5c: spawn cpnet_pio_server -> :{BRIDGE_PORT} "
+			      f"(early, so import completes before MAME boot)")
+			pio_p = spawn_group(
+				["python3", "-u", str(pio_server), str(BRIDGE_PORT)],
+				cwd=str(CPNOS_DIR),
+				log_path=Path("/tmp/cpnos_pio_server.log"))
+			cleanup.push(lambda: kill_group(pio_p) if not args.keep_alive else None)
+
 		try:
 			wait_for_listen(MPM_PORT, deadline_s=10.0)
 		except TimeoutError as e:
@@ -883,16 +898,16 @@ def main():
 			     f"(see {MAME_LOG} for socket errors)", cleanup)
 
 		if args.mode == "pio-netboot":
-			# Spawn cpnet_pio_server.py — it connects to :4003 (MAME
-			# already listening) and runs the full CP/NET protocol
-			# stack, including PING and netboot dispatch.
-			pio_server = CPNOS_DIR / "cpnet_pio_server.py"
-			print(f"[harness] step 7b: spawn cpnet_pio_server -> :{BRIDGE_PORT}")
-			pio_p = spawn_group(
-				["python3", "-u", str(pio_server), str(BRIDGE_PORT)],
-				cwd=str(CPNOS_DIR),
-				log_path=Path("/tmp/cpnos_pio_server.log"))
-			cleanup.push(lambda: kill_group(pio_p) if not args.keep_alive else None)
+			# Z80's probe runs ~24 ms wall-clock after MAME launches
+			# (relocator + init_hardware at -nothrottle ~5×).  Python
+			# import netboot_server + socket.create_connection takes
+			# ~80 ms wall — if we spawn AFTER MAME, the server isn't
+			# connected when probe runs and probe falls back to SIO.
+			# Wait a moment so the server's connect-retry loop has a
+			# real chance to attach to the bridge listener.
+			print("[harness] step 7c: hold briefly so PIO server "
+			      "completes import + connect before Z80 probes")
+			time.sleep(0.5)
 			run_pio_netboot_test(cleanup)
 		elif args.mode == "probe":
 			# Probe runs early in cpnos_cold_entry; connect immediately

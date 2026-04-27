@@ -136,8 +136,14 @@ def handle_ping(hdr, payload):
 
 def handle(sock):
     print(f"connected to bridge {sock.getpeername()}")
+    n_frames = 0
+    total_recv_ms = 0.0
+    total_dispatch_ms = 0.0
+    total_send_ms = 0.0
     while True:
+        t_pre_recv = time.monotonic()
         hdr, payload, cks = recv_scb(sock)
+        t_post_recv = time.monotonic()
         fnc = hdr[3]
         if fnc == PING_FNC:
             reply_payload = handle_ping(hdr, payload)
@@ -148,13 +154,32 @@ def handle(sock):
                 print(f"  [no reply for FNC={fnc:02x}; client should retry]")
                 continue
             reply_fnc = fnc
-        # Reply: FMT=0x01 (response), swap DID/SID.
+        t_post_dispatch = time.monotonic()
         send_scb(sock,
                  fmt=0x01,
                  did=hdr[2],                  # was SID
                  sid=hdr[1],                  # was DID
                  fnc=reply_fnc,
                  payload=reply_payload)
+        t_post_send = time.monotonic()
+        recv_ms     = (t_post_recv - t_pre_recv) * 1000.0
+        dispatch_ms = (t_post_dispatch - t_post_recv) * 1000.0
+        send_ms     = (t_post_send - t_post_dispatch) * 1000.0
+        n_frames += 1
+        total_recv_ms     += recv_ms
+        total_dispatch_ms += dispatch_ms
+        total_send_ms     += send_ms
+        print(f"  T fnc={fnc:02x}  recv={recv_ms:6.2f}ms "
+              f"dispatch={dispatch_ms:6.2f}ms send={send_ms:6.2f}ms "
+              f"total={recv_ms+dispatch_ms+send_ms:6.2f}ms",
+              flush=True)
+        if n_frames % 10 == 0 or fnc in (16, 0xC0):  # CLOSE or PING
+            print(f"  T cumulative ({n_frames} frames): "
+                  f"recv={total_recv_ms:.1f} ms, "
+                  f"dispatch={total_dispatch_ms:.1f} ms, "
+                  f"send={total_send_ms:.1f} ms, "
+                  f"sum={total_recv_ms+total_dispatch_ms+total_send_ms:.1f} ms",
+                  flush=True)
 
 
 def run(port):
