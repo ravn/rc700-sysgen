@@ -27,6 +27,9 @@ local READY_FILE      = "/tmp/cpnos_bridge_ready.txt"
 local TAP_LOG         = "/tmp/cpnos_bridge_tap.log"
 local LOOPBACK_RESULT = "/tmp/cpnos_loopback_result.txt"
 local BOOT_MARKS_FILE = "/tmp/cpnos_boot_marks.txt"
+local BOOT_MARKS_LOG  = "/tmp/cpnos_boot_marks.log"
+
+local last_boot_strip = nil
 
 -- Boot-marker strip: 19 chars at row 0 cols 60..78 (0xF83C..0xF84E).
 -- Written every poll so the harness can inspect post-mortem which
@@ -38,6 +41,7 @@ local BOOT_MARK_LEN       = 19
 do
 	local f = io.open(READY_FILE, "w") if f then f:close() end
 	local f2 = io.open(TAP_LOG, "w")  if f2 then f2:close() end
+	local f3 = io.open(BOOT_MARKS_LOG, "w") if f3 then f3:close() end
 	-- Don't truncate LOOPBACK_RESULT here — its absence is the
 	-- harness's "not yet" signal.
 end
@@ -76,12 +80,12 @@ emu.register_periodic(function ()
 	-- Boot-marker strip snapshot — overwritten each poll.  Cheap: 19
 	-- byte reads + one file rewrite.  Lets the harness see which
 	-- transport probe selected without parsing display memory itself.
+	-- Also append to BOOT_MARKS_LOG with wall timestamps each time the
+	-- strip changes — so the harness can time per-marker boot phases.
 	do
 		local s = ""
 		for i = 0, BOOT_MARK_LEN - 1 do
 			local b = prog:read_u8(BOOT_MARK_BASE_VRAM + i)
-			-- Substitute non-printable bytes with '.' so the file is
-			-- diffable / greppable.
 			if b >= 0x20 and b < 0x7F then
 				s = s .. string.char(b)
 			else
@@ -90,6 +94,19 @@ emu.register_periodic(function ()
 		end
 		local f = io.open(BOOT_MARKS_FILE, "w")
 		if f then f:write(s .. "\n") f:close() end
+		if s ~= last_boot_strip then
+			last_boot_strip = s
+			local g = io.open(BOOT_MARKS_LOG, "a")
+			if g then
+				-- machine.time is an attotime in emulated Z80-clock
+				-- seconds, regardless of MAME throttle setting.
+				-- attotime has .seconds (int part) and .attoseconds.
+				local at = manager.machine.time
+				local t = at.seconds + at.attoseconds * 1e-18
+				g:write(string.format("%.6f %s\n", t, s))
+				g:close()
+			end
+		end
 	end
 
 	-- Polled count + cross-check.  No memory taps installed:

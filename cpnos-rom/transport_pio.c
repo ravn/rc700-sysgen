@@ -134,6 +134,13 @@ uint8_t pio_send_msg(uint8_t *msg) {
     return 0;
 }
 
+/* First-byte sentinel-wait budget.  Per-iteration cost ~36 T-states
+ * (IN A,(n) + cp + jr + dec + jr).  16384 polls = ~590,000 T =
+ * ~150 ms at 4 MHz emulated.  Generous enough for localhost RTT
+ * including Python interpreter wake-up (~10 ms wall + MAME speed-up),
+ * still fast-fails the SIO-fallback path in well under a second. */
+#define PIO_FIRST_BYTE_BUDGET 0x4000U
+
 /* Receive a complete CP/NET frame.  Reads 5 header bytes (the first
  * via PORT_PIO_B_DATA polling for non-FF, the next 4 via INIR), then
  * INIR's the (SIZ+2) payload+CKS bytes.  Returns 0 success, 0xFF on
@@ -141,11 +148,10 @@ uint8_t pio_send_msg(uint8_t *msg) {
 RESIDENT
 uint8_t pio_recv_msg(uint8_t *msg) {
     pio_b_set_input();
-    /* First-byte sentinel-wait — gives the host time to assemble + send.
-     * Empty PIO-B FIFO returns 0xFF in MAME's bridge; spin until a
-     * non-FF byte appears (= FMT of the response).  Bounded by uint16_t
-     * poll budget = ~200 ms emulated. */
-    uint16_t budget = 0xFFFFU;
+    /* First-byte sentinel-wait — empty PIO-B FIFO returns 0xFF in
+     * MAME's bridge; spin until a non-FF byte appears (= FMT of the
+     * response).  Bounded budget; see PIO_FIRST_BYTE_BUDGET. */
+    uint16_t budget = PIO_FIRST_BYTE_BUDGET;
     uint8_t  first;
     while (budget--) {
         first = _port_in(PORT_PIO_B_DATA);

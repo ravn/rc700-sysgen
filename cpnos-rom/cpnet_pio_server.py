@@ -49,6 +49,13 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import netboot_server   # type: ignore  # noqa: E402
 
+# Silence netboot_server's verbose dispatch prints in PIO mode — they
+# add ~25 ms wall-time per frame round-trip, which translates to
+# ~125 ms of emulated Z80 busy-polling at MAME -nothrottle (~5× speed).
+# Re-enable with CPNET_PIO_VERBOSE=1.
+if not os.environ.get('CPNET_PIO_VERBOSE'):
+    netboot_server.print = lambda *a, **kw: None
+
 DEFAULT_PORT  = 4003
 SLAVE_SID     = int(os.environ.get('CPNOS_SLAVEID', '0x01'), 0)
 MASTER_DID    = 0x00
@@ -97,8 +104,9 @@ def recv_scb(sock):
     if s != 0:
         raise ValueError(f"SCB CKS bad: hdr+payload+cks sum={s:#04x}")
 
-    print(f"<- SCB FMT={hdr[0]:02x} DID={hdr[1]:02x} SID={hdr[2]:02x} "
-          f"FNC={hdr[3]:02x} SIZ={hdr[4]} DAT[{n_payload}]={payload.hex()}")
+    if os.environ.get('CPNET_PIO_VERBOSE'):
+        print(f"<- SCB FMT={hdr[0]:02x} DID={hdr[1]:02x} SID={hdr[2]:02x} "
+              f"FNC={hdr[3]:02x} SIZ={hdr[4]} DAT[{n_payload}]={payload.hex()}")
     return hdr, payload, cks
 
 
@@ -112,9 +120,10 @@ def send_scb(sock, fmt, did, sid, fnc, payload):
     cks = (-sum(body)) & 0xFF
     frame = body + bytes([cks])
     sock.sendall(frame)
-    print(f"-> SCB FMT={fmt:02x} DID={did:02x} SID={sid:02x} "
-          f"FNC={fnc:02x} SIZ={siz} DAT[{len(payload)}]={payload.hex()} "
-          f"CKS={cks:02x}")
+    if os.environ.get('CPNET_PIO_VERBOSE'):
+        print(f"-> SCB FMT={fmt:02x} DID={did:02x} SID={sid:02x} "
+              f"FNC={fnc:02x} SIZ={siz} DAT[{len(payload)}]={payload.hex()} "
+              f"CKS={cks:02x}")
 
 
 def handle_ping(hdr, payload):

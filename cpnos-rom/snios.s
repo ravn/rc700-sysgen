@@ -444,25 +444,35 @@ SNDERR1:
 ;================================================
 ;= NTWKIN - NETWORK INITIALIZATION               =
 ;================================================
-; CP/NET 1.2: no handshake needed.  Drain any stale bytes, set SLAVEID
-; and the ACTIVE flag.  Login is handled by NDOS (FNC=64).
+; CP/NET 1.2: no handshake needed.  Drain any stale bytes from the
+; SIO RX buffer (only meaningful when active_transport == sio; PIO has
+; no buffered RX), set the ACTIVE flag.
 NTWKIN:
-    ; Drain any bytes buffered during boot.  transport_recv_byte with a
-    ; tiny timeout returns promptly when the SIO RX buffer is empty.
+    .extern _active_transport
+    .extern _transport_sio_vt
+    ; Skip SIO drain when active != SIO (active==PIO has nothing to
+    ; drain and the SIO RX buffer is full of irrelevant null_modem
+    ; noise that would otherwise eat ~300ms emulated).
+    ld   hl, (_active_transport)
+    ld   de, _transport_sio_vt
+    or   a                          ; clear carry for sbc
+    sbc  hl, de
+    jr   nz, NTWKIN_DONE            ; HL != SIO vtable -> skip drain
+    ; active == SIO: drain RX.  transport_recv_byte with a tiny
+    ; per-poll budget returns TRANSPORT_TIMEOUT promptly when the
+    ; buffer is empty.
 NTWKDR:
-    ld   hl, 64                     ; small timeout per poll
+    ld   hl, 64
     call _transport_recv_byte
     ld   a, d
     inc  a
-    jr   nz, NTWKDR                 ; got a byte, keep draining
-    ; SLAVEID is already seeded in cfgtbl.c from the -DRC702_SLAVEID=
-    ; build flag, so (unlike the DRI original at CFGTBL+1=0xFF) we don't
-    ; need to rewrite it here.
+    jr   nz, NTWKDR
+NTWKIN_DONE:
     ; Mark network active.
     ld   a, ACTIVE
     ld   (_cfgtbl + CFG_NETST), a
     xor  a
-    ld   (_cfgtbl + CFG_SIZ), a     ; clear SIZ — discard LST output
+    ld   (_cfgtbl + CFG_SIZ), a
     ret                             ; A=0 success
 
 ;================================================
