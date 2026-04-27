@@ -545,6 +545,46 @@ def run_probe_test(cleanup):
 	print(f"       boot strip: {last_strip!r}")
 
 
+def run_pio_netboot_test(cleanup):
+	"""Phase-B end-to-end: PIO probe wins, then full CP/NET netboot
+	runs over the parallel link.  cpnet_pio_server.py acts as the
+	master, connects to MAME's bridge :4003, replies to PING and then
+	serves the standard CP/NET netboot sequence (LOGIN / OPEN
+	A:CPNOS.IMG / READ-SEQ * N / CLOSE).  Z80 reaches NDOS COLDST
+	via the parallel transport.
+
+	Pass condition: boot-strip column 17 (J marker = "about to JP NDOS
+	COLDST") observed within mame-seconds.  Same final marker as the
+	SIO success path."""
+	# cpnet_pio_server.py is launched in step 5c (in main() — see below
+	# for the spawn).  By the time this test runs, MAME has bound :4003
+	# and the server has connected, so probe + netboot can already be in
+	# flight.  We just poll the boot-marker strip.
+	print("[harness] step 8: poll boot-marker strip until NDOS COLDST 'J'")
+	end = time.time() + 60.0
+	last_strip = ""
+	while time.time() < end:
+		if BOOT_MARKS_FILE.exists():
+			last_strip = BOOT_MARKS_FILE.read_text().strip()
+			# 19-char strip; idx 7=transport, 8..14=netboot, 15=netboot-rc,
+			# 16=PROM-disable, 17=SNIOS-primed, 18=JP-NDOS-COLDST.
+			if len(last_strip) >= 19 and last_strip[18] == 'J':
+				break
+		time.sleep(0.1)
+	if not last_strip:
+		fail(f"{BOOT_MARKS_FILE} never appeared (tap.lua not running?)",
+		     cleanup)
+	if len(last_strip) < 8 or last_strip[7] != 'P':
+		fail(f"transport-select marker = {last_strip[7] if len(last_strip) > 7 else '?'!r}; "
+		     f"want 'P' (PIO selected); strip = {last_strip!r}", cleanup)
+	if len(last_strip) < 19 or last_strip[18] != 'J':
+		fail(f"NDOS COLDST marker (idx 18) = {last_strip[18] if len(last_strip) > 18 else '?'!r}; "
+		     f"want 'J'; strip = {last_strip!r}", cleanup)
+
+	print(f"PASS: CP/NET netboot via PIO completed; NDOS COLDST reached")
+	print(f"       boot strip: {last_strip!r}")
+
+
 def run_speed_test(cleanup, mode="speed"):
 	"""Stream PIO_SPEED_BYTES (100 KiB) from Z80 over PIO-B; count and
 	time on the host side; report throughput.
@@ -717,12 +757,13 @@ def main():
 	ap.add_argument("--mame-seconds", type=int, default=120,
 		help="MAME -seconds_to_run (default 120)")
 	ap.add_argument("--mode",
-		choices=("hostsend", "loopback", "probe",
+		choices=("hostsend", "loopback", "probe", "pio-netboot",
 		         "speed", "speed-otir", "speed-rx", "speed-rx-inir"),
 		default="hostsend",
 		help="hostsend: harness sends 6 bytes -> Z80 ISR; "
 		     "loopback: Z80 sends 10-byte CP/NET frame -> harness mirrors -> Z80 validates; "
 		     "probe: Z80 pio_probe() sends PING SCB -> harness replies PONG -> verify 'P' marker; "
+		     "pio-netboot: full CP/NET netboot over the parallel link (cpnet_pio_server.py); "
 		     "speed: Z80 streams 100 KiB via C-loop transport_pio_send_byte; "
 		     "speed-otir: Z80 streams 100 KiB via inline OTIR (raw OUT (C),(HL)); "
 		     "speed-rx: harness sends 64 KiB -> Z80 ISR drain (counter wrap); "
@@ -841,7 +882,19 @@ def main():
 			fail(f"cpnet_bridge did not bind :{BRIDGE_PORT}: {e} "
 			     f"(see {MAME_LOG} for socket errors)", cleanup)
 
-		if args.mode == "probe":
+		if args.mode == "pio-netboot":
+			# Spawn cpnet_pio_server.py — it connects to :4003 (MAME
+			# already listening) and runs the full CP/NET protocol
+			# stack, including PING and netboot dispatch.
+			pio_server = CPNOS_DIR / "cpnet_pio_server.py"
+			print(f"[harness] step 7b: spawn cpnet_pio_server -> :{BRIDGE_PORT}")
+			pio_p = spawn_group(
+				["python3", "-u", str(pio_server), str(BRIDGE_PORT)],
+				cwd=str(CPNOS_DIR),
+				log_path=Path("/tmp/cpnos_pio_server.log"))
+			cleanup.push(lambda: kill_group(pio_p) if not args.keep_alive else None)
+			run_pio_netboot_test(cleanup)
+		elif args.mode == "probe":
 			# Probe runs early in cpnos_cold_entry; connect immediately
 			# so PONG is queued before Z80 finishes pio_send_msg.
 			run_probe_test(cleanup)

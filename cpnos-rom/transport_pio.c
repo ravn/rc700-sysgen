@@ -105,13 +105,27 @@ static void pio_b_set_input(void) {
 
 /* Send a complete CP/NET frame.  msg points to FMT byte.  Wire
  * length = (SIZ+1) payload + 5 hdr + 1 CKS = SIZ + 7 bytes; must
- * fit in a single OTIR (<= 256). */
+ * fit in a single OTIR (<= 256).
+ *
+ * Computes the trailing CKS in place at msg[SIZ+6] (sum-to-zero,
+ * two's complement of the body sum).  The SIO transport's caller
+ * (netboot_mpm::cpnet_xact) doesn't fill the CKS slot because the
+ * SIO wire envelope (snios.s SNDMSG) accumulates per-byte; PIO has
+ * no envelope, so CKS is our responsibility. */
 RESIDENT
 uint8_t pio_send_msg(uint8_t *msg) {
     pio_b_set_output();
-    uint8_t b = (uint8_t)((uint16_t)msg[SIZ] + 7U);   /* B=0 means 256 */
+    /* body_len = 5 hdr + (SIZ+1) payload.  uint8_t suffices: SIZ <=
+     * 255 means body <= 261 — but we cap frames at 256-wire-byte
+     * (one OTIR), so body_len <= 255 here.  Stick to uint8_t for the
+     * loop counter so clang DJNZs it. */
+    uint8_t body_len = (uint8_t)(6U + msg[SIZ]);
+    uint8_t cks = 0;
+    for (uint8_t i = 0; i < body_len; ++i) cks += msg[i];
+    msg[body_len] = (uint8_t)(0U - cks);
+    uint8_t b = (uint8_t)(body_len + 1U);
     __asm__ volatile(
-        "ld   c, 0x11\n\t"        /* PORT_PIO_B_DATA */
+        "ld   c, 0x11\n\t"
         "otir\n\t"
         : "+{hl}"(msg), "+{b}"(b)
         :
@@ -164,6 +178,10 @@ got_first:
             : "a", "c", "memory"
         );
     }
+    /* No CKS validation here.  PIO Mode 0/1 hardware handshake gives
+     * per-byte delivery; sum-to-zero would only catch a host-side
+     * protocol bug, not a wire error.  Probe (pio_probe) does a
+     * full validate for confidence; runtime CP/NET trusts the wire. */
     return 0;
 }
 
