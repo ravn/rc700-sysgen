@@ -183,26 +183,29 @@ def handle(sock):
 
 
 def run(port):
-    """Connect (as TCP CLIENT) to MAME's bridge listener and serve."""
-    print(f"cpnet_pio_server: connecting to 127.0.0.1:{port}")
-    # MAME may not have bound the listener yet — retry briefly.
-    end = time.monotonic() + 30.0
-    sock = None
-    while time.monotonic() < end:
-        try:
-            sock = socket.create_connection(("127.0.0.1", port), timeout=2.0)
-            break
-        except OSError:
-            time.sleep(0.2)
-    if sock is None:
-        sys.exit(f"cpnet_pio_server: could not connect to :{port}")
-    # Disable Nagle.  CP/NET frames are 43/171 bytes — far below the
-    # localhost MSS — and Python's reply must reach MAME ASAP each
-    # round-trip.  Without TCP_NODELAY the kernel holds small segments
-    # waiting for receiver ACK, and macOS delays the ACK up to ~40 ms,
-    # adding that to every round-trip.
+    """Listen on :port; MAME's bitbanger-backed cpnet_bridge slot
+    connects to us as a TCP client.  This flipped from the old
+    listener-thread design (where MAME was the listener); the new
+    bitbanger-based bridge uses MAME's standard OSD socket layer
+    which interprets `socket.host:port` as a CONNECT, not bind."""
+    print(f"cpnet_pio_server: listening on 127.0.0.1:{port}")
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", port))
+    listener.listen(1)
+    listener.settimeout(60.0)
+    try:
+        sock, peer = listener.accept()
+    except socket.timeout:
+        sys.exit(f"cpnet_pio_server: no client connected within 60s")
+    finally:
+        listener.close()
+    # Disable Nagle on the connected socket so CP/NET responses
+    # reach MAME promptly (frames are well below MSS, default Nagle
+    # plus delayed-ACK adds ~40 ms per round-trip).
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.settimeout(60.0)
+    print(f"cpnet_pio_server: client connected from {peer}")
     try:
         handle(sock)
     except (EOFError, socket.timeout) as e:

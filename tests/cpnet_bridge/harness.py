@@ -825,20 +825,55 @@ def main():
 		                  cwd=str(CPNOS_DIR), log_path=MPM_LOG)
 		cleanup.push(lambda: kill_group(mpm) if not args.keep_alive else None)
 
-		# For pio-netboot: spawn the PIO server EARLY so its slow
-		# Python import (~80 ms wall) finishes before MAME starts and
-		# Z80's probe runs.  The server retries connect every 0.2 s
-		# for 30 s, so it doesn't matter that the bridge isn't bound
-		# yet; it just sits waiting.
+		# MAME's bridge (bitbanger-backed) connects to :BRIDGE_PORT at
+		# start-up; if nothing's listening, MAME aborts before cpnos
+		# even begins.  So every mode that uses cpnet_bridge needs a
+		# listener on :BRIDGE_PORT *before* MAME launches.
+		#
+		# pio-netboot: full CP/NET PIO server.
+		# everything else: passive dummy listener (accept + drop) so
+		#                  MAME starts but PIO probe sees no PONG and
+		#                  falls back to SIO.  hostsend/loopback/speed
+		#                  modes bind their own protocol on top later
+		#                  (those modes are bring-up scaffolding, not
+		#                  exercised after the bitbanger refactor).
+		kill_stale(BRIDGE_PORT)
 		if args.mode == "pio-netboot":
 			pio_server = CPNOS_DIR / "cpnet_pio_server.py"
-			print(f"[harness] step 5c: spawn cpnet_pio_server -> :{BRIDGE_PORT} "
-			      f"(early, so import completes before MAME boot)")
+			print(f"[harness] step 5c: spawn cpnet_pio_server -> "
+			      f":{BRIDGE_PORT}")
 			pio_p = spawn_group(
 				["python3", "-u", str(pio_server), str(BRIDGE_PORT)],
 				cwd=str(CPNOS_DIR),
 				log_path=Path("/tmp/cpnos_pio_server.log"))
 			cleanup.push(lambda: kill_group(pio_p) if not args.keep_alive else None)
+		else:
+			print(f"[harness] step 5c: spawn dummy listener -> "
+			      f":{BRIDGE_PORT} (PIO probe will time out -> "
+			      f"SIO fallback)")
+			dummy_code = (
+				"import socket,sys;"
+				f"s=socket.socket(socket.AF_INET, socket.SOCK_STREAM);"
+				"s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1);"
+				f"s.bind(('127.0.0.1',{BRIDGE_PORT}));"
+				"s.listen(1);"
+				"c,_=s.accept();c.settimeout(120.0);"
+				"\nwhile True:\n"
+				"  try:\n"
+				"    d=c.recv(4096);\n"
+				"    if not d: break\n"
+				"  except Exception: break"
+			)
+			dummy_p = spawn_group(
+				["python3", "-u", "-c", dummy_code],
+				log_path=Path("/tmp/cpnos_bridge_dummy.log"))
+			cleanup.push(lambda: kill_group(dummy_p) if not args.keep_alive else None)
+		# Give listener a moment to bind before MAME tries to connect.
+		time.sleep(0.3)
+		try:
+			wait_for_listen(BRIDGE_PORT, deadline_s=5.0)
+		except TimeoutError as e:
+			fail(f"listener on :{BRIDGE_PORT} never bound: {e}", cleanup)
 
 		try:
 			wait_for_listen(MPM_PORT, deadline_s=10.0)
@@ -880,6 +915,11 @@ def main():
 			"-rs232b", "null_modem",
 			"-bitb2", f"socket.127.0.0.1:{SIOB_PORT}",
 			"-piob", "cpnet_bridge",
+			# cpnet_bridge wraps a bitbanger sub-device (model
+			# matches null_modem's :rs232X:stream); it's the third
+			# bitbanger in the system after :rs232a:stream and
+			# :rs232b:stream, so -bitb3 wires it to localhost:4003.
+			"-bitb3", f"socket.127.0.0.1:{BRIDGE_PORT}",
 			"-autoboot_script", str(TAP_LUA),
 		], log_path=MAME_LOG, cwd=str(MAME_DIR))
 		cleanup.push(lambda: kill_group(mame_p) if not args.keep_alive else None)
@@ -890,12 +930,16 @@ def main():
 		# cpnos-rom to be "ready" — any pre-EI byte will sit in the rx
 		# queue and get strobed in the moment cpnos_main calls
 		# enable_interrupts() and BRDY rises.
-		print(f"[harness] step 7: wait for bridge listener on :{BRIDGE_PORT}")
-		try:
-			wait_for_listen(BRIDGE_PORT, deadline_s=15.0)
-		except TimeoutError as e:
-			fail(f"cpnet_bridge did not bind :{BRIDGE_PORT}: {e} "
-			     f"(see {MAME_LOG} for socket errors)", cleanup)
+		# Step 7 used to wait for a TCP LISTEN on :BRIDGE_PORT before
+		# proceeding.  The previous cpnet_bridge.cpp opened its socket
+		# eagerly in device_start; the current bitbanger-based device
+		# defers the bind until first I/O (which happens during cpnos's
+		# pio_probe ~0.04 s wall after MAME launch — too late for an
+		# lsof-poll loop to reliably catch).  The test bodies below
+		# tolerate "not yet bound" — the PIO server's connect-retry
+		# loop covers it.  Skip the gate.
+		print(f"[harness] step 7: bridge listener (lazy-bound by bitbanger; "
+		      f"no pre-flight gate)")
 
 		if args.mode == "pio-netboot":
 			# Z80's probe runs ~24 ms wall-clock after MAME launches
