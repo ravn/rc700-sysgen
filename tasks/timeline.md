@@ -775,6 +775,49 @@ Three commits after the audit:
   `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
   `docs/mame-rc702-piob-slot-regression.md`.
 
+### Phase 24: Option P parallel-port driver + throughput bench (Apr 27, 2026) — Medium
+
+- **Goal**: implement and measure the Option P transport over PIO-B
+  end-to-end through the (now-working) `cpnet_bridge` slot card.
+- **Driver**: `cpnos-rom/transport_pio.c` — Mode 0/1 lazy switching,
+  32-byte RX ring, ISR push.  Two Z80-PIO chip-state quirks worked
+  around explicitly:
+  1. `set_mode(MODE_OUTPUT)` immediately fires `out_pX_callback` with
+     stale `m_output` — leading 0x00 prefix on first Mode 1→0
+     transition.  Filed as ravn/mame#7.
+  2. Mode 0 STB pulses set `m_ip` even with `m_ie=false`.  Plain
+     `0x83` IE-enable on Mode 1 entry causes a spurious IRQ.  Fixed
+     with ICW + mask-follows (0x97 + 0x00) which atomically clears
+     `m_ip`.
+- **Frame round-trip**: 10-byte CP/NET-shaped SCB
+  (FMT/DID/SID/FNC/SIZ + 4 payload + CKS) sent + mirrored back +
+  validated on Z80 side.  PASS at 4.3s emulated.
+- **Throughput bench (MAME 100% throttle, wall ≈ Z80 emulated)**:
+  - TX C-loop:  22 KiB/s
+  - **TX OTIR: 156 KiB/s**
+  - RX ISR-driven: 15 KiB/s (lower bound; MAME emu overhead)
+  - **RX INIR busy-poll: 148 KiB/s** (10× ISR; matches TX)
+  Full report at `docs/cpnet_pio_speed_results.md`.
+- **Compiler bug**: clang Z80 `+static-stack` miscompile of a
+  `uint16_t` loop counter — held in BC for the loop test, read from
+  a never-written frame slot at the call-arg use.  Filed as
+  ravn/llvm-z80#82, XFAIL lit test pushed.  Workaround: nested
+  `uint8_t` loops.
+- **Architectural finding**: in Mode 1 input, the chip's BRDY toggle
+  in `data_read` is the natural flow-control mechanism — disable IE,
+  run INIR, get 21 T/byte without any IRQ overhead.  The original
+  ring-based recv_byte path is unusable for sustained streaming
+  (back-to-back ISRs starve mainline; ring overflows).  Filed as
+  ravn/rc700-gensmedet#54.
+- **Boot markers** moved to row 0 cols 60-78 (upper-right) so they
+  survive the nos_handoff banner overwrite on row 1.
+- **Issues filed**: ravn/llvm-z80#82, ravn/mame#7,
+  ravn/rc700-gensmedet#53 (tap.lua banner check on wrong row),
+  ravn/rc700-gensmedet#54 (recv_byte ring path unusable).
+- **Branch**: all on `cpnet-pio-direct`; `2517ba0` is the throughput
+  report.  Master/main untouched per project convention; promotion
+  is a future decision.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature
