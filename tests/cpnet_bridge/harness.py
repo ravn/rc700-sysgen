@@ -194,13 +194,13 @@ def emit_addrs_lua():
 	that hardcoded addresses caused before.
 
 	Required symbols: _pio_par_byte, _pio_par_count (host-send mode).
-	Optional symbols: _pio_test_done, _pio_test_recv (loopback mode —
-	only present when cpnos was built with PIO_LOOPBACK_TEST=1).
+	Optional symbols: _pio_test_done, _pio_test_recv, _pio_test_passed
+	(loopback/frame mode — only present with PIO_LOOPBACK_TEST=1).
 	"""
 	out = subprocess.check_output(
 		[str(LLVM_NM), str(PAYLOAD_ELF)]).decode()
 	required = {"_pio_par_byte", "_pio_par_count"}
-	optional = {"_pio_test_done", "_pio_test_recv"}
+	optional = {"_pio_test_done", "_pio_test_recv", "_pio_test_passed"}
 	found = {}
 	for line in out.splitlines():
 		parts = line.split()
@@ -214,9 +214,10 @@ def emit_addrs_lua():
 		f"  pio_par_byte  = 0x{found['_pio_par_byte']:04X},",
 		f"  pio_par_count = 0x{found['_pio_par_count']:04X},",
 	]
-	if "_pio_test_done" in found and "_pio_test_recv" in found:
-		lines.append(f"  pio_test_done = 0x{found['_pio_test_done']:04X},")
-		lines.append(f"  pio_test_recv = 0x{found['_pio_test_recv']:04X},")
+	for sym in ("_pio_test_done", "_pio_test_recv", "_pio_test_passed"):
+		if sym in found:
+			# Strip leading underscore for the Lua table key.
+			lines.append(f"  {sym[1:]} = 0x{found[sym]:04X},")
 	lines.append("}")
 	ADDRS_LUA.write_text("\n".join(lines) + "\n")
 	print(f"[harness] addrs: " +
@@ -330,60 +331,120 @@ def run_hostsend_test(cleanup):
 	      f"0x{latest_byte:02X})")
 
 
+PIO_FRAME_LEN = 10
+
+
+def build_response_frame(request: bytes) -> bytes:
+	"""Mirror a CP/NET request into a response frame.
+
+	Request layout (10 bytes): [FMT, DID, SID, FNC, SIZ, payload*4, CKS]
+	Response: FMT toggled to 0x81, DID/SID swapped, payload echoed,
+	checksum recomputed (sum-to-zero, two's complement).
+	"""
+	if len(request) != PIO_FRAME_LEN:
+		raise ValueError(f"frame is {len(request)} bytes, want {PIO_FRAME_LEN}")
+	resp = bytearray(request)
+	resp[0] = 0x81           # FMT response
+	resp[1] = request[2]     # DID = was SID
+	resp[2] = request[1]     # SID = was DID
+	# resp[3..8] unchanged (FNC, SIZ, payload echoed)
+	# Recompute checksum so sum(resp) == 0 mod 256.
+	body_sum = sum(resp[:-1]) & 0xFF
+	resp[-1] = (-body_sum) & 0xFF
+	return bytes(resp)
+
+
 def run_loopback_test(cleanup):
-	"""Loopback test: Z80 sends 6 bytes via PIO-B Mode 0, harness reads
-	them off :4003 and writes them back, Z80 reads from its ring buffer
-	via PIO-B Mode 1.  Verify pio_test_recv[6] (logged by tap.lua to
-	LOOPBACK_RESULT) equals the bytes the harness received."""
-	print("[harness] step 8a: connect to bridge, expect 6 bytes from Z80")
+	"""Frame-level test: Z80 sends a 10-byte CP/NET-shaped request via
+	PIO-B Mode 0; harness reads it off :4003, mirrors it as a response
+	(FMT toggled to 0x81, DID/SID swapped, checksum recomputed) and
+	writes the response back; Z80 reads the response via Mode 1, then
+	validates structure + checksum and sets pio_test_passed.
+
+	PASS = pio_test_passed reads 1 AND the harness's view of the wire
+	matches what we expect (request frame on the way out matches
+	cpnos_main's pio_test_request_frame; response we sent back equals
+	what Z80 logged into pio_test_recv)."""
+	print(f"[harness] step 8a: connect to bridge, expect {PIO_FRAME_LEN} "
+	      f"bytes (CP/NET request frame) from Z80")
 	try:
 		bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
 			timeout=2.0)
 	except OSError as e:
 		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
 
-	# Z80 fires pio_loopback_test() after netboot completes (~5s
-	# emulated, well under 1 wall-second at 1400% speed).  Step 7
-	# already slept 5s before this, so the bytes should be queued
-	# in the bridge's z80_to_host FIFO already.
+	# Read PIO_FRAME_LEN + 1 to capture the documented Z80-PIO Mode 1->0
+	# transition artifact (one stale-latch 0x00 byte before the first
+	# real CPU OUT — see transport_pio.c::transport_pio_send_byte).  We
+	# strip the leading 0x00 if present and verify the remaining 10
+	# bytes match the request frame.
 	bridge.settimeout(10.0)
-	received = bytearray()
+	wire = bytearray()
+	want = PIO_FRAME_LEN + 1
 	try:
-		while len(received) < 6:
-			chunk = bridge.recv(6 - len(received))
+		while len(wire) < want:
+			chunk = bridge.recv(want - len(wire))
 			if not chunk:
 				break
-			received.extend(chunk)
+			wire.extend(chunk)
 	except socket.timeout:
-		fail(f"timed out waiting for Z80 bytes "
-		     f"(got {len(received)}/6: {bytes(received).hex()})", cleanup)
-	if len(received) != 6:
-		fail(f"received {len(received)} bytes from Z80, expected 6: "
-		     f"{bytes(received).hex()}", cleanup)
-	print(f"[harness] received from Z80: {bytes(received).hex()}")
+		# It's OK to time out at PIO_FRAME_LEN if the chip didn't emit
+		# the prefix this run.
+		pass
+	if len(wire) >= 1 and wire[0] == 0x00 and len(wire) == PIO_FRAME_LEN + 1:
+		print(f"[harness] stripping chip-artifact 0x00 prefix (documented)")
+		received = bytes(wire[1:])
+	elif len(wire) == PIO_FRAME_LEN:
+		received = bytes(wire)
+	else:
+		fail(f"received {len(wire)} bytes from Z80, expected "
+		     f"{PIO_FRAME_LEN} or {PIO_FRAME_LEN + 1}: {bytes(wire).hex()}",
+		     cleanup)
 
-	print("[harness] step 8b: echo bytes back to Z80")
-	bridge.sendall(bytes(received))
+	# Verify the request frame structure on the wire matches the
+	# constant in cpnos_main.c::pio_test_request_frame.
+	expected_request = bytes([0x80, 0x00, 0x01, 0x05, 0x04,
+	                          0xDE, 0xAD, 0xBE, 0xEF, 0xC4])
+	if received != expected_request:
+		fail(f"request frame on wire = {received.hex()}, "
+		     f"expected {expected_request.hex()} "
+		     f"(byte-level corruption past the chip prefix)", cleanup)
+	print(f"[harness] received request from Z80: {received.hex()}")
+
+	response = build_response_frame(bytes(received))
+	print(f"[harness] step 8b: send response frame: {response.hex()}")
+	bridge.sendall(response)
 	bridge.close()
 
-	print("[harness] step 9: wait for Z80 loopback to complete")
+	print("[harness] step 9: wait for Z80 frame validation to complete")
 	end = time.time() + 10.0
 	while time.time() < end:
 		if LOOPBACK_RESULT.exists():
 			break
 		time.sleep(0.1)
 	if not LOOPBACK_RESULT.exists():
-		fail(f"{LOOPBACK_RESULT} never appeared — Z80 loopback test "
+		fail(f"{LOOPBACK_RESULT} never appeared — Z80 frame test "
 		     f"didn't complete (check {MAME_LOG} for boot trace)", cleanup)
 
-	got_hex = LOOPBACK_RESULT.read_text().strip()
-	expected_hex = bytes(received).hex().upper()
+	# Format: "<HEX> passed=<0|1>"
+	result = LOOPBACK_RESULT.read_text().strip()
+	parts = result.split()
+	if len(parts) != 2 or not parts[1].startswith("passed="):
+		fail(f"malformed result line: {result!r}", cleanup)
+	got_hex = parts[0]
+	passed = int(parts[1].split("=", 1)[1])
+	expected_hex = response.hex().upper()
 	if got_hex != expected_hex:
 		fail(f"pio_test_recv = {got_hex}, expected {expected_hex} "
-		     f"(bytes Z80 received != bytes Z80 sent)", cleanup)
+		     f"(host response != what Z80 saw on the wire)", cleanup)
+	if passed != 1:
+		fail(f"Z80-side validation failed (pio_test_passed = {passed}; "
+		     f"frame structure or checksum did not validate)", cleanup)
 
-	print(f"PASS: Z80 loopback round-trip (sent {expected_hex}, "
-	      f"echoed back, received {got_hex})")
+	print(f"PASS: CP/NET frame round-trip over PIO-B")
+	print(f"       request:  {bytes(received).hex()}")
+	print(f"       response: {response.hex()}")
+	print(f"       Z80 saw:  {got_hex} (passed={passed})")
 
 
 # ---------------------------------------------------------------------------

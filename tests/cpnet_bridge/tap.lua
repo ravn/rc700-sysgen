@@ -16,8 +16,10 @@ local PIO_PAR_COUNT_ADDR = addrs.pio_par_count
 -- Loopback test addresses are optional (set only when cpnos was built
 -- with PIO_LOOPBACK_TEST=1 and harness extracted the symbols).  If
 -- absent, the loopback watcher below stays a no-op.
-local PIO_TEST_DONE_ADDR = addrs.pio_test_done
-local PIO_TEST_RECV_ADDR = addrs.pio_test_recv
+local PIO_TEST_DONE_ADDR   = addrs.pio_test_done
+local PIO_TEST_RECV_ADDR   = addrs.pio_test_recv
+local PIO_TEST_PASSED_ADDR = addrs.pio_test_passed
+local PIO_FRAME_LEN        = 10
 local DSPSTR             = 0xF800
 local SIGNON_ROW1        = 0xF850
 
@@ -84,18 +86,26 @@ emu.register_periodic(function ()
 	end
 
 	-- Loopback test watch: when cpnos_main's pio_loopback_test sets
-	-- pio_test_done = 1, snapshot pio_test_recv[6] to LOOPBACK_RESULT.
-	-- Single-shot; harness reads the file then knows the test ended.
+	-- pio_test_done = 1, snapshot pio_test_recv (10-byte CP/NET
+	-- frame) and the Z80-side pio_test_passed flag to LOOPBACK_RESULT.
+	-- Format: "<HEX> passed=<0|1>" — single line so the harness can
+	-- parse it trivially.  Single-shot; harness reads the file then
+	-- knows the test ended.
 	if PIO_TEST_DONE_ADDR ~= nil
 	   and not loopback_logged
 	   and prog:read_u8(PIO_TEST_DONE_ADDR) ~= 0 then
 		local hex = ""
-		for i = 0, 5 do
+		for i = 0, PIO_FRAME_LEN - 1 do
 			hex = hex .. string.format("%02X",
 				prog:read_u8(PIO_TEST_RECV_ADDR + i))
 		end
+		local passed = (PIO_TEST_PASSED_ADDR ~= nil)
+			and prog:read_u8(PIO_TEST_PASSED_ADDR) or 0
 		local f = io.open(LOOPBACK_RESULT, "w")
-		if f then f:write(hex .. "\n") f:close() end
+		if f then
+			f:write(string.format("%s passed=%d\n", hex, passed))
+			f:close()
+		end
 		-- Capture screen state so we can verify visually that boot
 		-- completed cleanly + boot markers are in upper-right corner.
 		manager.machine.video:snapshot()

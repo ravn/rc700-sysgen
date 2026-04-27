@@ -30,34 +30,71 @@ extern void jump_to(uint16_t addr) __attribute__((noreturn));
 extern void enter_coldst(void) __attribute__((noreturn));
 
 #ifdef PIO_LOOPBACK_TEST
-/* Bring-up smoke test: send 6 known bytes via PIO-B Mode 0, then
- * receive 6 bytes via Mode 1 input.  The host harness reads the
- * outgoing bytes off cpnet_bridge :4003, echoes them back, and
- * verifies pio_test_recv[] via Lua memory probe (address pulled
- * from payload.elf via llvm-nm).  Proves the bidirectional byte
- * path through cpnet_bridge + ISR ring buffer + transport_pio_*. */
+/* Bring-up frame test (Option P (3) — design-exploration step).  Sends
+ * a 10-byte CP/NET-shaped request frame via PIO-B Mode 0, expects the
+ * host to mirror it as a response (FMT toggled to 0x81, DID/SID
+ * swapped, payload echoed, checksum recomputed), then validates frame
+ * structure on the way back in via Mode 1 input.  Proves the full
+ * frame mechanics work over the parallel link before committing to a
+ * SNIOS-mirror vs. byte-blast upper-layer shape.
+ *
+ * Frame layout (CP/NET 1.2 SCB shape, no ENQ/ACK envelope — PIO has
+ * hardware handshake that subsumes serial framing reliability):
+ *   [0] FMT   0x80 request, 0x81 response
+ *   [1] DID   destination ID
+ *   [2] SID   source ID
+ *   [3] FNC   function code
+ *   [4] SIZ   payload length
+ *   [5..]     payload (SIZ bytes)
+ *   [last]    CKS   sum-to-zero checksum (two's complement of header+payload)
+ */
 extern void     transport_pio_send_byte(uint8_t c);
 extern uint16_t transport_pio_recv_byte(uint16_t timeout_ticks);
 
-static const uint8_t pio_test_send_bytes[6] = {
-    0xC0, 0xFF, 0xEE, 0xCA, 0xFE, 0x42
+#define PIO_FRAME_LEN 10
+static const uint8_t pio_test_request_frame[PIO_FRAME_LEN] = {
+    0x80,                        /* FMT: request */
+    0x00,                        /* DID: master */
+    0x01,                        /* SID: us (matches RC702_SLAVEID) */
+    0x05,                        /* FNC: arbitrary, mirrored back */
+    0x04,                        /* SIZ: 4-byte payload */
+    0xDE, 0xAD, 0xBE, 0xEF,      /* payload */
+    0xC4,                        /* CKS: 0x100 - (sum of bytes 0..8) & 0xFF */
 };
-uint8_t pio_test_recv[6];   /* host-echoed bytes land here (BSS) */
-uint8_t pio_test_done;      /* 1 once loopback completes (BSS) */
+uint8_t pio_test_recv[PIO_FRAME_LEN];   /* host response lands here (BSS) */
+uint8_t pio_test_done;                  /* 1 when test completes (BSS) */
+uint8_t pio_test_passed;                /* 1 = frame valid, 0 = invalid (BSS) */
 
 static void pio_loopback_test(void) {
-    for (uint8_t i = 0; i < 6; ++i) {
-        transport_pio_send_byte(pio_test_send_bytes[i]);
+    /* TX: blast the request frame at the host.  No ENQ/ACK envelope
+     * because PIO Mode 0/1 hardware handshake guarantees byte
+     * delivery; the per-byte STB+BRDY round-trip is the wire-level
+     * reliability mechanism. */
+    for (uint8_t i = 0; i < PIO_FRAME_LEN; ++i) {
+        transport_pio_send_byte(pio_test_request_frame[i]);
     }
-    /* Switch to input + drain echoed bytes.  Use the max uint16_t poll
-     * budget (~150 ms emulated per call at 4 MHz) so the harness has
-     * the widest possible wall-clock window to read+echo before the
-     * test gives up.  Total max wait = 6 * 150 ms = 900 ms emulated
-     * (~65 ms wall at -nothrottle 1400%). */
-    for (uint8_t i = 0; i < 6; ++i) {
+    /* RX: drain the response frame.  Each recv polls for ~150 ms
+     * emulated (uint16_t max ticks); harness echoes immediately so
+     * the first byte arrives well within the first call's budget. */
+    for (uint8_t i = 0; i < PIO_FRAME_LEN; ++i) {
         uint16_t r = transport_pio_recv_byte(0xFFFFU);
         pio_test_recv[i] = (uint8_t)r;
     }
+    /* Validate response shape and checksum.  ok == 1 only if every
+     * field matches the expected mirror semantics. */
+    uint8_t sum = 0;
+    for (uint8_t i = 0; i < PIO_FRAME_LEN; ++i) sum += pio_test_recv[i];
+    uint8_t ok = (pio_test_recv[0] == 0x81)               /* FMT response */
+              && (pio_test_recv[1] == 0x01)               /* DID was SID */
+              && (pio_test_recv[2] == 0x00)               /* SID was DID */
+              && (pio_test_recv[3] == 0x05)               /* FNC echoed */
+              && (pio_test_recv[4] == 0x04)               /* SIZ echoed */
+              && (pio_test_recv[5] == 0xDE)
+              && (pio_test_recv[6] == 0xAD)
+              && (pio_test_recv[7] == 0xBE)
+              && (pio_test_recv[8] == 0xEF)
+              && (sum == 0);                              /* CKS sum-to-zero */
+    pio_test_passed = ok;
     pio_test_done = 1;
 }
 #endif
