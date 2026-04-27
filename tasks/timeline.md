@@ -707,6 +707,179 @@ Three commits after the audit:
   measure Z80 PIO VOH on this RC702 at bring-up to confirm the
   no-shifter cable holds.
 
+### Phase 23: Option P MAME bring-up — slot infra and unwinding (Apr 26-27, 2026) — Painful
+
+- **Goal**: implement the Option P host bridge in MAME so external
+  Pi/Mac processes can plumb CP/NET frames into the Z80's PIO-B port.
+
+- **Path 1 — slot device** (committed on `cpnet-fast-link` branch,
+  merged via `588658b4327`).  Built `src/devices/bus/rc702/pio_port/`
+  with `pio_port`, `keyboard`, `cpnet_bridge` cards; wired both PIO-A
+  and PIO-B as `device_single_card_slot_interface` slots in
+  `rc702.cpp`.  POSIX socket listener on :4003 + listener thread +
+  FIFO + emu_timer + STB pulse logic.  Filed
+  [ravn/mame#6](https://github.com/ravn/mame/issues/6) when
+  `-piob cpnet_bridge` (or `-piob keyboard`) blocked cpnos-rom IM2
+  IRQ delivery — VRTC stops firing, CRT goes black, CCP never loads.
+
+- **Path 2 — Einstein topology** (commit `54cccdbc3af`).  PIO-A
+  reverted to direct keyboard wiring, PIO-B kept as the lone slot.
+  `-piob keyboard` still produced the regression.  **Falsified** the
+  "two slots on one chip" hypothesis.
+
+- **Path 3 — bypass slot, wire `cpnet_bridge_device` directly to
+  chip callbacks** (devcb_write_line / std::function flavours).
+  Both crashed at MAME config time
+  (`device_t::config_complete + 428`) before any data flowed.
+  Discarded.
+
+- **Empty-slot regression discovered (2026-04-27)**: even with NO
+  card plugged in, the bare `RC702_PIO_PORT(config, m_pio_b)` slot
+  wrapper breaks cpnos-rom boot.  Hangs at `PC=0x0039` before its
+  first SIO-A transmit, never sends ENQ, never reaches A>.  The
+  earlier "empty slot is benign" claim on ravn/mame#6 was true only
+  for autoload-PROM CP/M floppy boot, which doesn't engage PIO-B's
+  IM2 IRQ vector.  cpnos-rom uses that vector for `isr_pio_par`,
+  hence sensitive.  Issue title amended.
+
+- **Path 4 — direct (no-slot) bridge** (designed in
+  `docs/cpnet_pio_direct_design.md`, branch `cpnet-pio-direct`).
+  Drop slot/card entirely; `m_pio->in_pb_callback().set(FUNC(rc702_state::cpnet_pb_r))`
+  directly to driver methods; use MAME's `osd_file` as TCP listener
+  (no POSIX socket); single emu thread via 1 ms `emu_timer`; raw byte
+  logs to `/tmp/cpnet_pio_rx.bin` + `tx.bin`.  Implementation written
+  + built once.  Byte-level path verified working (6 bytes from
+  harness arrived in rx.bin, strobe fired, in_pb_callback returned
+  the right byte) but PIO-B IRQ never delivered — chip log showed
+  `IE=0 IP=1` because cpnos-rom itself wasn't booting through to its
+  PIO-B init phase, the slot-infra regression masking everything.
+  Implementation code lost in a stash/checkout cycle.
+
+- **Master reverted** to `b06f303737a` "Revert merge".  Working tree
+  byte-identical to `1f2d4d000db` (verified via `git diff --stat`).
+  Open puzzle: a freshly-built revert binary fails cpnos-rom boot
+  the same way the merge did, while the April-21 daily-use binary at
+  `/Users/ravn/git/mame/regnecentralend` (built from the same SHA)
+  succeeds.  Suspects: stale `.o` cache or build-flag drift.  Under
+  investigation.
+
+- **Painful** because three workarounds in a row didn't fix the
+  underlying break, the empty-slot finding invalidated yesterday's
+  ravn/mame#6 comment, and the direct-bridge code was lost in a
+  git stash/checkout cycle and will need re-implementation.
+
+- **What survives**:
+  `docs/cpnet_pio_direct_design.md`, `docs/cpnet_slot_work_history.md`
+  (this work's connective tissue), `tests/cpnet_bridge/harness.py`
+  switched from mpm-net2 to `netboot_server.py`,
+  `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
+  `docs/mame-rc702-piob-slot-regression.md`.
+
+### Phase 25: PIO CP/NET driver + MAME bridge to standards (Apr 27, 2026) — Medium
+
+- **Goal**: real PIO transport in CP/NOS (not just speed-test
+  scaffolding), boot-time runtime selection, full netboot over
+  PIO, and figure out why MAME measured PIO as *slower* than SIO
+  end-to-end despite the wire-speed bench from Phase 24 saying
+  the opposite.
+- **Phase A — Z80 driver + probe**:
+  `cpnos-rom/transport_pio.c` rewritten as frame-level (OTIR send,
+  INIR recv, no `di`/`ei` around block instructions, chip IE off
+  with Z80 IFF on so CRT VRTC keeps firing).  Vtable in
+  `transport.h`, `cpnet_dispatch.c` provides `active_transport` +
+  `cpnet_send_msg`/`_recv_msg`.  `pio_probe()` sends 7-byte PING
+  SCB, awaits PONG with bounded timeout; success → flip
+  `active_transport` to PIO.  `BOOT_MARK(7,'P'/'S')` on screen
+  records the choice.  `snios.s` jt SNDMSG/RCVMSG slots dispatch
+  through `cpnet_send_msg` so NDOS at runtime hits whatever probe
+  selected.  `netboot_mpm.c::cpnet_xact` likewise.
+- **Phase B — host-side server**: `cpnos-rom/cpnet_pio_server.py`
+  reads SCBs raw (no SOH envelope), strips MAME's chip-emulation
+  stale-prefix byte by structure (SID at offset 2 vs 3),
+  dispatches via `netboot_server.dispatch_sndmsg`.  Z80 reaches
+  NDOS COLDST through 25 round-trips (LOGIN / OPEN / READ-SEQ × 25
+  / CLOSE).  PASS.
+- **Linker guard**: `payload.ld` ASSERT on
+  `__payload_end <= 0xF800`.  Discovered while debugging blank
+  boot markers — payload growth had pushed `.rodata` into display
+  memory; `clear_screen()` then wiped the marker[] string.  Now
+  fails at link time.
+- **Performance investigation**: per-frame ~130 ms emulated /
+  ~53 ms wall on host.  Profiled cpnet_pio_server:
+  recv 53 ms, dispatch 0.02 ms, send 0.01 ms.  ~99.96 % of host
+  time blocked in `socket.recv()`.  Tracked to MAME's own
+  `cpnet_bridge.cpp:266` listener-thread `select()` with **50 ms
+  timeout** — chip-side `write()` queues bytes but doesn't wake
+  the listener thread, so flush latency = 50 ms wall × 2 (each
+  direction).
+- **MAME bridge refactor**: rewrote `cpnet_bridge.{cpp,h}` on the
+  MAME-standard `BITBANGER` sub-device pattern (matches
+  `null_modem`).  No private threads, no mutex, no atomics, no
+  std::deque buffering.  -192 net lines.  Result: end-to-end
+  CP/NOS netboot **3.82 s emulated → 0.28 s emulated (13.6×
+  faster)**.  Per-frame host recv 53 ms → 0.5–3 ms wall.
+- **Banner**: signon now reads `RC702 CP/NOS PIO 2026-04-27 12:58
+  f6c43a4+` — transport, UTC date, HH:MM, git short hash with `+`
+  on dirty tree.  `cpnos_buildinfo.h` regenerated each build via
+  `.PHONY` Makefile rule with `cmp`-then-`mv` so cpnos_main.o
+  rebuilds only when the date or hash actually change.
+- **MAME OSD finding**: `socket.host:port` syntax means CONNECT
+  (not listen) — required flipping `cpnet_pio_server.py` to be
+  the listener and adding a "dummy listener" pre-spawn to the
+  harness for non-PIO modes (otherwise MAME aborts at startup
+  with "Connection refused" from bitbanger's first I/O).
+- **Numbers (MAME -nothrottle)**:
+  - PIO end-to-end: 0.28 s emulated (was 3.82 s pre-refactor).
+  - SIO end-to-end: 2.08 s emulated (rate-bound at 38400 baud).
+  - PIO is now **7.4× faster than SIO in MAME**, projects to
+    ~40× on real hardware.
+- **Branches**: `ravn/rc700-gensmedet:cpnet-pio-direct` (commits
+  `46b5479…3f30d8f`); `ravn/mame:cpnet-fast-link-remerge`
+  (`f9f1efdc1ce` — the bitbanger refactor).  Master/main untouched.
+
+### Phase 24: Option P parallel-port driver + throughput bench (Apr 27, 2026) — Medium
+
+- **Goal**: implement and measure the Option P transport over PIO-B
+  end-to-end through the (now-working) `cpnet_bridge` slot card.
+- **Driver**: `cpnos-rom/transport_pio.c` — Mode 0/1 lazy switching,
+  32-byte RX ring, ISR push.  Two Z80-PIO chip-state quirks worked
+  around explicitly:
+  1. `set_mode(MODE_OUTPUT)` immediately fires `out_pX_callback` with
+     stale `m_output` — leading 0x00 prefix on first Mode 1→0
+     transition.  Filed as ravn/mame#7.
+  2. Mode 0 STB pulses set `m_ip` even with `m_ie=false`.  Plain
+     `0x83` IE-enable on Mode 1 entry causes a spurious IRQ.  Fixed
+     with ICW + mask-follows (0x97 + 0x00) which atomically clears
+     `m_ip`.
+- **Frame round-trip**: 10-byte CP/NET-shaped SCB
+  (FMT/DID/SID/FNC/SIZ + 4 payload + CKS) sent + mirrored back +
+  validated on Z80 side.  PASS at 4.3s emulated.
+- **Throughput bench (MAME 100% throttle, wall ≈ Z80 emulated)**:
+  - TX C-loop:  22 KiB/s
+  - **TX OTIR: 156 KiB/s**
+  - RX ISR-driven: 15 KiB/s (lower bound; MAME emu overhead)
+  - **RX INIR busy-poll: 148 KiB/s** (10× ISR; matches TX)
+  Full report at `docs/cpnet_pio_speed_results.md`.
+- **Compiler bug**: clang Z80 `+static-stack` miscompile of a
+  `uint16_t` loop counter — held in BC for the loop test, read from
+  a never-written frame slot at the call-arg use.  Filed as
+  ravn/llvm-z80#82, XFAIL lit test pushed.  Workaround: nested
+  `uint8_t` loops.
+- **Architectural finding**: in Mode 1 input, the chip's BRDY toggle
+  in `data_read` is the natural flow-control mechanism — disable IE,
+  run INIR, get 21 T/byte without any IRQ overhead.  The original
+  ring-based recv_byte path is unusable for sustained streaming
+  (back-to-back ISRs starve mainline; ring overflows).  Filed as
+  ravn/rc700-gensmedet#54.
+- **Boot markers** moved to row 0 cols 60-78 (upper-right) so they
+  survive the nos_handoff banner overwrite on row 1.
+- **Issues filed**: ravn/llvm-z80#82, ravn/mame#7,
+  ravn/rc700-gensmedet#53 (tap.lua banner check on wrong row),
+  ravn/rc700-gensmedet#54 (recv_byte ring path unusable).
+- **Branch**: all on `cpnet-pio-direct`; `2517ba0` is the throughput
+  report.  Master/main untouched per project convention; promotion
+  is a future decision.
+
 ## Phase 18: PROM shrink pass (Apr 23, 2026) — branch `snios-compact`
 - **Goal**: create breathing room in the 2 KB PROM0 ceiling (11 B
   slack after #39).  Target: ≥ 200 B for future work (signature

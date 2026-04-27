@@ -1,17 +1,34 @@
-# MAME bug report — `rc702`: any card on PIO-B blocks guest initialization
+# MAME bug report — `rc702`: ~~any slot wrapper on PIO-B blocks guest IM2 IRQs~~
 
-> **Filed as [ravn/mame#6](https://github.com/ravn/mame/issues/6)** on
-> 2026-04-26.  Track progress on the issue; this file is the local
-> mirror of the body for offline reference.  Update both this file and
-> the issue when status changes.  See
-> [`cpnet_fast_link.md`](cpnet_fast_link.md) for the design context
-> (Option P, host bridge over PIO-B / J3).
+> **CLOSED as not-a-bug** 2026-04-27.  Original ravn/mame#6 was a
+> misdiagnosis; the slot infrastructure on PIO-B works correctly.
+> The actual cause of every "black screen / cpnos-rom hang" symptom
+> was `prom1.ic65` not being loaded into the `prom1` ROM region.
+> Resolution committed as `9ff362da529` "rc702: ROM_LOAD_OPTIONAL
+> for prom1.ic65 (CP/NOS resident helpers)" on master.  See
+> [`cpnet_slot_work_history.md`](cpnet_slot_work_history.md) for the
+> full timeline including the misdiagnosis and how it was caught.
+>
+> This file is kept for historical context — the original report is
+> below the rule.  All subsequent claims about "empty slot also
+> breaks cpnos" or "card on PIO-B causes IM2 failure" are
+> invalidated.  Don't act on them.
+
+---
+
+# (historical) MAME bug report — `rc702`: any slot wrapper on PIO-B blocks guest IM2 IRQs
+
+> **Originally filed as [ravn/mame#6](https://github.com/ravn/mame/issues/6)** on
+> 2026-04-26.  Closed as not-planned on 2026-04-27 after verification
+> showed slot+card boots cpnos cleanly when prom1.ic65 is loaded.
 
 ## Title
 
-`rc702`: cpnos-rom guest fails to complete initialization when any card
-is plugged into the PIO-B slot (`-piob <card>`), even though both PIO-A
-(with default `keyboard` card) and PIO-B (empty) work individually.
+`rc702`: cpnos-rom guest fails to complete initialization when the
+`RC702_PIO_PORT` slot wrapper is present on PIO-B — even with no card
+plugged in.  Autoload-PROM CP/M boot from floppy is unaffected because
+it doesn't use PIO-B's IM2 IRQ vector; cpnos-rom does (for `isr_pio_par`)
+and stalls at `PC=0x0039` before its first SIO-A transmit.
 
 ## Summary
 

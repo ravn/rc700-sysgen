@@ -12,6 +12,20 @@
 
 ENABLE_FDC ?= 0
 
+# Bring-up scaffolding: enables the PIO-B 10-byte CP/NET frame loopback
+# test in cpnos_main (Z80 sends -> harness mirrors -> Z80 validates).
+# Off by default since session 33 — the real driver (transport_pio.c
+# pio_send_msg / pio_recv_msg, with the boot-time probe) supersedes
+# the bring-up scaffolding.  Set to 1 only to re-run the historical
+# harness mode `loopback`.
+PIO_LOOPBACK_TEST ?= 0
+# Speed test (overrides PIO_LOOPBACK_TEST when nonzero):
+#   1 = C-loop TX     (transport_pio_send_byte per byte; function-call cost)
+#   2 = inline OTIR TX (raw OUT (C),(HL); INC HL; DEC B; ~21 T/byte)
+#   3 = RX (ISR-driven; back-to-back ISRs; ring overflow at high rates)
+#   4 = RX (INIR busy-poll; IE disabled; ~21 T/byte, no IRQ overhead)
+PIO_SPEED_TEST    ?= 0
+
 LLVM_Z80 = $(CURDIR)/../../llvm-z80
 CLANG_BUILD = $(firstword $(wildcard $(LLVM_Z80)/build-linux/bin \
                                      $(LLVM_Z80)/build-macos/bin \
@@ -47,6 +61,12 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -Wno-missing-noreturn \
          -Wno-sign-conversion
 
+ifneq ($(PIO_SPEED_TEST),0)
+CFLAGS += -DPIO_SPEED_TEST=$(PIO_SPEED_TEST)
+else ifeq ($(PIO_LOOPBACK_TEST),1)
+CFLAGS += -DPIO_LOOPBACK_TEST
+endif
+
 ASFLAGS = --target=z80 -g
 
 # Server side: default is standard MP/M II (cpmsim mpm-net2).
@@ -71,8 +91,10 @@ endif
 PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
-               clang/transport_sio.o $(NETBOOT_OBJ) \
-               clang/snios.o clang/isr.o
+               clang/transport_sio.o clang/transport_pio.o \
+               clang/cpnet_dispatch.o $(NETBOOT_OBJ) \
+               clang/snios.o clang/isr.o \
+               clang/payload_checksum.o
 PAYLOAD_LD = payload.ld
 
 # ---- Relocator (PROM0 reset + #embed'd payload halves) -----------
@@ -123,11 +145,36 @@ clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
 	@mv $@.tmp $@
 	@echo "cpnos_addrs.h: $$(grep CPNOS_BDOS_ADDR $@)"
 
-clang/cpnos_main.o: cpnos_main.c clang/cpnos_addrs.h
+# Build info — UTC date + short git hash, regenerated every build so
+# the signon banner reflects the moment this PROM was burnt.  The
+# `cmp` dance avoids pointlessly retouching the file (and rebuilding
+# cpnos_main.o) when neither field changed since last build.
+.PHONY: clang/cpnos_buildinfo.h
+clang/cpnos_buildinfo.h:
+	@mkdir -p clang
+	@D=$$(date -u +"%Y-%m-%d %H:%M"); \
+	 H=$$(git rev-parse --short HEAD 2>/dev/null || echo "????"); \
+	 if ! git diff --quiet -- . 2>/dev/null; then H="$$H+"; fi; \
+	 { \
+	   echo '#ifndef CPNOS_BUILDINFO_H'; \
+	   echo '#define CPNOS_BUILDINFO_H'; \
+	   echo "#define BUILD_DATE_STR \"$$D\""; \
+	   echo "#define GIT_HASH_STR   \"$$H\""; \
+	   echo '#define BUILD_INFO_STR BUILD_DATE_STR " " GIT_HASH_STR'; \
+	   echo '#endif'; \
+	 } > $@.tmp; \
+	 if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; \
+	 else mv $@.tmp $@; echo "buildinfo: $$D $$H"; fi
+
+clang/cpnos_main.o: cpnos_main.c hal.h clang/cpnos_addrs.h clang/cpnos_buildinfo.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/resident.o: resident.c
+clang/resident.o: resident.c hal.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/payload_checksum.o: payload_checksum.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -135,11 +182,11 @@ clang/cfgtbl.o: cfgtbl.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/init.o: init.c
+clang/init.o: init.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/isr.o: isr.c
+clang/isr.o: isr.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -147,32 +194,54 @@ clang/transport_sio.o: transport_sio.c transport.h hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/netboot.o: netboot.c transport.h
+clang/transport_pio.o: transport_pio.c transport.h hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/netboot_mpm.o: netboot_mpm.c
+clang/cpnet_dispatch.o: cpnet_dispatch.c transport.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/netboot.o: netboot.c transport.h hal.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/netboot_mpm.o: netboot_mpm.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Relocator #embed's payload_a.bin/payload_b.bin — depend on them so
 # a payload change retriggers the relocator compile.
+# Relocator compile flags: same as CFLAGS but without the
+# `-Xclang -target-feature -Xclang +static-stack` sequence.  The
+# relocator stack is at SP=0xED00 (RAM) and stack-allocated C
+# locals work fine; +static-stack would put them in .bss, which
+# relocator.ld discards — link fails on .bss relocation.
+CFLAGS_RELOC = $(subst -Xclang -target-feature -Xclang +static-stack,,$(CFLAGS))
+
 clang/relocator.o: relocator.c clang/payload_a.bin clang/payload_b.bin
 	@mkdir -p clang
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS_RELOC) -c $< -o $@
 
 # ---- Link payload (no PROM awareness) ----------------------------
 
 clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
 	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) $(PAYLOAD_OBJS) -o $@
 
-clang/payload.bin: clang/payload.elf
+clang/payload.bin: clang/payload.elf cpnos-build/patch_payload_checksum.py
 	$(OBJCOPY) -O binary $< $@
+	# Patch the payload integrity checksum into the last 2 bytes.
+	# The relocator (relocator.c) recomputes this at runtime to
+	# detect missing prom1.ic65, bit rot, or version mismatch
+	# instead of hanging silently at PC=0x0039.  See
+	# cpnos-build/patch_payload_checksum.py and payload.ld
+	# (.payload_checksum section).
+	python3 cpnos-build/patch_payload_checksum.py $@
 
 # Split payload into the two chunks the relocator #embed's.  Split
-# point matches relocator.ld's .prom0_tail base (0x80): 1920 bytes
-# fit in PROM0 after the relocator.
-PROM0_TAIL_SIZE = 1920
+# point matches relocator.ld's .prom0_tail base (0xC0): 1856 bytes
+# fit in PROM0 after the relocator (0x800 - 0xC0 = 0x740 = 1856).
+PROM0_TAIL_SIZE = 1856
 clang/payload_a.bin clang/payload_b.bin: clang/payload.bin
 	dd if=$< of=clang/payload_a.bin bs=1 count=$(PROM0_TAIL_SIZE) status=none
 	dd if=$< of=clang/payload_b.bin bs=1 skip=$(PROM0_TAIL_SIZE) status=none

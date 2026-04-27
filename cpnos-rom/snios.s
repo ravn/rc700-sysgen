@@ -55,6 +55,8 @@
     .extern _cfgtbl
     .extern _transport_send_byte
     .extern _transport_recv_byte
+    .extern _cpnet_send_msg
+    .extern _cpnet_recv_msg
 
 ;----------------------------------------------------------------
 ;  SNIOS jump table  (first 24 bytes — public ABI for NDOS)
@@ -66,14 +68,14 @@
     .global _snios_ntwker, _snios_ntwkbt, _snios_ntwkdn
 
 _snios_jt:
-_snios_ntwkin:  jp NTWKIN       ; +00 NETWORK INITIALIZATION
-_snios_ntwkst:  jp NTWKST       ; +03 NETWORK STATUS
-_snios_cnftbl:  jp CNFTBL       ; +06 RETURN CONFIG TABLE ADDRESS
-_snios_sndmsg:  jp SNDMSG       ; +09 SEND MESSAGE ON NETWORK
-_snios_rcvmsg:  jp RCVMSG       ; +0C RECEIVE MESSAGE FROM NETWORK
-_snios_ntwker:  jp NTWKER       ; +0F NETWORK ERROR
-_snios_ntwkbt:  jp NTWKBT       ; +12 NETWORK WARM BOOT
-_snios_ntwkdn:  jp NTWKDN       ; +15 NETWORK SHUTDOWN
+_snios_ntwkin:  jp NTWKIN          ; +00 NETWORK INITIALIZATION
+_snios_ntwkst:  jp NTWKST          ; +03 NETWORK STATUS
+_snios_cnftbl:  jp CNFTBL          ; +06 RETURN CONFIG TABLE ADDRESS
+_snios_sndmsg:  jp SNDMSG_DISPATCH ; +09 SEND MESSAGE ON NETWORK
+_snios_rcvmsg:  jp RCVMSG_DISPATCH ; +0C RECEIVE MESSAGE FROM NETWORK
+_snios_ntwker:  jp NTWKER          ; +0F NETWORK ERROR
+_snios_ntwkbt:  jp NTWKBT          ; +12 NETWORK WARM BOOT
+_snios_ntwkdn:  jp NTWKDN          ; +15 NETWORK SHUTDOWN
 
 ;----------------------------------------------------------------
 ;  SNIOS body
@@ -99,6 +101,22 @@ _snios_rcvmsg_c:
     ld   b, h
     ld   c, l
     jp   RCVMSG
+
+;----------------------------------------------------------------
+;  jt dispatch trampolines.  NDOS reaches the SNDMSG/RCVMSG slots
+;  through the resident jt copy at 0xEA00 with msg pointer in BC.
+;  cpnet_send_msg / cpnet_recv_msg are sdcccall(1) C functions —
+;  they expect the pointer in HL.  Convert and tail-call.
+;----------------------------------------------------------------
+SNDMSG_DISPATCH:
+    ld   h, b
+    ld   l, c
+    jp   _cpnet_send_msg
+
+RCVMSG_DISPATCH:
+    ld   h, b
+    ld   l, c
+    jp   _cpnet_recv_msg
 
 ;================================================
 ;= CHARACTER I/O WRAPPERS                       =
@@ -426,25 +444,35 @@ SNDERR1:
 ;================================================
 ;= NTWKIN - NETWORK INITIALIZATION               =
 ;================================================
-; CP/NET 1.2: no handshake needed.  Drain any stale bytes, set SLAVEID
-; and the ACTIVE flag.  Login is handled by NDOS (FNC=64).
+; CP/NET 1.2: no handshake needed.  Drain any stale bytes from the
+; SIO RX buffer (only meaningful when active_transport == sio; PIO has
+; no buffered RX), set the ACTIVE flag.
 NTWKIN:
-    ; Drain any bytes buffered during boot.  transport_recv_byte with a
-    ; tiny timeout returns promptly when the SIO RX buffer is empty.
+    .extern _active_transport
+    .extern _transport_sio_vt
+    ; Skip SIO drain when active != SIO (active==PIO has nothing to
+    ; drain and the SIO RX buffer is full of irrelevant null_modem
+    ; noise that would otherwise eat ~300ms emulated).
+    ld   hl, (_active_transport)
+    ld   de, _transport_sio_vt
+    or   a                          ; clear carry for sbc
+    sbc  hl, de
+    jr   nz, NTWKIN_DONE            ; HL != SIO vtable -> skip drain
+    ; active == SIO: drain RX.  transport_recv_byte with a tiny
+    ; per-poll budget returns TRANSPORT_TIMEOUT promptly when the
+    ; buffer is empty.
 NTWKDR:
-    ld   hl, 64                     ; small timeout per poll
+    ld   hl, 64
     call _transport_recv_byte
     ld   a, d
     inc  a
-    jr   nz, NTWKDR                 ; got a byte, keep draining
-    ; SLAVEID is already seeded in cfgtbl.c from the -DRC702_SLAVEID=
-    ; build flag, so (unlike the DRI original at CFGTBL+1=0xFF) we don't
-    ; need to rewrite it here.
+    jr   nz, NTWKDR
+NTWKIN_DONE:
     ; Mark network active.
     ld   a, ACTIVE
     ld   (_cfgtbl + CFG_NETST), a
     xor  a
-    ld   (_cfgtbl + CFG_SIZ), a     ; clear SIZ — discard LST output
+    ld   (_cfgtbl + CFG_SIZ), a
     ret                             ; A=0 success
 
 ;================================================

@@ -158,9 +158,9 @@ void init_hardware(void) {
     extern void clear_screen(void);
     clear_screen();
 
-    /* Visible bring-up marker: row 1, cols 0..6, so we can eyeball
-     * init_hardware completion.  Row 0 is left for CCP/loader output;
-     * row 1 is the dedicated boot-progress strip (see BOOT_MARK). */
+    /* Visible bring-up marker: "INIT OK" via BOOT_MARK at indices
+     * 0..6 (display row 0, cols 60..66 — upper-right strip).  See
+     * BOOT_MARK in hal.h for the placement rationale. */
     {
         static const char marker[] = "INIT OK";
         for (uint8_t i = 0; i < sizeof(marker) - 1; ++i) {

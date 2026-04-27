@@ -74,7 +74,27 @@ SECTIONS {
     *(.rodata*)
     *(.data*)
 
+    /* Pad to a 2-byte boundary so the word-additive sum the
+     * relocator computes processes whole words.  Without this,
+     * an odd-sized .payload would leave one byte uncovered and
+     * the patcher rejects odd-length input. */
+    . = ALIGN(2);
+
+    /* Payload integrity checksum — last 2 bytes of the .payload
+     * section.  Placeholder is 0xFFFF at link time;
+     * cpnos-build/patch_payload_checksum.py overwrites it post-link
+     * with the correction value that makes the word-additive sum
+     * over the entire .payload equal PAYLOAD_CHECKSUM_MAGIC
+     * (0xCAFE).  The relocator (relocator.c) recomputes this sum
+     * after copying the payload to RAM and halts on mismatch with
+     * "BAD CHECKSUM" displayed.  Catches missing prom1.ic65, bit
+     * rot, and version mismatches.  KEEP because the placeholder
+     * has no incoming references. */
+    __payload_checksum_start = .;
+    KEEP(*(.payload_checksum))
     __payload_end = .;
+    ASSERT(__payload_end - __payload_checksum_start == 2,
+           ".payload_checksum must be exactly 2 bytes")
   } > PAYLOAD
 
   ASSERT(_bios_boot == 0xED00, "BIOS jump table must start at 0xED00")
@@ -89,6 +109,16 @@ SECTIONS {
    * doesn't fit.  Here we just guard the generous upper bound. */
   ASSERT(__payload_size <= 0x1000,
          "payload exceeds 4 KB combined PROM budget")
+
+  /* CRITICAL: payload must NOT overlap display memory at 0xF800.
+   * If it did, the relocator would write code/rodata into display RAM
+   * at boot, then init_hardware's clear_screen() would wipe it back
+   * to spaces — silently corrupting any string literals / const arrays
+   * the compiler placed there.  Symptom: "INIT OK" boot marker shows
+   * blank, RC702_LOGIN_PWD turns into spaces, signon string vanishes.
+   * Catch at link time. */
+  ASSERT(__payload_end <= 0xF800,
+         "payload overflows into display memory at 0xF800 — shrink it")
 
   .scratch_bss (NOLOAD) : {
     __scratch_bss_start = .;

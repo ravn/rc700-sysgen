@@ -225,11 +225,16 @@ void isr_pio_kbd(void) {
     );
 }
 
-/* PIO-B parallel ISR — CP/NET fast-link bring-up stub.  Stores the
- * latest byte to pio_par_byte and bumps pio_par_count.  Both BSS
- * vars live in resident.c.  Replaced by the real CP/NET RX ring
- * once the protocol layer lands; for now it's a "bytes flowed" counter
- * the test harness polls via MAME Lua memory tap. */
+/* PIO-B parallel ISR — used only by the speed-test build (PIO_SPEED_TEST=3).
+ *
+ * Runtime CP/NET on PIO-B does NOT use this ISR: the chip's IE flip-flop
+ * is held off and Z80 reads bytes via INIR busy-poll (see
+ * transport_pio.c::pio_inir_chunk).  The ISR exists for the legacy
+ * host-send harness (uint8_t pio_par_count via tap.lua) and for the
+ * speed-rx variant (uint16_t pio_rx_count + pio_test_done).
+ *
+ * Shadow registers (after exx + ex af,af') so we don't perturb mainline
+ * code's register state. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
@@ -238,10 +243,23 @@ void isr_pio_par(void) {
         "exx\n\t"
 
         "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A */
-        "ld   (_pio_par_byte), a\n\t"
+        "ld   (_pio_par_byte), a\n\t"   /* harness watches this */
 
         "ld   hl, _pio_par_count\n\t"
-        "inc  (hl)\n\t"
+        "inc  (hl)\n\t"              /* uint8_t counter */
+
+        /* uint16_t pio_rx_count: increments per byte.  Wraps to 0
+         * after 65536 bytes; on wrap, set pio_test_done = 1.  Used
+         * by the speed-rx benchmark only. */
+        "ld   hl, (_pio_rx_count)\n\t"
+        "inc  hl\n\t"
+        "ld   (_pio_rx_count), hl\n\t"
+        "ld   a, h\n\t"
+        "or   l\n\t"
+        "jr   nz, 1f\n\t"
+        "ld   a, 1\n\t"
+        "ld   (_pio_test_done), a\n\t"
+        "1:\n\t"
 
         "exx\n\t"
         ".byte 0x08\n\t"           /* ex af,af' */

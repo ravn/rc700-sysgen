@@ -64,20 +64,25 @@ enum : uint16_t {
 #define DISPLAY_ADDR 0xF800
 #define DISPLAY_SIZE 2000        /* 80 x 25 */
 
-/* Boot-progress marker: write a char to display row 1, column `col`.
- * Row 1 is reserved for boot stages so it stays clean — netboot's
- * impl_conout('.') loader dots and CCP's prompt land on row 0.
- * Call only after init_hardware (CRT alive).  Reserved columns
- * 0..6 = "INIT OK" written by init_hardware.
+/* Boot-progress marker: write a char to display row 0, right-justified
+ * starting at column BOOT_MARK_BASE (=60).  Indices 0..18 occupy cols
+ * 60..78 — the upper-right corner.  Call only after init_hardware
+ * (CRT alive).  Reserved indices 0..6 = "INIT OK" written by
+ * init_hardware; 8..14 by netboot_mpm; 15..18 by cpnos_main.
+ *
+ * Upper-right placement keeps markers visible after nos_handoff prints
+ * the "RC702 CP/NOS v1.2" banner on row 1 and after CCP starts writing
+ * its prompt at (0,0) — only a long scroll past row 24 ages them out.
  *
  * The local volatile `_dst` is *not* cosmetic.  Without it clang's
- * Z80 backend folds `((uint8_t*)0xF800)[80 + const]` as `0xF800 +
- * const`, dropping the `+80` (UB-class fold for casts of integer
- * literals — same issue family as ravn/llvm-z80#49).  Forcing the
- * base through a variable defeats the fold. */
+ * Z80 backend folds `((uint8_t*)0xF800)[CONST + const]` as
+ * `0xF800 + CONST + const`, dropping any further `+i` runtime offset
+ * (UB-class fold — same issue family as ravn/llvm-z80#49).  Forcing
+ * the base through a variable defeats the fold. */
+#define BOOT_MARK_BASE 60
 #define BOOT_MARK(col, ch) do { \
     volatile uint8_t *_dst = (volatile uint8_t *)DISPLAY_ADDR; \
-    _dst[80 + (col)] = (uint8_t)(ch); \
+    _dst[BOOT_MARK_BASE + (col)] = (uint8_t)(ch); \
 } while (0)
 
 #endif /* CPNOS_HAL_H */
