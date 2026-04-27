@@ -329,10 +329,7 @@ static void nos_handoff(void) {
      * Banner is .data (mutable) so the patch sticks at runtime.
      * Build date + short git hash come from cpnos_buildinfo.h. */
     static char banner[] = "RC702 CP/NOS XXX " BUILD_INFO_STR "\r\n";
-    const char *xname = active_transport->name;
-    banner[13] = xname[0];
-    banner[14] = xname[1];
-    banner[15] = xname[2];
+    __builtin_memcpy(&banner[13], active_transport->name, 3);
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
 
     /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to NDOSRL +

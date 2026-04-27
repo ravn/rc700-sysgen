@@ -152,7 +152,7 @@ clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
 .PHONY: clang/cpnos_buildinfo.h
 clang/cpnos_buildinfo.h:
 	@mkdir -p clang
-	@D=$$(date -u +%Y-%m-%d); \
+	@D=$$(date -u +"%Y-%m-%d %H:%M"); \
 	 H=$$(git rev-parse --short HEAD 2>/dev/null || echo "????"); \
 	 if ! git diff --quiet -- . 2>/dev/null; then H="$$H+"; fi; \
 	 { \
