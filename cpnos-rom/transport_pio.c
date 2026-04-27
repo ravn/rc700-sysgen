@@ -103,15 +103,16 @@ static void pio_b_set_input(void) {
     pio_b_dir = PIO_DIR_INPUT;
 }
 
-/* Send a complete CP/NET frame.  msg points to FMT byte.  Wire
- * length = (SIZ+1) payload + 5 hdr + 1 CKS = SIZ + 7 bytes; must
- * fit in a single OTIR (<= 256).
+/* The frame-level PIO transport (raw SCBs, used with the host-side
+ * cpnet_pio_server.py Python responder) is disabled on this branch.
+ * On pio-mpm-netboot the SNIOS envelope rides on PIO byte primitives
+ * (see snios.s edit), so this raw-frame path is dead.  #if 0 instead
+ * of deleting so the merge target (main) keeps the symbols visible
+ * via the rest of the codebase.
  *
- * Computes the trailing CKS in place at msg[SIZ+6] (sum-to-zero,
- * two's complement of the body sum).  The SIO transport's caller
- * (netboot_mpm::cpnet_xact) doesn't fill the CKS slot because the
- * SIO wire envelope (snios.s SNDMSG) accumulates per-byte; PIO has
- * no envelope, so CKS is our responsibility. */
+ * If you need the raw-frame path back, set this to #if 1 and put
+ * the probe block back into cpnos_main.c. */
+#if 0
 RESIDENT
 uint8_t pio_send_msg(uint8_t *msg) {
     pio_b_set_output();
@@ -239,21 +240,36 @@ cpnet_transport_t transport_pio_vt = {
     .recv_msg = pio_recv_msg,
     .name     = "PIO",
 };
-
-/* ---- Compatibility shims for the bring-up scaffolding ----------
- * cpnos_main.c's PIO_LOOPBACK_TEST and PIO_SPEED_TEST=1 builds use
- * these byte-level entries.  Compiled out otherwise — they were
- * pulled in by RESIDENT's `used` attribute even when no caller
- * existed, eating ~50 bytes of payload that we need for the banner. */
-#if defined(PIO_LOOPBACK_TEST) || (defined(PIO_SPEED_TEST) && PIO_SPEED_TEST == 1)
-RESIDENT
-void transport_pio_send_byte(uint8_t c) {
-    pio_b_set_output();
-    _port_out(PORT_PIO_B_DATA, c);
-}
 #endif
 
-#if defined(PIO_LOOPBACK_TEST)
+/* ---- Byte-level PIO transport ---------------------------------
+ * snios.s (PIO-only experiment) calls these for every envelope byte.
+ *
+ * Stale-prefix mitigation on Mode 1->Mode 0 transitions: MAME's
+ * z80pio.cpp::set_mode(MODE_OUTPUT) immediately fires
+ * out_pb_callback with the chip's current m_output latch.  After a
+ * direction flip there's a stale value from the previous send sitting
+ * in m_output; if we just `_port_out(CTRL, MODE_OUTPUT)` and then
+ * `_port_out(DATA, c)`, the peer sees stale_byte + c.  When the peer
+ * is mpm-net2's SERVER.RSP, that stale byte breaks the protocol
+ * (received between ACK and SOH, mpm-net2 doesn't tolerate it).
+ * Workaround: write the data byte to the data port BEFORE the mode
+ * switch.  That updates m_output while still in input mode (the
+ * chip latches it without emitting), then the mode switch fires the
+ * callback with the byte we actually want to send.  No stale prefix.
+ * (See ravn/mame#7 for the underlying chip-emulation behaviour.) */
+RESIDENT
+void transport_pio_send_byte(uint8_t c) {
+    if (pio_b_dir == PIO_DIR_OUTPUT) {
+        _port_out(PORT_PIO_B_DATA, c);
+        return;
+    }
+    _port_out(PORT_PIO_B_CTRL, PIO_IE_DISABLE);
+    _port_out(PORT_PIO_B_DATA, c);              /* preload m_output */
+    _port_out(PORT_PIO_B_CTRL, PIO_MODE_OUTPUT); /* fires callback with c */
+    pio_b_dir = PIO_DIR_OUTPUT;
+}
+
 RESIDENT
 uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
     pio_b_set_input();
@@ -263,7 +279,6 @@ uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
     }
     return TRANSPORT_TIMEOUT;
 }
-#endif
 
 /* Speed-test BSS variables (referenced by isr.c).  Kept for the
  * speed-test build only. */

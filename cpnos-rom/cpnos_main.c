@@ -379,17 +379,15 @@ static void nos_handoff(void) {
     cfgtbl_init();
     init_hardware();
 
-    /* Transport probe.  Try PIO first (Option P fast link); on PONG
-     * within ~100 ms emulated, switch active_transport to PIO so
-     * netboot + runtime CP/NET both go through the parallel port.
-     * On no-PONG, leave active_transport at its default (SIO) and
-     * netboot continues over SIO-A async as before. */
-    if (transport_pio_vt.probe()) {
-        active_transport = &transport_pio_vt;
-        BOOT_MARK(7, 'P');             /* PIO transport selected */
-    } else {
-        BOOT_MARK(7, 'S');             /* SIO fallback (default) */
-    }
+    /* Experiment branch (pio-mpm-netboot): SNIOS now drives PIO byte
+     * primitives directly (snios.s edit).  The frame-level
+     * transport_pio_vt + pio_probe / pio_send_msg / pio_recv_msg
+     * machinery is unused on this branch and gets gc-section'd; we
+     * just keep active_transport at its default (transport_sio_vt,
+     * whose send/recv route through SNDMSG/RCVMSG, which now talk
+     * PIO).  Mark 'P' unconditionally so the strip indicates the
+     * physical wire (PIO) even though the SNIOS envelope is on top. */
+    BOOT_MARK(7, 'P');
 
     uint16_t entry = NETBOOT();
     BOOT_MARK(15, entry ? '+' : '-');  /* netboot return: + ok, - fail */
