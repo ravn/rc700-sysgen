@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """CP/NET 1.2 server over MAME cpnet_bridge (PIO-B parallel link).
 
-Talks to MAME's cpnet_bridge slot card on TCP :4003.  Reads CP/NET
-SCBs raw (no SOH/ENQ/ACK envelope — PIO Mode 0/1 hardware handshake
-provides per-byte delivery), dispatches via netboot_server's
-existing handler, sends responses back as raw SCBs.
+Two operating modes:
 
-Wire shape (slave -> master, repeated):
+1. **Self-contained** (default): dispatches CP/NET frames directly via
+   netboot_server's handler.  Useful when no real CP/NET server is
+   available and you want a quick Python responder for cpnos
+   bring-up.
+
+2. **Upstream proxy** (`--upstream HOST:PORT`): forwards each frame to
+   a real CP/NET server (e.g. z80pack mpm-net2 SERVER.RSP listening
+   on :4002) wrapped in the standard SIO ENQ/ACK/SOH/STX/ETX/EOT
+   envelope.  Z80 stays on raw-PIO speed (no envelope on its side);
+   the host pays the envelope cost.  Used by harness mode
+   `pio-mpm-netboot`.
+
+Wire shape on the PIO (downstream) side, slave -> master:
     [stale-prefix-byte]?      one chip-emulation artifact byte that
                               Z80-PIO Mode 1 -> Mode 0 transitions
                               emit (m_output stale latch); see
@@ -15,21 +24,18 @@ Wire shape (slave -> master, repeated):
     payload[SIZ+1]            DRI SIZ-minus-1 convention
     CKS                       sum-to-zero (two's complement)
 
-Detect/strip the stale prefix by structure: the slave's SID is
-known (RC702_SLAVEID=0x01), DID is 0x00 (master), FMT is 0x00
-(request).  If SID lands at offset 3 instead of 2, a prefix is
-present.
+Stale-prefix detection by structure: the slave's SID is known
+(RC702_SLAVEID=0x01), DID is 0x00 (master), FMT is 0x00 (request).
+If SID lands at offset 3 instead of 2, a prefix is present.
 
 Master -> slave responses go without prefix (Mode 0 -> Mode 1
 transitions in MAME don't fire out_pb_callback).
 
-Custom probe FNC (0xC0): mirror as PONG.  Other FNCs deferred to
-netboot_server.dispatch_sndmsg so the full netboot sequence works
-the same way the SIO server does (LOGIN, OPEN A:CPNOS.IMG,
-READ-SEQ loop, CLOSE).
+Custom probe FNC (0xC0) is always handled locally — mpm-net2 doesn't
+know it.  Reply is a PONG with mirrored header.
 
 Usage:
-    python3 cpnet_pio_server.py [BRIDGE_PORT]   (default 4003)
+    python3 cpnet_pio_server.py [BRIDGE_PORT] [--upstream HOST:PORT]
 """
 
 import os
@@ -62,6 +68,10 @@ MASTER_DID    = 0x00
 PING_FNC      = 0xC0
 PING_BYTE     = ord('P')
 PONG_BYTE     = ord('O')
+
+# DRI SIO-envelope constants (used in --upstream mode; mirror the
+# Z80-side snios.s wire protocol).
+SOH, STX, ETX, EOT, ENQ, ACK, NAK = 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x15
 
 
 def _recv_exact(sock, n):
@@ -134,8 +144,97 @@ def handle_ping(hdr, payload):
     return bytes([PONG_BYTE])
 
 
-def handle(sock):
-    print(f"connected to bridge {sock.getpeername()}")
+# ---- Upstream SIO-envelope client (talks to mpm-net2's SERVER.RSP) ---
+
+def _recv_byte_upstream(sock):
+    b = sock.recv(1)
+    if not b:
+        raise EOFError("upstream closed during envelope exchange")
+    return b[0]
+
+
+def upstream_send(sock, hdr, payload):
+    """Send one SCB to upstream (master) per DRI SIO envelope.
+
+    Sequence (slave-side; we play the slave to mpm-net2):
+      -> ENQ
+      <- ACK
+      -> SOH + 5 hdr + HCS         (HCS makes SOH+hdr+HCS sum-to-zero)
+      <- ACK
+      -> STX + payload + ETX + CKS + EOT
+      <- ACK
+    """
+    # ENQ
+    sock.sendall(bytes([ENQ]))
+    a = _recv_byte_upstream(sock)
+    if a != ACK:
+        raise IOError(f"upstream did not ACK ENQ (got 0x{a:02x})")
+    # SOH + hdr + HCS
+    hcs = (-(SOH + sum(hdr))) & 0xFF
+    sock.sendall(bytes([SOH]) + bytes(hdr) + bytes([hcs]))
+    a = _recv_byte_upstream(sock)
+    if a != ACK:
+        raise IOError(f"upstream did not ACK header (got 0x{a:02x})")
+    # STX + data + ETX + CKS + EOT (payload is already SIZ+1 bytes)
+    cks = (-(STX + sum(payload) + ETX)) & 0xFF
+    sock.sendall(bytes([STX]) + bytes(payload) + bytes([ETX, cks, EOT]))
+    a = _recv_byte_upstream(sock)
+    if a != ACK:
+        raise IOError(f"upstream did not ACK data (got 0x{a:02x})")
+
+
+def upstream_recv(sock):
+    """Receive one SCB from upstream (master) per DRI SIO envelope.
+
+    Returns (hdr, payload) — payload is SIZ+1 bytes per DRI.
+    """
+    # Wait for ENQ (skip stray bytes)
+    while True:
+        b = _recv_byte_upstream(sock)
+        if (b & 0x7F) == ENQ:
+            break
+    sock.sendall(bytes([ACK]))
+    # SOH + 5 hdr + HCS
+    soh = _recv_byte_upstream(sock)
+    if (soh & 0x7F) != SOH:
+        raise IOError(f"upstream sent 0x{soh:02x}, expected SOH")
+    hdr = bytes(_recv_byte_upstream(sock) for _ in range(5))
+    hcs = _recv_byte_upstream(sock)
+    s = (SOH + sum(hdr) + hcs) & 0xFF
+    if s != 0:
+        raise IOError(f"upstream HCS bad: sum={s:#04x}")
+    sock.sendall(bytes([ACK]))
+    # STX + data + ETX + CKS + EOT
+    stx = _recv_byte_upstream(sock)
+    if (stx & 0x7F) != STX:
+        raise IOError(f"upstream sent 0x{stx:02x}, expected STX")
+    n = hdr[4] + 1
+    payload = bytes(_recv_byte_upstream(sock) for _ in range(n))
+    etx = _recv_byte_upstream(sock)
+    if (etx & 0x7F) != ETX:
+        raise IOError(f"upstream sent 0x{etx:02x}, expected ETX")
+    cks = _recv_byte_upstream(sock)
+    eot = _recv_byte_upstream(sock)
+    if (eot & 0x7F) != EOT:
+        raise IOError(f"upstream sent 0x{eot:02x}, expected EOT")
+    s = (STX + sum(payload) + ETX + cks) & 0xFF
+    if s != 0:
+        raise IOError(f"upstream data CKS bad: sum={s:#04x}")
+    sock.sendall(bytes([ACK]))
+    return hdr, payload
+
+
+def handle(sock, upstream=None):
+    """Service the PIO bridge connection.
+
+    upstream: optional connected socket to an envelope-speaking
+              CP/NET server.  When given, all non-PING frames are
+              forwarded there (wrapped in SIO envelope); when None,
+              they're dispatched locally via netboot_server.
+    """
+    where = (f"upstream {upstream.getpeername()}" if upstream
+             else "local netboot_server")
+    print(f"connected to bridge {sock.getpeername()}; routing to {where}")
     n_frames = 0
     total_recv_ms = 0.0
     total_dispatch_ms = 0.0
@@ -146,19 +245,35 @@ def handle(sock):
         t_post_recv = time.monotonic()
         fnc = hdr[3]
         if fnc == PING_FNC:
+            # Probe stays local — the upstream server (mpm-net2)
+            # doesn't recognise FNC=0xC0.
             reply_payload = handle_ping(hdr, payload)
+            reply_fmt = 0x01
+            reply_did = hdr[2]
+            reply_sid = hdr[1]
             reply_fnc = PING_FNC
+        elif upstream is not None:
+            # Forward to upstream wrapped in SIO envelope.
+            upstream_send(upstream, hdr, payload)
+            reply_hdr, reply_payload = upstream_recv(upstream)
+            reply_fmt = reply_hdr[0]
+            reply_did = reply_hdr[1]
+            reply_sid = reply_hdr[2]
+            reply_fnc = reply_hdr[3]
         else:
             reply_payload = netboot_server.dispatch_sndmsg(hdr, payload)
             if reply_payload is None:
                 print(f"  [no reply for FNC={fnc:02x}; client should retry]")
                 continue
+            reply_fmt = 0x01
+            reply_did = hdr[2]
+            reply_sid = hdr[1]
             reply_fnc = fnc
         t_post_dispatch = time.monotonic()
         send_scb(sock,
-                 fmt=0x01,
-                 did=hdr[2],                  # was SID
-                 sid=hdr[1],                  # was DID
+                 fmt=reply_fmt,
+                 did=reply_did,
+                 sid=reply_sid,
                  fnc=reply_fnc,
                  payload=reply_payload)
         t_post_send = time.monotonic()
@@ -182,12 +297,30 @@ def handle(sock):
                   flush=True)
 
 
-def run(port):
-    """Listen on :port; MAME's bitbanger-backed cpnet_bridge slot
-    connects to us as a TCP client.  This flipped from the old
-    listener-thread design (where MAME was the listener); the new
-    bitbanger-based bridge uses MAME's standard OSD socket layer
-    which interprets `socket.host:port` as a CONNECT, not bind."""
+def run(port, upstream_addr=None):
+    """Listen on :port for MAME's cpnet_bridge.  When upstream_addr
+    is "host:port", connect there too and proxy non-PING frames."""
+    upstream_sock = None
+    if upstream_addr:
+        u_host, u_port = upstream_addr.rsplit(":", 1)
+        u_port = int(u_port)
+        print(f"cpnet_pio_server: connecting upstream to {u_host}:{u_port}")
+        # Retry briefly — mpm-net2 may still be coming up.
+        end = time.monotonic() + 30.0
+        while time.monotonic() < end:
+            try:
+                upstream_sock = socket.create_connection((u_host, u_port),
+                                                        timeout=5.0)
+                break
+            except OSError:
+                time.sleep(0.2)
+        if upstream_sock is None:
+            sys.exit(f"cpnet_pio_server: could not connect upstream "
+                     f"{u_host}:{u_port}")
+        upstream_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        upstream_sock.settimeout(30.0)
+        print(f"cpnet_pio_server: upstream connected")
+
     print(f"cpnet_pio_server: listening on 127.0.0.1:{port}")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -200,20 +333,26 @@ def run(port):
         sys.exit(f"cpnet_pio_server: no client connected within 60s")
     finally:
         listener.close()
-    # Disable Nagle on the connected socket so CP/NET responses
-    # reach MAME promptly (frames are well below MSS, default Nagle
-    # plus delayed-ACK adds ~40 ms per round-trip).
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.settimeout(60.0)
     print(f"cpnet_pio_server: client connected from {peer}")
     try:
-        handle(sock)
-    except (EOFError, socket.timeout) as e:
+        handle(sock, upstream=upstream_sock)
+    except (EOFError, socket.timeout, IOError) as e:
         print(f"session ended: {type(e).__name__}: {e}")
     finally:
         sock.close()
+        if upstream_sock:
+            upstream_sock.close()
 
 
 if __name__ == "__main__":
-    p = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
-    run(p)
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("port", nargs="?", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--upstream", default=None,
+                    help="HOST:PORT of an envelope-speaking CP/NET server "
+                         "(e.g. 127.0.0.1:4002 for mpm-net2).  When given, "
+                         "non-PING frames are forwarded with SIO envelope.")
+    args = ap.parse_args()
+    run(args.port, upstream_addr=args.upstream)
