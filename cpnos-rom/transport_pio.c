@@ -237,17 +237,23 @@ cpnet_transport_t transport_pio_vt = {
     .probe    = pio_probe,
     .send_msg = pio_send_msg,
     .recv_msg = pio_recv_msg,
+    .name     = "PIO",
 };
 
 /* ---- Compatibility shims for the bring-up scaffolding ----------
  * cpnos_main.c's PIO_LOOPBACK_TEST and PIO_SPEED_TEST=1 builds use
- * these byte-level entries.  Not part of runtime CP/NET. */
+ * these byte-level entries.  Compiled out otherwise — they were
+ * pulled in by RESIDENT's `used` attribute even when no caller
+ * existed, eating ~50 bytes of payload that we need for the banner. */
+#if defined(PIO_LOOPBACK_TEST) || (defined(PIO_SPEED_TEST) && PIO_SPEED_TEST == 1)
 RESIDENT
 void transport_pio_send_byte(uint8_t c) {
     pio_b_set_output();
     _port_out(PORT_PIO_B_DATA, c);
 }
+#endif
 
+#if defined(PIO_LOOPBACK_TEST)
 RESIDENT
 uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
     pio_b_set_input();
@@ -257,6 +263,7 @@ uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
     }
     return TRANSPORT_TIMEOUT;
 }
+#endif
 
 /* Speed-test BSS variables (referenced by isr.c).  Kept for the
  * speed-test build only. */

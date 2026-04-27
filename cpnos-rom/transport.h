@@ -44,6 +44,9 @@ typedef struct cpnet_transport {
     /* recv_msg(msg): read header (5 B), parse SIZ, read payload+CKS
      * into the same buffer.  Returns 0 success, 0xFF error. */
     uint8_t (*recv_msg)(uint8_t *msg);
+    /* 3-character transport tag for the signon banner ("PIO"/"SIO").
+     * Not NUL-terminated — read exactly 3 bytes. */
+    const char *name;
 } cpnet_transport_t;
 
 extern cpnet_transport_t transport_sio_vt;

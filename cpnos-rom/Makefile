@@ -145,7 +145,28 @@ clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
 	@mv $@.tmp $@
 	@echo "cpnos_addrs.h: $$(grep CPNOS_BDOS_ADDR $@)"
 
-clang/cpnos_main.o: cpnos_main.c hal.h clang/cpnos_addrs.h
+# Build info — UTC date + short git hash, regenerated every build so
+# the signon banner reflects the moment this PROM was burnt.  The
+# `cmp` dance avoids pointlessly retouching the file (and rebuilding
+# cpnos_main.o) when neither field changed since last build.
+.PHONY: clang/cpnos_buildinfo.h
+clang/cpnos_buildinfo.h:
+	@mkdir -p clang
+	@D=$$(date -u +%Y-%m-%d); \
+	 H=$$(git rev-parse --short HEAD 2>/dev/null || echo "????"); \
+	 if ! git diff --quiet -- . 2>/dev/null; then H="$$H+"; fi; \
+	 { \
+	   echo '#ifndef CPNOS_BUILDINFO_H'; \
+	   echo '#define CPNOS_BUILDINFO_H'; \
+	   echo "#define BUILD_DATE_STR \"$$D\""; \
+	   echo "#define GIT_HASH_STR   \"$$H\""; \
+	   echo '#define BUILD_INFO_STR BUILD_DATE_STR " " GIT_HASH_STR'; \
+	   echo '#endif'; \
+	 } > $@.tmp; \
+	 if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; \
+	 else mv $@.tmp $@; echo "buildinfo: $$D $$H"; fi
+
+clang/cpnos_main.o: cpnos_main.c hal.h clang/cpnos_addrs.h clang/cpnos_buildinfo.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 

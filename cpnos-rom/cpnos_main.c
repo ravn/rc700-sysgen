@@ -20,7 +20,8 @@
 #include <stdint.h>
 #include "hal.h"
 #include "transport.h"
-#include "cpnos_addrs.h"     /* CPNOS_BDOS_ADDR — extracted from cpnos.sym */
+#include "cpnos_addrs.h"           /* CPNOS_BDOS_ADDR — extracted from cpnos.sym */
+#include "clang/cpnos_buildinfo.h" /* BUILD_INFO_STR — regenerated every build */
 
 extern void init_hardware(void);
 extern void cfgtbl_init(void);
@@ -323,13 +324,16 @@ extern uint16_t netboot_mpm(void);
 extern void impl_conout(uint8_t c);
 
 static void nos_handoff(void) {
-    static const char signon[] = "RC702 CP/NOS v1.2\r\n";
-
-    /* Print signon via our resident impl directly — the BIOS-JT is
-     * still pristine at 0xED00 (NDOS COLDST hasn't walked it yet). */
-    for (const char *p = signon; *p; ++p) {
-        impl_conout((uint8_t)*p);
-    }
+    /* Banner: "RC702 CP/NOS XXX yyyy-mm-dd <hash>\r\n".  XXX is patched
+     * in place from active_transport->name (3 chars, not NUL-term).
+     * Banner is .data (mutable) so the patch sticks at runtime.
+     * Build date + short git hash come from cpnos_buildinfo.h. */
+    static char banner[] = "RC702 CP/NOS XXX " BUILD_INFO_STR "\r\n";
+    const char *xname = active_transport->name;
+    banner[13] = xname[0];
+    banner[14] = xname[1];
+    banner[15] = xname[2];
+    for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
 
     /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to NDOSRL +
      * 0x300 = 0xCF00.  NDOS COLDST reads ZP[1..2] = 0xCF03 and walks

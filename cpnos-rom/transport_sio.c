@@ -61,4 +61,5 @@ cpnet_transport_t transport_sio_vt = {
     .probe    = sio_probe,
     .send_msg = snios_sndmsg_c,
     .recv_msg = snios_rcvmsg_c,
+    .name     = "SIO",
 };

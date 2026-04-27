@@ -196,6 +196,12 @@ def run(port):
             time.sleep(0.2)
     if sock is None:
         sys.exit(f"cpnet_pio_server: could not connect to :{port}")
+    # Disable Nagle.  CP/NET frames are 43/171 bytes — far below the
+    # localhost MSS — and Python's reply must reach MAME ASAP each
+    # round-trip.  Without TCP_NODELAY the kernel holds small segments
+    # waiting for receiver ACK, and macOS delays the ACK up to ~40 ms,
+    # adding that to every round-trip.
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.settimeout(60.0)
     try:
         handle(sock)
