@@ -29,6 +29,39 @@ extern uint8_t snios_jt[24];
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
 extern void enter_coldst(void) __attribute__((noreturn));
 
+#ifdef PIO_LOOPBACK_TEST
+/* Bring-up smoke test: send 6 known bytes via PIO-B Mode 0, then
+ * receive 6 bytes via Mode 1 input.  The host harness reads the
+ * outgoing bytes off cpnet_bridge :4003, echoes them back, and
+ * verifies pio_test_recv[] via Lua memory probe (address pulled
+ * from payload.elf via llvm-nm).  Proves the bidirectional byte
+ * path through cpnet_bridge + ISR ring buffer + transport_pio_*. */
+extern void     transport_pio_send_byte(uint8_t c);
+extern uint16_t transport_pio_recv_byte(uint16_t timeout_ticks);
+
+static const uint8_t pio_test_send_bytes[6] = {
+    0xC0, 0xFF, 0xEE, 0xCA, 0xFE, 0x42
+};
+uint8_t pio_test_recv[6];   /* host-echoed bytes land here (BSS) */
+uint8_t pio_test_done;      /* 1 once loopback completes (BSS) */
+
+static void pio_loopback_test(void) {
+    for (uint8_t i = 0; i < 6; ++i) {
+        transport_pio_send_byte(pio_test_send_bytes[i]);
+    }
+    /* Switch to input + drain echoed bytes.  Use the max uint16_t poll
+     * budget (~150 ms emulated per call at 4 MHz) so the harness has
+     * the widest possible wall-clock window to read+echo before the
+     * test gives up.  Total max wait = 6 * 150 ms = 900 ms emulated
+     * (~65 ms wall at -nothrottle 1400%). */
+    for (uint8_t i = 0; i < 6; ++i) {
+        uint16_t r = transport_pio_recv_byte(0xFFFFU);
+        pio_test_recv[i] = (uint8_t)r;
+    }
+    pio_test_done = 1;
+}
+#endif
+
 /* Netboot: two implementations, one selected by SERVER=mpm|proxy in
  * the Makefile.  Default is mpm — standard CP/NET 1.2 LOGIN / OPEN /
  * READ / CLOSE against z80pack MP/M II. */
@@ -126,6 +159,15 @@ static void nos_handoff(void) {
     __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
 
     enable_interrupts();
+
+#ifdef PIO_LOOPBACK_TEST
+    /* PIO-B bring-up loopback test runs after IRQs are on so the
+     * receive ring fills via isr_pio_par.  Skipped if netboot failed
+     * — without netboot we can't trust resident state. */
+    if (entry != 0) {
+        pio_loopback_test();
+    }
+#endif
 
     /* Phase 2B: cpnos.asm entry stub deleted.  PROM C does signon +
      * JT copy + ZP[0..7] entirely (nos_handoff above), then enters

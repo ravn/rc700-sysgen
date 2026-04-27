@@ -13,19 +13,28 @@
 local addrs = dofile("/tmp/cpnos_bridge_addrs.lua")
 local PIO_PAR_BYTE_ADDR  = addrs.pio_par_byte
 local PIO_PAR_COUNT_ADDR = addrs.pio_par_count
+-- Loopback test addresses are optional (set only when cpnos was built
+-- with PIO_LOOPBACK_TEST=1 and harness extracted the symbols).  If
+-- absent, the loopback watcher below stays a no-op.
+local PIO_TEST_DONE_ADDR = addrs.pio_test_done
+local PIO_TEST_RECV_ADDR = addrs.pio_test_recv
 local DSPSTR             = 0xF800
 local SIGNON_ROW1        = 0xF850
 
-local READY_FILE = "/tmp/cpnos_bridge_ready.txt"
-local TAP_LOG    = "/tmp/cpnos_bridge_tap.log"
+local READY_FILE      = "/tmp/cpnos_bridge_ready.txt"
+local TAP_LOG         = "/tmp/cpnos_bridge_tap.log"
+local LOOPBACK_RESULT = "/tmp/cpnos_loopback_result.txt"
 
 do
 	local f = io.open(READY_FILE, "w") if f then f:close() end
 	local f2 = io.open(TAP_LOG, "w")  if f2 then f2:close() end
+	-- Don't truncate LOOPBACK_RESULT here — its absence is the
+	-- harness's "not yet" signal.
 end
 
 local tap_installed = false
 local boot_seen     = false
+local loopback_logged = false
 local prog          = nil
 local last_count    = 0
 local isr_hits      = 0
@@ -72,5 +81,24 @@ emu.register_periodic(function ()
 			f:close()
 		end
 		last_count = cur
+	end
+
+	-- Loopback test watch: when cpnos_main's pio_loopback_test sets
+	-- pio_test_done = 1, snapshot pio_test_recv[6] to LOOPBACK_RESULT.
+	-- Single-shot; harness reads the file then knows the test ended.
+	if PIO_TEST_DONE_ADDR ~= nil
+	   and not loopback_logged
+	   and prog:read_u8(PIO_TEST_DONE_ADDR) ~= 0 then
+		local hex = ""
+		for i = 0, 5 do
+			hex = hex .. string.format("%02X",
+				prog:read_u8(PIO_TEST_RECV_ADDR + i))
+		end
+		local f = io.open(LOOPBACK_RESULT, "w")
+		if f then f:write(hex .. "\n") f:close() end
+		-- Capture screen state so we can verify visually that boot
+		-- completed cleanly + boot markers are in upper-right corner.
+		manager.machine.video:snapshot()
+		loopback_logged = true
 	end
 end)

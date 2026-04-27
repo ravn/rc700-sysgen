@@ -225,11 +225,21 @@ void isr_pio_kbd(void) {
     );
 }
 
-/* PIO-B parallel ISR — CP/NET fast-link bring-up stub.  Stores the
- * latest byte to pio_par_byte and bumps pio_par_count.  Both BSS
- * vars live in resident.c.  Replaced by the real CP/NET RX ring
- * once the protocol layer lands; for now it's a "bytes flowed" counter
- * the test harness polls via MAME Lua memory tap. */
+/* PIO-B parallel ISR — Option P transport receive.  Pushes each byte
+ * latched by Mode 1 input into pio_rx_ring (transport_pio.c) for
+ * transport_pio_recv_byte to drain.  Also keeps the legacy
+ * pio_par_byte / pio_par_count vars (resident.c) up-to-date so the
+ * existing host-send harness still works as a smoke test.
+ *
+ * Ring layout: head wraps modulo PIO_RX_RING_SIZE (64).  No overflow
+ * detection here — if recv_byte falls behind, the ring head laps the
+ * tail and the head==tail check in recv_byte will read empty.  CP/NET
+ * positive-ACK semantics handle the resulting frame loss via timeout
+ * and retry.
+ *
+ * Shadow registers (after exx + ex af,af') so we don't perturb mainline
+ * code's register state.  No call instructions — keeps RETI prefix
+ * short. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
@@ -238,10 +248,24 @@ void isr_pio_par(void) {
         "exx\n\t"
 
         "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A */
-        "ld   (_pio_par_byte), a\n\t"
+        "ld   (_pio_par_byte), a\n\t"   /* legacy: last byte */
+        "ld   c, a\n\t"              /* C = byte (preserved across A use) */
+
+        /* HL = &pio_rx_ring[pio_rx_head] */
+        "ld   a, (_pio_rx_head)\n\t"
+        "ld   e, a\n\t"
+        "ld   d, 0\n\t"
+        "ld   hl, _pio_rx_ring\n\t"
+        "add  hl, de\n\t"
+        "ld   (hl), c\n\t"           /* ring[head] = byte */
+
+        /* head = (head + 1) & (PIO_RX_RING_SIZE - 1) — ring size 32. */
+        "inc  a\n\t"
+        "and  0x1F\n\t"
+        "ld   (_pio_rx_head), a\n\t"
 
         "ld   hl, _pio_par_count\n\t"
-        "inc  (hl)\n\t"
+        "inc  (hl)\n\t"              /* legacy counter */
 
         "exx\n\t"
         ".byte 0x08\n\t"           /* ex af,af' */

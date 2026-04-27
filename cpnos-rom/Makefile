@@ -12,6 +12,12 @@
 
 ENABLE_FDC ?= 0
 
+# Bring-up scaffolding: enables the PIO-B loopback test in cpnos_main
+# (transport_pio_send_byte * 6, then transport_pio_recv_byte * 6 from
+# the host echo).  Drop to 0 once SNIOS is plumbed onto PIO and the
+# scaffolding is replaced with real CP/NET frame traffic.
+PIO_LOOPBACK_TEST ?= 1
+
 LLVM_Z80 = $(CURDIR)/../../llvm-z80
 CLANG_BUILD = $(firstword $(wildcard $(LLVM_Z80)/build-linux/bin \
                                      $(LLVM_Z80)/build-macos/bin \
@@ -47,6 +53,10 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -Wno-missing-noreturn \
          -Wno-sign-conversion
 
+ifeq ($(PIO_LOOPBACK_TEST),1)
+CFLAGS += -DPIO_LOOPBACK_TEST
+endif
+
 ASFLAGS = --target=z80 -g
 
 # Server side: default is standard MP/M II (cpmsim mpm-net2).
@@ -71,7 +81,7 @@ endif
 PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
-               clang/transport_sio.o $(NETBOOT_OBJ) \
+               clang/transport_sio.o clang/transport_pio.o $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o \
                clang/payload_checksum.o
 PAYLOAD_LD = payload.ld
@@ -124,11 +134,11 @@ clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
 	@mv $@.tmp $@
 	@echo "cpnos_addrs.h: $$(grep CPNOS_BDOS_ADDR $@)"
 
-clang/cpnos_main.o: cpnos_main.c clang/cpnos_addrs.h
+clang/cpnos_main.o: cpnos_main.c hal.h clang/cpnos_addrs.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/resident.o: resident.c
+clang/resident.o: resident.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -140,11 +150,11 @@ clang/cfgtbl.o: cfgtbl.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/init.o: init.c
+clang/init.o: init.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/isr.o: isr.c
+clang/isr.o: isr.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -152,11 +162,15 @@ clang/transport_sio.o: transport_sio.c transport.h hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/netboot.o: netboot.c transport.h
+clang/transport_pio.o: transport_pio.c transport.h hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clang/netboot_mpm.o: netboot_mpm.c
+clang/netboot.o: netboot.c transport.h hal.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/netboot_mpm.o: netboot_mpm.c hal.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 

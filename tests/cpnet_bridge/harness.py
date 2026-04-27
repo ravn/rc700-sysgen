@@ -55,11 +55,12 @@ PAYLOAD_ELF = CPNOS_DIR / "clang" / "payload.elf"
 MPM_PORT     = 4002
 BRIDGE_PORT  = 4003
 
-READY_FILE = Path("/tmp/cpnos_bridge_ready.txt")
-TAP_LOG    = Path("/tmp/cpnos_bridge_tap.log")
-ADDRS_LUA  = Path("/tmp/cpnos_bridge_addrs.lua")
-MPM_LOG    = Path("/tmp/cpnos_bridge_mpm.log")
-MAME_LOG   = Path("/tmp/cpnos_bridge_mame.log")
+READY_FILE      = Path("/tmp/cpnos_bridge_ready.txt")
+TAP_LOG         = Path("/tmp/cpnos_bridge_tap.log")
+ADDRS_LUA       = Path("/tmp/cpnos_bridge_addrs.lua")
+MPM_LOG         = Path("/tmp/cpnos_bridge_mpm.log")
+MAME_LOG        = Path("/tmp/cpnos_bridge_mame.log")
+LOOPBACK_RESULT = Path("/tmp/cpnos_loopback_result.txt")
 
 TEST_BYTES = bytes([0x55, 0xAA, 0x42, 0x00, 0xFF, 0x10])
 
@@ -88,7 +89,7 @@ def fail(msg, cleanup=None):
 
 
 def reset_state():
-	for p in (READY_FILE, TAP_LOG, MPM_LOG, MAME_LOG):
+	for p in (READY_FILE, TAP_LOG, MPM_LOG, MAME_LOG, LOOPBACK_RESULT):
 		try: p.unlink()
 		except FileNotFoundError: pass
 
@@ -188,25 +189,39 @@ def ensure_cpmsim_built():
 
 
 def emit_addrs_lua():
-	"""Extract pio_par_byte / pio_par_count BSS addresses from the freshly
-	built payload.elf and write them as a Lua table tap.lua dofile()s.
-	Avoids the silent-drift trap that hardcoded addresses caused before."""
+	"""Extract BSS addresses from the freshly built payload.elf and write
+	them as a Lua table tap.lua dofile()s.  Avoids the silent-drift trap
+	that hardcoded addresses caused before.
+
+	Required symbols: _pio_par_byte, _pio_par_count (host-send mode).
+	Optional symbols: _pio_test_done, _pio_test_recv (loopback mode —
+	only present when cpnos was built with PIO_LOOPBACK_TEST=1).
+	"""
 	out = subprocess.check_output(
 		[str(LLVM_NM), str(PAYLOAD_ELF)]).decode()
-	wanted = {"_pio_par_byte": None, "_pio_par_count": None}
+	required = {"_pio_par_byte", "_pio_par_count"}
+	optional = {"_pio_test_done", "_pio_test_recv"}
+	found = {}
 	for line in out.splitlines():
 		parts = line.split()
-		if len(parts) >= 3 and parts[2] in wanted:
-			wanted[parts[2]] = int(parts[0], 16)
-	missing = [k for k, v in wanted.items() if v is None]
+		if len(parts) >= 3 and parts[2] in required | optional:
+			found[parts[2]] = int(parts[0], 16)
+	missing = required - found.keys()
 	if missing:
-		fail(f"symbols not found in {PAYLOAD_ELF}: {missing}")
-	ADDRS_LUA.write_text(
-		"return {{ pio_par_byte = 0x{:04X}, pio_par_count = 0x{:04X} }}\n"
-		.format(wanted["_pio_par_byte"], wanted["_pio_par_count"]))
-	print(f"[harness] addrs: pio_par_byte=0x{wanted['_pio_par_byte']:04X}  "
-	      f"pio_par_count=0x{wanted['_pio_par_count']:04X}  "
-	      f"-> {ADDRS_LUA}")
+		fail(f"symbols not found in {PAYLOAD_ELF}: {sorted(missing)}")
+	lines = [
+		"return {",
+		f"  pio_par_byte  = 0x{found['_pio_par_byte']:04X},",
+		f"  pio_par_count = 0x{found['_pio_par_count']:04X},",
+	]
+	if "_pio_test_done" in found and "_pio_test_recv" in found:
+		lines.append(f"  pio_test_done = 0x{found['_pio_test_done']:04X},")
+		lines.append(f"  pio_test_recv = 0x{found['_pio_test_recv']:04X},")
+	lines.append("}")
+	ADDRS_LUA.write_text("\n".join(lines) + "\n")
+	print(f"[harness] addrs: " +
+	      ", ".join(f"{k}=0x{v:04X}" for k, v in sorted(found.items())))
+	return found
 
 
 def free_bridge_port_in_mpm_conf():
@@ -243,6 +258,135 @@ def warn_ndos_freshness():
 
 
 # ---------------------------------------------------------------------------
+# test bodies
+
+def parse_taps(text):
+	"""Parse tap.lua's count/byte log lines into (count, byte) tuples."""
+	out = []
+	for line in text.splitlines():
+		try:
+			parts = dict(p.split("=") for p in line.split())
+			out.append((int(parts["count"]), int(parts["byte"], 16)))
+		except (ValueError, KeyError):
+			pass
+	return out
+
+
+def run_hostsend_test(cleanup):
+	"""Original test: harness sends 6 bytes -> Z80 ISR -> verify count + last."""
+	pre_taps = parse_taps(TAP_LOG.read_text() if TAP_LOG.exists() else "")
+	print(f"[harness] {len(pre_taps)} pre-existing tap entries; "
+	      f"will look for new entries after byte send")
+
+	print("[harness] step 8: connect to bridge, send bytes")
+	try:
+		bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
+			timeout=2.0)
+	except OSError as e:
+		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
+
+	print(f"[harness] sending {len(TEST_BYTES)} bytes: {TEST_BYTES.hex()}")
+	bridge.sendall(TEST_BYTES)
+	bridge.close()
+
+	# Verify: net count advanced by len(TEST_BYTES), last observed
+	# byte == TEST_BYTES[-1].  Intermediate bytes 1..N-1 are lost
+	# to the Lua tap's ~50 Hz polling rate (all ISR fires happen
+	# within a single video frame at -nothrottle), so we cannot
+	# observe per-byte ordering here.  Ordering is implicit from
+	# the bridge's std::deque FIFO discipline (cpnet_bridge.cpp).
+	print("[harness] step 9: verify tap log (net count + last byte)")
+	expected_delta = len(TEST_BYTES)
+	expected_last  = TEST_BYTES[-1]
+	end = time.time() + 10.0
+	new_taps = []
+	while time.time() < end:
+		all_taps = parse_taps(
+			TAP_LOG.read_text() if TAP_LOG.exists() else "")
+		new_taps = all_taps[len(pre_taps):]
+		if new_taps:
+			latest_count = new_taps[-1][0]
+			pre_count = pre_taps[-1][0] if pre_taps else 0
+			if (latest_count - pre_count) % 256 >= expected_delta:
+				break
+		time.sleep(0.1)
+
+	if not new_taps:
+		fail(f"no new tap lines (pre-send had {len(pre_taps)})", cleanup)
+
+	latest_count, latest_byte = new_taps[-1]
+	pre_count = pre_taps[-1][0] if pre_taps else 0
+	actual_delta = (latest_count - pre_count) % 256
+	if actual_delta < expected_delta:
+		fail(f"counter advanced by {actual_delta}, expected "
+		     f"{expected_delta} (pre={pre_count}, latest={latest_count})",
+		     cleanup)
+	if latest_byte != expected_last:
+		fail(f"latest byte=0x{latest_byte:02X}, want 0x{expected_last:02X}",
+		     cleanup)
+
+	print(f"PASS: {expected_delta} bytes reached Z80 isr_pio_par "
+	      f"(count {pre_count}->{latest_count}, last byte "
+	      f"0x{latest_byte:02X})")
+
+
+def run_loopback_test(cleanup):
+	"""Loopback test: Z80 sends 6 bytes via PIO-B Mode 0, harness reads
+	them off :4003 and writes them back, Z80 reads from its ring buffer
+	via PIO-B Mode 1.  Verify pio_test_recv[6] (logged by tap.lua to
+	LOOPBACK_RESULT) equals the bytes the harness received."""
+	print("[harness] step 8a: connect to bridge, expect 6 bytes from Z80")
+	try:
+		bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
+			timeout=2.0)
+	except OSError as e:
+		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
+
+	# Z80 fires pio_loopback_test() after netboot completes (~5s
+	# emulated, well under 1 wall-second at 1400% speed).  Step 7
+	# already slept 5s before this, so the bytes should be queued
+	# in the bridge's z80_to_host FIFO already.
+	bridge.settimeout(10.0)
+	received = bytearray()
+	try:
+		while len(received) < 6:
+			chunk = bridge.recv(6 - len(received))
+			if not chunk:
+				break
+			received.extend(chunk)
+	except socket.timeout:
+		fail(f"timed out waiting for Z80 bytes "
+		     f"(got {len(received)}/6: {bytes(received).hex()})", cleanup)
+	if len(received) != 6:
+		fail(f"received {len(received)} bytes from Z80, expected 6: "
+		     f"{bytes(received).hex()}", cleanup)
+	print(f"[harness] received from Z80: {bytes(received).hex()}")
+
+	print("[harness] step 8b: echo bytes back to Z80")
+	bridge.sendall(bytes(received))
+	bridge.close()
+
+	print("[harness] step 9: wait for Z80 loopback to complete")
+	end = time.time() + 10.0
+	while time.time() < end:
+		if LOOPBACK_RESULT.exists():
+			break
+		time.sleep(0.1)
+	if not LOOPBACK_RESULT.exists():
+		fail(f"{LOOPBACK_RESULT} never appeared — Z80 loopback test "
+		     f"didn't complete (check {MAME_LOG} for boot trace)", cleanup)
+
+	got_hex = LOOPBACK_RESULT.read_text().strip()
+	expected_hex = bytes(received).hex().upper()
+	if got_hex != expected_hex:
+		fail(f"pio_test_recv = {got_hex}, expected {expected_hex} "
+		     f"(bytes Z80 received != bytes Z80 sent)", cleanup)
+
+	print(f"PASS: Z80 loopback round-trip (sent {expected_hex}, "
+	      f"echoed back, received {got_hex})")
+
+
+# ---------------------------------------------------------------------------
 # main
 
 def main():
@@ -256,6 +400,10 @@ def main():
 		help="how long to wait for CPNOS banner (default 60s)")
 	ap.add_argument("--mame-seconds", type=int, default=120,
 		help="MAME -seconds_to_run (default 120)")
+	ap.add_argument("--mode", choices=("hostsend", "loopback"),
+		default="hostsend",
+		help="hostsend: harness sends 6 bytes -> Z80 ISR; "
+		     "loopback: Z80 sends 6 bytes -> harness echoes -> Z80 reads")
 	args = ap.parse_args()
 
 	mame = Path(args.mame_bin)
@@ -274,7 +422,12 @@ def main():
 		ensure_cpnos_built()
 
 		print("[harness] step 1b: extract live BSS addrs into addrs.lua")
-		emit_addrs_lua()
+		addrs = emit_addrs_lua()
+		if args.mode == "loopback":
+			missing = {"_pio_test_done", "_pio_test_recv"} - addrs.keys()
+			if missing:
+				fail(f"loopback mode requires PIO_LOOPBACK_TEST=1 build "
+				     f"(missing symbols: {sorted(missing)})")
 
 		print(f"[harness] step 4: kill stale listener on :{MPM_PORT}")
 		kill_stale(MPM_PORT)
@@ -343,80 +496,21 @@ def main():
 			fail(f"cpnet_bridge did not bind :{BRIDGE_PORT}: {e} "
 			     f"(see {MAME_LOG} for socket errors)", cleanup)
 
-		# Give cpnos-rom a chance to actually call enable_interrupts.
-		# This requires netboot to complete: ~1-3 emulated seconds at
-		# 1400% speed = <1 wall second.  Pad to 5s for safety.
-		time.sleep(5.0)
-
-		# Snapshot the tap log before sending so we can isolate just the
-		# new tap entries that result from our bytes.  Bring-up may
-		# produce spurious fires (PIO-B startup state, MAME slot pulse
-		# behaviour); the truth-test is "the bytes I just sent appeared
-		# in order".
-		def parse_taps(text):
-			out = []
-			for line in text.splitlines():
-				try:
-					parts = dict(p.split("=") for p in line.split())
-					out.append((int(parts["count"]), int(parts["byte"], 16)))
-				except (ValueError, KeyError):
-					pass
-			return out
-
-		pre_taps = parse_taps(TAP_LOG.read_text() if TAP_LOG.exists() else "")
-		print(f"[harness] {len(pre_taps)} pre-existing tap entries; "
-		      f"will look for new entries after byte send")
-
-		print("[harness] step 8: connect to bridge, send bytes")
-		try:
-			bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
-				timeout=2.0)
-		except OSError as e:
-			fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
-
-		print(f"[harness] sending {len(TEST_BYTES)} bytes: {TEST_BYTES.hex()}")
-		bridge.sendall(TEST_BYTES)
-		bridge.close()
-
-		# Verify: net count advanced by len(TEST_BYTES), last observed
-		# byte == TEST_BYTES[-1].  Intermediate bytes 1..N-1 are lost
-		# to the Lua tap's ~50 Hz polling rate (all ISR fires happen
-		# within a single video frame at -nothrottle), so we cannot
-		# observe per-byte ordering here.  Ordering is implicit from
-		# the bridge's std::deque FIFO discipline (cpnet_bridge.cpp).
-		print("[harness] step 9: verify tap log (net count + last byte)")
-		expected_delta = len(TEST_BYTES)
-		expected_last  = TEST_BYTES[-1]
-		end = time.time() + 10.0
-		new_taps = []
-		while time.time() < end:
-			all_taps = parse_taps(
-				TAP_LOG.read_text() if TAP_LOG.exists() else "")
-			new_taps = all_taps[len(pre_taps):]
-			if new_taps:
-				latest_count = new_taps[-1][0]
-				pre_count = pre_taps[-1][0] if pre_taps else 0
-				if (latest_count - pre_count) % 256 >= expected_delta:
-					break
-			time.sleep(0.1)
-
-		if not new_taps:
-			fail(f"no new tap lines (pre-send had {len(pre_taps)})", cleanup)
-
-		latest_count, latest_byte = new_taps[-1]
-		pre_count = pre_taps[-1][0] if pre_taps else 0
-		actual_delta = (latest_count - pre_count) % 256
-		if actual_delta < expected_delta:
-			fail(f"counter advanced by {actual_delta}, expected "
-			     f"{expected_delta} (pre={pre_count}, latest={latest_count})",
-			     cleanup)
-		if latest_byte != expected_last:
-			fail(f"latest byte=0x{latest_byte:02X}, want 0x{expected_last:02X}",
-			     cleanup)
-
-		print(f"PASS: {expected_delta} bytes reached Z80 isr_pio_par "
-		      f"(count {pre_count}->{latest_count}, last byte "
-		      f"0x{latest_byte:02X})")
+		if args.mode == "hostsend":
+			# Give cpnos-rom a chance to actually call enable_interrupts.
+			# This requires netboot to complete: ~1-3 emulated seconds
+			# at ~1400% speed = <1 wall second.  Pad to 5s for safety.
+			time.sleep(5.0)
+			run_hostsend_test(cleanup)
+		else:
+			# Loopback: connect immediately and let recv block.  Z80
+			# sends 6 bytes a few hundred ms wall-clock after MAME
+			# launch.  At ~1400% speed Z80's per-byte recv timeout
+			# (~60 ms emulated = ~4 ms wall) is too short to wait for
+			# the harness, so we must echo before Z80 enters its
+			# recv loop — connecting straight away maximises the
+			# wall-clock budget on the host side.
+			run_loopback_test(cleanup)
 
 	finally:
 		if not args.keep_alive:
