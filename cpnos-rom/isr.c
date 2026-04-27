@@ -265,7 +265,23 @@ void isr_pio_par(void) {
         "ld   (_pio_rx_head), a\n\t"
 
         "ld   hl, _pio_par_count\n\t"
-        "inc  (hl)\n\t"              /* legacy counter */
+        "inc  (hl)\n\t"              /* legacy uint8_t counter */
+
+        /* uint16_t pio_rx_count: increments per byte.  Wraps to 0
+         * after 65536 bytes; on wrap, set pio_test_done = 1.  Used
+         * by the speed-rx benchmark which busy-waits in mainline
+         * for pio_test_done to flip — bypasses the back-to-back
+         * ISR starvation that defeats ring-based recv at high rates.
+         * Cost: ~17 T-states per ISR. */
+        "ld   hl, (_pio_rx_count)\n\t"
+        "inc  hl\n\t"
+        "ld   (_pio_rx_count), hl\n\t"
+        "ld   a, h\n\t"
+        "or   l\n\t"
+        "jr   nz, 1f\n\t"
+        "ld   a, 1\n\t"
+        "ld   (_pio_test_done), a\n\t"
+        "1:\n\t"
 
         "exx\n\t"
         ".byte 0x08\n\t"           /* ex af,af' */

@@ -29,7 +29,136 @@ extern uint8_t snios_jt[24];
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
 extern void enter_coldst(void) __attribute__((noreturn));
 
-#ifdef PIO_LOOPBACK_TEST
+#if defined(PIO_SPEED_TEST) || defined(PIO_LOOPBACK_TEST)
+extern void     transport_pio_send_byte(uint8_t c);
+extern uint16_t transport_pio_recv_byte(uint16_t timeout_ticks);
+extern uint8_t  pio_test_done;            /* defined in transport_pio.c */
+#endif
+
+#ifdef PIO_SPEED_TEST
+/* Speed test (Option P — bench).  100 * 4 * 256 = 102400 bytes ≈
+ * 100 KiB.  Variant selected by PIO_SPEED_TEST value (1/2/3).
+ *
+ * Three nested uint8_t loops in variants 1+3 sidestep a clang Z80
+ * backend bug where uint16_t loop counters get read from an
+ * uninitialised static-stack slot rather than the live register
+ * (see disasm of the earlier uint16_t-inner version: `ld hl,
+ * ($eaXX)` instead of `ld h,b; ld l,c`).  Three 8-bit loops make
+ * every counter fit in a single 8-bit register, avoiding the
+ * affected codegen path. */
+#define PIO_SPEED_OUTER 100
+#define PIO_SPEED_MID   4
+#define PIO_SPEED_BYTES ((unsigned long)PIO_SPEED_OUTER * \
+                         PIO_SPEED_MID * 256UL)
+
+#if PIO_SPEED_TEST == 1
+/* Variant 1: TX, C function-call per byte.  Pattern `outer ^
+ * inner_low`; verifies the function-call codepath of
+ * transport_pio_send_byte. */
+static void pio_loopback_test(void) {
+    for (uint8_t outer = 0; outer < PIO_SPEED_OUTER; ++outer) {
+        for (uint8_t mid = 0; mid < PIO_SPEED_MID; ++mid) {
+            uint8_t inner = 0;
+            do {
+                transport_pio_send_byte((uint8_t)(outer ^ inner));
+                ++inner;
+            } while (inner != 0);
+        }
+    }
+    pio_test_done = 1;
+}
+#endif
+
+#if PIO_SPEED_TEST == 2
+/* Variant 2: TX, inline OTIR.  Z80's tightest output instruction
+ * (`OUT (C),(HL); INC HL; DEC B; JR NZ`, 21 T/byte).  First byte
+ * goes through the C path to establish Mode 0; remaining 102399
+ * bytes are blasted via inline asm.  Pattern is a 32-byte ramp
+ * 0..31 in .rodata (32-byte buffer keeps .data small enough to fit
+ * the payload budget, and OTIR-with-B=32 works the same way).
+ * Pattern repeats every 32 bytes: byte at offset i = i & 0x1F.
+ *
+ * 25 outer * 128 mid * 32 inner OTIR = 102400 bytes total. */
+const uint8_t pio_speed_buf[32] = {
+    0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+   16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
+};
+
+static void pio_loopback_test(void) {
+    /* Inline Mode 0 setup + OTIR.  Avoids transport_pio_send_byte's
+     * function-call overhead and the extra byte 0 it would emit
+     * before OTIR.  3200 OTIR chunks * 32 bytes = 102400 bytes total.
+     *
+     * 0x03 = ICW: disable IE (Mode 0 STB pulses set m_ip; we re-clear
+     *        on Mode 1 entry but here we just want to silence them).
+     * 0x0F = mode 0 select (output).
+     * The chip's set_mode(MODE_OUTPUT) immediately fires out_pb_cb
+     * with m_output (0 after reset) — that leading 0x00 is the
+     * documented chip-emulation prefix, stripped on the host side.
+     *
+     * Per-byte cost:
+     *   OTIR  21 T  (per byte)
+     *   chunk reload (HL=buf, B=32, dec/jr) ~25 T total per 32-byte chunk
+     *   = 21.78 T/byte avg; theoretical 4 MHz / 21.78 = 184 KiB/s. */
+    __asm__ volatile(
+        /* PIO-B Mode 0 setup */
+        "ld   a, 0x03\n\t"            /* ICW: IE disable */
+        "out  (0x13), a\n\t"
+        "ld   a, 0x0F\n\t"            /* mode 0 select */
+        "out  (0x13), a\n\t"
+        /* OTIR loop */
+        "ld   c, 0x11\n\t"            /* data port */
+        "ld   d, 25\n\t"              /* outer chunks */
+        "1:\n\t"
+        "ld   e, 128\n\t"             /* mid chunks */
+        "2:\n\t"
+        "ld   hl, _pio_speed_buf\n\t"
+        "ld   b, 32\n\t"              /* bytes per OTIR */
+        "otir\n\t"
+        "dec  e\n\t"
+        "jr   nz, 2b\n\t"
+        "dec  d\n\t"
+        "jr   nz, 1b\n\t"
+        : : : "a", "b", "c", "d", "e", "hl", "memory"
+    );
+    pio_test_done = 1;
+}
+#endif
+
+#if PIO_SPEED_TEST == 3
+/* Variant 3: RX.  ISR-driven; the test simply enables PIO-B input
+ * mode and busy-waits for pio_test_done to flip.  isr_pio_par
+ * increments uint16_t pio_rx_count per byte and sets pio_test_done
+ * on wrap (65536 bytes received).  This bypasses the ring-buffer
+ * starvation problem: at high RX rates the chip's BRDY toggle in
+ * data_read drives back-to-back strobes, leaving the mainline
+ * (recv_byte loop) too few cycles to drain the 32-byte ring.  Just
+ * counting in ISR — and signalling done from ISR — measures pure
+ * chip+ISR throughput without that bottleneck.
+ *
+ * Test target: 65536 bytes (= 64 KiB).  Host sends exactly this and
+ * waits for pio_test_done. */
+static void pio_loopback_test(void) {
+    /* Force PIO-B into Mode 1 + IE enabled + IP cleared.  We can't
+     * use transport_pio_recv_byte (its first call sets up Mode 1),
+     * so do it inline.  Same sequence as transport_pio.c's
+     * pio_b_set_input(): mode 1, ICW with mask-follows + IE enable,
+     * mask = 0 to atomically clear m_ip. */
+    __asm__ volatile(
+        "ld   a, 0x4F\n\t"        /* mode 1 input */
+        "out  (0x13), a\n\t"
+        "ld   a, 0x97\n\t"        /* ICW: enable + mask follows */
+        "out  (0x13), a\n\t"
+        "ld   a, 0x00\n\t"        /* mask: no PB bits masked */
+        "out  (0x13), a\n\t"
+        : : : "a"
+    );
+    /* Busy-wait for ISR to flip pio_test_done after 65536 bytes. */
+    while (pio_test_done == 0) { }
+}
+#endif
+
+#elif defined(PIO_LOOPBACK_TEST)
 /* Bring-up frame test (Option P (3) — design-exploration step).  Sends
  * a 10-byte CP/NET-shaped request frame via PIO-B Mode 0, expects the
  * host to mirror it as a response (FMT toggled to 0x81, DID/SID
@@ -48,8 +177,6 @@ extern void enter_coldst(void) __attribute__((noreturn));
  *   [5..]     payload (SIZ bytes)
  *   [last]    CKS   sum-to-zero checksum (two's complement of header+payload)
  */
-extern void     transport_pio_send_byte(uint8_t c);
-extern uint16_t transport_pio_recv_byte(uint16_t timeout_ticks);
 
 #define PIO_FRAME_LEN 10
 static const uint8_t pio_test_request_frame[PIO_FRAME_LEN] = {
@@ -62,7 +189,6 @@ static const uint8_t pio_test_request_frame[PIO_FRAME_LEN] = {
     0xC4,                        /* CKS: 0x100 - (sum of bytes 0..8) & 0xFF */
 };
 uint8_t pio_test_recv[PIO_FRAME_LEN];   /* host response lands here (BSS) */
-uint8_t pio_test_done;                  /* 1 when test completes (BSS) */
 uint8_t pio_test_passed;                /* 1 = frame valid, 0 = invalid (BSS) */
 
 static void pio_loopback_test(void) {
@@ -197,10 +323,10 @@ static void nos_handoff(void) {
 
     enable_interrupts();
 
-#ifdef PIO_LOOPBACK_TEST
-    /* PIO-B bring-up loopback test runs after IRQs are on so the
-     * receive ring fills via isr_pio_par.  Skipped if netboot failed
-     * — without netboot we can't trust resident state. */
+#if defined(PIO_SPEED_TEST) || defined(PIO_LOOPBACK_TEST)
+    /* PIO-B bring-up test runs after IRQs are on so the receive ring
+     * fills via isr_pio_par.  Skipped if netboot failed — without
+     * netboot we can't trust resident state. */
     if (entry != 0) {
         pio_loopback_test();
     }

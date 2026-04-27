@@ -80,6 +80,14 @@ uint8_t pio_rx_ring[PIO_RX_RING_SIZE];
 uint8_t pio_rx_head;   /* ISR writes here */
 uint8_t pio_rx_tail;   /* recv reads here */
 
+/* uint16_t byte counter incremented by isr_pio_par per byte.  Wraps
+ * after 65536 bytes; on wrap the ISR sets pio_test_done = 1.  Used
+ * by the speed-rx benchmark to time 64 KiB-equivalent ISR throughput
+ * without depending on the ring (which back-to-back ISRs starve at
+ * high rates). */
+uint16_t pio_rx_count;
+uint8_t pio_test_done;
+
 /* Direction state machine.  init.c leaves PIO-B in Mode 1 + IRQ
  * enabled, so initialise to PIO_DIR_INPUT — the first send forces
  * the output transition. */

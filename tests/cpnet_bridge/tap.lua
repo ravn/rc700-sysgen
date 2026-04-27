@@ -87,25 +87,30 @@ emu.register_periodic(function ()
 
 	-- Loopback test watch: when cpnos_main's pio_loopback_test sets
 	-- pio_test_done = 1, snapshot pio_test_recv (10-byte CP/NET
-	-- frame) and the Z80-side pio_test_passed flag to LOOPBACK_RESULT.
-	-- Format: "<HEX> passed=<0|1>" — single line so the harness can
-	-- parse it trivially.  Single-shot; harness reads the file then
-	-- knows the test ended.
+	-- frame) + pio_test_passed to LOOPBACK_RESULT.  Speed-test build
+	-- has only pio_test_done (no recv/passed); skip the frame-shape
+	-- branch then but still snapshot the screen on completion.
 	if PIO_TEST_DONE_ADDR ~= nil
 	   and not loopback_logged
 	   and prog:read_u8(PIO_TEST_DONE_ADDR) ~= 0 then
-		local hex = ""
-		for i = 0, PIO_FRAME_LEN - 1 do
-			hex = hex .. string.format("%02X",
-				prog:read_u8(PIO_TEST_RECV_ADDR + i))
+		local body
+		if PIO_TEST_RECV_ADDR ~= nil then
+			-- Loopback (frame): emit recv hex + passed flag.
+			local hex = ""
+			for i = 0, PIO_FRAME_LEN - 1 do
+				hex = hex .. string.format("%02X",
+					prog:read_u8(PIO_TEST_RECV_ADDR + i))
+			end
+			local passed = (PIO_TEST_PASSED_ADDR ~= nil)
+				and prog:read_u8(PIO_TEST_PASSED_ADDR) or 0
+			body = string.format("%s passed=%d", hex, passed)
+		else
+			-- Speed-rx (no recv buffer): just emit a marker so the
+			-- harness can detect completion.
+			body = "done"
 		end
-		local passed = (PIO_TEST_PASSED_ADDR ~= nil)
-			and prog:read_u8(PIO_TEST_PASSED_ADDR) or 0
 		local f = io.open(LOOPBACK_RESULT, "w")
-		if f then
-			f:write(string.format("%s passed=%d\n", hex, passed))
-			f:close()
-		end
+		if f then f:write(body .. "\n") f:close() end
 		-- Capture screen state so we can verify visually that boot
 		-- completed cleanly + boot markers are in upper-right corner.
 		manager.machine.video:snapshot()

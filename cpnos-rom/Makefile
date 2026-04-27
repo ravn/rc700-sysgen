@@ -17,6 +17,11 @@ ENABLE_FDC ?= 0
 # the host echo).  Drop to 0 once SNIOS is plumbed onto PIO and the
 # scaffolding is replaced with real CP/NET frame traffic.
 PIO_LOOPBACK_TEST ?= 1
+# Speed test (overrides PIO_LOOPBACK_TEST when nonzero):
+#   1 = C-loop TX  (transport_pio_send_byte per byte; function-call cost)
+#   2 = inline OTIR TX  (raw OUT (C),(HL); INC HL; DEC B; ~21 T/byte)
+#   3 = RX  (host -> Z80; ISR-driven ring drain via transport_pio_recv_byte)
+PIO_SPEED_TEST    ?= 0
 
 LLVM_Z80 = $(CURDIR)/../../llvm-z80
 CLANG_BUILD = $(firstword $(wildcard $(LLVM_Z80)/build-linux/bin \
@@ -53,7 +58,9 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -Wno-missing-noreturn \
          -Wno-sign-conversion
 
-ifeq ($(PIO_LOOPBACK_TEST),1)
+ifneq ($(PIO_SPEED_TEST),0)
+CFLAGS += -DPIO_SPEED_TEST=$(PIO_SPEED_TEST)
+else ifeq ($(PIO_LOOPBACK_TEST),1)
 CFLAGS += -DPIO_LOOPBACK_TEST
 endif
 

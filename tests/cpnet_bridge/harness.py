@@ -169,12 +169,13 @@ def kill_group(p: subprocess.Popen):
 # ---------------------------------------------------------------------------
 # build steps
 
-def ensure_cpnos_built():
+def ensure_cpnos_built(extra_make_args=()):
 	"""Run `make cpnos-install` so the freshly built PROMs land in MAME's
 	rom directory and cpnos.com lands on the MP/M test disks.  Just `make
 	cpnos` only builds artefacts in clang/; MAME would then boot stale
 	PROM bytes from a previous install."""
-	run(["make", "-s", "cpnos-install"], cwd=str(CPNOS_DIR))
+	run(["make", "-s", "cpnos-install", *extra_make_args],
+	    cwd=str(CPNOS_DIR))
 
 
 def ensure_cpmsim_built():
@@ -333,6 +334,12 @@ def run_hostsend_test(cleanup):
 
 PIO_FRAME_LEN = 10
 
+# Speed-test byte counts.  TX modes (variants 1+2) use 100 KiB.  RX
+# (variant 3) uses 65536 bytes because the Z80-side ISR uses a
+# uint16_t counter that signals done via wrap (65536 -> 0).
+PIO_SPEED_BYTES    = 100 * 1024  # 102400 (TX)
+PIO_SPEED_RX_BYTES = 65536       # 64 KiB (RX, uint16_t wrap)
+
 
 def build_response_frame(request: bytes) -> bytes:
 	"""Mirror a CP/NET request into a response frame.
@@ -447,6 +454,158 @@ def run_loopback_test(cleanup):
 	print(f"       Z80 saw:  {got_hex} (passed={passed})")
 
 
+def run_speed_test(cleanup, mode="speed"):
+	"""Stream PIO_SPEED_BYTES (100 KiB) from Z80 over PIO-B; count and
+	time on the host side; report throughput.
+
+	Patterns by mode:
+	  speed (variant 1, C-loop):  byte i = (i // 1024) ^ (i & 0xFF)
+	  speed-otir (variant 2):     byte i = i & 0xFF (256-byte ramp x400)
+
+	At -nothrottle MAME the wall throughput is dominated by emulator
+	overhead.  At real-time (the speed* modes use real-time) wall
+	throughput equals what a 4-MHz Z80 delivers."""
+	print(f"[harness] step 8: connect to bridge, expect {PIO_SPEED_BYTES} "
+	      f"bytes (100 KiB) from Z80")
+	try:
+		bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
+			timeout=2.0)
+	except OSError as e:
+		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
+
+	bridge.settimeout(60.0)
+	# Read PIO_SPEED_BYTES + 1 to absorb the documented chip-emulation
+	# 0x00 prefix on first Mode 1->0 transition.  We strip it after.
+	want = PIO_SPEED_BYTES + 1
+	buf = bytearray()
+	t_first = None
+	t_last  = None
+	try:
+		while len(buf) < want:
+			chunk = bridge.recv(min(65536, want - len(buf)))
+			if not chunk:
+				break
+			if t_first is None:
+				t_first = time.monotonic()
+			t_last = time.monotonic()
+			buf.extend(chunk)
+	except socket.timeout:
+		pass
+	bridge.close()
+
+	if len(buf) >= 1 and buf[0] == 0x00 and len(buf) == PIO_SPEED_BYTES + 1:
+		print(f"[harness] stripping chip-artifact 0x00 prefix")
+		buf = buf[1:]
+	if len(buf) != PIO_SPEED_BYTES:
+		fail(f"received {len(buf)} bytes, expected {PIO_SPEED_BYTES} "
+		     f"(or {PIO_SPEED_BYTES + 1} with prefix)", cleanup)
+
+	# Verify ordering with the variant-specific pattern.
+	if mode == "speed-otir":
+		# Pattern: 32-byte ramp 0..31 repeated.  Byte 0 also includes
+		# the C-path init send (also 0), so byte 0 == 0 either way.
+		expect = lambda i: i & 0x1F
+	else:
+		expect = lambda i: (i // 1024) ^ (i & 0xFF)
+	mismatches = 0
+	first_mismatch = None
+	for i, got in enumerate(buf):
+		want_byte = expect(i) & 0xFF
+		if got != want_byte:
+			mismatches += 1
+			if first_mismatch is None:
+				first_mismatch = (i, got, want_byte)
+	if mismatches:
+		idx, got, want_byte = first_mismatch
+		preview = buf[:32].hex()
+		fail(f"{mismatches}/{len(buf)} byte mismatches; first at offset "
+		     f"{idx}: got 0x{got:02X}, want 0x{want_byte:02X}. "
+		     f"First 32 bytes received: {preview}", cleanup)
+
+	# At MAME 100% throttle, wall == Z80 emulated.  Reporting wall as
+	# the Z80 throughput is meaningful only in this regime.
+	wall_sec = (t_last - t_first) if (t_first and t_last) else 0.0
+	rate = (PIO_SPEED_BYTES / wall_sec / 1024.0) if wall_sec > 0 else 0
+
+	print()
+	variant = "C-loop" if mode == "speed" else "OTIR"
+	print(f"PASS: 100 KiB streamed Z80 -> host over PIO-B ({variant})")
+	print(f"       Z80 throughput:  {rate:.1f} KiB/s "
+	      f"(100 KiB in {wall_sec*1000:.0f} ms emulated at 4 MHz)")
+
+
+def run_speed_rx_test(cleanup):
+	"""Stream PIO_SPEED_RX_BYTES (64 KiB) from host into Z80 over
+	PIO-B.  Z80 ISR (isr_pio_par) increments uint16_t pio_rx_count
+	per byte; on wrap it sets pio_test_done = 1.  We send exactly
+	65536 bytes so the ISR signals on the last one.  Time wall-clock
+	from "started sending" to "Z80 set pio_test_done = 1" (observed
+	via tap.lua marker file).
+
+	The recv_byte ring path is bypassed — at high RX rates back-to-
+	back ISRs starve the mainline (chip's BRDY toggle in data_read
+	immediately triggers the next bridge strobe), so the ring
+	overruns and the recv loop stalls.  Counting in the ISR itself
+	measures pure chip+ISR throughput."""
+	bytes_to_send = PIO_SPEED_RX_BYTES
+	print(f"[harness] step 8: connect to bridge, stream {bytes_to_send} "
+	      f"bytes (64 KiB) -> Z80")
+	try:
+		bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
+			timeout=5.0)
+	except OSError as e:
+		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
+
+	# Build the payload: 0..255 ramp x 256.
+	one_chunk = bytes(range(256))
+	payload = one_chunk * (bytes_to_send // 256)
+	assert len(payload) == bytes_to_send
+
+	# Z80 reaches pio_loopback_test ~3-4 emulated seconds after MAME
+	# start.  At real-time MAME that's 3-4 wall seconds.  Wait for
+	# the recv loop to be primed before timing — we don't want host
+	# fill-time to be conflated with Z80-side processing time.
+	print("[harness] step 8a: wait 4 s for Z80 to enter recv loop")
+	time.sleep(4.0)
+
+	# Send the full 100 KiB.  TCP buffering means sendall returns
+	# when the kernel accepts the data, not when Z80 has read it.
+	# Real "done" signal comes from pio_test_done observed via Lua.
+	print("[harness] step 8b: send 100 KiB over TCP")
+	t_start = time.monotonic()
+	bridge.sendall(payload)
+	t_send_done = time.monotonic()
+	bridge.close()
+
+	# pio_test_done flag is set by Z80 after the last recv_byte
+	# returns.  tap.lua writes a marker (LOOPBACK_RESULT exists)
+	# when it observes pio_test_done == 1.  Speed-rx tap path
+	# doesn't write recv content; existence of the file is the
+	# done-signal.
+	print("[harness] step 9: wait for Z80 to drain (pio_test_done flips)")
+	end = time.time() + 60.0
+	while time.time() < end:
+		if LOOPBACK_RESULT.exists():
+			break
+		time.sleep(0.05)
+	t_done = time.monotonic()
+	if not LOOPBACK_RESULT.exists():
+		fail(f"{LOOPBACK_RESULT} never appeared after 60 s — Z80 did "
+		     f"not finish draining.  Check {MAME_LOG} for boot trace.",
+		     cleanup)
+
+	# At MAME 100% throttle, wall == Z80 emulated.  TCP send-buffer
+	# fill on localhost completes in single-digit ms, dominated by the
+	# Z80's drain — so wall total = Z80 throughput.
+	wall = t_done - t_start
+	rate = (bytes_to_send / wall / 1024.0) if wall > 0 else 0
+
+	print()
+	print(f"PASS: 64 KiB streamed host -> Z80 over PIO-B (ISR-only)")
+	print(f"       Z80 throughput:  {rate:.1f} KiB/s "
+	      f"(64 KiB in {wall*1000:.0f} ms emulated at 4 MHz)")
+
+
 # ---------------------------------------------------------------------------
 # main
 
@@ -461,10 +620,14 @@ def main():
 		help="how long to wait for CPNOS banner (default 60s)")
 	ap.add_argument("--mame-seconds", type=int, default=120,
 		help="MAME -seconds_to_run (default 120)")
-	ap.add_argument("--mode", choices=("hostsend", "loopback"),
+	ap.add_argument("--mode",
+		choices=("hostsend", "loopback", "speed", "speed-otir", "speed-rx"),
 		default="hostsend",
 		help="hostsend: harness sends 6 bytes -> Z80 ISR; "
-		     "loopback: Z80 sends 6 bytes -> harness echoes -> Z80 reads")
+		     "loopback: Z80 sends 10-byte CP/NET frame -> harness mirrors -> Z80 validates; "
+		     "speed: Z80 streams 100 KiB via C-loop transport_pio_send_byte; "
+		     "speed-otir: Z80 streams 100 KiB via inline OTIR (raw OUT (C),(HL)); "
+		     "speed-rx: harness sends 100 KiB -> Z80 ISR + transport_pio_recv_byte drain")
 	args = ap.parse_args()
 
 	mame = Path(args.mame_bin)
@@ -480,7 +643,20 @@ def main():
 
 	try:
 		print("[harness] step 1: ensure cpnos-rom built")
-		ensure_cpnos_built()
+		# Speed mode needs the streaming send body; loopback mode needs
+		# the frame body.  Force clean+rebuild when mode changes so we
+		# don't inherit stale objects from a previous build with the
+		# other test compiled in.
+		extra_make_args = ()
+		speed_variant = {"speed": 1, "speed-otir": 2, "speed-rx": 3}.get(args.mode)
+		if speed_variant is not None:
+			run(["make", "-s", "cpnos-clean"], cwd=str(CPNOS_DIR))
+			extra_make_args = (f"PIO_SPEED_TEST={speed_variant}",
+			                   "PIO_LOOPBACK_TEST=0")
+		elif args.mode == "loopback":
+			run(["make", "-s", "cpnos-clean"], cwd=str(CPNOS_DIR))
+			extra_make_args = ("PIO_SPEED_TEST=0", "PIO_LOOPBACK_TEST=1")
+		ensure_cpnos_built(extra_make_args)
 
 		print("[harness] step 1b: extract live BSS addrs into addrs.lua")
 		addrs = emit_addrs_lua()
@@ -526,11 +702,18 @@ def main():
 		cleanup.push(lambda: kill_group(siob) if not args.keep_alive else None)
 		wait_for_listen(SIOB_PORT, deadline_s=5.0)
 
-		print("[harness] step 6: launch MAME with -piob cpnet_bridge")
+		# In speed modes, run at real-time (no -nothrottle) so wall
+		# elapsed equals Z80 emulated elapsed.  Measured throughput
+		# then matches what real 4-MHz hardware would deliver.
+		realtime = args.mode in ("speed", "speed-otir", "speed-rx")
+		throttle_args = [] if realtime else ["-nothrottle"]
+
+		print("[harness] step 6: launch MAME with -piob cpnet_bridge "
+		      f"({'real-time' if realtime else 'nothrottle'})")
 		mame_p = spawn_group([
 			str(mame), "rc702",
 			"-rompath", args.roms,
-			"-nothrottle",
+			*throttle_args,
 			"-window",
 			"-skip_gameinfo",
 			"-log",
@@ -563,15 +746,18 @@ def main():
 			# at ~1400% speed = <1 wall second.  Pad to 5s for safety.
 			time.sleep(5.0)
 			run_hostsend_test(cleanup)
-		else:
+		elif args.mode == "loopback":
 			# Loopback: connect immediately and let recv block.  Z80
-			# sends 6 bytes a few hundred ms wall-clock after MAME
-			# launch.  At ~1400% speed Z80's per-byte recv timeout
-			# (~60 ms emulated = ~4 ms wall) is too short to wait for
-			# the harness, so we must echo before Z80 enters its
-			# recv loop — connecting straight away maximises the
-			# wall-clock budget on the host side.
+			# sends 10-byte frame a few hundred ms wall-clock after
+			# MAME launch.  At ~1400% speed Z80's per-byte recv
+			# timeout is too short to wait long, so we must echo
+			# before Z80 enters its recv loop — connect straight
+			# away to maximise the host-side wall-clock budget.
 			run_loopback_test(cleanup)
+		elif args.mode == "speed-rx":
+			run_speed_rx_test(cleanup)
+		else:  # speed, speed-otir
+			run_speed_test(cleanup, mode=args.mode)
 
 	finally:
 		if not args.keep_alive:
