@@ -775,6 +775,68 @@ Three commits after the audit:
   `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
   `docs/mame-rc702-piob-slot-regression.md`.
 
+### Phase 25: PIO CP/NET driver + MAME bridge to standards (Apr 27, 2026) — Medium
+
+- **Goal**: real PIO transport in CP/NOS (not just speed-test
+  scaffolding), boot-time runtime selection, full netboot over
+  PIO, and figure out why MAME measured PIO as *slower* than SIO
+  end-to-end despite the wire-speed bench from Phase 24 saying
+  the opposite.
+- **Phase A — Z80 driver + probe**:
+  `cpnos-rom/transport_pio.c` rewritten as frame-level (OTIR send,
+  INIR recv, no `di`/`ei` around block instructions, chip IE off
+  with Z80 IFF on so CRT VRTC keeps firing).  Vtable in
+  `transport.h`, `cpnet_dispatch.c` provides `active_transport` +
+  `cpnet_send_msg`/`_recv_msg`.  `pio_probe()` sends 7-byte PING
+  SCB, awaits PONG with bounded timeout; success → flip
+  `active_transport` to PIO.  `BOOT_MARK(7,'P'/'S')` on screen
+  records the choice.  `snios.s` jt SNDMSG/RCVMSG slots dispatch
+  through `cpnet_send_msg` so NDOS at runtime hits whatever probe
+  selected.  `netboot_mpm.c::cpnet_xact` likewise.
+- **Phase B — host-side server**: `cpnos-rom/cpnet_pio_server.py`
+  reads SCBs raw (no SOH envelope), strips MAME's chip-emulation
+  stale-prefix byte by structure (SID at offset 2 vs 3),
+  dispatches via `netboot_server.dispatch_sndmsg`.  Z80 reaches
+  NDOS COLDST through 25 round-trips (LOGIN / OPEN / READ-SEQ × 25
+  / CLOSE).  PASS.
+- **Linker guard**: `payload.ld` ASSERT on
+  `__payload_end <= 0xF800`.  Discovered while debugging blank
+  boot markers — payload growth had pushed `.rodata` into display
+  memory; `clear_screen()` then wiped the marker[] string.  Now
+  fails at link time.
+- **Performance investigation**: per-frame ~130 ms emulated /
+  ~53 ms wall on host.  Profiled cpnet_pio_server:
+  recv 53 ms, dispatch 0.02 ms, send 0.01 ms.  ~99.96 % of host
+  time blocked in `socket.recv()`.  Tracked to MAME's own
+  `cpnet_bridge.cpp:266` listener-thread `select()` with **50 ms
+  timeout** — chip-side `write()` queues bytes but doesn't wake
+  the listener thread, so flush latency = 50 ms wall × 2 (each
+  direction).
+- **MAME bridge refactor**: rewrote `cpnet_bridge.{cpp,h}` on the
+  MAME-standard `BITBANGER` sub-device pattern (matches
+  `null_modem`).  No private threads, no mutex, no atomics, no
+  std::deque buffering.  -192 net lines.  Result: end-to-end
+  CP/NOS netboot **3.82 s emulated → 0.28 s emulated (13.6×
+  faster)**.  Per-frame host recv 53 ms → 0.5–3 ms wall.
+- **Banner**: signon now reads `RC702 CP/NOS PIO 2026-04-27 12:58
+  f6c43a4+` — transport, UTC date, HH:MM, git short hash with `+`
+  on dirty tree.  `cpnos_buildinfo.h` regenerated each build via
+  `.PHONY` Makefile rule with `cmp`-then-`mv` so cpnos_main.o
+  rebuilds only when the date or hash actually change.
+- **MAME OSD finding**: `socket.host:port` syntax means CONNECT
+  (not listen) — required flipping `cpnet_pio_server.py` to be
+  the listener and adding a "dummy listener" pre-spawn to the
+  harness for non-PIO modes (otherwise MAME aborts at startup
+  with "Connection refused" from bitbanger's first I/O).
+- **Numbers (MAME -nothrottle)**:
+  - PIO end-to-end: 0.28 s emulated (was 3.82 s pre-refactor).
+  - SIO end-to-end: 2.08 s emulated (rate-bound at 38400 baud).
+  - PIO is now **7.4× faster than SIO in MAME**, projects to
+    ~40× on real hardware.
+- **Branches**: `ravn/rc700-gensmedet:cpnet-pio-direct` (commits
+  `46b5479…3f30d8f`); `ravn/mame:cpnet-fast-link-remerge`
+  (`f9f1efdc1ce` — the bitbanger refactor).  Master/main untouched.
+
 ### Phase 24: Option P parallel-port driver + throughput bench (Apr 27, 2026) — Medium
 
 - **Goal**: implement and measure the Option P transport over PIO-B
