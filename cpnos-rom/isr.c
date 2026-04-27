@@ -225,21 +225,16 @@ void isr_pio_kbd(void) {
     );
 }
 
-/* PIO-B parallel ISR — Option P transport receive.  Pushes each byte
- * latched by Mode 1 input into pio_rx_ring (transport_pio.c) for
- * transport_pio_recv_byte to drain.  Also keeps the legacy
- * pio_par_byte / pio_par_count vars (resident.c) up-to-date so the
- * existing host-send harness still works as a smoke test.
+/* PIO-B parallel ISR — used only by the speed-test build (PIO_SPEED_TEST=3).
  *
- * Ring layout: head wraps modulo PIO_RX_RING_SIZE (64).  No overflow
- * detection here — if recv_byte falls behind, the ring head laps the
- * tail and the head==tail check in recv_byte will read empty.  CP/NET
- * positive-ACK semantics handle the resulting frame loss via timeout
- * and retry.
+ * Runtime CP/NET on PIO-B does NOT use this ISR: the chip's IE flip-flop
+ * is held off and Z80 reads bytes via INIR busy-poll (see
+ * transport_pio.c::pio_inir_chunk).  The ISR exists for the legacy
+ * host-send harness (uint8_t pio_par_count via tap.lua) and for the
+ * speed-rx variant (uint16_t pio_rx_count + pio_test_done).
  *
  * Shadow registers (after exx + ex af,af') so we don't perturb mainline
- * code's register state.  No call instructions — keeps RETI prefix
- * short. */
+ * code's register state. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
@@ -248,31 +243,14 @@ void isr_pio_par(void) {
         "exx\n\t"
 
         "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A */
-        "ld   (_pio_par_byte), a\n\t"   /* legacy: last byte */
-        "ld   c, a\n\t"              /* C = byte (preserved across A use) */
-
-        /* HL = &pio_rx_ring[pio_rx_head] */
-        "ld   a, (_pio_rx_head)\n\t"
-        "ld   e, a\n\t"
-        "ld   d, 0\n\t"
-        "ld   hl, _pio_rx_ring\n\t"
-        "add  hl, de\n\t"
-        "ld   (hl), c\n\t"           /* ring[head] = byte */
-
-        /* head = (head + 1) & (PIO_RX_RING_SIZE - 1) — ring size 32. */
-        "inc  a\n\t"
-        "and  0x1F\n\t"
-        "ld   (_pio_rx_head), a\n\t"
+        "ld   (_pio_par_byte), a\n\t"   /* harness watches this */
 
         "ld   hl, _pio_par_count\n\t"
-        "inc  (hl)\n\t"              /* legacy uint8_t counter */
+        "inc  (hl)\n\t"              /* uint8_t counter */
 
         /* uint16_t pio_rx_count: increments per byte.  Wraps to 0
          * after 65536 bytes; on wrap, set pio_test_done = 1.  Used
-         * by the speed-rx benchmark which busy-waits in mainline
-         * for pio_test_done to flip — bypasses the back-to-back
-         * ISR starvation that defeats ring-based recv at high rates.
-         * Cost: ~17 T-states per ISR. */
+         * by the speed-rx benchmark only. */
         "ld   hl, (_pio_rx_count)\n\t"
         "inc  hl\n\t"
         "ld   (_pio_rx_count), hl\n\t"

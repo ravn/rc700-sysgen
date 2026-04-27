@@ -110,6 +110,16 @@ SECTIONS {
   ASSERT(__payload_size <= 0x1000,
          "payload exceeds 4 KB combined PROM budget")
 
+  /* CRITICAL: payload must NOT overlap display memory at 0xF800.
+   * If it did, the relocator would write code/rodata into display RAM
+   * at boot, then init_hardware's clear_screen() would wipe it back
+   * to spaces — silently corrupting any string literals / const arrays
+   * the compiler placed there.  Symptom: "INIT OK" boot marker shows
+   * blank, RC702_LOGIN_PWD turns into spaces, signon string vanishes.
+   * Catch at link time. */
+  ASSERT(__payload_end <= 0xF800,
+         "payload overflows into display memory at 0xF800 — shrink it")
+
   .scratch_bss (NOLOAD) : {
     __scratch_bss_start = .;
     *(.bss*)

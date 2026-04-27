@@ -55,6 +55,8 @@
     .extern _cfgtbl
     .extern _transport_send_byte
     .extern _transport_recv_byte
+    .extern _cpnet_send_msg
+    .extern _cpnet_recv_msg
 
 ;----------------------------------------------------------------
 ;  SNIOS jump table  (first 24 bytes — public ABI for NDOS)
@@ -66,14 +68,14 @@
     .global _snios_ntwker, _snios_ntwkbt, _snios_ntwkdn
 
 _snios_jt:
-_snios_ntwkin:  jp NTWKIN       ; +00 NETWORK INITIALIZATION
-_snios_ntwkst:  jp NTWKST       ; +03 NETWORK STATUS
-_snios_cnftbl:  jp CNFTBL       ; +06 RETURN CONFIG TABLE ADDRESS
-_snios_sndmsg:  jp SNDMSG       ; +09 SEND MESSAGE ON NETWORK
-_snios_rcvmsg:  jp RCVMSG       ; +0C RECEIVE MESSAGE FROM NETWORK
-_snios_ntwker:  jp NTWKER       ; +0F NETWORK ERROR
-_snios_ntwkbt:  jp NTWKBT       ; +12 NETWORK WARM BOOT
-_snios_ntwkdn:  jp NTWKDN       ; +15 NETWORK SHUTDOWN
+_snios_ntwkin:  jp NTWKIN          ; +00 NETWORK INITIALIZATION
+_snios_ntwkst:  jp NTWKST          ; +03 NETWORK STATUS
+_snios_cnftbl:  jp CNFTBL          ; +06 RETURN CONFIG TABLE ADDRESS
+_snios_sndmsg:  jp SNDMSG_DISPATCH ; +09 SEND MESSAGE ON NETWORK
+_snios_rcvmsg:  jp RCVMSG_DISPATCH ; +0C RECEIVE MESSAGE FROM NETWORK
+_snios_ntwker:  jp NTWKER          ; +0F NETWORK ERROR
+_snios_ntwkbt:  jp NTWKBT          ; +12 NETWORK WARM BOOT
+_snios_ntwkdn:  jp NTWKDN          ; +15 NETWORK SHUTDOWN
 
 ;----------------------------------------------------------------
 ;  SNIOS body
@@ -99,6 +101,22 @@ _snios_rcvmsg_c:
     ld   b, h
     ld   c, l
     jp   RCVMSG
+
+;----------------------------------------------------------------
+;  jt dispatch trampolines.  NDOS reaches the SNDMSG/RCVMSG slots
+;  through the resident jt copy at 0xEA00 with msg pointer in BC.
+;  cpnet_send_msg / cpnet_recv_msg are sdcccall(1) C functions —
+;  they expect the pointer in HL.  Convert and tail-call.
+;----------------------------------------------------------------
+SNDMSG_DISPATCH:
+    ld   h, b
+    ld   l, c
+    jp   _cpnet_send_msg
+
+RCVMSG_DISPATCH:
+    ld   h, b
+    ld   l, c
+    jp   _cpnet_recv_msg
 
 ;================================================
 ;= CHARACTER I/O WRAPPERS                       =

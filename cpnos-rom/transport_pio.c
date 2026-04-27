@@ -1,99 +1,86 @@
 /* cpnos-rom transport backend: PIO-B parallel (Option P).
  *
- * Implements a transport-byte API over the RC702's Z80-PIO Port B
- * (J3 in real hardware).  Half-duplex with mode-switch state machine:
- *   transport_pio_send_byte -> Mode 0 (output)
- *   transport_pio_recv_byte -> Mode 1 (input, IRQ-driven)
- * Lazy switching — direction flips only when caller flips, costing
- * one OUT-triplet per direction change (~5 us at 4 MHz).
+ * Frame-level CP/NET 1.2 transport over the RC702's Z80-PIO Port B
+ * (J3 in real hardware).  Half-duplex with mode-switch:
+ *   pio_send_msg -> Mode 0 (output) + OTIR
+ *   pio_recv_msg -> Mode 1 (input)  + INIR
  *
- * Receive is interrupt-driven: isr_pio_par (isr.c) reads each byte
- * from PORT_PIO_B_DATA on PIO-B IRQ and pushes it into pio_rx_ring.
- * transport_pio_recv_byte busy-polls the ring head/tail with a
- * caller-supplied tick budget; matches the transport.h shape used
- * by transport_sio.c.
+ * Speed bench results (session 30, 4 MHz Z80, MAME real-time):
+ *   OTIR-driven TX: 156 KiB/s   (21 T/byte instruction-only)
+ *   INIR-driven RX: 148 KiB/s   (21 T/byte, chip self-clocked)
  *
- * Symbols are transport_pio_* (distinct from transport_*) so this
- * file can coexist with transport_sio.c during bring-up.  Once SNIOS
- * is plumbed onto PIO, a build flag will pick which implementation
- * exports the canonical transport_send_byte / transport_recv_byte.
+ * Wire layout: blast the SCB raw — Mode 0/1 hardware handshake gives
+ * per-byte delivery guarantees that subsume the SIO ENQ/ACK/SOH
+ * envelope.  No framing bytes; receiver knows to read 5 hdr +
+ * (SIZ+1) payload + 1 CKS = SIZ + 7 wire bytes (DRI SIZ-minus-1
+ * convention).
  *
- * See docs/cpnet_fast_link.md for the wire-level Option P design.
+ * Frame size cap: total wire bytes must fit in one OTIR/INIR (B
+ * register, 8-bit, 0 means 256 iterations).  CP/NET in our codebase
+ * is well under this — biggest is READ-SEQ at 171 B (netboot_mpm).
+ * The DRI spec ceiling of 262 B is unreachable through any function
+ * the slave actually issues; we cap at 256 for code size.
+ *
+ * Interrupt policy: chip's PIO IE flip-flop is OFF during INIR/OTIR,
+ * but the Z80 IFF stays ON.  Block instructions sample INT between
+ * iterations so CRT VRTC interrupts (DMA refresh) keep firing
+ * mid-burst.  No `di`/`ei` around the bursts — we never blind the
+ * system.
+ *
+ * Direction state: starts in INPUT (init.c leaves PIO-B in Mode 1 +
+ * IRQ).  send_msg flips to OUTPUT, blasts, leaves in OUTPUT.  recv_msg
+ * flips back to INPUT.  Mode 1 -> Mode 0 transition emits one
+ * stale-latch byte (m_output after reset = 0; documented chip
+ * artifact, ravn/mame#7) which the peer strips by recognising the
+ * SCB header signature.
+ *
+ * See docs/cpnet_fast_link.md (Option P design) and
+ * docs/cpnet_pio_speed_results.md (the bench).
  */
+#include <stdbool.h>
 #include <stdint.h>
 #include "hal.h"
 #include "transport.h"
 
-/* Section attribute is ELF-only.  macOS clang (Mach-O) drives the
- * IDE's LSP and rejects the section name without a comma; the actual
- * build uses ELF clang.  Same pattern as resident.c. */
 #ifdef __ELF__
-#define RESIDENT __attribute__((section(".resident"), used))
+#define RESIDENT      __attribute__((section(".resident"), used))
+#define RESIDENT_DATA __attribute__((section(".resident.data"), used))
 #else
 #define RESIDENT
+#define RESIDENT_DATA
 #endif
 
-/* Z80-PIO control-word encoding (Zilog datasheet, table 4):
- *   bit 0 = 0  -> the byte is loaded as the interrupt vector
- *   bit 0 = 1  -> it's a control word, type by low nibble:
- *     0x_F (bits 0..3 = 1111) -> mode select, bits 7..6 = mode
- *     0x_7 (bits 0..3 = 0111) -> ICW; bit 7 enable, bit 4 mask-follows
- *     0x_3 (bits 0..3 = 0011) -> set IE flip-flop, bit 7 = enable
- *
- * Only ICW (0x_7) with bit 4 set causes a mask byte to follow.  Our
- * 0x83 (set IE flip-flop, enable=1) takes no follow-up byte — emitting
- * a 0x00 after it would be parsed as "load vector = 0x00", silently
- * overwriting the 0x22 set by init.c so IRQs would dispatch through
- * IVT slot 0 (isr_noop) instead of slot 17 (isr_pio_par).  init.c does
- * use 0x83 alone for the same reason — see init.c:81-83.
- *
- * IRQ is disabled during Mode 0 so peripheral STB pulses (BSTB
- * acking output) cannot fire isr_pio_par with a stale/wrong-direction
- * byte. */
-#define PIO_MODE_OUTPUT  0x0F   /* mode 0 select: 8-bit output */
-#define PIO_MODE_INPUT   0x4F   /* mode 1 select: 8-bit input */
-#define PIO_IE_DISABLE   0x03   /* set IE flip-flop, bit 7 = 0 */
-/* ICW form (0x_7) with bit 7=1 (enable), bit 4=1 (mask follows).
- * The mask-follows path is the only one that atomically clears m_ip
- * (z80pio.cpp:632-635) — required when re-entering Mode 1 after Mode 0
- * because every Mode 0 STB pulse from the peripheral sets m_ip.  Plain
- * 0x83 (set IE flip-flop) leaves m_ip set and an immediate spurious
- * IRQ fires on EI, putting one stale byte into the RX ring before the
- * real data ever arrives. */
-#define PIO_IE_ENABLE_RESET  0x97   /* ICW: enable + mask follows */
-#define PIO_INT_MASK_NONE    0x00   /* mask byte: no PB bits masked */
+/* Z80-PIO control-word constants (Zilog datasheet table 4 + ICW form). */
+#define PIO_MODE_OUTPUT       0x0F
+#define PIO_MODE_INPUT        0x4F
+#define PIO_IE_DISABLE        0x03
+#define PIO_IE_ENABLE_RESET   0x97   /* ICW: enable + mask follows */
+#define PIO_INT_MASK_NONE     0x00
 
-/* Receive ring buffer.  Power-of-two size for cheap masking; 32 is
- * the upper bound that keeps .scratch_bss inside its 480-byte budget
- * (between SCRATCH origin 0xEA20 and IVT at 0xEC00).  CP/NET protocol
- * drains promptly between sends so the ring never holds a full frame
- * at once — a 5-byte SCB header + a few payload bytes is the typical
- * in-flight depth before the C side advances `tail`. */
-#define PIO_RX_RING_SIZE  32
-#define PIO_RX_RING_MASK  (PIO_RX_RING_SIZE - 1)
-_Static_assert((PIO_RX_RING_SIZE & PIO_RX_RING_MASK) == 0,
-               "ring size must be power of 2");
-
-/* Globals — referenced from isr.c's isr_pio_par (push side) and from
- * transport_pio_recv_byte (pop side).  Uninitialised, land in BSS. */
-uint8_t pio_rx_ring[PIO_RX_RING_SIZE];
-uint8_t pio_rx_head;   /* ISR writes here */
-uint8_t pio_rx_tail;   /* recv reads here */
-
-/* uint16_t byte counter incremented by isr_pio_par per byte.  Wraps
- * after 65536 bytes; on wrap the ISR sets pio_test_done = 1.  Used
- * by the speed-rx benchmark to time 64 KiB-equivalent ISR throughput
- * without depending on the ring (which back-to-back ISRs starve at
- * high rates). */
-uint16_t pio_rx_count;
-uint8_t pio_test_done;
-
-/* Direction state machine.  init.c leaves PIO-B in Mode 1 + IRQ
- * enabled, so initialise to PIO_DIR_INPUT — the first send forces
- * the output transition. */
 #define PIO_DIR_INPUT   0
 #define PIO_DIR_OUTPUT  1
-static uint8_t pio_b_dir = PIO_DIR_INPUT;
+static uint8_t pio_b_dir;            /* zeroed BSS = INPUT initially */
+
+/* SCB header offsets (matches netboot_mpm.c). */
+#define FMT 0
+#define DID 1
+#define SID 2
+#define FNC 3
+#define SIZ 4
+
+/* PING/PONG SCB shape — used by pio_probe. */
+#define PING_FNC  0xC0
+#define PING_BYTE 'P'
+#define PONG_BYTE 'O'
+
+#ifndef RC702_SLAVEID
+#define RC702_SLAVEID 0x01
+#endif
+
+/* Empty-FIFO sentinel value MAME's bridge returns when the host
+ * hasn't sent anything yet (FF on the wire).  Used as the
+ * "byte-not-yet-arrived" signal in the first-byte busy-wait. */
+#define PIO_RX_EMPTY_VAL 0xFF
 
 RESIDENT
 static void pio_b_set_output(void) {
@@ -106,44 +93,148 @@ static void pio_b_set_output(void) {
 RESIDENT
 static void pio_b_set_input(void) {
     if (pio_b_dir == PIO_DIR_INPUT) return;
+    /* Mode 1 select latches direction; ICW 0x97 + mask 0x00
+     * atomically clears m_ip (Mode 0 strobes will have set it).
+     * Then disable IE again — we're busy-poll, no IRQ wanted. */
     _port_out(PORT_PIO_B_CTRL, PIO_MODE_INPUT);
     _port_out(PORT_PIO_B_CTRL, PIO_IE_ENABLE_RESET);
     _port_out(PORT_PIO_B_CTRL, PIO_INT_MASK_NONE);
+    _port_out(PORT_PIO_B_CTRL, PIO_IE_DISABLE);
     pio_b_dir = PIO_DIR_INPUT;
 }
 
+/* Send a complete CP/NET frame.  msg points to FMT byte.  Wire
+ * length = (SIZ+1) payload + 5 hdr + 1 CKS = SIZ + 7 bytes; must
+ * fit in a single OTIR (<= 256). */
+RESIDENT
+uint8_t pio_send_msg(uint8_t *msg) {
+    pio_b_set_output();
+    uint8_t b = (uint8_t)((uint16_t)msg[SIZ] + 7U);   /* B=0 means 256 */
+    __asm__ volatile(
+        "ld   c, 0x11\n\t"        /* PORT_PIO_B_DATA */
+        "otir\n\t"
+        : "+{hl}"(msg), "+{b}"(b)
+        :
+        : "a", "c", "memory"
+    );
+    return 0;
+}
+
+/* Receive a complete CP/NET frame.  Reads 5 header bytes (the first
+ * via PORT_PIO_B_DATA polling for non-FF, the next 4 via INIR), then
+ * INIR's the (SIZ+2) payload+CKS bytes.  Returns 0 success, 0xFF on
+ * timeout. */
+RESIDENT
+uint8_t pio_recv_msg(uint8_t *msg) {
+    pio_b_set_input();
+    /* First-byte sentinel-wait — gives the host time to assemble + send.
+     * Empty PIO-B FIFO returns 0xFF in MAME's bridge; spin until a
+     * non-FF byte appears (= FMT of the response).  Bounded by uint16_t
+     * poll budget = ~200 ms emulated. */
+    uint16_t budget = 0xFFFFU;
+    uint8_t  first;
+    while (budget--) {
+        first = _port_in(PORT_PIO_B_DATA);
+        if (first != PIO_RX_EMPTY_VAL) goto got_first;
+    }
+    return 0xFF;
+got_first:
+    msg[0] = first;
+    /* INIR header bytes 1..4 (B=4). */
+    {
+        uint8_t b4 = 4;
+        uint8_t *p = &msg[1];
+        __asm__ volatile(
+            "ld   c, 0x11\n\t"
+            "inir\n\t"
+            : "+{hl}"(p), "+{b}"(b4)
+            :
+            : "a", "c", "memory"
+        );
+    }
+    /* INIR (SIZ+1) payload bytes + 1 CKS. */
+    {
+        uint8_t bn = (uint8_t)((uint16_t)msg[SIZ] + 2U);
+        uint8_t *p = &msg[5];
+        __asm__ volatile(
+            "ld   c, 0x11\n\t"
+            "inir\n\t"
+            : "+{hl}"(p), "+{b}"(bn)
+            :
+            : "a", "c", "memory"
+        );
+    }
+    return 0;
+}
+
+/* Probe: send PING SCB, recv PONG SCB.  Validates round-trip:
+ *   PING:  FMT=0x00 DID=0x00 SID=us FNC=PING_FNC SIZ=0 [P] CKS
+ *   PONG:  FMT=0x01 DID=us  SID=0x00 FNC=PING_FNC SIZ=0 [O] CKS
+ * Returns true on valid PONG.
+ *
+ * PING bytes built inline (no .rodata) so they don't depend on
+ * link placement — at this point in boot the relocator has just
+ * copied the payload and clear_screen hasn't run yet, but
+ * literal-byte construction is robust either way.
+ *
+ * CKS is sum-to-zero (two's complement of the body sum). */
+RESIDENT
+bool pio_probe(void) {
+    uint8_t msg[7];
+    msg[FMT] = 0x00;
+    msg[DID] = 0x00;
+    msg[SID] = RC702_SLAVEID;
+    msg[FNC] = PING_FNC;
+    msg[SIZ] = 0x00;
+    msg[5]   = PING_BYTE;
+    {
+        uint8_t s = 0;
+        for (uint8_t i = 0; i < 6U; ++i) s += msg[i];
+        msg[6] = (uint8_t)(0U - s);
+    }
+
+    if (pio_send_msg(msg) != 0) return false;
+    if (pio_recv_msg(msg) != 0) return false;
+
+    /* Validate response: sum-to-zero + mirrored header. */
+    uint8_t s = 0;
+    for (uint8_t i = 0; i < 7U; ++i) s += msg[i];
+    return (s == 0U)
+        && msg[FMT] == 0x01
+        && msg[DID] == RC702_SLAVEID
+        && msg[SID] == 0x00
+        && msg[FNC] == PING_FNC
+        && msg[SIZ] == 0x00
+        && msg[5]   == PONG_BYTE;
+}
+
+RESIDENT_DATA
+cpnet_transport_t transport_pio_vt = {
+    .probe    = pio_probe,
+    .send_msg = pio_send_msg,
+    .recv_msg = pio_recv_msg,
+};
+
+/* ---- Compatibility shims for the bring-up scaffolding ----------
+ * cpnos_main.c's PIO_LOOPBACK_TEST and PIO_SPEED_TEST=1 builds use
+ * these byte-level entries.  Not part of runtime CP/NET. */
 RESIDENT
 void transport_pio_send_byte(uint8_t c) {
     pio_b_set_output();
     _port_out(PORT_PIO_B_DATA, c);
-    /* Mode 0 output handshake is chip-managed: Z80 write -> chip
-     * raises BRDY -> peripheral pulses BSTB -> chip clears BRDY for
-     * one cycle and re-asserts on next CPU write.  In MAME the bridge
-     * acks atomically (same emu instant); on real HW the host's
-     * software loop must ack within the inter-OUT interval to keep
-     * up with Z80 output speed.
-     *
-     * Wire-protocol note (chip artifact): Z80-PIO emits the current
-     * output-latch value as a single byte on Mode 1->0 transition
-     * (z80pio.cpp:set_mode line ~390 — "enable data output" callback
-     * with m_output).  After power-on m_output = 0, so the very first
-     * byte the host sees on direction switch is 0x00 even before any
-     * CPU write to the data port.  After the first real OUT the latch
-     * holds that data, so subsequent direction flips emit whatever was
-     * last sent.  CP/NET-frame consumers will recognise frame starts
-     * by SCB header signature (FMT bit pattern); this leading byte is
-     * pre-frame noise and is discarded on the host side. */
 }
 
 RESIDENT
 uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
     pio_b_set_input();
     while (timeout_ticks--) {
-        if (pio_rx_head != pio_rx_tail) {
-            uint8_t b = pio_rx_ring[pio_rx_tail];
-            pio_rx_tail = (pio_rx_tail + 1) & PIO_RX_RING_MASK;
-            return b;
-        }
+        uint8_t b = _port_in(PORT_PIO_B_DATA);
+        if (b != PIO_RX_EMPTY_VAL) return b;
     }
     return TRANSPORT_TIMEOUT;
 }
+
+/* Speed-test BSS variables (referenced by isr.c).  Kept for the
+ * speed-test build only. */
+uint16_t pio_rx_count;
+uint8_t  pio_test_done;

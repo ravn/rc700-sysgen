@@ -12,11 +12,13 @@
 
 ENABLE_FDC ?= 0
 
-# Bring-up scaffolding: enables the PIO-B loopback test in cpnos_main
-# (transport_pio_send_byte * 6, then transport_pio_recv_byte * 6 from
-# the host echo).  Drop to 0 once SNIOS is plumbed onto PIO and the
-# scaffolding is replaced with real CP/NET frame traffic.
-PIO_LOOPBACK_TEST ?= 1
+# Bring-up scaffolding: enables the PIO-B 10-byte CP/NET frame loopback
+# test in cpnos_main (Z80 sends -> harness mirrors -> Z80 validates).
+# Off by default since session 33 — the real driver (transport_pio.c
+# pio_send_msg / pio_recv_msg, with the boot-time probe) supersedes
+# the bring-up scaffolding.  Set to 1 only to re-run the historical
+# harness mode `loopback`.
+PIO_LOOPBACK_TEST ?= 0
 # Speed test (overrides PIO_LOOPBACK_TEST when nonzero):
 #   1 = C-loop TX     (transport_pio_send_byte per byte; function-call cost)
 #   2 = inline OTIR TX (raw OUT (C),(HL); INC HL; DEC B; ~21 T/byte)
@@ -89,7 +91,8 @@ endif
 PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
-               clang/transport_sio.o clang/transport_pio.o $(NETBOOT_OBJ) \
+               clang/transport_sio.o clang/transport_pio.o \
+               clang/cpnet_dispatch.o $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o \
                clang/payload_checksum.o
 PAYLOAD_LD = payload.ld
@@ -171,6 +174,10 @@ clang/transport_sio.o: transport_sio.c transport.h hal.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/transport_pio.o: transport_pio.c transport.h hal.h
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clang/cpnet_dispatch.o: cpnet_dispatch.c transport.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 

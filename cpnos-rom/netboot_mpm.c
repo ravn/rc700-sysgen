@@ -23,13 +23,14 @@
 
 #include <stdint.h>
 #include "hal.h"
+#include "transport.h"
 
 /* memcpy from runtime.s — no libc headers in a freestanding build. */
 extern void *memcpy(void *dest, const void *src, unsigned int n);
 
-/* SNIOS C-wrappers from snios.s — pass msg buffer in HL (sdcccall(1)). */
-extern uint8_t snios_sndmsg_c(uint8_t *msg);
-extern uint8_t snios_rcvmsg_c(uint8_t *msg);
+/* SNIOS NTWKIN — drains SIO RX, sets ACTIVE flag.  Always SIO-side
+ * because the only thing it does that matters (cfgtbl.NETST = ACTIVE)
+ * is transport-agnostic.  PIO has nothing to drain. */
 extern uint8_t snios_ntwkin(void);
 
 /* BIOS CONOUT — resident at 0xF20C after cpnos_main copies .resident. */
@@ -90,8 +91,8 @@ static uint8_t cpnet_xact(uint8_t fnc, uint8_t siz_minus_1) {
     msg[SID] = 0x01;                 /* our slave ID; SNIOS overwrites from CFGTBL */
     msg[FNC] = fnc;
     msg[SIZ] = siz_minus_1;
-    if (snios_sndmsg_c(msg) != 0) return 0xFE;
-    if (snios_rcvmsg_c(msg) != 0) return 0xFE;
+    if (cpnet_send_msg(msg) != 0) return 0xFE;
+    if (cpnet_recv_msg(msg) != 0) return 0xFE;
     return msg[DAT];
 }
 

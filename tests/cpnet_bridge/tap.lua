@@ -26,6 +26,14 @@ local SIGNON_ROW1        = 0xF850
 local READY_FILE      = "/tmp/cpnos_bridge_ready.txt"
 local TAP_LOG         = "/tmp/cpnos_bridge_tap.log"
 local LOOPBACK_RESULT = "/tmp/cpnos_loopback_result.txt"
+local BOOT_MARKS_FILE = "/tmp/cpnos_boot_marks.txt"
+
+-- Boot-marker strip: 19 chars at row 0 cols 60..78 (0xF83C..0xF84E).
+-- Written every poll so the harness can inspect post-mortem which
+-- transport probe selected ('P'/'S' at idx 7) and how far init/netboot
+-- got.  See hal.h::BOOT_MARK_BASE.
+local BOOT_MARK_BASE_VRAM = 0xF800 + 60
+local BOOT_MARK_LEN       = 19
 
 do
 	local f = io.open(READY_FILE, "w") if f then f:close() end
@@ -63,6 +71,25 @@ emu.register_periodic(function ()
 			local f = io.open(READY_FILE, "w")
 			if f then f:write("READY\n") f:close() end
 		end
+	end
+
+	-- Boot-marker strip snapshot — overwritten each poll.  Cheap: 19
+	-- byte reads + one file rewrite.  Lets the harness see which
+	-- transport probe selected without parsing display memory itself.
+	do
+		local s = ""
+		for i = 0, BOOT_MARK_LEN - 1 do
+			local b = prog:read_u8(BOOT_MARK_BASE_VRAM + i)
+			-- Substitute non-printable bytes with '.' so the file is
+			-- diffable / greppable.
+			if b >= 0x20 and b < 0x7F then
+				s = s .. string.char(b)
+			else
+				s = s .. "."
+			end
+		end
+		local f = io.open(BOOT_MARKS_FILE, "w")
+		if f then f:write(s .. "\n") f:close() end
 	end
 
 	-- Polled count + cross-check.  No memory taps installed:

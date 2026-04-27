@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include "hal.h"
+#include "transport.h"
 #include "cpnos_addrs.h"     /* CPNOS_BDOS_ADDR — extracted from cpnos.sym */
 
 extern void init_hardware(void);
@@ -376,6 +377,18 @@ static void nos_handoff(void) {
 
     cfgtbl_init();
     init_hardware();
+
+    /* Transport probe.  Try PIO first (Option P fast link); on PONG
+     * within ~100 ms emulated, switch active_transport to PIO so
+     * netboot + runtime CP/NET both go through the parallel port.
+     * On no-PONG, leave active_transport at its default (SIO) and
+     * netboot continues over SIO-A async as before. */
+    if (transport_pio_vt.probe()) {
+        active_transport = &transport_pio_vt;
+        BOOT_MARK(7, 'P');             /* PIO transport selected */
+    } else {
+        BOOT_MARK(7, 'S');             /* SIO fallback (default) */
+    }
 
     uint16_t entry = NETBOOT();
     BOOT_MARK(15, entry ? '+' : '-');  /* netboot return: + ok, - fail */

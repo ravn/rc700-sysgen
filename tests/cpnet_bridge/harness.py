@@ -454,6 +454,97 @@ def run_loopback_test(cleanup):
 	print(f"       Z80 saw:  {got_hex} (passed={passed})")
 
 
+PING_BYTES = bytes([0x00, 0x00, 0x01, 0xC0, 0x00, 0x50, 0xEF])
+PONG_BYTES = bytes([0x01, 0x01, 0x00, 0xC0, 0x00, 0x4F, 0xEF])
+BOOT_MARKS_FILE = Path("/tmp/cpnos_boot_marks.txt")
+
+
+def run_probe_test(cleanup):
+	"""Probe test: harness plays a CP/NET PIO peer for one round-trip.
+	Z80's pio_probe() sends a 7-byte PING SCB
+	(FMT=0 DID=0 SID=01 FNC=C0 SIZ=0 'P' CKS); we reply with the
+	mirrored PONG (FMT=01 DID=01 SID=0 FNC=C0 SIZ=0 'O' CKS).  After
+	~3 s wall (giving Z80 time to BOOT_MARK 'P' at col 67), we read
+	the boot-marker strip tap.lua dumps to /tmp/cpnos_boot_marks.txt
+	and assert col-7 == 'P'.
+
+	Caveat: this test does NOT also serve PIO netboot.  After probe
+	succeeds and active_transport switches to PIO, netboot_mpm tries
+	LOGIN over PIO — the harness doesn't answer, so the Z80 hangs in
+	the for(;;) at the end of cpnos_cold_entry.  The probe + 'P'
+	marker are the assertion; netboot is verified separately (Phase B,
+	next session)."""
+	print(f"[harness] step 8: connect to bridge, expect PING SCB "
+	      f"{PING_BYTES.hex()}")
+	try:
+		bridge = socket.create_connection(("127.0.0.1", BRIDGE_PORT),
+			timeout=2.0)
+	except OSError as e:
+		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
+
+	# Z80-PIO Mode 1 -> Mode 0 transition emits a stale-latch byte
+	# (m_output after reset = 0) before any CPU OUT; absorb up to 8
+	# bytes and strip the leading 0 if present.  Documented in
+	# transport_pio.c (and ravn/mame#7).
+	bridge.settimeout(15.0)
+	wire = bytearray()
+	want = len(PING_BYTES) + 1
+	try:
+		while len(wire) < want:
+			chunk = bridge.recv(want - len(wire))
+			if not chunk: break
+			wire.extend(chunk)
+	except socket.timeout:
+		pass
+	if len(wire) == len(PING_BYTES) + 1 and wire[0] == 0x00:
+		print("[harness] stripping chip-artifact 0x00 prefix")
+		ping = bytes(wire[1:])
+	elif len(wire) == len(PING_BYTES):
+		ping = bytes(wire)
+	else:
+		fail(f"received {len(wire)} bytes, expected "
+		     f"{len(PING_BYTES)} or {len(PING_BYTES)+1}: {bytes(wire).hex()}",
+		     cleanup)
+
+	if ping != PING_BYTES:
+		fail(f"PING mismatch: got {ping.hex()}, want {PING_BYTES.hex()}",
+		     cleanup)
+	# Sum-to-zero CKS sanity check on what arrived.
+	if (sum(ping) & 0xFF) != 0:
+		fail(f"PING CKS bad: sum={sum(ping)&0xFF:#04x} (must be 0)", cleanup)
+
+	print(f"[harness] PING ok: {ping.hex()}; replying PONG {PONG_BYTES.hex()}")
+	if (sum(PONG_BYTES) & 0xFF) != 0:
+		fail(f"PONG CKS bad in test constant", cleanup)
+	bridge.sendall(PONG_BYTES)
+	bridge.close()
+
+	# Wait for Z80 to set BOOT_MARK at col 67 (idx 7 in the strip).
+	# pio_probe returns within ~ms of receiving the 7th PONG byte; the
+	# marker write follows immediately.  Pad to 5 s wall to be safe.
+	print("[harness] step 9: poll for 'P' marker at strip idx 7")
+	end = time.time() + 10.0
+	last_strip = None
+	while time.time() < end:
+		if BOOT_MARKS_FILE.exists():
+			last_strip = BOOT_MARKS_FILE.read_text().strip()
+			if len(last_strip) >= 8 and last_strip[7] in ("P", "S"):
+				break
+		time.sleep(0.1)
+	if not last_strip:
+		fail(f"{BOOT_MARKS_FILE} never appeared (tap.lua not running?)",
+		     cleanup)
+	if len(last_strip) < 8:
+		fail(f"boot-marker strip too short: {last_strip!r}", cleanup)
+	mark = last_strip[7]
+	if mark != "P":
+		fail(f"transport-select marker = {mark!r} (want 'P'); "
+		     f"strip = {last_strip!r}", cleanup)
+
+	print(f"PASS: PIO probe round-trip succeeded; Z80 selected PIO transport")
+	print(f"       boot strip: {last_strip!r}")
+
+
 def run_speed_test(cleanup, mode="speed"):
 	"""Stream PIO_SPEED_BYTES (100 KiB) from Z80 over PIO-B; count and
 	time on the host side; report throughput.
@@ -626,11 +717,12 @@ def main():
 	ap.add_argument("--mame-seconds", type=int, default=120,
 		help="MAME -seconds_to_run (default 120)")
 	ap.add_argument("--mode",
-		choices=("hostsend", "loopback",
+		choices=("hostsend", "loopback", "probe",
 		         "speed", "speed-otir", "speed-rx", "speed-rx-inir"),
 		default="hostsend",
 		help="hostsend: harness sends 6 bytes -> Z80 ISR; "
 		     "loopback: Z80 sends 10-byte CP/NET frame -> harness mirrors -> Z80 validates; "
+		     "probe: Z80 pio_probe() sends PING SCB -> harness replies PONG -> verify 'P' marker; "
 		     "speed: Z80 streams 100 KiB via C-loop transport_pio_send_byte; "
 		     "speed-otir: Z80 streams 100 KiB via inline OTIR (raw OUT (C),(HL)); "
 		     "speed-rx: harness sends 64 KiB -> Z80 ISR drain (counter wrap); "
@@ -749,7 +841,11 @@ def main():
 			fail(f"cpnet_bridge did not bind :{BRIDGE_PORT}: {e} "
 			     f"(see {MAME_LOG} for socket errors)", cleanup)
 
-		if args.mode == "hostsend":
+		if args.mode == "probe":
+			# Probe runs early in cpnos_cold_entry; connect immediately
+			# so PONG is queued before Z80 finishes pio_send_msg.
+			run_probe_test(cleanup)
+		elif args.mode == "hostsend":
 			# Give cpnos-rom a chance to actually call enable_interrupts.
 			# This requires netboot to complete: ~1-3 emulated seconds
 			# at ~1400% speed = <1 wall second.  Pad to 5s for safety.
