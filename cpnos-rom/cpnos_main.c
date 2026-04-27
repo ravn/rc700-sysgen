@@ -158,6 +158,79 @@ static void pio_loopback_test(void) {
 }
 #endif
 
+#if PIO_SPEED_TEST == 4
+/* Variant 4: RX via tight INIR busy-poll, NO interrupts.
+ *
+ * Host sends [0xAA sentinel byte] + [65536 data bytes].  Z80 polls
+ * the data port until it sees 0xAA (consumes the sentinel), then runs
+ * INIR for 65536 bytes.  The sentinel gives a clean "start" boundary
+ * so we don't time the host-side TCP setup/buffer-fill phase.
+ *
+ * Z80-PIO Mode 1 input chip behaviour (from MAME z80pio.cpp::data_read):
+ *
+ *   case MODE_INPUT:
+ *     if (!m_stb)
+ *       m_input = m_device->m_in_pb_cb(0);   // re-fetch from peripheral
+ *     data = m_input;
+ *     set_rdy(false);
+ *     set_rdy(true);
+ *     break;
+ *
+ * Each CPU IN to the data port:
+ *   1. (m_stb is 1 from previous strobe) returns m_input -> latched byte N
+ *   2. set_rdy(false); set_rdy(true) toggles BRDY
+ *   3. bridge's rdy_w(1) sees rising edge with data, calls strobe_w(0); strobe_w(1)
+ *   4. chip strobe(0): m_input = bridge.read() -> pops byte N+1 from FIFO
+ *   5. chip strobe(1): trigger_interrupt() (m_ip=true) + set_rdy(false)
+ *
+ * IE is disabled (0x03) so trigger_interrupt does NOT fire an IRQ —
+ * m_ip is set but the chip never asserts INT.  Each subsequent IN
+ * returns the freshly latched byte.  Net effect: one byte per IN,
+ * no ISR overhead.  Z80 cost is just INIR's 21 T-states/byte =
+ * 4 MHz / 21 = 190 KiB/s theoretical.
+ *
+ * Discard buffer at 0xC000 (TPA region — unused while test runs;
+ * NDOS/CCP get re-loaded on warm-boot anyway).  256 chunks of 256
+ * bytes each via INIR with B=0 (= 256 iter) gives 65536 bytes
+ * total. */
+static void pio_loopback_test(void) {
+    __asm__ volatile(
+        /* PIO-B Mode 1 input, IE disabled, IP cleared.
+         * 0x97 + 0x00 (ICW with mask-follows + enable=1) clears m_ip
+         * atomically.  Then 0x03 disables IE again — m_ip cleared,
+         * m_ie=false, perfect state for busy-poll. */
+        "ld   a, 0x4F\n\t"            /* mode 1 input */
+        "out  (0x13), a\n\t"
+        "ld   a, 0x97\n\t"            /* ICW: mask follows + enable */
+        "out  (0x13), a\n\t"
+        "ld   a, 0x00\n\t"            /* mask: no PB bits masked */
+        "out  (0x13), a\n\t"
+        "ld   a, 0x03\n\t"            /* set IE flip-flop = 0 */
+        "out  (0x13), a\n\t"
+
+        /* Wait for the host's 0xAA sentinel.  Empty-FIFO reads return
+         * 0xFF; busy-spin until something other than 0xFF appears
+         * (the sentinel itself).  This consumes the sentinel byte. */
+        "2:\n\t"
+        "in   a, (0x11)\n\t"
+        "cp   0xFF\n\t"
+        "jr   z, 2b\n\t"
+
+        /* INIR loop: 256 chunks of 256 bytes -> 65536 data bytes. */
+        "ld   c, 0x11\n\t"            /* PIO-B data port */
+        "ld   d, 0\n\t"               /* outer chunk counter (0 = 256) */
+        "1:\n\t"
+        "ld   hl, 0xC000\n\t"         /* discard buffer (TPA, unused) */
+        "ld   b, 0\n\t"               /* INIR iterations: 0 = 256 */
+        "inir\n\t"                    /* 21 T/byte */
+        "dec  d\n\t"
+        "jr   nz, 1b\n\t"
+        : : : "a", "b", "c", "d", "hl", "memory"
+    );
+    pio_test_done = 1;
+}
+#endif
+
 #elif defined(PIO_LOOPBACK_TEST)
 /* Bring-up frame test (Option P (3) — design-exploration step).  Sends
  * a 10-byte CP/NET-shaped request frame via PIO-B Mode 0, expects the

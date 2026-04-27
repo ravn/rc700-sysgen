@@ -18,9 +18,10 @@ ENABLE_FDC ?= 0
 # scaffolding is replaced with real CP/NET frame traffic.
 PIO_LOOPBACK_TEST ?= 1
 # Speed test (overrides PIO_LOOPBACK_TEST when nonzero):
-#   1 = C-loop TX  (transport_pio_send_byte per byte; function-call cost)
-#   2 = inline OTIR TX  (raw OUT (C),(HL); INC HL; DEC B; ~21 T/byte)
-#   3 = RX  (host -> Z80; ISR-driven ring drain via transport_pio_recv_byte)
+#   1 = C-loop TX     (transport_pio_send_byte per byte; function-call cost)
+#   2 = inline OTIR TX (raw OUT (C),(HL); INC HL; DEC B; ~21 T/byte)
+#   3 = RX (ISR-driven; back-to-back ISRs; ring overflow at high rates)
+#   4 = RX (INIR busy-poll; IE disabled; ~21 T/byte, no IRQ overhead)
 PIO_SPEED_TEST    ?= 0
 
 LLVM_Z80 = $(CURDIR)/../../llvm-z80

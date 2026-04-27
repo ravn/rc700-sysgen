@@ -534,7 +534,7 @@ def run_speed_test(cleanup, mode="speed"):
 	      f"(100 KiB in {wall_sec*1000:.0f} ms emulated at 4 MHz)")
 
 
-def run_speed_rx_test(cleanup):
+def run_speed_rx_test(cleanup, mode="speed-rx"):
 	"""Stream PIO_SPEED_RX_BYTES (64 KiB) from host into Z80 over
 	PIO-B.  Z80 ISR (isr_pio_par) increments uint16_t pio_rx_count
 	per byte; on wrap it sets pio_test_done = 1.  We send exactly
@@ -556,10 +556,14 @@ def run_speed_rx_test(cleanup):
 	except OSError as e:
 		fail(f"bridge :{BRIDGE_PORT} connect failed: {e}", cleanup)
 
-	# Build the payload: 0..255 ramp x 256.
+	# Build the payload: 0..255 ramp x 256.  In INIR mode the Z80
+	# busy-polls for a 0xAA sentinel that demarcates the start; prepend
+	# it so the timed phase begins when the Z80 sees data.
 	one_chunk = bytes(range(256))
 	payload = one_chunk * (bytes_to_send // 256)
 	assert len(payload) == bytes_to_send
+	if mode == "speed-rx-inir":
+		payload = b"\xAA" + payload
 
 	# Z80 reaches pio_loopback_test ~3-4 emulated seconds after MAME
 	# start.  At real-time MAME that's 3-4 wall seconds.  Wait for
@@ -600,8 +604,9 @@ def run_speed_rx_test(cleanup):
 	wall = t_done - t_start
 	rate = (bytes_to_send / wall / 1024.0) if wall > 0 else 0
 
+	variant = "INIR busy-poll" if mode == "speed-rx-inir" else "ISR-only"
 	print()
-	print(f"PASS: 64 KiB streamed host -> Z80 over PIO-B (ISR-only)")
+	print(f"PASS: 64 KiB streamed host -> Z80 over PIO-B ({variant})")
 	print(f"       Z80 throughput:  {rate:.1f} KiB/s "
 	      f"(64 KiB in {wall*1000:.0f} ms emulated at 4 MHz)")
 
@@ -621,13 +626,15 @@ def main():
 	ap.add_argument("--mame-seconds", type=int, default=120,
 		help="MAME -seconds_to_run (default 120)")
 	ap.add_argument("--mode",
-		choices=("hostsend", "loopback", "speed", "speed-otir", "speed-rx"),
+		choices=("hostsend", "loopback",
+		         "speed", "speed-otir", "speed-rx", "speed-rx-inir"),
 		default="hostsend",
 		help="hostsend: harness sends 6 bytes -> Z80 ISR; "
 		     "loopback: Z80 sends 10-byte CP/NET frame -> harness mirrors -> Z80 validates; "
 		     "speed: Z80 streams 100 KiB via C-loop transport_pio_send_byte; "
 		     "speed-otir: Z80 streams 100 KiB via inline OTIR (raw OUT (C),(HL)); "
-		     "speed-rx: harness sends 100 KiB -> Z80 ISR + transport_pio_recv_byte drain")
+		     "speed-rx: harness sends 64 KiB -> Z80 ISR drain (counter wrap); "
+		     "speed-rx-inir: harness sends 64 KiB -> Z80 INIR busy-poll (no IRQ)")
 	args = ap.parse_args()
 
 	mame = Path(args.mame_bin)
@@ -648,7 +655,8 @@ def main():
 		# don't inherit stale objects from a previous build with the
 		# other test compiled in.
 		extra_make_args = ()
-		speed_variant = {"speed": 1, "speed-otir": 2, "speed-rx": 3}.get(args.mode)
+		speed_variant = {"speed": 1, "speed-otir": 2,
+		                 "speed-rx": 3, "speed-rx-inir": 4}.get(args.mode)
 		if speed_variant is not None:
 			run(["make", "-s", "cpnos-clean"], cwd=str(CPNOS_DIR))
 			extra_make_args = (f"PIO_SPEED_TEST={speed_variant}",
@@ -705,7 +713,8 @@ def main():
 		# In speed modes, run at real-time (no -nothrottle) so wall
 		# elapsed equals Z80 emulated elapsed.  Measured throughput
 		# then matches what real 4-MHz hardware would deliver.
-		realtime = args.mode in ("speed", "speed-otir", "speed-rx")
+		realtime = args.mode in ("speed", "speed-otir",
+		                          "speed-rx", "speed-rx-inir")
 		throttle_args = [] if realtime else ["-nothrottle"]
 
 		print("[harness] step 6: launch MAME with -piob cpnet_bridge "
@@ -754,8 +763,8 @@ def main():
 			# before Z80 enters its recv loop — connect straight
 			# away to maximise the host-side wall-clock budget.
 			run_loopback_test(cleanup)
-		elif args.mode == "speed-rx":
-			run_speed_rx_test(cleanup)
+		elif args.mode in ("speed-rx", "speed-rx-inir"):
+			run_speed_rx_test(cleanup, mode=args.mode)
 		else:  # speed, speed-otir
 			run_speed_test(cleanup, mode=args.mode)
 
