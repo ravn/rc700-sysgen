@@ -775,6 +775,85 @@ Three commits after the audit:
   `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
   `docs/mame-rc702-piob-slot-regression.md`.
 
+### Phase 26: PIO-to-mpm-net2 — proxy vs direct snios (Apr 27, 2026) — Hard
+
+- **Goal**: get CP/NOS netboot working against real `mpm-net2`
+  (z80pack MP/M + SERVER.RSP) over the PIO transport, not just our
+  Python `netboot_server.py` responder.  Two designs compared:
+  - **Proxy**: Z80 sends raw PIO SCBs; a host-side Python translator
+    wraps them in the SIO ENQ/ACK/SOH/CKS/EOT envelope and forwards
+    to mpm-net2 :4002.  Z80 work unchanged from Phase 25.
+  - **Direct (snios on PIO)**: snios.s envelope code is left intact
+    but its byte primitives are rewired from SIO chip ports to PIO
+    chip ports.  No host-side proxy; MAME's PIO bridge connects
+    directly to mpm-net2.  Bytes on the wire are the same envelope
+    SIO would produce, just on the PIO line.
+- **Proxy implementation**: extended `cpnet_pio_server.py` with a
+  `--upstream HOST:PORT` flag.  `upstream_send` / `upstream_recv`
+  mirror snios.s as a Python client (slave-side ENQ/ACK exchange).
+  PING (FNC=0xC0) handled locally; everything else forwarded.
+  End-to-end netboot against mpm-net2: **1.44 s emulated, full
+  NDOS COLDST**, 60 frames, ~10 ms host wall per frame for the
+  envelope round-trips.  Works robustly.
+- **Direct implementation**: snios.s `_transport_send_byte` /
+  `_transport_recv_byte` calls swapped for `_transport_pio_*`
+  versions.  Frame-level transport_pio_vt and pio_probe deleted
+  on the experiment branch (saves ~340 B payload).  cpnos_main's
+  probe block dropped (always default to SIO transport vtable;
+  SIO vtable's send_msg/recv_msg = snios_sndmsg_c/snios_rcvmsg_c
+  which now use PIO bytes).
+- **Three bugs found and patched**:
+  1. **Stale-prefix byte on Mode 1→0** (transport_pio.c).  MAME's
+     z80pio.cpp `set_mode(MODE_OUTPUT)` immediately fires
+     `out_pb_callback(m_output)`, leaking the previous send's last
+     byte before the actual data.  mpm-net2 saw a stale `05`
+     between ACK and SOH, errored.  Fix: pre-load `m_output` via
+     data-port write while still in Mode 1 (the chip's
+     `MODE_INPUT::data_write` latches `m_output` without firing
+     the callback), then flip to Mode 0 — `set_mode` then emits
+     the byte we want.
+  2. **PIO-B chip IRQ stealing bytes** (init.c).  Default init
+     enabled chip-side IE (`0x83`); `isr_pio_par` fired on each
+     byte arrival and `IN A,(0x11)` from the ISR consumed the
+     byte before snios's busy-poll could see it.  LOGIN's 1-byte
+     payload survived; OPEN's 37-byte payload didn't.  Fix:
+     chip IE off at init (`0x83` → `0x03`).
+  3. **Bridge `rdy_w` skipping strobe on empty buffer** (the
+     smoking gun for OPEN; `mame:cpnet_bridge.cpp@9c2cbb4e1a9`).
+     The bridge gated its strobe on `m_input_index < m_input_count`.
+     When the buffer drained mid-frame and Z80 kept polling, the
+     chip's `m_input` retained the last *real* byte, not 0xff.
+     Each Z80 IN returned the same stale byte; snios's NETIN
+     stored duplicates and accumulated wrong CKS, eventually
+     bailing with retry-exhausted timeout.  Fix: drop the gate;
+     always strobe on BRDY rising edge.  When buffer is empty,
+     `read()` returns `0xff`; chip latches `0xff`; Z80's
+     `transport_pio_recv_byte` correctly polls past the
+     `0xff` sentinel.
+- **Why SIO worked but PIO didn't** (the question that drove this
+  whole investigation): SIO uses MAME's stock `null_modem` slot,
+  which sits on `bitbanger_device` + `posix_osd_socket` directly.
+  The SIO chip emulation paces bytes at the configured baud rate
+  (38400 here) and reports availability via the RR0 char-available
+  bit; Z80 only reads `PORT_SIO_A_DATA` when that bit is set, and
+  the chip emulation never caches "the last byte" across a
+  no-data window.  PIO goes through our project-specific
+  `cpnet_bridge.cpp` slot; the Z80-PIO chip emulation caches
+  `m_input` between strobes, exposing every quirk above.
+- **Status after the three fixes**: snios-on-PIO reaches LOGIN,
+  OPEN, and several READ-SEQ iterations against mpm-net2.
+  Stalls intermittently after 4-25 sectors — a fourth race remains.
+  Filed as **ravn/rc700-gensmedet#56**.
+- **Verdict**: proxy wins for routine use (robust, 1.44 s
+  end-to-end, simple).  Direct is functional but flaky;
+  filed for future work.
+- **Branches**: `ravn/rc700-gensmedet:pio-mpm-netboot` (commits
+  `62c2b61` proxy WIP, `20d9203` snios-PIO experiment, `7a50843`
+  initial comparison report, `ba9277c` init.c IE-off, `4afa036`
+  deeper-investigation report).  `ravn/mame:master` (`9c2cbb4e1a9`
+  rdy_w fix — landed directly to master since merged from earlier
+  Phase 25 work).
+
 ### Phase 25: PIO CP/NET driver + MAME bridge to standards (Apr 27, 2026) — Medium
 
 - **Goal**: real PIO transport in CP/NOS (not just speed-test
