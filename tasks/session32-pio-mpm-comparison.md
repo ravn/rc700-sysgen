@@ -74,27 +74,67 @@ End-to-end CP/NOS netboot in MAME -nothrottle, against fresh
   dominant per-frame cost on the host side (~10 ms wall), not the
   raw-PIO TCP I/O.
 
-### Direct (snios-on-PIO)
-- Boot strip: `INIT OKPNIL` then stuck (no `O`/`R`/`E`/`C`/`+`/`P`/`S`/`J`)
-- LOGIN frame round-trip: **completes correctly** (mpm-net2 returns
-  rc=0)
-- OPEN (FNC=15) request sent; mpm-net2 responds with valid
-  37-byte FCB payload + sum-to-zero CKS=0x1B (verified by hand
-  against trace).
-- Slave receives the OPEN response payload **but doesn't ACK it** —
-  trace ends with mpm-net2's EOT, no ACK follows from slave.
-- snios.s::RECV expected to call SNDACK after EOT byte arrives.
-  Either RECVBY-ing the EOT timed out, or snios reached BADCKS,
-  or the response data triggered an early `ret` somewhere.  Not
-  yet root-caused.
-- No `INIT OKPNILO` marker means cpnet_xact for OPEN returned 0xFE
-  (transport error) — so snios_rcvmsg_c returned 0xFF.
+### Direct (snios-on-PIO) — root cause found
 
-Wire trace shows protocol bytes are clean.  My initial CKS-mismatch
-hypothesis was wrong — recomputing by hand: payload sum 0x4E0 + STX
-(0x02) + ETX (0x03) + CKS (0x1B) = 0x500 = 0 mod 256 ✓.  So CKS is
-fine; the failure is something else in snios.s reading the response
-or in the byte-level PIO recv timing.
+Three independent bugs were blocking it.  Each surfaced after the
+previous one was fixed.
+
+**Bug 1 — stale-prefix byte on Mode 1→0 transitions.**
+MAME's `z80pio.cpp::set_mode(MODE_OUTPUT)` immediately fires
+`out_pb_callback(m_output)`.  After a recv→send transition,
+`m_output` holds the previous send's last byte (or 0 at boot).  The
+peer sees a stale byte before the real first byte of the new send.
+Mpm-net2 ignores it as pre-ENQ noise; later sends ship `05 01...`
+with stale `05` between ACK and SOH which mpm-net2 *cannot* tolerate.
+Fix in `transport_pio.c::transport_pio_send_byte`: write the data
+byte to `PORT_PIO_B_DATA` while still in Mode 1 (`MODE_INPUT::data_write`
+latches `m_output` without firing the callback), then flip to Mode 0
+— `set_mode` then emits the actual byte, no stale.
+
+**Bug 2 — PIO-B chip IRQ stealing bytes.**
+`init.c` was setting up PIO-B with chip IE enabled (`0x83`).
+`isr_pio_par` fires on each byte arrival, reads `PORT_PIO_B_DATA`
+from the ISR (which clears `m_ip`), and stores it in
+`pio_par_byte`.  Mainline snios's busy-poll never gets to read it.
+Fix: chip IE off at init (`0x83` → `0x03`).
+
+**Bug 3 — bridge `rdy_w` skipped strobe on empty buffer.**
+The smoking gun.  `cpnet_bridge::rdy_w` was gated on
+`m_input_index < m_input_count` — only strobed when buffer had data.
+When buffer drained mid-frame and Z80 kept busy-polling, no strobe
+fired, so `m_input` retained the *last real byte* (chip's
+`data_read` returns the cached `m_input` and only refetches
+`if (!m_stb)` which is rarely true).  Every Z80 IN during the
+buffer-empty window returned the same stale byte; snios's `NETIN`
+treated each as a fresh data byte, stored duplicates, accumulated
+wrong CKS, eventually hit the ETX/CKS verify and bailed after
+MAXRETRY=10.
+
+LOGIN's 1-byte payload had no buffer-empty window mid-receive
+(envelope arrives in one TCP segment; chip cascades through it).
+OPEN's 37-byte payload and READ-SEQ's 165-byte payload routinely
+overrun the buffer; the trailing INs read duplicates.
+
+Fix in `cpnet_bridge.cpp::rdy_w`: drop the buffer-non-empty gate.
+Always strobe on BRDY rising edge.  When buffer is empty, `read()`
+returns `0xff`; chip latches `0xff` into `m_input`; Z80's
+`transport_pio_recv_byte` correctly treats `0xff` as "no byte yet"
+and keeps polling.
+
+### Direct (snios-on-PIO) — current status after the three fixes
+
+- LOGIN: ✓
+- OPEN: ✓
+- READ-SEQ: progresses through 4-25 iterations before stalling.
+  Still hits an intermittent race; need more investigation —
+  possibly a fourth bug, possibly mpm-net2 session-state
+  fragility from the earlier failed attempts.
+
+Trace progresses well past where the original failure was.  Boot
+strip reaches `INIT OKPNILOR` reliably; `INIT OKPNILORE` (EOF) and
+`INIT OKPNILOREC+PSJ` (full netboot) intermittently.  Sufficient
+to call the design viable, but the proxy is still the more
+predictable winner for now.
 
 ## Why direct is not just "snios elsewhere"
 
@@ -123,9 +163,26 @@ direction once per frame.
 The OPEN response (37-byte payload) might be hitting a corner of
 this state machine that LOGIN (1-byte payload) doesn't.
 
+## Why SIO works but PIO didn't (answer to the natural question)
+
+SIO uses MAME's stock `null_modem` slot which sits on `bitbanger_device`
++ `posix_osd_socket` directly.  Each Z80 read of `PORT_SIO_A_DATA`
+pulls one byte from the OSD socket layer; the chip emulation paces
+bytes at the configured baud rate (38400 in our setup).  No interim
+caching of "the last byte" — if no byte is available, the chip
+correctly reports it via the SIO RR0 char-available bit, and Z80's
+`transport_recv_byte` only reads `PORT_SIO_A_DATA` when that bit is
+set.
+
+PIO goes through our `cpnet_bridge.cpp` slot — Z80-PIO chip emulation
+caches `m_input` between strobes, and our bridge had several quirks
+the SIO path doesn't (stale prefix on mode flip, IRQ-driven byte
+stealing, empty-buffer strobe-skip).  Each was addressed; the chip
+emulation itself is fine.
+
 ## Verdict
 
-**Proxy wins for now.**
+**Proxy wins for routine use.**
 
 - ✓ Works end-to-end against mpm-net2.
 - ✓ Z80 runs at raw OTIR/INIR speed (1 ms/frame transfer; the host
@@ -133,13 +190,20 @@ this state machine that LOGIN (1-byte payload) doesn't.
 - ✓ Reuses the Phase B `pio_send_msg`/`pio_recv_msg` driver
   unchanged; one new Python module.
 - ✓ Self-contained: `cpnet_pio_server.py --upstream HOST:PORT`.
+- ✓ Robust: tested end-to-end repeatedly without intermittent stalls.
 
-**Direct (snios-on-PIO):**
+**Direct (snios-on-PIO) is now functional but flaky.**
+
+After the three bug fixes (`transport_pio.c` stale prefix,
+`init.c` chip IE off, `cpnet_bridge.cpp` always-strobe rdy_w):
 - ✓ Conceptually simpler (no host-side proxy process).
-- ✗ Currently stuck at OPEN response — needs root-cause work on
-  why snios.s::RECV doesn't reach SNDACK after the data block.
-- Even when fixed, snios's per-byte mode-flip cadence is harder on
-  the PIO chip's state machine than raw OTIR/INIR.
+- ✓ LOGIN, OPEN, READ-SEQ all work in principle.
+- ✗ Stalls intermittently after 4-25 READ-SEQ iterations —
+  another race remains.
+- Per-byte mode-flip cadence is fundamentally harder on the
+  PIO chip's state machine than raw OTIR/INIR; even when fully
+  debugged, this design will be slower in MAME than the proxy
+  (more chip transitions per CP/NET frame).
 
 ## Real-hardware projection
 
