@@ -72,7 +72,8 @@ PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
                clang/transport_sio.o $(NETBOOT_OBJ) \
-               clang/snios.o clang/isr.o
+               clang/snios.o clang/isr.o \
+               clang/payload_checksum.o
 PAYLOAD_LD = payload.ld
 
 # ---- Relocator (PROM0 reset + #embed'd payload halves) -----------
@@ -131,6 +132,10 @@ clang/resident.o: resident.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 
+clang/payload_checksum.o: payload_checksum.c
+	@mkdir -p clang
+	$(CC) $(CFLAGS) -c $< -o $@
+
 clang/cfgtbl.o: cfgtbl.c
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -157,22 +162,36 @@ clang/netboot_mpm.o: netboot_mpm.c
 
 # Relocator #embed's payload_a.bin/payload_b.bin — depend on them so
 # a payload change retriggers the relocator compile.
+# Relocator compile flags: same as CFLAGS but without the
+# `-Xclang -target-feature -Xclang +static-stack` sequence.  The
+# relocator stack is at SP=0xED00 (RAM) and stack-allocated C
+# locals work fine; +static-stack would put them in .bss, which
+# relocator.ld discards — link fails on .bss relocation.
+CFLAGS_RELOC = $(subst -Xclang -target-feature -Xclang +static-stack,,$(CFLAGS))
+
 clang/relocator.o: relocator.c clang/payload_a.bin clang/payload_b.bin
 	@mkdir -p clang
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS_RELOC) -c $< -o $@
 
 # ---- Link payload (no PROM awareness) ----------------------------
 
 clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
 	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) $(PAYLOAD_OBJS) -o $@
 
-clang/payload.bin: clang/payload.elf
+clang/payload.bin: clang/payload.elf cpnos-build/patch_payload_checksum.py
 	$(OBJCOPY) -O binary $< $@
+	# Patch the payload integrity checksum into the last 2 bytes.
+	# The relocator (relocator.c) recomputes this at runtime to
+	# detect missing prom1.ic65, bit rot, or version mismatch
+	# instead of hanging silently at PC=0x0039.  See
+	# cpnos-build/patch_payload_checksum.py and payload.ld
+	# (.payload_checksum section).
+	python3 cpnos-build/patch_payload_checksum.py $@
 
 # Split payload into the two chunks the relocator #embed's.  Split
-# point matches relocator.ld's .prom0_tail base (0x80): 1920 bytes
-# fit in PROM0 after the relocator.
-PROM0_TAIL_SIZE = 1920
+# point matches relocator.ld's .prom0_tail base (0xC0): 1856 bytes
+# fit in PROM0 after the relocator (0x800 - 0xC0 = 0x740 = 1856).
+PROM0_TAIL_SIZE = 1856
 clang/payload_a.bin clang/payload_b.bin: clang/payload.bin
 	dd if=$< of=clang/payload_a.bin bs=1 count=$(PROM0_TAIL_SIZE) status=none
 	dd if=$< of=clang/payload_b.bin bs=1 skip=$(PROM0_TAIL_SIZE) status=none

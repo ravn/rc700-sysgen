@@ -39,16 +39,23 @@ SECTIONS {
   } > PROM0
 
   __reloc_code_end = .;
-  ASSERT(__reloc_code_end <= 0x80,
-         "relocator code exceeds 128 B reservation (shrink or raise .prom0_tail base)")
+  ASSERT(__reloc_code_end <= 0xC0,
+         "relocator code exceeds 192 B reservation (shrink or raise .prom0_tail base)")
 
-  /* Payload chunk A — PROM0 tail.  Fixed base 0x80 so the Makefile
-   * can compute payload_a.bin's size without re-linking. */
-  .prom0_tail 0x80 : {
+  /* Payload chunk A — PROM0 tail.  Fixed base 0xC0 so the Makefile
+   * can compute payload_a.bin's size without re-linking.  Was 0x80
+   * before the integrity-checksum work; bumped to 0xC0 to cover
+   * the LDIR "BAD CHECKSUM" + word-sum verification code added to
+   * relocator.c.  PROM0_TAIL_SIZE in the Makefile must match. */
+  .prom0_tail 0xC0 : {
     KEEP(*(.prom0_tail))
   } > PROM0
 
-  /* Payload chunk B — all of PROM1. */
+  /* Payload chunk B — all of PROM1.  The integrity checksum is
+   * the last 2 bytes of the linked payload.bin (placed there by
+   * payload.ld's .payload_checksum section), which after splitting
+   * end up as the last 2 bytes of payload_b.bin.  No special
+   * placement here. */
   .prom1 0x2000 : {
     KEEP(*(.prom1))
   } > PROM1

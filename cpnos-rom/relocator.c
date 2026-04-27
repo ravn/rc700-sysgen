@@ -40,11 +40,57 @@ static const uint8_t payload_b[] = {
 #embed "clang/payload_b.bin" if_empty(0)
 };
 
+/* Magic constant: the word-additive sum (treating the payload as
+ * a sequence of little-endian 16-bit words) of the entire relocated
+ * payload — including the correction word patched into its tail
+ * by cpnos-build/patch_payload_checksum.py — must equal this value.
+ * Word-additive instead of byte-additive so a 2-byte correction
+ * can hit any 16-bit target.  Change here AND in the patcher if
+ * you ever want a different magic. */
+#define PAYLOAD_CHECKSUM_MAGIC 0xCAFE
+
+/* "BAD CHECKSUM" message copied into display memory at 0xF800 when
+ * the integrity check fails — appears at the top-left of the screen
+ * and is visible to mame_boot_test.lua's display-memory probe. */
+static const char BAD_CHECKSUM_MSG[] = "BAD CHECKSUM";
+
 /* Tail-called from reset.s.  SP is already set to 0xED00.  PROMs
- * are still mapped — the payload disables them later. */
+ * are still mapped — the payload disables them later.
+ *
+ * Flow:
+ *   1. memcpy payload_a (PROM0 tail) and payload_b (PROM1) to RAM
+ *      starting at 0xED00.
+ *   2. Sum the entire relocated payload at 0xED00.  The correction
+ *      word at its tail (patched at build time) makes the total
+ *      mod 65536 equal PAYLOAD_CHECKSUM_MAGIC.
+ *   3. Mismatch: copy "BAD CHECKSUM" to display memory, busy-loop.
+ *   4. Match: tail-call cpnos_cold_entry().
+ *
+ * Note: this file is compiled WITHOUT `+static-stack` (see Makefile
+ * override) so C locals go on the actual stack (SP=0xED00 RAM).
+ * With +static-stack the locals would land in .bss, which
+ * relocator.ld discards — failing to link. */
 [[noreturn]] void relocate(void) {
     __builtin_memcpy((void *)0xED00, payload_a, sizeof payload_a);
     __builtin_memcpy((uint8_t *)0xED00 + sizeof payload_a,
                      payload_b, sizeof payload_b);
+
+    const uint16_t total = (uint16_t)(sizeof payload_a + sizeof payload_b);
+    /* Word-additive sum of the relocated payload.  Cast to volatile
+     * uint16_t* to read each word in one access — the Z80 backend
+     * emits LD HL,(addr) sequences for that. */
+    const volatile uint16_t *w = (const uint16_t *)0xED00;
+    const uint16_t word_count = total >> 1;
+
+    uint16_t sum = 0;
+    for (uint16_t i = 0; i < word_count; ++i)
+        sum += w[i];
+
+    if (sum != PAYLOAD_CHECKSUM_MAGIC) {
+        __builtin_memcpy((void *)0xF800, BAD_CHECKSUM_MSG,
+                         sizeof BAD_CHECKSUM_MSG - 1);
+        for (;;) { }
+    }
+
     cpnos_cold_entry();
 }

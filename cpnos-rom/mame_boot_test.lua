@@ -274,6 +274,30 @@ emu.register_frame_done(function()
         end
     end
 
+    -- BAD CHECKSUM detection.  relocator.c writes "BAD CHECKSUM" at
+    -- display memory (0xF800) when the 16-bit additive sum of the
+    -- relocated payload doesn't equal 0xCAFE, then busy-loops.
+    -- Triggers on any of:
+    --   * MAME didn't load prom1.ic65 (rom path empty, or rc702.cpp
+    --     lacks ROM_LOAD_OPTIONAL — prom1 reads 0xFF padding)
+    --   * prom1.ic65 / roa375.ic66 bit-rot or wrong version
+    --   * relocator code corruption that still preserves the check
+    -- Catch fast (sub-second).
+    if  space:read_u8(DSPSTR + 0)  == string.byte('B')
+    and space:read_u8(DSPSTR + 1)  == string.byte('A')
+    and space:read_u8(DSPSTR + 2)  == string.byte('D')
+    and space:read_u8(DSPSTR + 3)  == string.byte(' ')
+    and space:read_u8(DSPSTR + 4)  == string.byte('C')
+    and space:read_u8(DSPSTR + 5)  == string.byte('H') then
+        pending_finish = "FAIL: BAD CHECKSUM (relocator halted). " ..
+                         "Check that prom1.ic65 is in the rc702 rom path, " ..
+                         "that rc702.cpp has ROM_LOAD_OPTIONAL for prom1, " ..
+                         "and that the PROM images are not corrupt " ..
+                         "(rebuild via 'make cpnos-install')."
+        pending_frame = frame
+        return
+    end
+
     -- 60s timeout — full CCP.SPR load is 20 SNIOS round-trips, each
     -- with polled SIO I/O; be generous so slow CI machines don't flake.
     if frame > 50 * 60 then

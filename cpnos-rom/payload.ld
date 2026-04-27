@@ -74,7 +74,27 @@ SECTIONS {
     *(.rodata*)
     *(.data*)
 
+    /* Pad to a 2-byte boundary so the word-additive sum the
+     * relocator computes processes whole words.  Without this,
+     * an odd-sized .payload would leave one byte uncovered and
+     * the patcher rejects odd-length input. */
+    . = ALIGN(2);
+
+    /* Payload integrity checksum — last 2 bytes of the .payload
+     * section.  Placeholder is 0xFFFF at link time;
+     * cpnos-build/patch_payload_checksum.py overwrites it post-link
+     * with the correction value that makes the word-additive sum
+     * over the entire .payload equal PAYLOAD_CHECKSUM_MAGIC
+     * (0xCAFE).  The relocator (relocator.c) recomputes this sum
+     * after copying the payload to RAM and halts on mismatch with
+     * "BAD CHECKSUM" displayed.  Catches missing prom1.ic65, bit
+     * rot, and version mismatches.  KEEP because the placeholder
+     * has no incoming references. */
+    __payload_checksum_start = .;
+    KEEP(*(.payload_checksum))
     __payload_end = .;
+    ASSERT(__payload_end - __payload_checksum_start == 2,
+           ".payload_checksum must be exactly 2 bytes")
   } > PAYLOAD
 
   ASSERT(_bios_boot == 0xED00, "BIOS jump table must start at 0xED00")

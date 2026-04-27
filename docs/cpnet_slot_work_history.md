@@ -4,7 +4,16 @@
 > things change.  Companions:
 > [`cpnet_fast_link.md`](cpnet_fast_link.md) (design context),
 > [`cpnet_pio_direct_design.md`](cpnet_pio_direct_design.md) (no-slot
-> alternative), [`mame-rc702-piob-slot-regression.md`](mame-rc702-piob-slot-regression.md) (ravn/mame#6 mirror).
+> alternative), [`mame-rc702-piob-slot-regression.md`](mame-rc702-piob-slot-regression.md) (ravn/mame#6 mirror, closed as not-a-bug).
+>
+> **Headline finding (2026-04-27)**: ravn/mame#6 was a misdiagnosis.
+> The slot infrastructure on PIO-B is fine.  Every "black screen / IM2
+> regression" symptom was caused by `prom1.ic65` not being loaded into
+> the rc702 prom1 ROM region.  Both the empty-slot and `-piob
+> cpnet_bridge` configurations boot cpnos-rom cleanly when prom1 is
+> loaded.  Path 2 (Einstein topology revert), Path 3 (devcb /
+> std::function bypass attempts), and the no-slot direct-bridge design
+> were all chasing a non-existent bug.
 
 ## Goal
 
@@ -68,26 +77,17 @@ Both crashed at MAME config time (`device_t::config_complete + 428`)
 with PAC-tagged garbage register dumps — before any data flowed.
 Discarded.
 
-### "Empty slot is benign" — wrong for cpnos (2026-04-27)
+### "Empty slot is benign" — wrong for cpnos — also wrong (2026-04-27)
 
-The 2026-04-26 morning comment on ravn/mame#6 stated empty PIO-B
-slot is benign for normal RC702 use.  Verified at the time by booting
-CP/M from `SW1711-I8.imd` (autoload PROM path).
+A 2026-04-27 finding initially appeared to invalidate the
+"empty slot is benign" claim — cpnos-rom on master (post-merge,
+empty PIO-B slot) hung at `PC=0x0039`.  Conclusion at the time:
+even an empty `RC702_PIO_PORT` wrapper breaks cpnos-rom IM2.
 
-**Subsequently invalidated** for cpnos-rom: cpnos-rom uses PIO-B's
-IM2 IRQ vector for `isr_pio_par`.  Even with **no card plugged in**,
-the empty `RC702_PIO_PORT(config, m_pio_b)` slot wrapper interferes
-enough that cpnos-rom hangs at `PC=0x0039` and never sends ENQ on
-SIO-A.  60s emulated, no A>, screen black.
-
-The autoload-PROM CP/M boot doesn't engage PIO-B's IM2 vector, so it
-isn't sensitive to the same break.  The bug fires when the guest
-tries to use PIO-B for IRQ-driven receive — which is exactly cpnos's
-use case.
-
-The ravn/mame#6 issue title and body need amending to reflect this:
-the regression is "any slot wrapper on PIO-B breaks IM2 vector
-delivery", not just "any card on PIO-B".
+**That conclusion was wrong too.**  See "Misdiagnosis identified"
+below — the actual cause was `prom1.ic65` missing from the loaded
+ROM region.  The hang at `PC=0x0039` had nothing to do with the slot
+wrapper.
 
 ### Master reverted (2026-04-27)
 
@@ -102,6 +102,55 @@ daily-use binary at `/Users/ravn/git/mame/regnecentralend` (built
 from the same `1f2d4d000db` SHA) succeeds.  Same source, different
 behaviour.  Suspects: stale `.o` cache pollution from earlier
 slot-infra builds, or build-flag drift.  Still under investigation.
+
+### Misdiagnosis identified — slot was always fine (2026-04-27)
+
+The `1f2d4d000db` daily-use binary booted cpnos cleanly; my freshly
+rebuilt revert binary (same SHA, byte-identical tree) failed at
+`PC=0x0039`.  Investigation revealed the daily-use clone had an
+**uncommitted local patch** in `rc702.cpp`:
+
+```diff
+-	ROM_FILL( 0x0000, 0x1000, 0xff ) // line program ROM (ROB388 on MIC705) - undumped prom1.ic65
++	ROM_LOAD_OPTIONAL( "prom1.ic65", 0x0000, 0x0800, NO_DUMP )
+```
+
+That patch made MAME load `prom1.ic65` from the rc702 rom path when
+present.  cpnos-rom puts its resident helpers there (PROM1 chunk B
+of the relocated payload, see `relocator.c`); without them, the
+relocator copies 0xFF garbage to RAM, and the resident BIOS jumps
+into nothing — hang at `PC=0x0039`.
+
+The patch was promoted to the tree as `9ff362da529` "rc702:
+ROM_LOAD_OPTIONAL for prom1.ic65 (CP/NOS resident helpers)".
+
+**Verification** with the patch cherry-picked onto `cpnet-fast-link`
+(commit `823a50a5230`) and `make cpnos-netboot` run in two configs:
+
+| Config | prom1 loaded | Result |
+|---|---|---|
+| Empty PIO-B slot (no `-piob`) | yes | **PASS** — banner + A> render |
+| `-piob cpnet_bridge` | yes | **PASS** — banner + A>, full LOGIN flow |
+
+Both pass.  Slot infra and the cpnet_bridge card both work fine.
+
+**Implications**:
+- ravn/mame#6 closed as not-a-bug.
+- Path 2 (Einstein topology revert) was unnecessary.  PIO-A could
+  go back to a slot card.
+- Path 3 (devcb / std::function bypass attempts) chased a phantom.
+- The no-slot direct-bridge design (this repo's
+  `cpnet_pio_direct_design.md`) is not needed for correctness.
+  Slot approach works.
+
+**Loader sanity check added** (commit follow-up): `relocator.c` now
+checks a `'CPN1'` sentinel at PROM1 end (0x27FC..0x27FF) before
+copying payload_b.  If the sentinel is absent (PROM1 reads as
+0xFF padding), the relocator writes `'P','R','M','?'` to
+0xFFFC..0xFFFF and busy-loops.  `mame_boot_test.lua` checks for
+this marker and reports "FAIL: PROM1 missing" within 1 second of
+boot, instead of the previous 60-second "no A>" timeout with
+cryptic register dumps.
 
 ### Direct (no-slot) bridge attempt — branch `cpnet-pio-direct`
 
