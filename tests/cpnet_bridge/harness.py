@@ -89,7 +89,9 @@ def fail(msg, cleanup=None):
 
 
 def reset_state():
-	for p in (READY_FILE, TAP_LOG, MPM_LOG, MAME_LOG, LOOPBACK_RESULT):
+	for p in (READY_FILE, TAP_LOG, MPM_LOG, MAME_LOG, LOOPBACK_RESULT,
+	          BOOT_MARKS_FILE, Path("/tmp/cpnos_boot_marks.log"),
+	          Path("/tmp/cpnos_pio_server.log")):
 		try: p.unlink()
 		except FileNotFoundError: pass
 
