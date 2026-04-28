@@ -97,14 +97,16 @@ uint8_t kbd_ring[KBD_RING_SIZE];
 uint8_t kbd_head;   /* written by ISR */
 uint8_t kbd_tail;   /* written by CONIN */
 
-/* CP/NET fast-link bring-up stub (Option P, see docs/cpnet_fast_link.md).
- * isr_pio_par stores the most-recent byte received on PIO-B and bumps
- * the counter.  External tooling (MAME bridge + Python harness) reads
- * these via memory tap to verify the host->Z80 path end-to-end.  This
- * is bring-up scaffolding; replaced by the real CP/NET RX ring once
- * the protocol layer goes in. */
-uint8_t pio_par_byte;   /* last byte received on PIO-B */
-uint8_t pio_par_count;  /* count of bytes received (wraps at 0xFF) */
+/* Legacy harness counters from the polled-PIO bring-up phase.  Replaced
+ * by pio_rx_buf/head/tail (transport_pio.c) when the IRQ ring landed in
+ * commit f10c99f.  Kept (with `used`) because tests/cpnet_bridge/
+ * harness.py extracts their addresses from payload.elf and treats them
+ * as required symbols — dropping them via --gc-sections breaks the
+ * harness's pre-MAME symbol-extraction step.  Two BSS bytes; readers
+ * see permanent zero, which is fine for pio-netboot mode (success is
+ * the boot-strip 'J', not these counters). */
+__attribute__((used)) uint8_t pio_par_byte;
+__attribute__((used)) uint8_t pio_par_count;
 
 RESIDENT
 uint8_t impl_const(void) {

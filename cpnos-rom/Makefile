@@ -427,6 +427,60 @@ cpnos-mame: cpnos-install
 	    -bitb1 /tmp/cpnos_sioa.raw \
 	    -autoboot_script mame_boot_test.lua
 
+# ---- pio-irq-netboot: PIO-IRQ-direct topology against mpm-net2 -----
+#
+# The irq-fix branch slave drives SNDMSG/RCVMSG over PIO byte primitives
+# (transport_pio_send_byte / transport_pio_recv_byte in transport_pio.c)
+# but keeps the SNIOS envelope (ENQ/ACK/SOH/STX/ETX/EOT framing).  Since
+# mpm-net2 also speaks the SNIOS envelope on its TCP port, the slave
+# byte stream and mpm-net2's wire stream are bit-identical — no host
+# proxy required.  Just connect MAME's PIO-B bridge directly to :4002.
+#
+# This target uses the IRQ-fix MAME tree at ../../mame (branch
+# pio-mpm-irq-fix), which has the cpnet_bridge gate fix that the
+# stock master tree doesn't.
+#
+# Pass criterion: boot-strip column 18 = 'J' (NDOS COLDST reached) and
+# clean A> on SIO-B.
+MAME_IRQ ?= $(CURDIR)/../../mame
+pio-irq-netboot: cpnos-install
+	@echo "=== 1/4 restarting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound — kill the squatter first:"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; \
+	    exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@echo "=== 2/4 waiting for MP/M CP/NET server on :4002 ==="
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/4 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_screen.txt /tmp/cpnos_boot_marks.txt
+	@echo "=== 4/4 launching MAME (PIO-B -> mpm-net2 :4002) ==="
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 30 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 /tmp/cpnos_siob.raw \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:4002 \
+	    -autoboot_script mame_porttap.lua
+	@echo "--- boot-marker strip ---"
+	@cat /tmp/cpnos_boot_marks.txt 2>/dev/null && echo
+	@echo "--- SIO-B (printable) ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null && echo
+	@strip=$$(cat /tmp/cpnos_boot_marks.txt 2>/dev/null); \
+	 if [ "$${strip:18:1}" = "J" ] && grep -q 'A>' /tmp/cpnos_siob.raw 2>/dev/null; then \
+	     echo "PASS: NDOS COLDST reached (J) and A> seen on SIO-B"; \
+	 else \
+	     echo "FAIL: strip='$$strip', expected J at col 18 + 'A>' in SIO-B"; \
+	     exit 1; \
+	 fi
+
 # End-to-end netboot test: Python server on localhost, MAME bridged to
 # it over SIO-A null_modem.
 NETBOOT_PORT ?= 9000

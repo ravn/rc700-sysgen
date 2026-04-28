@@ -135,6 +135,13 @@ SECTIONS {
 
   .scratch_bss (NOLOAD) : {
     __scratch_bss_start = .;
+    /* Force-keep harness-observed symbols even though their writers
+     * (legacy polled-PIO ISR) were removed in commit f10c99f.
+     * tests/cpnet_bridge/harness.py treats them as required; without
+     * KEEP, ld.lld --gc-sections drops them despite __attribute__((used))
+     * on the C declarations. */
+    KEEP(*(.bss._pio_par_byte))
+    KEEP(*(.bss._pio_par_count))
     *(.bss*)
     *(COMMON)
     __scratch_bss_end = .;
