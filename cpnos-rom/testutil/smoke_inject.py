@@ -20,17 +20,24 @@ import socket
 import sys
 import time
 
-STEPS = [
-    # (expected-prompt-tail, bytes-to-send-once-matched)
-    # Trimmed to just the SUMTEST steps for the bench — assemble, link,
-    # run.  Removes the TINY warm-up + DIR steps so the timed section
-    # is purely the assembler+linker+runtime work over CP/NET.
-    (b'A>', b'm80 sumtest,=sumtest.asm\r'),
-    (b'A>', b'l80 sumtest,sumtest/n/e\r'),
-    (b'A>', b'sumtest\r'),
-]
-
-FINISH_MARKER = b'CPNET OK '
+WORKLOADS = {
+    # Each workload is (steps, finish_marker).
+    # 'sumtest': m80 + l80 assembles+links+runs sumtest.asm; output is
+    #   "CPNET OK A314" (deterministic 16-bit sum of 1..1000 mod 65536).
+    # 'filecopy': pre-assembled FILECOPY.COM reads SUMTEST.ASM and
+    #   writes SUMTEST.CPY via BDOS F_READ/F_WRITE.  Pure I/O — no
+    #   m80/l80 in the timed window.  Marker "FILECOPY OK".
+    'sumtest': (
+        [(b'A>', b'm80 sumtest,=sumtest.asm\r'),
+         (b'A>', b'l80 sumtest,sumtest/n/e\r'),
+         (b'A>', b'sumtest\r')],
+        b'CPNET OK ',
+    ),
+    'filecopy': (
+        [(b'A>', b'filecopy\r')],
+        b'FILECOPY OK ',
+    ),
+}
 
 
 def main():
@@ -38,7 +45,11 @@ def main():
     ap.add_argument('port', type=int)
     ap.add_argument('--log', default='/tmp/cpnos_siob.raw')
     ap.add_argument('--timeout', type=float, default=300.0)
+    ap.add_argument('--workload', choices=sorted(WORKLOADS), default='sumtest')
     args = ap.parse_args()
+    STEPS, FINISH_MARKER = WORKLOADS[args.workload]
+    print(f'workload: {args.workload} ({len(STEPS)} step(s), '
+          f'marker={FINISH_MARKER!r})', flush=True)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -116,6 +116,25 @@ void isr_crt(void) {
         "ld   hl, 0xEC30\n\t"
         "inc  (hl)\n\t"
 
+        /* 32-bit frame counter at 0xFFFC..0xFFFF — mirrors rcbios's
+         * RTC location (RC702_BIOS_SPECIFICATION.md §3.4).  50 Hz ticks
+         * (CRT VRTC).  Wraps at ~993 days.  Used by the file-I/O bench
+         * to record frames-to-completion (immune to MAME wall-clock
+         * variation).  ~13 bytes; INC (HL) sets Z on zero, so propagate
+         * carry by jr nz from each byte. */
+        "ld   hl, 0xFFFC\n\t"
+        "inc  (hl)\n\t"
+        "jr   nz, 8f\n\t"
+        "inc  hl\n\t"
+        "inc  (hl)\n\t"
+        "jr   nz, 8f\n\t"
+        "inc  hl\n\t"
+        "inc  (hl)\n\t"
+        "jr   nz, 8f\n\t"
+        "inc  hl\n\t"
+        "inc  (hl)\n\t"
+    "8:\n\t"
+
         /* Ack CRT status register. */
         "in   a, (0x01)\n\t"        /* PORT_CRT_CMD */
 

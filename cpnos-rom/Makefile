@@ -434,6 +434,28 @@ cpnos-install: clang/cpnos.bin cpnos-disk-install
 MPM_DIR ?= $(CURDIR)/../z80pack/cpmsim
 SMOKE_PORT ?= 9001
 
+# WORKLOAD selects which CCP-driven program the bench harness runs.
+# Each value here is a key in WORKLOADS (testutil/smoke_inject.py)
+# plus a corresponding finish-marker string + 1-line description.
+#   sumtest  : m80 sumtest,=sumtest.asm + l80 + sumtest (CPU-bound,
+#              ~10:1 read:write CP/NET RTTs; deterministic CPNET OK
+#              A314 verifies arithmetic).
+#   filecopy : pre-staged FILECOPY.COM reads SUMTEST.ASM record-by-
+#              record via BDOS F_READ and writes SUMTEST.CPY via
+#              F_WRITE.  Pure file I/O, no compiler in the timed
+#              window.  Verify step extracts both files via cpmcp and
+#              byte-compares them.
+WORKLOAD ?= sumtest
+ifeq ($(WORKLOAD),sumtest)
+WORKLOAD_MARKER = CPNET OK A314
+WORKLOAD_DESC   = m80+l80+sumtest
+else ifeq ($(WORKLOAD),filecopy)
+WORKLOAD_MARKER = FILECOPY OK
+WORKLOAD_DESC   = filecopy (R+W SUMTEST.ASM via CP/NET)
+else
+$(error WORKLOAD must be 'sumtest' or 'filecopy')
+endif
+
 # ---- preflight checks: setup must match target ---------------------
 #
 # The "wire-mode tag" baked into the cpnos banner (and visible at
@@ -498,6 +520,55 @@ _check-mame-irq:
 	    exit 1; \
 	fi
 
+# ---- _verify-bench: shared bench verifier (post-MAME) -----------
+# Asserts SIO-B contains the workload's finish marker, prints the
+# smoke_inject "bench=X.XXXs" timing, and (for filecopy) extracts
+# SUMTEST.ASM + SUMTEST.CPY from the master's drivea.dsk and byte-
+# compares them.  WORKLOAD must already be set by the caller.
+.PHONY: _verify-bench
+_verify-bench:
+	@echo "=== verify ($(WORKLOAD)): marker '$(WORKLOAD_MARKER)' ==="
+	@echo "--- inject log ---"
+	@cat /tmp/cpnos_smoke_inject.log
+	@echo "--- SIO-B tail ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null | tail -c 400
+	@echo
+	@grep -q '$(WORKLOAD_MARKER)' /tmp/cpnos_siob.raw \
+	    && echo "PASS: marker '$(WORKLOAD_MARKER)' present" \
+	    || (echo "FAIL: marker '$(WORKLOAD_MARKER)' not in SIO-B"; exit 1)
+	@bench=$$(grep -oE 'bench=[0-9.]+s' /tmp/cpnos_smoke_inject.log | tail -1); \
+	 [ -n "$$bench" ] && echo "BENCH (-nothrottle, $(WORKLOAD_DESC)): $$bench" \
+	   || echo "(bench timing not found)"
+ifeq ($(WORKLOAD),filecopy)
+	@echo "--- frames-to-completion (from FILECOPY OK output) ---"
+	@line=$$(grep 'FILECOPY OK' /tmp/cpnos_siob.raw | tail -1 | tr -d '\r'); \
+	 echo "  $$line"; \
+	 s=$$(echo "$$line" | sed -nE 's/.*S=([0-9A-F]{8}).*/\1/p'); \
+	 e=$$(echo "$$line" | sed -nE 's/.*E=([0-9A-F]{8}).*/\1/p'); \
+	 if [ -n "$$s" ] && [ -n "$$e" ]; then \
+	   d=$$(printf '%d' $$((0x$$e - 0x$$s))); \
+	   echo "  frames = E - S = $$d (= $$(echo "$$d / 50" | bc) s @ 50 Hz CRT)"; \
+	 fi
+	@echo "--- byte-compare SUMTEST.ASM vs SUMTEST.CPY ---"
+	@DRIVE_A=$(MPM_DIR)/disks/drivea.dsk; \
+	 cpmcp -f ibm-3740 $$DRIVE_A 0:SUMTEST.ASM /tmp/_ref.asm 2>/dev/null || \
+	     (echo "FAIL: cpmcp could not extract SUMTEST.ASM from $$DRIVE_A"; exit 1); \
+	 cpmcp -f ibm-3740 $$DRIVE_A 0:SUMTEST.CPY /tmp/_cpy.asm 2>/dev/null || \
+	     (echo "FAIL: cpmcp could not extract SUMTEST.CPY"; exit 1); \
+	 ref_n=$$(wc -c < /tmp/_ref.asm | tr -d ' '); \
+	 cpy_n=$$(wc -c < /tmp/_cpy.asm | tr -d ' '); \
+	 echo "  SUMTEST.ASM: $$ref_n bytes"; \
+	 echo "  SUMTEST.CPY: $$cpy_n bytes"; \
+	 head -c $$ref_n /tmp/_cpy.asm > /tmp/_cpy_head.asm; \
+	 if cmp -s /tmp/_ref.asm /tmp/_cpy_head.asm; then \
+	     echo "PASS: first $$ref_n bytes identical (CPY tail is record-pad)"; \
+	 else \
+	     echo "FAIL: byte mismatch in CPY[0..$$ref_n]; first 5 offsets:"; \
+	     cmp -l /tmp/_ref.asm /tmp/_cpy_head.asm 2>/dev/null | head -5; \
+	     exit 1; \
+	 fi
+endif
+
 cpnet-smoke: cpnos-install _check-tag-not-pio-irq
 
 # ---- sio-smoke: pio-irq-smoke counterpart for SIO mode ------------
@@ -506,7 +577,7 @@ cpnet-smoke: cpnos-install _check-tag-not-pio-irq
 # preflight (_check-tag-not-pio-irq) verifies the build came out right.
 .PHONY: sio-smoke
 sio-smoke:
-	$(MAKE) cpnet-smoke TRANSPORT=sio
+	$(MAKE) cpnet-smoke TRANSPORT=sio WORKLOAD=$(WORKLOAD)
 	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
 	python3 testutil/mksmokeasm.py
 	testutil/mksmokedisk.sh
@@ -525,9 +596,10 @@ sio-smoke:
 	@echo "=== 3/5 waiting for MP/M CP/NET server on :4002 ==="
 	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.5; done
 	@sleep 4
-	@echo "=== 4/5 launching MAME + smoke injector ==="
-	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_smoke_inject.log
+	@echo "=== 4/5 launching MAME + smoke injector (workload: $(WORKLOAD)) ==="
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
 	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --workload $(WORKLOAD) \
 	    --log /tmp/cpnos_siob.raw --timeout 240 \
 	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_smoke_inject.pid
@@ -539,17 +611,7 @@ sio-smoke:
 	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
 	    -autoboot_script mame_porttap.lua
 	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
-	@echo "=== 5/5 verifying ==="
-	@echo --- injector log ---
-	@cat /tmp/cpnos_smoke_inject.log
-	@echo --- SIO-B tail ---
-	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw | tail -c 400 || true
-	@echo
-	@echo --- BDOS FNC counter snapshot ---
-	@tail -40 /tmp/cpnos_fnc_counters.txt 2>/dev/null || echo "(no counter file)"
-	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
-	    && echo "PASS: slave-assembled program printed CPNET OK A314" \
-	    || (echo "FAIL: expected 'CPNET OK A314' not found in /tmp/cpnos_siob.raw"; exit 1)
+	@$(MAKE) _verify-bench WORKLOAD=$(WORKLOAD)
 
 cpnos-mame: cpnos-install
 	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
@@ -643,8 +705,9 @@ pio-irq-smoke: cpnos-install _check-tag-pio-irq _check-mame-irq
 	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
 	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_wboot.txt /tmp/cpnos_boot_result.txt \
 	    /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
-	@echo "=== 4/5 launching smoke_inject + MAME ==="
+	@echo "=== 4/5 launching smoke_inject + MAME (workload: $(WORKLOAD)) ==="
 	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --workload $(WORKLOAD) \
 	    --log /tmp/cpnos_siob.raw --timeout 240 \
 	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_smoke_inject.pid
@@ -658,29 +721,7 @@ pio-irq-smoke: cpnos-install _check-tag-pio-irq _check-mame-irq
 	    -bitb3 socket.127.0.0.1:4002 \
 	    -autoboot_script mame_porttap.lua
 	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
-	@echo "=== 5/5 verifying ==="
-	@echo "--- inject log ---"
-	@cat /tmp/cpnos_smoke_inject.log
-	@echo "--- wboot ---"
-	@cat /tmp/cpnos_wboot.txt 2>/dev/null || echo "(no wboot file)"
-	@echo "--- sumtest done ---"
-	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo "(no done file)"
-	@echo "--- SIO-B tail ---"
-	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null | tail -c 400
-	@echo
-	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
-	    && echo "PASS: sumtest printed CPNET OK A314" \
-	    || (echo "FAIL: 'CPNET OK A314' not in SIO-B"; exit 1)
-	@bench=$$(grep -oE 'bench=[0-9.]+s' /tmp/cpnos_smoke_inject.log | tail -1); \
-	 [ -n "$$bench" ] && echo "BENCH (-nothrottle, m80+l80+sumtest): $$bench" \
-	   || echo "(bench timing not found in smoke_inject log)"
-	@# port-0x80 (sumtest done) and port-0x81 (warm-boot) tap signals
-	@# are observational; not required for PASS.  Counts here for diagnostic.
-	@printf '  port-0x80 done: '; cat /tmp/cpnos_boot_result.txt 2>/dev/null \
-	    | grep -E 'OK port=0x80' | tail -1 || echo '(none)'
-	@printf '  port-0x81 wboot count: '; \
-	 awk -F= '/^count=/{print $$2+0}' /tmp/cpnos_wboot.txt 2>/dev/null | tail -1 \
-	    || echo '0'
+	@$(MAKE) _verify-bench WORKLOAD=$(WORKLOAD)
 
 # ---- pio-proxy-smoke: PIO-B raw OTIR/INIR via cpnet_pio_server proxy
 #
@@ -697,7 +738,7 @@ pio-irq-smoke: cpnos-install _check-tag-pio-irq _check-mame-irq
 # Same pass criterion / bench timing as pio-irq-smoke.
 .PHONY: pio-proxy-smoke
 pio-proxy-smoke:
-	$(MAKE) _pio-proxy-smoke-impl TRANSPORT=pio-proxy
+	$(MAKE) _pio-proxy-smoke-impl TRANSPORT=pio-proxy WORKLOAD=$(WORKLOAD)
 
 PIO_BRIDGE_PORT ?= 4003
 _pio-proxy-smoke-impl: cpnos-install _check-tag-pio-prx _check-mame-irq
@@ -733,8 +774,9 @@ _pio-proxy-smoke-impl: cpnos-install _check-tag-pio-prx _check-mame-irq
 	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
 	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_wboot.txt /tmp/cpnos_boot_result.txt \
 	    /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
-	@echo "=== 5/6 launching smoke_inject + MAME ==="
+	@echo "=== 5/6 launching smoke_inject + MAME (workload: $(WORKLOAD)) ==="
 	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --workload $(WORKLOAD) \
 	    --log /tmp/cpnos_siob.raw --timeout 240 \
 	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_smoke_inject.pid
@@ -749,20 +791,7 @@ _pio-proxy-smoke-impl: cpnos-install _check-tag-pio-prx _check-mame-irq
 	    -autoboot_script mame_porttap.lua
 	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
 	@kill $$(cat /tmp/cpnos_pio_server.pid)   2>/dev/null || true
-	@echo "=== 6/6 verifying ==="
-	@echo "--- inject log ---"
-	@cat /tmp/cpnos_smoke_inject.log
-	@echo "--- pio_server log (tail) ---"
-	@tail -10 /tmp/cpnos_pio_server.log 2>/dev/null
-	@echo "--- SIO-B tail ---"
-	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null | tail -c 400
-	@echo
-	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
-	    && echo "PASS: sumtest printed CPNET OK A314" \
-	    || (echo "FAIL: 'CPNET OK A314' not in SIO-B"; exit 1)
-	@bench=$$(grep -oE 'bench=[0-9.]+s' /tmp/cpnos_smoke_inject.log | tail -1); \
-	 [ -n "$$bench" ] && echo "BENCH (-nothrottle, m80+l80+sumtest): $$bench" \
-	   || echo "(bench timing not found)"
+	@$(MAKE) _verify-bench WORKLOAD=$(WORKLOAD)
 
 # End-to-end netboot test: Python server on localhost, MAME bridged to
 # it over SIO-A null_modem.
