@@ -856,12 +856,45 @@ Three commits after the audit:
   that overwrites CCP (m80, l80, sumtest, all non-trivial transients);
   by-design misses programs that just RET back into a still-resident
   CCP — those don't warm-boot, so there's nothing to instrument.
-- **End-to-end verification deferred**: netboot regressed in the local
-  environment after Phase 27 commit (NETBOOT returns 0, `-PS` boot
-  marker on every run).  Same code, same MAME branch, same mpm-net2 —
-  9/9 in Phase 27 above, 0/N now.  Cause not yet identified; the OUT
-  mechanism itself is verified by disassembly only at clang/cpnos.lis
-  + 0xefc8: `3e 57 d3 81`.
+- **End-to-end verification deferred**: netboot reported as regressed
+  after Phase 27 commit (NETBOOT returns 0, `-PS` boot marker).  OUT
+  mechanism itself verified by disassembly at clang/cpnos.lis +
+  0xefc8: `3e 57 d3 81`.
+
+### Phase 27c: netboot "regression" was a test-setup mismatch (Apr 28, 2026) — Easy
+
+- **Symptom** carried over from 27b: every netboot run today produced
+  boot strip `INIT OKPNI...-PS` (LOGIN never fired), reported as a
+  regression vs Phase 27's 9/9 OK.
+- **Root cause**: the test entry point was wrong for this branch, not
+  the code.  The irq-fix slave drives SNDMSG/RCVMSG on PIO byte
+  primitives but keeps the SNIOS envelope.  Compatible host: anything
+  that speaks SNIOS envelope on TCP — mpm-net2 itself does.  Setups
+  tried during the burn:
+  - `make cpnet-smoke`: wires only SIO-A → :4002.  Slave's PIO bytes
+    go nowhere; slave doesn't use SIO-A in this branch.
+  - `tests/cpnet_bridge/harness.py --mode pio-netboot`: spawns
+    `cpnet_pio_server` in self-contained mode, which expects RAW SCB
+    frames — protocol mismatch with envelope-on-PIO slave.  Also
+    blocked at the symbol-extract step because `_pio_par_byte` /
+    `_pio_par_count` were dropped by `ld.lld --gc-sections` after the
+    IRQ-ring rewrite removed their writers (commit f10c99f).
+  - **Correct setup** (committed in `be1059c` as `make pio-irq-netboot`):
+    `-piob cpnet_bridge -bitb3 socket.127.0.0.1:4002` — MAME PIO-B
+    bridge connects directly to mpm-net2's TCP port; slave envelope
+    bytes flow straight through.  Boot strip `INIT OKPNILOREC+PSJ`,
+    A> on SIO-B, 30 s -nothrottle.
+- **Side fixes** in `be1059c`:
+  - `__attribute__((used))` + explicit `KEEP(*(.bss._pio_par_*))` in
+    payload.ld so the harness's symbol-extract step works.  ld.lld
+    drops sections marked SHF_GNU_RETAIN regardless of `((used))`,
+    needs the linker-script KEEP.
+- **Lesson** (saved as `project_pio_irq_test_topology` memory):
+  before assuming a regression, verify the test harness was designed
+  for the slave's *current* transport configuration.  When the slave
+  protocol changes (envelope on serial → envelope on PIO), every
+  test entry point that wires the host needs to be re-evaluated for
+  shape compatibility.
 
 ### Phase 26: PIO-to-mpm-net2 — proxy vs direct snios (Apr 27, 2026) — Hard
 
