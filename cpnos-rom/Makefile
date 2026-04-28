@@ -84,6 +84,34 @@ else
 $(error SERVER must be 'mpm' or 'proxy')
 endif
 
+# Transport selection — picks which chip drives the byte-level CP/NET
+# wire.  SNIOS calls _xport_send_byte / _xport_recv_byte (snios.s);
+# we ld --defsym those names to the chip-specific implementations.
+#
+#   pio-irq  : Z80-PIO Mode 1, IRQ-driven 256-byte SPSC ring buffer
+#              (transport_pio.c).  Default for this branch.
+#   sio      : SIO-A async polled (transport_sio.c).  Original wire,
+#              ~38400 baud, ~3.8 KB/s.
+#
+# Used by `make pio-irq-smoke`, `make sio-smoke`, etc.
+TRANSPORT ?= pio-irq
+ifeq ($(TRANSPORT),pio-irq)
+TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_pio_send_byte \
+                    --defsym=_xport_recv_byte=_transport_pio_recv_byte
+TRANSPORT_NAME = PIO-IRQ
+else ifeq ($(TRANSPORT),sio)
+TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_send_byte \
+                    --defsym=_xport_recv_byte=_transport_recv_byte
+TRANSPORT_NAME = SIO
+else
+$(error TRANSPORT must be 'pio-irq' or 'sio')
+endif
+
+# Banner tag baked into transport_sio_vt.name (cpnos prints it as the
+# wire-mode at boot — "RC702 CP/NOS WWW-MMM ...").  Padded to 7 chars
+# (DRI's wire-mode field) — the build aborts if shorter.
+SERVER_CFLAGS += -DTRANSPORT_NAME='"$(TRANSPORT_NAME)"'
+
 # ---- Payload (linked at 0xED00, no PROM knowledge) ----------------
 # The payload is the single contiguous blob of everything that runs
 # at runtime.  The payload linker doesn't know about the two EPROMs;
@@ -112,7 +140,19 @@ all: cpnos
 cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
 # Flag changes (e.g. -DRC702_SLAVEID=) must invalidate all objects.
-$(ALL_OBJS): Makefile
+$(ALL_OBJS): Makefile clang/transport_stamp
+
+# Re-stamp whenever TRANSPORT changes so a `make cpnos TRANSPORT=sio`
+# after a `TRANSPORT=pio-irq` build (or vice versa) actually picks up
+# the new -DTRANSPORT_NAME / --defsym aliases instead of relinking
+# stale .o files.  The stamp's content is the current TRANSPORT value.
+.PHONY: clang/transport_stamp
+clang/transport_stamp:
+	@mkdir -p clang
+	@if [ ! -f $@ ] || [ "$$(cat $@ 2>/dev/null)" != "$(TRANSPORT)" ]; then \
+	    echo "$(TRANSPORT)" > $@; \
+	    echo "transport stamp: $(TRANSPORT)"; \
+	fi
 
 # ---- Compile ------------------------------------------------------
 
@@ -226,7 +266,8 @@ clang/relocator.o: relocator.c clang/payload_a.bin clang/payload_b.bin
 # ---- Link payload (no PROM awareness) ----------------------------
 
 clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
-	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) $(PAYLOAD_OBJS) -o $@
+	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) \
+	    $(TRANSPORT_DEFSYMS) $(PAYLOAD_OBJS) -o $@
 
 clang/payload.bin: clang/payload.elf cpnos-build/patch_payload_checksum.py
 	$(OBJCOPY) -O binary $< $@
@@ -391,7 +432,7 @@ SMOKE_PORT ?= 9001
 
 # Slave was built with active_transport->name = "PIO-IRQ"
 _check-tag-pio-irq:
-	@if ! strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ$$'; then \
+	@if ! strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ '; then \
 	    echo "FAIL: cpnos.bin does not contain wire-mode tag 'PIO-IRQ'."; \
 	    echo "      This target requires a PIO-IRQ build; check"; \
 	    echo "      transport_sio.c's transport_sio_vt.name."; \
@@ -400,7 +441,7 @@ _check-tag-pio-irq:
 
 # Slave was NOT built for PIO-IRQ (cpnet-smoke wires SIO-A, not PIO-B)
 _check-tag-not-pio-irq:
-	@if strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ$$'; then \
+	@if strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ '; then \
 	    echo "FAIL: cpnos.bin reports wire-mode 'PIO-IRQ' but this target"; \
 	    echo "      wires SIO-A only.  Either rebuild cpnos for SIO mode"; \
 	    echo "      or use 'make pio-irq-smoke' instead."; \
@@ -432,6 +473,14 @@ _check-mame-irq:
 	fi
 
 cpnet-smoke: cpnos-install _check-tag-not-pio-irq
+
+# ---- sio-smoke: pio-irq-smoke counterpart for SIO mode ------------
+# Recursive make invocation so TRANSPORT=sio reaches all the rebuild
+# rules (the stamp triggers the .o invalidation).  cpnet-smoke's own
+# preflight (_check-tag-not-pio-irq) verifies the build came out right.
+.PHONY: sio-smoke
+sio-smoke:
+	$(MAKE) cpnet-smoke TRANSPORT=sio
 	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
 	python3 testutil/mksmokeasm.py
 	testutil/mksmokedisk.sh
@@ -462,7 +511,7 @@ cpnet-smoke: cpnos-install _check-tag-not-pio-irq
 	    -seconds_to_run 1200 \
 	    -rs232a null_modem -bitb1 socket.127.0.0.1:4002 \
 	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
-	    -autoboot_script mame_smoke_dump.lua
+	    -autoboot_script mame_porttap.lua
 	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
 	@echo "=== 5/5 verifying ==="
 	@echo --- injector log ---

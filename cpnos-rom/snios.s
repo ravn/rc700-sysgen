@@ -53,14 +53,16 @@
     .equ CFG_MSGBUF,  45
 
     .extern _cfgtbl
-    ; Experiment (pio-mpm-netboot branch): SNIOS calls PIO byte
-    ; primitives unconditionally instead of SIO.  Same signatures
-    ; (sdcccall(1)) — the chip ports are different (0x11/0x13 vs
-    ; 0x08/0x0A), envelope code is unchanged.  Lets MAME's PIO
-    ; bridge wire directly to mpm-net2 :4002 (mpm-net2 receives the
-    ; SIO envelope it expects, on the PIO TCP connection).
-    .extern _transport_pio_send_byte
-    .extern _transport_pio_recv_byte
+    ; SNIOS byte-level transport — single indirection through
+    ; _xport_send_byte / _xport_recv_byte.  The Makefile's TRANSPORT=
+    ; flag aliases these (via ld --defsym) to the chip-specific
+    ; primitives:
+    ;   TRANSPORT=sio      -> _transport_send_byte / _transport_recv_byte
+    ;   TRANSPORT=pio-irq  -> _transport_pio_send_byte / _transport_pio_recv_byte
+    ; SNIOS envelope code is unchanged across modes; only the chip
+    ; ports differ (SIO 0x08/0x0A vs PIO 0x11/0x13).
+    .extern _xport_send_byte
+    .extern _xport_recv_byte
     .extern _cpnet_send_msg
     .extern _cpnet_recv_msg
 
@@ -134,7 +136,7 @@ RCVMSG_DISPATCH:
 SENDBY:
     push hl
     push de
-    call _transport_pio_send_byte   ; arg already in A
+    call _xport_send_byte   ; arg already in A
     pop  de
     pop  hl
     ret
@@ -146,7 +148,7 @@ RECVBY:
     push de
 RECVBY1:
     ld   hl, 0xFFFF                 ; max timeout per call
-    call _transport_pio_recv_byte
+    call _xport_recv_byte
     ld   a, d
     inc  a                          ; D=0xFF -> A=0 (timeout); D=0 -> A=1
     jr   z, RECVBY1                 ; timeout: retry forever
@@ -162,7 +164,7 @@ RECVBT:
     push de
     push hl
     ld   hl, RECV_TIMEOUT_TICKS
-    call _transport_pio_recv_byte
+    call _xport_recv_byte
     ld   a, d                       ; grab result (D=0xFF => timeout)
     inc  a                          ; Z=1 on timeout
     ld   a, e                       ; A = byte (Z preserved by ld)

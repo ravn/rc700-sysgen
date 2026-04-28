@@ -78,4 +78,24 @@ emu.register_periodic(function ()
     end
     local f = io.open(marks_path, "w")
     if f then f:write(s) f:close() end
+
+    -- Auto-exit when smoke_inject reports the bench marker.  Without
+    -- this MAME runs to -seconds_to_run (1200s) after the workload
+    -- finishes, blocking the make target.  smoke_inject writes a
+    -- "[marker] CPNET OK found (bench=Xs)" line on completion; a
+    -- presence-check is enough — we don't reparse the timing.
+    local log = io.open("/tmp/cpnos_smoke_inject.log", "r")
+    if log then
+        local content = log:read("*a")
+        log:close()
+        if content and content:find("[marker] CPNET OK found", 1, true) then
+            -- Give CCP one more periodic to drain the trailing A>
+            -- prompt onto SIO-B (so /tmp/cpnos_siob.raw is complete).
+            if exit_after == nil then
+                exit_after = emu.time() + 0.5
+            elseif emu.time() >= exit_after then
+                manager.machine:exit()
+            end
+        end
+    end
 end)
