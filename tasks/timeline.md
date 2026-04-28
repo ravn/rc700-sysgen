@@ -775,6 +775,75 @@ Three commits after the audit:
   `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
   `docs/mame-rc702-piob-slot-regression.md`.
 
+### Phase 27: IRQ-driven snios-on-PIO + 3-way bench (Apr 28, 2026) — Hard
+
+- **Goal**: fix the snios-on-PIO direct path so it actually works,
+  then bench it against SIO and PIO-proxy modes.  Phase 26 left it
+  failing at "INIT OKPNILOR..." stalls after 4-25 sectors, filed as
+  ravn/rc700-gensmedet#56 with a "fourth race" framing.
+- **Root cause** (not a race): `transport_pio_recv_byte` treated the
+  byte value `0xFF` as "no byte yet" sentinel, but `0xFF` is a valid
+  data byte that mpm-net2 sends throughout cpnos.com.  Sector 4 of
+  cpnos.com contains 19 0xFF bytes — the first sector with any —
+  matching the "stall after ~4 iterations" report.  The "intermittent"
+  framing was misleading: `cpnos.com.count(0xff)` would have nailed
+  it in 30 seconds.  Saved as memory
+  `feedback_intermittent_is_hypothesis.md`.
+  Full RCA: `tasks/session34-direct-pio-stall-rootcause.md`.
+- **Fix** (architecturally correct, ~50 LoC):
+  - PIO-B chip IE on (init.c).
+  - 256-byte SPSC ring buffer at 0xF700 (page-aligned, in unused
+    tail of PAYLOAD region).  uint8_t head/tail = free mod-256 wrap.
+  - `isr_pio_par` reads `PORT_PIO_B_DATA` and pushes into ring.
+  - `transport_pio_recv_byte` pops from ring with timeout.
+  - `enable_interrupts()` moved before `NETBOOT()` (otherwise the
+    ISR can't fire during the boot phase).
+  - `cpnet_bridge::poll_tick` re-gated on `m_brdy_high && buffer_non_empty`
+    (the "always strobe" workaround for the polled path's 0xFF=empty
+    issue would over-strobe and overwrite m_input under the IRQ
+    design).
+- **MAME-side issue uncovered**: Mode 1 entry doesn't auto-raise
+  BRDY (Zilog datasheet says it should, 2 cycles after mode select).
+  Bridge's optimistic-init `m_brdy_high=true` self-bootstraps via
+  `set_mode(OUTPUT)` callback.  Filed **ravn/mame#8**.
+- **Banner reorder**: signon now prints BEFORE `NETBOOT()` so the
+  screen layout is row 0 = banner, row 1 = netboot progress dots,
+  row 2 = blank, row 3 = `A>`.  Wire-mode banner tag extended from
+  3 chars to 7 chars (`"WWW-MMM"`); branch ships `"PIO-IRQ"`.
+- **Bench results** (sumtest workload pending; netboot only here):
+
+  | Mode | Wall median (-nothrottle) | Wall median (real-time) |
+  |------|---:|---:|
+  | PIO-PROXY (raw OTIR/INIR + host proxy) | 1668 ms | (not measured) |
+  | PIO-IRQ direct (snios envelope on PIO) | 1874 ms | 3738 ms |
+
+  Both 9/9 OK with strict success check (boot marker `+PSJ` AND
+  clean `A>` prompt).  PROXY is ~12% faster cold-boot; IRQ-direct
+  is more variable (stddev 68 ms vs 3 ms) due to per-byte ISR
+  cascade vs bulk OTIR/INIR.
+
+- **`smoke_inject.py` fix**: prompt-check now runs on recv-timeout,
+  not just on data-received.  Removed the 10s nudge mechanism; it
+  was injecting phantom CRs during program work and creating extra
+  A> echoes.  This is the "I had to type Enter manually" report.
+
+- **sumtest port-write done signal**: sumtest.asm now does
+  `mvi a, 055h; out 080h` after printing CPNET OK.  Lua tap traps
+  port 0x80 via `install_write_tap` for deterministic completion
+  detection — no SIO-B byte parsing, no display memory scanning.
+  (Tried port 0xFF first; that maps to 8237 DMA on rc702.cpp:175.)
+
+- **Lessons** (saved as feedback memories):
+  - Sentinel preconditions must travel with the value across use
+    sites; promoting context-specific sentinels to a shared `#define`
+    invites silent breakage when the precondition no longer holds.
+  - "Intermittent" is a hypothesis label, not a property — falsify
+    it with cheap data-content checks before chasing timing causes.
+
+- **Issues + TODOs raised**: see `tasks/session35-irq-fix-and-bench.md`
+  for the full list (Pico-side proxy port, 32-bit CRT counter mirror,
+  multi-channel SNIOS investigation).
+
 ### Phase 26: PIO-to-mpm-net2 — proxy vs direct snios (Apr 27, 2026) — Hard
 
 - **Goal**: get CP/NOS netboot working against real `mpm-net2`

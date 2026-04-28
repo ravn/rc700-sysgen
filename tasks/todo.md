@@ -248,6 +248,48 @@ obsolete — see deprecation banner on
 - [ ] Pi-side z80pack invocation: in-process Python binding vs
       subprocess with TCP loopback.
 
+### TODO (2026-04-28): use CP/NET disk traffic as "program running" signal
+
+The sumtest workload tap currently detects "command done, ready for next"
+via display-cursor stability + new-A>-row.  Works but slightly fragile
+(needs row > last_prompt_row, which can be wrong if the screen
+scrolls between commands).
+
+A more robust signal: watch CP/NET frame traffic on the bridge.  When
+a program is running and doing file I/O, bytes flow.  When CCP is
+idle at A>, no bytes flow.  Idle for ~500ms = CCP at prompt, ready
+for next command.
+
+Could be done by:
+- Instrumenting cpnet_bridge.cpp with a timestamped "last RX byte" and
+  exposing it via a known address Lua can read; OR
+- Parsing host-side proxy log (cpnet_pio_server.py) per-frame timing
+  in real time; OR
+- Watching MAME's bitbanger socket for activity.
+
+### TODO (2026-04-28): port the cpnet_pio_server proxy to a Pico
+
+`cpnos-rom/cpnet_pio_server.py` currently runs on the host PC: it
+listens on TCP, talks DRI envelope upstream to mpm-net2 (port 4002),
+and forwards raw SCB frames downstream to MAME's bridge / a real
+Pi-Pico bridge (port 4003).  Question: can the proxy run on the Pico
+itself, eliminating the host PC from the production setup?
+
+Two angles:
+1. **MicroPython port** of cpnet_pio_server.py.  ~600 lines fits
+   easily in 264 KB SRAM (RP2040) or 520 KB SRAM (RP2350).  Throughput
+   is the question: MicroPython ~10-50× slower than CPython; per-byte
+   envelope ops would slow per-frame to ~10 ms vs ~1 ms host.  Pico W
+   adds WiFi latency to mpm-net2 (~5-20 ms typical).  Enough for cold
+   netboot, marginal for sustained workloads.
+2. **C SDK port** for production.  PIO state machine handles
+   STB/BRDY in hardware (zero-CPU per byte); lwIP for TCP to
+   mpm-net2.  Closer to host-Python performance, fully embedded.
+   Bigger engineering investment.
+
+Goal: eliminate the host-PC dependency.  Slave (Z80 + RC702) +
+Pi/Pico (CP/NET proxy + bridge) connects directly to mpm-net2 server.
+
 ### TODO (2026-04-28): investigate multi-channel SNIOS in any CP/NET impl
 
 Question: do any CP/NET SNIOS implementations support more than one
