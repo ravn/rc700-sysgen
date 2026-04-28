@@ -886,23 +886,45 @@ Three commits after the audit:
   *-smoke` ran to `-seconds_to_run 1200` (20 minutes) on every PASS
   — masked by manual `pkill regnecentralend` between iterations.
   Saved as memory `feedback_bench_must_self_terminate`.
-- **Bench results** (-nothrottle, mpm-net2 backend, `m80 sumtest` +
-  `l80 sumtest,sumtest/n/e` + `sumtest`, smoke_inject step1->marker):
+- **Bench results** (-nothrottle, mpm-net2 backend; smoke_inject
+  step1->marker is the timed window):
 
-  | Mode      | Wall   | vs SIO |
-  |-----------|-------:|-------:|
-  | SIO       | 35.8 s | 1.00× |
-  | PIO-IRQ   | 27.5 s | 1.30× |
-  | PIO-PROXY | 25.4 s | 1.41× |
+  | Workload  | SIO     | PIO-IRQ          | PIO-PROXY        |
+  |-----------|--------:|-----------------:|-----------------:|
+  | sumtest   | 35.8 s  | 27.5 s (1.30×)   | 25.4 s (1.41×)   |
+  | filecopy  | 14.8 s  |  8.4 s (**1.81×**) |  7.7 s (**2.02×**) |
+
+  Frames-to-completion (filecopy, 32-bit CRT counter @ 50 Hz):
+
+  | Workload  | SIO    | PIO-IRQ | PIO-PROXY |
+  |-----------|-------:|--------:|----------:|
+  | filecopy  | 3416   | 1883    | 1687      |
+
+  Workload shape:
+    sumtest = `m80 sumtest,=sumtest.asm` + `l80 sumtest,sumtest/n/e`
+              + `sumtest` (run).  CPU-dominated; the m80 step alone
+              takes ~25 s of the wall in SIO mode.
+    filecopy = pre-assembled FILECOPY.COM reads SUMTEST.ASM record-by-
+              record via BDOS F_READ and writes SUMTEST.CPY via F_WRITE.
+              ~358 reads + ~358 writes over CP/NET — no compiler in
+              the timed window.  Verify step extracts both files via
+              cpmcp and byte-compares (first 45735 B identical in all
+              three modes; CPY's last 89 B is record-pad).
 
   PIO-PROXY beats PIO-IRQ by ~8% (envelope avoidance) and SIO by
-  ~30% (parallel transport + raw frames + skipped envelope).
-- **Reproducible via**: `make sio-smoke && make pio-irq-smoke &&
-  make pio-proxy-smoke`.  Each target preflight-checks the cpnos
-  build's wire-mode tag matches what the harness expects (SIO vs
-  PIO-IRQ vs PIO-PRX in cpnos.bin), MAME tree has the bridge gate
-  fix (`m_brdy_high` in cpnet_bridge.cpp), and the binary is newer
-  than the source.
+  ~30% on the CPU-bound sumtest.  On the I/O-dominated filecopy the
+  parallel-transport advantage is much clearer: PIO-IRQ ~1.8×,
+  PIO-PROXY ~2.0× over SIO.
+- **Reproducible via**: `make {sio,pio-irq,pio-proxy}-smoke
+  WORKLOAD={sumtest,filecopy}`.  Each target preflight-checks the
+  cpnos build's wire-mode tag (SIO / PIO-IRQ / PIO-PRX in cpnos.bin),
+  MAME tree has the bridge gate fix (`m_brdy_high` in
+  cpnet_bridge.cpp), and the binary is newer than the source.
+- **32-bit CRT frame counter** added to isr_crt at 0xFFFC..0xFFFF
+  (50 Hz CRT VRTC), mirroring rcbios.  filecopy.com snapshots S/E
+  and prints both in the FILECOPY OK marker; the verify step diffs
+  them for emulation-second-precise timing immune to MAME wall-clock
+  jitter.
 - **NDOS Err 06, Func 10**: appears between m80 exit and l80 start
   in all three runs.  Per session 23, this is "Close Checksum Error"
   from MP/M's FCB checksum mechanism — m80 (CP/M 2.2 era, predates
