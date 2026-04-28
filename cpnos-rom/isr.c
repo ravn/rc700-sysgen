@@ -225,13 +225,16 @@ void isr_pio_kbd(void) {
     );
 }
 
-/* PIO-B parallel ISR — used only by the speed-test build (PIO_SPEED_TEST=3).
+/* PIO-B parallel ISR.  Fires once per chip strobe (= once per byte
+ * delivered by the bridge) when chip IE is on.  Reads the latched
+ * byte from PORT_PIO_B_DATA (the IN itself clears chip IP), pushes
+ * into the snios receive ring (pio_rx_buf, head/tail in
+ * transport_pio.c).  Mirrors the isr_pio_kbd pattern.
  *
- * Runtime CP/NET on PIO-B does NOT use this ISR: the chip's IE flip-flop
- * is held off and Z80 reads bytes via INIR busy-poll (see
- * transport_pio.c::pio_inir_chunk).  The ISR exists for the legacy
- * host-send harness (uint8_t pio_par_count via tap.lua) and for the
- * speed-rx variant (uint16_t pio_rx_count + pio_test_done).
+ * Legacy harness counters (pio_par_byte, pio_par_count, pio_rx_count,
+ * pio_test_done) are no longer touched here — they were for the
+ * host-send / speed-rx test modes which don't use the IRQ-driven
+ * recv ring.  --gc-sections drops the unused BSS allocations.
  *
  * Shadow registers (after exx + ex af,af') so we don't perturb mainline
  * code's register state. */
@@ -242,24 +245,36 @@ void isr_pio_par(void) {
         ".byte 0x08\n\t"           /* ex af,af' */
         "exx\n\t"
 
-        "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A */
-        "ld   (_pio_par_byte), a\n\t"   /* harness watches this */
+        "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A; clears chip IP */
+        "ld   e, a\n\t"             /* stash byte */
 
-        "ld   hl, _pio_par_count\n\t"
-        "inc  (hl)\n\t"              /* uint8_t counter */
+        /* SPSC ring push for snios.  Mirror of isr_pio_kbd. */
+        /* new_head = (head + 1) & 0x3F */
+        "ld   hl, _pio_rx_head\n\t"
+        "ld   a, (hl)\n\t"
+        "inc  a\n\t"
+        "and  0x3F\n\t"
+        "ld   d, a\n\t"             /* D = new_head */
 
-        /* uint16_t pio_rx_count: increments per byte.  Wraps to 0
-         * after 65536 bytes; on wrap, set pio_test_done = 1.  Used
-         * by the speed-rx benchmark only. */
-        "ld   hl, (_pio_rx_count)\n\t"
-        "inc  hl\n\t"
-        "ld   (_pio_rx_count), hl\n\t"
-        "ld   a, h\n\t"
-        "or   l\n\t"
-        "jr   nz, 1f\n\t"
-        "ld   a, 1\n\t"
-        "ld   (_pio_test_done), a\n\t"
-        "1:\n\t"
+        /* if (new_head == tail) drop — ring full, byte lost.  Under
+         * flow-controlled CP/NET this can't happen; we don't bother
+         * recording the overrun. */
+        "ld   hl, _pio_rx_tail\n\t"
+        "ld   a, (hl)\n\t"
+        "cp   d\n\t"
+        "jr   z, 2f\n\t"
+
+        /* ring[head] = byte;  head = new_head */
+        "ld   hl, _pio_rx_head\n\t"
+        "ld   a, (hl)\n\t"
+        "ld   h, 0\n\t"
+        "ld   l, a\n\t"
+        "ld   bc, _pio_rx_buf\n\t"
+        "add  hl, bc\n\t"
+        "ld   (hl), e\n\t"
+        "ld   a, d\n\t"
+        "ld   (_pio_rx_head), a\n\t"
+    "2:\n\t"
 
         "exx\n\t"
         ".byte 0x08\n\t"           /* ex af,af' */

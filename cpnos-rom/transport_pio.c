@@ -53,7 +53,8 @@
 /* Z80-PIO control-word constants (Zilog datasheet table 4 + ICW form). */
 #define PIO_MODE_OUTPUT       0x0F
 #define PIO_MODE_INPUT        0x4F
-#define PIO_IE_DISABLE        0x03
+#define PIO_IE_DISABLE        0x03   /* set IE FF: bit7=0 -> IE off */
+#define PIO_IE_ENABLE         0x83   /* set IE FF: bit7=1 -> IE on  */
 #define PIO_IE_ENABLE_RESET   0x97   /* ICW: enable + mask follows */
 #define PIO_INT_MASK_NONE     0x00
 
@@ -77,10 +78,22 @@ static uint8_t pio_b_dir;            /* zeroed BSS = INPUT initially */
 #define RC702_SLAVEID 0x01
 #endif
 
-/* Empty-FIFO sentinel value MAME's bridge returns when the host
- * hasn't sent anything yet (FF on the wire).  Used as the
- * "byte-not-yet-arrived" signal in the first-byte busy-wait. */
-#define PIO_RX_EMPTY_VAL 0xFF
+/* SPSC ring buffer between isr_pio_par (push) and
+ * transport_pio_recv_byte (pop).  Size 64 = 0x40, mask 0x3F.  Indices
+ * are kept masked at write time so the load sites are a single byte
+ * fetch with no extra arithmetic.  Empty: head == tail.  Full slots
+ * lost silently; under flow-controlled CP/NET this can't happen, so
+ * the ISR doesn't bother to detect it.  Replaces the old 0xFF=empty
+ * sentinel which conflated a real 0xFF data byte from mpm-net2 with
+ * "no byte yet" (#56). */
+#define PIO_RX_BUF_SIZE 64
+#define PIO_RX_BUF_MASK 0x3F
+/* BSS (not RESIDENT_DATA) — buf contents are don't-care at boot,
+ * head/tail start as 0 from the BSS clear in init_hardware.  Saves
+ * 66 bytes of PROM. */
+volatile uint8_t pio_rx_buf[PIO_RX_BUF_SIZE];
+volatile uint8_t pio_rx_head;   /* ISR writes only */
+volatile uint8_t pio_rx_tail;   /* mainline writes only */
 
 RESIDENT
 static void pio_b_set_output(void) {
@@ -95,11 +108,13 @@ static void pio_b_set_input(void) {
     if (pio_b_dir == PIO_DIR_INPUT) return;
     /* Mode 1 select latches direction; ICW 0x97 + mask 0x00
      * atomically clears m_ip (Mode 0 strobes will have set it).
-     * Then disable IE again — we're busy-poll, no IRQ wanted. */
+     * Final 0x83 re-asserts IE on, so isr_pio_par fires once per
+     * real chip strobe and pushes the latched byte into pio_rx_buf
+     * for snios's transport_pio_recv_byte to pop. */
     _port_out(PORT_PIO_B_CTRL, PIO_MODE_INPUT);
     _port_out(PORT_PIO_B_CTRL, PIO_IE_ENABLE_RESET);
     _port_out(PORT_PIO_B_CTRL, PIO_INT_MASK_NONE);
-    _port_out(PORT_PIO_B_CTRL, PIO_IE_DISABLE);
+    _port_out(PORT_PIO_B_CTRL, PIO_IE_ENABLE);
     pio_b_dir = PIO_DIR_INPUT;
 }
 
@@ -274,8 +289,12 @@ RESIDENT
 uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
     pio_b_set_input();
     while (timeout_ticks--) {
-        uint8_t b = _port_in(PORT_PIO_B_DATA);
-        if (b != PIO_RX_EMPTY_VAL) return b;
+        uint8_t t = pio_rx_tail;
+        if (pio_rx_head != t) {
+            uint8_t b = pio_rx_buf[t];
+            pio_rx_tail = (uint8_t)((t + 1) & PIO_RX_BUF_MASK);
+            return b;
+        }
     }
     return TRANSPORT_TIMEOUT;
 }

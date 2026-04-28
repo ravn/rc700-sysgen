@@ -389,6 +389,17 @@ static void nos_handoff(void) {
      * physical wire (PIO) even though the SNIOS envelope is on top. */
     BOOT_MARK(7, 'P');
 
+    /* IRQ-driven snios-on-PIO needs Z80 IFF on during netboot:
+     * isr_pio_par fires per chip strobe and pushes bytes into
+     * pio_rx_buf for transport_pio_recv_byte to pop.  No IFF -> no
+     * ISR -> no bytes -> stuck at LOGIN.  Original SIO-only design
+     * deferred EI until after netboot so CRT VRTC IRQs wouldn't
+     * race SIO poll loops; that constraint doesn't apply to the
+     * PIO-IRQ path, and CRT ISR is short enough not to disrupt
+     * netboot regardless of transport.  See
+     * tasks/session34-direct-pio-stall-rootcause.md. */
+    enable_interrupts();
+
     uint16_t entry = NETBOOT();
     BOOT_MARK(15, entry ? '+' : '-');  /* netboot return: + ok, - fail */
 
@@ -406,7 +417,8 @@ static void nos_handoff(void) {
      * NDOS expects SNIOS to live (= NIOS in cpnos.com link). */
     __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
 
-    enable_interrupts();
+    /* enable_interrupts moved up to before NETBOOT() (see PIO-IRQ
+     * comment there).  IFF stays on through this final stretch. */
 
 #if defined(PIO_SPEED_TEST) || defined(PIO_LOOPBACK_TEST)
     /* PIO-B bring-up test runs after IRQs are on so the receive ring
