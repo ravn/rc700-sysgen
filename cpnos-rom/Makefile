@@ -540,14 +540,25 @@ _verify-bench:
 	 [ -n "$$bench" ] && echo "BENCH (-nothrottle, $(WORKLOAD_DESC)): $$bench" \
 	   || echo "(bench timing not found)"
 ifeq ($(WORKLOAD),filecopy)
-	@echo "--- frames-to-completion (from FILECOPY OK output) ---"
+	@echo "--- frames-to-completion / throughput (from FILECOPY OK) ---"
 	@line=$$(grep 'FILECOPY OK' /tmp/cpnos_siob.raw | tail -1 | tr -d '\r'); \
 	 echo "  $$line"; \
+	 r=$$(echo "$$line" | sed -nE 's/.*FILECOPY OK ([0-9A-F]{4}) .*/\1/p'); \
 	 s=$$(echo "$$line" | sed -nE 's/.*S=([0-9A-F]{8}).*/\1/p'); \
 	 e=$$(echo "$$line" | sed -nE 's/.*E=([0-9A-F]{8}).*/\1/p'); \
-	 if [ -n "$$s" ] && [ -n "$$e" ]; then \
+	 if [ -n "$$r" ] && [ -n "$$s" ] && [ -n "$$e" ]; then \
+	   recs=$$(printf '%d' $$((0x$$r))); \
 	   d=$$(printf '%d' $$((0x$$e - 0x$$s))); \
-	   echo "  frames = E - S = $$d (= $$(echo "$$d / 50" | bc) s @ 50 Hz CRT)"; \
+	   bytes_dir=$$((recs * 128)); \
+	   bytes_total=$$((bytes_dir * 2)); \
+	   echo "  records = $$recs ($$bytes_dir B per direction, $$bytes_total B total R+W)"; \
+	   echo "  frames  = E - S = $$d (= $$(echo "scale=2; $$d / 50" | bc) s emulated @ 50 Hz CRT)"; \
+	   if [ "$$d" -gt 0 ]; then \
+	     kbps_dir=$$(echo "scale=2; $$bytes_dir * 50 / $$d / 1024" | bc); \
+	     kbps_tot=$$(echo "scale=2; $$bytes_total * 50 / $$d / 1024" | bc); \
+	     echo "  THROUGHPUT (one direction) = $$kbps_dir KB/s emulated"; \
+	     echo "  THROUGHPUT (R+W combined)  = $$kbps_tot KB/s emulated"; \
+	   fi; \
 	 fi
 	@echo "--- byte-compare SUMTEST.ASM vs SUMTEST.CPY ---"
 	@DRIVE_A=$(MPM_DIR)/disks/drivea.dsk; \
