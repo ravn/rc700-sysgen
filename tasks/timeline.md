@@ -861,6 +861,55 @@ Three commits after the audit:
   mechanism itself verified by disassembly at clang/cpnos.lis +
   0xefc8: `3e 57 d3 81`.
 
+### Phase 27d: 3-way bench complete (SIO / PIO-IRQ / PIO-PROXY) (Apr 28, 2026) — Medium
+
+- **Goal**: comparable workload bench across the three CP/NET transports
+  on the same `m80 + l80 + sumtest` workload (sumtest = unrolled
+  sum-of-1..1000).  Session 35 had netboot-only numbers; this is the
+  first apples-to-apples workload comparison.
+- **TRANSPORT= build flag** (`make cpnos TRANSPORT=sio|pio-irq|pio-proxy`):
+  - snios.s calls indirect through `_xport_send_byte` /
+    `_xport_recv_byte`; Makefile aliases via `ld --defsym` to the
+    chip-specific primitives at link time.
+  - `clang/transport_stamp` invalidates .o cache when TRANSPORT changes
+    (without it, switching modes incrementally relinks stale objects).
+  - Banner tag from `-DTRANSPORT_NAME='"$TRANSPORT_NAME"'` so the
+    on-screen banner reflects the chosen wire.
+  - For pio-proxy: `-DTRANSPORT_PROXY` triggers a different
+    active_transport (`&transport_pio_vt`, raw OTIR/INIR frames),
+    skips the 256 B IRQ ring at 0xF700 (transport_pio.c +
+    isr.c #ifndef TRANSPORT_PROXY), preprocesses payload.ld so the
+    upper-bound ASSERT relaxes to display memory at 0xF800.
+- **Auto-exit**: mame_porttap.lua reads `/tmp/cpnos_smoke_inject.log`
+  every periodic; on `[marker] CPNET OK found` schedules
+  `manager.machine:exit()` 0.5 s later.  Without this, `make
+  *-smoke` ran to `-seconds_to_run 1200` (20 minutes) on every PASS
+  — masked by manual `pkill regnecentralend` between iterations.
+  Saved as memory `feedback_bench_must_self_terminate`.
+- **Bench results** (-nothrottle, mpm-net2 backend, `m80 sumtest` +
+  `l80 sumtest,sumtest/n/e` + `sumtest`, smoke_inject step1->marker):
+
+  | Mode      | Wall   | vs SIO |
+  |-----------|-------:|-------:|
+  | SIO       | 35.8 s | 1.00× |
+  | PIO-IRQ   | 27.5 s | 1.30× |
+  | PIO-PROXY | 25.4 s | 1.41× |
+
+  PIO-PROXY beats PIO-IRQ by ~8% (envelope avoidance) and SIO by
+  ~30% (parallel transport + raw frames + skipped envelope).
+- **Reproducible via**: `make sio-smoke && make pio-irq-smoke &&
+  make pio-proxy-smoke`.  Each target preflight-checks the cpnos
+  build's wire-mode tag matches what the harness expects (SIO vs
+  PIO-IRQ vs PIO-PRX in cpnos.bin), MAME tree has the bridge gate
+  fix (`m_brdy_high` in cpnet_bridge.cpp), and the binary is newer
+  than the source.
+- **NDOS Err 06, Func 10**: appears between m80 exit and l80 start
+  in all three runs.  Per session 23, this is "Close Checksum Error"
+  from MP/M's FCB checksum mechanism — m80 (CP/M 2.2 era, predates
+  CP/NET) clobbers FCB reserved bytes between F_MAKE and F_CLOSE.
+  Cosmetic in this bench (m80 still produces correct .REL output);
+  same root cause as the PIPNET fix from session 23.
+
 ### Phase 27c: netboot "regression" was a test-setup mismatch (Apr 28, 2026) — Easy
 
 - **Symptom** carried over from 27b: every netboot run today produced
