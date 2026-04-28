@@ -305,25 +305,58 @@ Sources to check:
 - CpnetSerialServer.jar / Java NIOS implementations.
 - SEBHC docs (http://sebhc.durgadas.com/CPNET-docs/).
 
-### TODO (2026-04-28): 32-bit CRT frame counter in cpnos isr_crt
+### DONE (2026-04-28, commit 092d323): 32-bit CRT frame counter
 
-cpnos-rom's `isr_crt` (in `cpnos-rom/isr.c`) currently does the CRT
-refresh DMA reinit but doesn't keep a frame count.  rcbios already
-exposes a 32-bit `crt_frame_count` (or equivalent — verify exact
-symbol name and address before mirroring) that increments once per
-CTC ch2 VRTC IRQ.  Mirror that in cpnos at the **same memory
-location** as rcbios so harness Lua taps and tests can read frames
-identically across both BIOSes.
+cpnos-rom's `isr_crt` now increments a 32-bit counter at
+`0xFFFC..0xFFFF` on every CTC ch2 VRTC IRQ — mirrors rcbios's RTC
+location (`RC702_BIOS_SPECIFICATION.md` §3.4).  Used by the file-I/O
+bench (`testutil/filecopy.asm`) to record frames-to-completion via
+the FILECOPY OK marker's S=/E= fields.  ~13 bytes of asm in `isr.c`,
+INC (HL) sets Z so borrow-propagate via jr nz from each byte.
 
-Steps:
-1. Find rcbios's frame-counter symbol + address (search bios.c +
-   linker map for the CRT-ISR-incremented variable).
-2. Add equivalent uint32_t in cpnos's BSS at the matching address
-   (linker script PROVIDE() if needed).
-3. Update isr.c::isr_crt asm body to `inc` the 32-bit counter.
-4. Document the address in tasks/timeline.md.
+### TODO (2026-04-28): pulse — raw-bandwidth bench, no protocol
 
-Use case: lets workload benchmarks count emulated time in CRT frames
-(50 Hz wall = 60 Hz on RC702 actually — verify) for finer-grained
-per-frame measurement than wall-clock seconds.
+Slave program that bypasses BDOS / SNIOS / `active_transport`,
+drives PIO-B / SIO-A chip ports directly to measure raw chip-level
+bandwidth.  TX phase + ACK + RX phase + frame snapshots.
+
+Host requires `pulse_host.py` (~150 LoC borrowed from
+`netboot_server.py`) that handles netboot then transitions on a
+sentinel byte sequence to byte-counter mode.  Replaces mpm-net2 for
+the duration of the bench.
+
+Time: ~3 h full (3 modes × 2 dir), ~1 h reduced (SIO + PIO-IRQ TX).
+Detailed design in `tasks/session36-fileio-bench-and-pulse-design.md`.
+
+### TODO (2026-04-28): install_write_tap on IO space — open puzzle
+
+`mame_porttap.lua` installs `install_write_tap` on IO space ports
+0x80 / 0x81 with `ok=true err=nil`, but the callbacks never fire when
+slave does Z80 OUT.  Verified the OUT does execute (sumtest's
+`out 80h` runs because we see the subsequent CONOUT bytes).
+
+Hypothesis: API arg-shape mismatch, or `cpu.spaces["io"]` doesn't
+intercept OUT in this MAME tree.  Worth a 30 min sanity check by
+tapping a known-active IO port (e.g., 0x10 PIO-A data, written every
+key event) — if THAT fires, the issue is something else; if not, it's
+the API/MAME-build interaction.
+
+Side-effect of the puzzle: warm-boot port-0x81 instrumentation
+(commit `b06e6dd`) is unreachable telemetry.  Either fix the tap or
+remove the OUT.
+
+### TODO (2026-04-28): consider polled-PIO mode using bare bitbanger
+
+Documented in `docs/cpnet_bridge_vs_bitbanger.md`.  Drop
+`cpnet_bridge` slot device + slave's IRQ ring, use Mode-1 INIR
+busy-poll receive instead.  Aligns with the project goal of "Z80
+side as fast as possible, host side does the complex work" since
+the slave path becomes a tight INIR loop with no ISR / ring / handshake
+state machine.  Trade-off: slave busy-polls during transfers, can't
+do concurrent CRT / keyboard work — fine for benches, may not be
+fine for production.
+
+Worth a one-day spike: gut `cpnet_bridge` to a bare bitbanger wrapper,
+build cpnos with `transport_pio_recv_byte` rewritten as INIR,
+re-run the 3-way bench, see if the simpler architecture pays off.
 
