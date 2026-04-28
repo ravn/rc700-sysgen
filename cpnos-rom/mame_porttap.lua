@@ -1,0 +1,67 @@
+-- Sumtest workload tap (port-based detection).  Drives smoke_inject
+-- via SIO-B as before, but ALSO installs I/O write taps on:
+--   port 0x80 -- sumtest writes here at end-of-run (deterministic
+--                "sumtest finished OK" signal, value = 0x55)
+--   port 0x81 -- impl_wboot in resident BIOS writes here on every
+--                CP/M warm boot (program exit via JP 0).  Value = 0x57.
+--                Generic "Nth program exited" counter for harnesses
+--                that need to wait for non-sumtest programs (m80, l80,
+--                or future workloads).
+-- Both ports live in RC702's unmapped 0x20-0xEF range (rc702.cpp:155-163).
+
+local marks_path  = "/tmp/cpnos_boot_marks.txt"
+local result_path = "/tmp/cpnos_boot_result.txt"
+local wboot_path  = "/tmp/cpnos_wboot.txt"
+do for _, p in ipairs({result_path, wboot_path}) do
+    local f = io.open(p, "w") if f then f:close() end
+end end
+
+local prog
+local io_space
+local tap_installed = false
+local wboot_count = 0
+
+emu.register_periodic(function ()
+    if prog == nil then
+        local cpu = manager.machine.devices[":maincpu"]
+        if cpu == nil then return end
+        prog = cpu.spaces["program"]
+        io_space = cpu.spaces["io"]
+        if prog == nil or io_space == nil then return end
+    end
+
+    if not tap_installed then
+        io_space:install_write_tap(0x80, 0x80, "sumtest_done",
+            function(offset, data, mask)
+                local t = emu.time()
+                local f = io.open(result_path, "w")
+                if f then
+                    f:write(string.format("OK port=0x80 data=0x%02x t=%.3fs\n",
+                        data, t))
+                    f:close()
+                end
+            end)
+        io_space:install_write_tap(0x81, 0x81, "wboot",
+            function(offset, data, mask)
+                wboot_count = wboot_count + 1
+                local t = emu.time()
+                local f = io.open(wboot_path, "w")
+                if f then
+                    f:write(string.format("count=%d data=0x%02x t=%.3fs\n",
+                        wboot_count, data, t))
+                    f:close()
+                end
+            end)
+        tap_installed = true
+    end
+
+    -- Mirror boot strip for the bash harness (no detection logic here).
+    local s = ""
+    for i = 0, 18 do
+        local b = prog:read_u8(0xF800 + 60 + i)
+        if b == 0 or b == 0x20 then s = s .. " "
+        else s = s .. string.char(b) end
+    end
+    local f = io.open(marks_path, "w")
+    if f then f:write(s) f:close() end
+end)

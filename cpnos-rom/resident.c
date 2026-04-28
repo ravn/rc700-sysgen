@@ -72,7 +72,17 @@ RESIDENT
 RESIDENT
 [[noreturn]] void impl_wboot(void) {
     /* CP/M warm boot.  In CP/NOS the whole OS image is in RAM and
-     * re-runnable from COLDST, which re-fetches CCP.SPR via NDOS. */
+     * re-runnable from COLDST, which re-fetches CCP.SPR via NDOS.
+     *
+     * Test instrumentation: emit a port-0x81 write so MAME Lua taps
+     * can count program exits without scraping the screen.  Port 0x81
+     * is in RC702's unmapped 0x20-0xEF range (rc702.cpp:155-163), so
+     * there is no contention on real hardware either; on a stock
+     * machine the OUT is a no-op.  Used by smoke_inject's "wait until
+     * Nth program has exited" detection.  4 bytes (3E 57 D3 81),
+     * 18 T-states.  Value 0x57 = 'W' for "Warm boot" -- only the
+     * write event is meaningful, not the data byte. */
+    __asm__ volatile("ld a, 0x57\n\t out (0x81), a" : : : "a");
     enter_coldst();
 }
 
