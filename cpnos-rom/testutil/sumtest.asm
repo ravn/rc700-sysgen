@@ -2066,7 +2066,11 @@ start:  ; entry point referenced by END
         mvi     a, 055h
         out     080h
 
-        ret                     ; warm-boot back to CCP
+        ; CP/M warm-boot via zero-page (= JP NDOS WBOOT wrapper, which
+        ; reloads CCP and prompts again).  Plain RET would also work
+        ; since sumtest's small TPA footprint leaves CCP intact, but
+        ; jmp 0 is the canonical CP/M idiom for transient programs.
+        jmp     0
 
 pnib:
         ani     0fh

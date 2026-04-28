@@ -31,27 +31,41 @@ emu.register_periodic(function ()
     end
 
     if not tap_installed then
-        io_space:install_write_tap(0x80, 0x80, "sumtest_done",
-            function(offset, data, mask)
-                local t = emu.time()
-                local f = io.open(result_path, "w")
-                if f then
-                    f:write(string.format("OK port=0x80 data=0x%02x t=%.3fs\n",
-                        data, t))
-                    f:close()
-                end
-            end)
-        io_space:install_write_tap(0x81, 0x81, "wboot",
-            function(offset, data, mask)
-                wboot_count = wboot_count + 1
-                local t = emu.time()
-                local f = io.open(wboot_path, "w")
-                if f then
-                    f:write(string.format("count=%d data=0x%02x t=%.3fs\n",
-                        wboot_count, data, t))
-                    f:close()
-                end
-            end)
+        local diag = io.open("/tmp/cpnos_porttap_diag.txt", "w")
+        if diag then diag:write("[install] starting\n") diag:close() end
+        local ok1, err1 = pcall(function()
+            io_space:install_write_tap(0x80, 0x80, "sumtest_done",
+                function(offset, data, mask)
+                    local t = emu.time()
+                    local f = io.open(result_path, "w")
+                    if f then
+                        f:write(string.format("OK port=0x80 data=0x%02x t=%.3fs\n",
+                            data, t))
+                        f:close()
+                    end
+                end)
+        end)
+        local ok2, err2 = pcall(function()
+            io_space:install_write_tap(0x81, 0x81, "wboot",
+                function(offset, data, mask)
+                    wboot_count = wboot_count + 1
+                    local t = emu.time()
+                    local f = io.open(wboot_path, "w")
+                    if f then
+                        f:write(string.format("count=%d data=0x%02x t=%.3fs\n",
+                            wboot_count, data, t))
+                        f:close()
+                    end
+                end)
+        end)
+        local diag2 = io.open("/tmp/cpnos_porttap_diag.txt", "a")
+        if diag2 then
+            diag2:write(string.format("[install] tap-0x80 ok=%s err=%s\n",
+                tostring(ok1), tostring(err1)))
+            diag2:write(string.format("[install] tap-0x81 ok=%s err=%s\n",
+                tostring(ok2), tostring(err2)))
+            diag2:close()
+        end
         tap_installed = true
     end
 
