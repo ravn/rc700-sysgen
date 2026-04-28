@@ -374,7 +374,64 @@ cpnos-install: clang/cpnos.bin cpnos-disk-install
 # Prints PASS or FAIL and exits accordingly.
 MPM_DIR ?= $(CURDIR)/../z80pack/cpmsim
 SMOKE_PORT ?= 9001
-cpnet-smoke: cpnos-install
+
+# ---- preflight checks: setup must match target ---------------------
+#
+# The "wire-mode tag" baked into the cpnos banner (and visible at
+# runtime as e.g. "RC702 CP/NOS PIO-IRQ ...") is set from
+# active_transport->name in transport_sio.c.  The string lives at a
+# fixed offset in cpnos.bin, so a literal grep on the binary tells us
+# what the slave will report.  Targets assert the right tag is present
+# (or absent) to avoid the topology-mismatch class of bug from
+# 2026-04-28 (Phase 27c — see tasks/timeline.md).
+#
+# Likewise we check that MAME_IRQ exists with the cpnet_bridge gate
+# fix before pio-irq-* targets launch — otherwise the slave's IRQ
+# path silently drops bytes when poll_tick over-strobes.
+
+# Slave was built with active_transport->name = "PIO-IRQ"
+_check-tag-pio-irq:
+	@if ! strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ$$'; then \
+	    echo "FAIL: cpnos.bin does not contain wire-mode tag 'PIO-IRQ'."; \
+	    echo "      This target requires a PIO-IRQ build; check"; \
+	    echo "      transport_sio.c's transport_sio_vt.name."; \
+	    exit 1; \
+	fi
+
+# Slave was NOT built for PIO-IRQ (cpnet-smoke wires SIO-A, not PIO-B)
+_check-tag-not-pio-irq:
+	@if strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ$$'; then \
+	    echo "FAIL: cpnos.bin reports wire-mode 'PIO-IRQ' but this target"; \
+	    echo "      wires SIO-A only.  Either rebuild cpnos for SIO mode"; \
+	    echo "      or use 'make pio-irq-smoke' instead."; \
+	    exit 1; \
+	fi
+
+# MAME_IRQ tree contains the cpnet_bridge gate fix (commit 60e2b9a032f
+# on pio-mpm-irq-fix branch).  We check by source-grep, not by binary
+# inspection — robust against the binary being rebuilt without the fix.
+_check-mame-irq:
+	@if [ ! -x $(MAME_IRQ)/regnecentralend ]; then \
+	    echo "FAIL: $(MAME_IRQ)/regnecentralend not found or not executable"; \
+	    exit 1; \
+	fi
+	@if [ ! -f $(MAME_IRQ)/src/devices/bus/rc702/pio_port/cpnet_bridge.cpp ]; then \
+	    echo "FAIL: $(MAME_IRQ) is not a MAME tree (no cpnet_bridge.cpp)"; \
+	    exit 1; \
+	fi
+	@if ! grep -q 'm_brdy_high' $(MAME_IRQ)/src/devices/bus/rc702/pio_port/cpnet_bridge.cpp; then \
+	    echo "FAIL: $(MAME_IRQ) cpnet_bridge.cpp missing the gate fix."; \
+	    echo "      Need branch with poll_tick gated on m_brdy_high"; \
+	    echo "      (commit 60e2b9a032f on ravn/mame:pio-mpm-irq-fix)."; \
+	    exit 1; \
+	fi
+	@if [ ! $(MAME_IRQ)/regnecentralend -nt $(MAME_IRQ)/src/devices/bus/rc702/pio_port/cpnet_bridge.cpp ]; then \
+	    echo "FAIL: $(MAME_IRQ)/regnecentralend is older than cpnet_bridge.cpp."; \
+	    echo "      Rebuild MAME (cd $(MAME_IRQ) && make)."; \
+	    exit 1; \
+	fi
+
+cpnet-smoke: cpnos-install _check-tag-not-pio-irq
 	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
 	python3 testutil/mksmokeasm.py
 	testutil/mksmokedisk.sh
@@ -443,7 +500,7 @@ cpnos-mame: cpnos-install
 # Pass criterion: boot-strip column 18 = 'J' (NDOS COLDST reached) and
 # clean A> on SIO-B.
 MAME_IRQ ?= $(CURDIR)/../../mame
-pio-irq-netboot: cpnos-install
+pio-irq-netboot: cpnos-install _check-tag-pio-irq _check-mame-irq
 	@echo "=== 1/4 restarting MP/M with fresh disks ==="
 	-screen -S mpm -X quit >/dev/null 2>&1 || true
 	@sleep 1
@@ -480,6 +537,75 @@ pio-irq-netboot: cpnos-install
 	     echo "FAIL: strip='$$strip', expected J at col 18 + 'A>' in SIO-B"; \
 	     exit 1; \
 	 fi
+
+# ---- pio-irq-smoke: pio-irq-netboot + SUMTEST workload ------------
+#
+# Same wiring as pio-irq-netboot (PIO-B -> mpm-net2 :4002), but adds
+# smoke_inject on SIO-B to drive m80 / l80 / sumtest.  This is the
+# end-to-end verification path for the warm-boot port-0x81 OUT
+# (commit b06e6dd) AND the sumtest port-0x80 done signal: each program
+# exit overwrites CCP which warm-boots itself, firing port 0x81; the
+# running sumtest emits port 0x80 at end-of-run.
+#
+# Pass criterion: port-0x80 written once (sumtest done) AND port-0x81
+# written >= 3 times (m80, l80, sumtest each warm-boot CCP).
+pio-irq-smoke: cpnos-install _check-tag-pio-irq _check-mame-irq
+	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
+	python3 testutil/mksmokeasm.py
+	testutil/mksmokedisk.sh
+	@echo "=== 2/5 restarting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/5 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_wboot.txt /tmp/cpnos_boot_result.txt \
+	    /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
+	@echo "=== 4/5 launching smoke_inject + MAME ==="
+	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --log /tmp/cpnos_siob.raw --timeout 240 \
+	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_smoke_inject.pid
+	@sleep 0.4
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 1200 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:4002 \
+	    -autoboot_script mame_porttap.lua
+	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
+	@echo "=== 5/5 verifying ==="
+	@echo "--- inject log ---"
+	@cat /tmp/cpnos_smoke_inject.log
+	@echo "--- wboot ---"
+	@cat /tmp/cpnos_wboot.txt 2>/dev/null || echo "(no wboot file)"
+	@echo "--- sumtest done ---"
+	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo "(no done file)"
+	@echo "--- SIO-B tail ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null | tail -c 400
+	@echo
+	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
+	    && echo "PASS: sumtest printed CPNET OK A314" \
+	    || (echo "FAIL: 'CPNET OK A314' not in SIO-B"; exit 1)
+	@n=$$(awk -F= '/^count=/{print $$2+0}' /tmp/cpnos_wboot.txt 2>/dev/null | tail -1); \
+	 if [ -n "$$n" ] && [ "$$n" -ge 3 ]; then \
+	     echo "PASS: $$n warm-boots observed on port 0x81 (>= 3)"; \
+	 else \
+	     echo "FAIL: warm-boot count = '$$n', expected >= 3"; \
+	     exit 1; \
+	 fi
+	@grep -q 'OK port=0x80' /tmp/cpnos_boot_result.txt \
+	    && echo "PASS: port-0x80 sumtest-done signal observed" \
+	    || (echo "FAIL: port-0x80 not in /tmp/cpnos_boot_result.txt"; exit 1)
 
 # End-to-end netboot test: Python server on localhost, MAME bridged to
 # it over SIO-A null_modem.
