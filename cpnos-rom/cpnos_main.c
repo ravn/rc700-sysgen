@@ -323,15 +323,24 @@ extern uint16_t netboot_mpm(void);
  * and falls through to NDOS+3 = COLDST.  See cpnos-build/src/cpnos.asm. */
 extern void impl_conout(uint8_t c);
 
-static void nos_handoff(void) {
-    /* Banner: "RC702 CP/NOS XXX yyyy-mm-dd <hash>\r\n".  XXX is patched
-     * in place from active_transport->name (3 chars, not NUL-term).
-     * Banner is .data (mutable) so the patch sticks at runtime.
-     * Build date + short git hash come from cpnos_buildinfo.h. */
-    static char banner[] = "RC702 CP/NOS XXX " BUILD_INFO_STR "\r\n";
-    __builtin_memcpy(&banner[13], active_transport->name, 3);
+/* Banner is printed BEFORE NETBOOT() so the screen layout is:
+ *   row 0 (cursor home): "RC702 CP/NOS WWW-MMM yyyy-mm-dd HH:MM hash"
+ *   row 1: 25 netboot progress dots followed by CR/LF on EOF
+ * Operator sees the OS identity immediately on power-on, then watches
+ * the dots fill in below it.  Previously the banner was printed by
+ * nos_handoff() AFTER netboot, so the dots appeared on row 0 and the
+ * banner on row 1 — backwards from what operators expect. */
+static void print_banner(void) {
+    /* "RC702 CP/NOS WWW-MMM yyyy-mm-dd HH:MM hash\r\n".  WWW-MMM is
+     * patched in place from active_transport->name (7 chars, not
+     * NUL-term, format "WWW-MMM" — wire-mode).  Banner is .data
+     * (mutable) so the patch sticks at runtime. */
+    static char banner[] = "RC702 CP/NOS XXX-XXX " BUILD_INFO_STR "\r\n";
+    __builtin_memcpy(&banner[13], active_transport->name, 7);
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
+}
 
+static void nos_handoff(void) {
     /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to NDOSRL +
      * 0x300 = 0xCF00.  NDOS COLDST reads ZP[1..2] = 0xCF03 and walks
      * 0xCF02..0xCF34 in place, replacing slots 1..5 + 15 with NDOS
@@ -379,17 +388,31 @@ static void nos_handoff(void) {
     cfgtbl_init();
     init_hardware();
 
-    /* Transport probe.  Try PIO first (Option P fast link); on PONG
-     * within ~100 ms emulated, switch active_transport to PIO so
-     * netboot + runtime CP/NET both go through the parallel port.
-     * On no-PONG, leave active_transport at its default (SIO) and
-     * netboot continues over SIO-A async as before. */
-    if (transport_pio_vt.probe()) {
-        active_transport = &transport_pio_vt;
-        BOOT_MARK(7, 'P');             /* PIO transport selected */
-    } else {
-        BOOT_MARK(7, 'S');             /* SIO fallback (default) */
-    }
+    /* Experiment branch (pio-mpm-netboot): SNIOS now drives PIO byte
+     * primitives directly (snios.s edit).  The frame-level
+     * transport_pio_vt + pio_probe / pio_send_msg / pio_recv_msg
+     * machinery is unused on this branch and gets gc-section'd; we
+     * just keep active_transport at its default (transport_sio_vt,
+     * whose send/recv route through SNDMSG/RCVMSG, which now talk
+     * PIO).  Mark 'P' unconditionally so the strip indicates the
+     * physical wire (PIO) even though the SNIOS envelope is on top. */
+    BOOT_MARK(7, 'P');
+
+    /* IRQ-driven snios-on-PIO needs Z80 IFF on during netboot:
+     * isr_pio_par fires per chip strobe and pushes bytes into
+     * pio_rx_buf for transport_pio_recv_byte to pop.  No IFF -> no
+     * ISR -> no bytes -> stuck at LOGIN.  Original SIO-only design
+     * deferred EI until after netboot so CRT VRTC IRQs wouldn't
+     * race SIO poll loops; that constraint doesn't apply to the
+     * PIO-IRQ path, and CRT ISR is short enough not to disrupt
+     * netboot regardless of transport.  See
+     * tasks/session34-direct-pio-stall-rootcause.md. */
+    enable_interrupts();
+
+    /* Print banner BEFORE netboot so it appears on row 0 and the
+     * netboot progress dots flow on row 1 (operator's natural
+     * "OS identity at top, progress below" expectation). */
+    print_banner();
 
     uint16_t entry = NETBOOT();
     BOOT_MARK(15, entry ? '+' : '-');  /* netboot return: + ok, - fail */
@@ -408,7 +431,8 @@ static void nos_handoff(void) {
      * NDOS expects SNIOS to live (= NIOS in cpnos.com link). */
     __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
 
-    enable_interrupts();
+    /* enable_interrupts moved up to before NETBOOT() (see PIO-IRQ
+     * comment there).  IFF stays on through this final stretch. */
 
 #if defined(PIO_SPEED_TEST) || defined(PIO_LOOPBACK_TEST)
     /* PIO-B bring-up test runs after IRQs are on so the receive ring

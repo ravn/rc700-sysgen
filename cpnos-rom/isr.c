@@ -116,6 +116,25 @@ void isr_crt(void) {
         "ld   hl, 0xEC30\n\t"
         "inc  (hl)\n\t"
 
+        /* 32-bit frame counter at 0xFFFC..0xFFFF — mirrors rcbios's
+         * RTC location (RC702_BIOS_SPECIFICATION.md §3.4).  50 Hz ticks
+         * (CRT VRTC).  Wraps at ~993 days.  Used by the file-I/O bench
+         * to record frames-to-completion (immune to MAME wall-clock
+         * variation).  ~13 bytes; INC (HL) sets Z on zero, so propagate
+         * carry by jr nz from each byte. */
+        "ld   hl, 0xFFFC\n\t"
+        "inc  (hl)\n\t"
+        "jr   nz, 8f\n\t"
+        "inc  hl\n\t"
+        "inc  (hl)\n\t"
+        "jr   nz, 8f\n\t"
+        "inc  hl\n\t"
+        "inc  (hl)\n\t"
+        "jr   nz, 8f\n\t"
+        "inc  hl\n\t"
+        "inc  (hl)\n\t"
+    "8:\n\t"
+
         /* Ack CRT status register. */
         "in   a, (0x01)\n\t"        /* PORT_CRT_CMD */
 
@@ -225,45 +244,69 @@ void isr_pio_kbd(void) {
     );
 }
 
-/* PIO-B parallel ISR — used only by the speed-test build (PIO_SPEED_TEST=3).
+/* PIO-B parallel ISR.  Fires once per chip strobe (= once per byte
+ * delivered by the bridge) when chip IE is on.  Reads the latched
+ * byte from PORT_PIO_B_DATA (the IN itself clears chip IP), pushes
+ * into the snios receive ring (pio_rx_buf, head/tail in
+ * transport_pio.c).  Mirrors the isr_pio_kbd pattern.
  *
- * Runtime CP/NET on PIO-B does NOT use this ISR: the chip's IE flip-flop
- * is held off and Z80 reads bytes via INIR busy-poll (see
- * transport_pio.c::pio_inir_chunk).  The ISR exists for the legacy
- * host-send harness (uint8_t pio_par_count via tap.lua) and for the
- * speed-rx variant (uint16_t pio_rx_count + pio_test_done).
+ * Legacy harness counters (pio_par_byte, pio_par_count, pio_rx_count,
+ * pio_test_done) are no longer touched here — they were for the
+ * host-send / speed-rx test modes which don't use the IRQ-driven
+ * recv ring.  --gc-sections drops the unused BSS allocations.
  *
  * Shadow registers (after exx + ex af,af') so we don't perturb mainline
  * code's register state. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
+#ifdef TRANSPORT_PROXY
+    /* In TRANSPORT=pio-proxy the PIO-B IRQ never fires (init.c keeps
+     * the chip's IE bit clear for that mode), but we still publish a
+     * vector so the IVT slot resolves.  This stub is just iret. */
+    __asm__ volatile(
+        ".byte 0x08\n\t"           /* ex af,af' */
+        ".byte 0x08\n\t"           /* ex af,af' (pair, no-op) */
+        "ei\n\t"
+        "reti\n\t"
+    );
+#else
     __asm__ volatile(
         ".byte 0x08\n\t"           /* ex af,af' */
         "exx\n\t"
 
-        "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A */
-        "ld   (_pio_par_byte), a\n\t"   /* harness watches this */
+        "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A; clears chip IP */
+        "ld   e, a\n\t"             /* stash byte */
 
-        "ld   hl, _pio_par_count\n\t"
-        "inc  (hl)\n\t"              /* uint8_t counter */
+        /* SPSC ring push for snios.  256-byte buffer at page-aligned
+         * address (0xF700 per payload.ld), so HL = page<<8 | head is
+         * a single 16-bit address.  uint8_t wrap is free — no mask. */
+        /* new_head = (uint8_t)(head + 1) — wraps at 256. */
+        "ld   hl, _pio_rx_head\n\t"
+        "ld   a, (hl)\n\t"
+        "inc  a\n\t"
+        "ld   d, a\n\t"             /* D = new_head */
 
-        /* uint16_t pio_rx_count: increments per byte.  Wraps to 0
-         * after 65536 bytes; on wrap, set pio_test_done = 1.  Used
-         * by the speed-rx benchmark only. */
-        "ld   hl, (_pio_rx_count)\n\t"
-        "inc  hl\n\t"
-        "ld   (_pio_rx_count), hl\n\t"
-        "ld   a, h\n\t"
-        "or   l\n\t"
-        "jr   nz, 1f\n\t"
-        "ld   a, 1\n\t"
-        "ld   (_pio_test_done), a\n\t"
-        "1:\n\t"
+        /* if (new_head == tail) drop — ring full, byte lost. */
+        "ld   hl, _pio_rx_tail\n\t"
+        "ld   a, (hl)\n\t"
+        "cp   d\n\t"
+        "jr   z, 2f\n\t"
+
+        /* ring[head] = byte; head = new_head.  Page-aligned 256-byte
+         * buf — H = buf>>8 (0xf7) is a constant; L = head. */
+        "ld   a, (_pio_rx_head)\n\t"
+        "ld   l, a\n\t"
+        "ld   h, _pio_rx_buf_page\n\t"
+        "ld   (hl), e\n\t"
+        "ld   a, d\n\t"
+        "ld   (_pio_rx_head), a\n\t"
+    "2:\n\t"
 
         "exx\n\t"
         ".byte 0x08\n\t"           /* ex af,af' */
         "ei\n\t"
         "reti\n\t"
     );
+#endif
 }

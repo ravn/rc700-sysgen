@@ -85,7 +85,22 @@ postamble = """
         mvi     c, PRINTS
         call    BDOS
 
-        ret                     ; warm-boot back to CCP
+        ; Signal "test complete" via I/O port write.  MAME Lua taps
+        ; install_write_tap on this port to time the workload without
+        ; needing to scrape SIO-B for "CPNET OK".  Port 80h is in the
+        ; unmapped 0x20-0xEF range on the RC702 (the only mapped IO
+        ; ranges are 0x00-0x1F and 0xF0-0xFF — see rc702.cpp:167-175);
+        ; harness side picks up the OUT atomically.  A is "U" (0x55)
+        ; for "Unique done"; any value would work — only the write
+        ; event matters.
+        mvi     a, 055h
+        out     080h
+
+        ; CP/M warm-boot via zero-page (= JP NDOS WBOOT wrapper, which
+        ; reloads CCP and prompts again).  Plain RET would also work
+        ; since sumtest's small TPA footprint leaves CCP intact, but
+        ; jmp 0 is the canonical CP/M idiom for transient programs.
+        jmp     0
 
 pnib:
         ani     0fh

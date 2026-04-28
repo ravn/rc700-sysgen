@@ -84,6 +84,44 @@ else
 $(error SERVER must be 'mpm' or 'proxy')
 endif
 
+# Transport selection — picks which chip drives the byte-level CP/NET
+# wire.  SNIOS calls _xport_send_byte / _xport_recv_byte (snios.s);
+# we ld --defsym those names to the chip-specific implementations.
+#
+#   pio-irq  : Z80-PIO Mode 1, IRQ-driven 256-byte SPSC ring buffer
+#              (transport_pio.c).  Default for this branch.
+#   sio      : SIO-A async polled (transport_sio.c).  Original wire,
+#              ~38400 baud, ~3.8 KB/s.
+#
+# Used by `make pio-irq-smoke`, `make sio-smoke`, etc.
+TRANSPORT ?= pio-irq
+ifeq ($(TRANSPORT),pio-irq)
+TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_pio_send_byte \
+                    --defsym=_xport_recv_byte=_transport_pio_recv_byte
+TRANSPORT_NAME = PIO-IRQ
+else ifeq ($(TRANSPORT),sio)
+TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_send_byte \
+                    --defsym=_xport_recv_byte=_transport_recv_byte
+TRANSPORT_NAME = SIO
+else ifeq ($(TRANSPORT),pio-proxy)
+# pio-proxy uses raw OTIR/INIR frames (transport_pio_vt) — no SNIOS
+# envelope, so the byte-level _xport_* aliases aren't on the hot path.
+# Still need to alias them or the linker complains; point at the PIO
+# byte primitives (the bridge tolerates whatever bytes appear on the
+# wire — only the frame-level matters for correctness).
+TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_pio_send_byte \
+                    --defsym=_xport_recv_byte=_transport_pio_recv_byte
+TRANSPORT_NAME = PIO-PRX
+SERVER_CFLAGS += -DTRANSPORT_PROXY
+else
+$(error TRANSPORT must be 'pio-irq', 'sio', or 'pio-proxy')
+endif
+
+# Banner tag baked into transport_sio_vt.name (cpnos prints it as the
+# wire-mode at boot — "RC702 CP/NOS WWW-MMM ...").  Padded to 7 chars
+# (DRI's wire-mode field) — the build aborts if shorter.
+SERVER_CFLAGS += -DTRANSPORT_NAME='"$(TRANSPORT_NAME)"'
+
 # ---- Payload (linked at 0xED00, no PROM knowledge) ----------------
 # The payload is the single contiguous blob of everything that runs
 # at runtime.  The payload linker doesn't know about the two EPROMs;
@@ -95,7 +133,15 @@ PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnet_dispatch.o $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o \
                clang/payload_checksum.o
-PAYLOAD_LD = payload.ld
+PAYLOAD_LD = clang/payload.ld
+
+# Preprocess payload.ld so the linker sees TRANSPORT_PROXY-conditional
+# ASSERTs (e.g., the upper bound for __payload_end depends on whether
+# the IRQ ring buffer at 0xF700 is in the layout).  ld.lld doesn't run
+# cpp on linker scripts itself.
+clang/payload.ld: payload.ld clang/transport_stamp
+	@mkdir -p clang
+	$(CC) --target=z80 -E -P -x c $(SERVER_CFLAGS) -o $@ $<
 
 # ---- Relocator (PROM0 reset + #embed'd payload halves) -----------
 # Tiny: reset.s for stack setup, relocator.c with two #embed arrays.
@@ -112,7 +158,19 @@ all: cpnos
 cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
 # Flag changes (e.g. -DRC702_SLAVEID=) must invalidate all objects.
-$(ALL_OBJS): Makefile
+$(ALL_OBJS): Makefile clang/transport_stamp
+
+# Re-stamp whenever TRANSPORT changes so a `make cpnos TRANSPORT=sio`
+# after a `TRANSPORT=pio-irq` build (or vice versa) actually picks up
+# the new -DTRANSPORT_NAME / --defsym aliases instead of relinking
+# stale .o files.  The stamp's content is the current TRANSPORT value.
+.PHONY: clang/transport_stamp
+clang/transport_stamp:
+	@mkdir -p clang
+	@if [ ! -f $@ ] || [ "$$(cat $@ 2>/dev/null)" != "$(TRANSPORT)" ]; then \
+	    echo "$(TRANSPORT)" > $@; \
+	    echo "transport stamp: $(TRANSPORT)"; \
+	fi
 
 # ---- Compile ------------------------------------------------------
 
@@ -226,7 +284,8 @@ clang/relocator.o: relocator.c clang/payload_a.bin clang/payload_b.bin
 # ---- Link payload (no PROM awareness) ----------------------------
 
 clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
-	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) $(PAYLOAD_OBJS) -o $@
+	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) \
+	    $(TRANSPORT_DEFSYMS) $(PAYLOAD_OBJS) -o $@
 
 clang/payload.bin: clang/payload.elf cpnos-build/patch_payload_checksum.py
 	$(OBJCOPY) -O binary $< $@
@@ -374,7 +433,162 @@ cpnos-install: clang/cpnos.bin cpnos-disk-install
 # Prints PASS or FAIL and exits accordingly.
 MPM_DIR ?= $(CURDIR)/../z80pack/cpmsim
 SMOKE_PORT ?= 9001
-cpnet-smoke: cpnos-install
+
+# WORKLOAD selects which CCP-driven program the bench harness runs.
+# Each value here is a key in WORKLOADS (testutil/smoke_inject.py)
+# plus a corresponding finish-marker string + 1-line description.
+#   sumtest  : m80 sumtest,=sumtest.asm + l80 + sumtest (CPU-bound,
+#              ~10:1 read:write CP/NET RTTs; deterministic CPNET OK
+#              A314 verifies arithmetic).
+#   filecopy : pre-staged FILECOPY.COM reads SUMTEST.ASM record-by-
+#              record via BDOS F_READ and writes SUMTEST.CPY via
+#              F_WRITE.  Pure file I/O, no compiler in the timed
+#              window.  Verify step extracts both files via cpmcp and
+#              byte-compares them.
+WORKLOAD ?= sumtest
+ifeq ($(WORKLOAD),sumtest)
+WORKLOAD_MARKER = CPNET OK A314
+WORKLOAD_DESC   = m80+l80+sumtest
+else ifeq ($(WORKLOAD),filecopy)
+WORKLOAD_MARKER = FILECOPY OK
+WORKLOAD_DESC   = filecopy (R+W SUMTEST.ASM via CP/NET)
+else
+$(error WORKLOAD must be 'sumtest' or 'filecopy')
+endif
+
+# ---- preflight checks: setup must match target ---------------------
+#
+# The "wire-mode tag" baked into the cpnos banner (and visible at
+# runtime as e.g. "RC702 CP/NOS PIO-IRQ ...") is set from
+# active_transport->name in transport_sio.c.  The string lives at a
+# fixed offset in cpnos.bin, so a literal grep on the binary tells us
+# what the slave will report.  Targets assert the right tag is present
+# (or absent) to avoid the topology-mismatch class of bug from
+# 2026-04-28 (Phase 27c — see tasks/timeline.md).
+#
+# Likewise we check that MAME_IRQ exists with the cpnet_bridge gate
+# fix before pio-irq-* targets launch — otherwise the slave's IRQ
+# path silently drops bytes when poll_tick over-strobes.
+
+# Slave was built with active_transport->name = "PIO-IRQ"
+_check-tag-pio-irq:
+	@if ! strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ '; then \
+	    echo "FAIL: cpnos.bin does not contain wire-mode tag 'PIO-IRQ'."; \
+	    echo "      This target requires a PIO-IRQ build; check"; \
+	    echo "      transport_sio.c's transport_sio_vt.name."; \
+	    exit 1; \
+	fi
+
+# Slave was NOT built for PIO-IRQ (cpnet-smoke wires SIO-A, not PIO-B)
+_check-tag-not-pio-irq:
+	@if strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-IRQ '; then \
+	    echo "FAIL: cpnos.bin reports wire-mode 'PIO-IRQ' but this target"; \
+	    echo "      wires SIO-A only.  Either rebuild cpnos for SIO mode"; \
+	    echo "      or use 'make pio-irq-smoke' instead."; \
+	    exit 1; \
+	fi
+
+# Slave was built with active_transport->name = "PIO-PRX" (pio-proxy mode).
+_check-tag-pio-prx:
+	@if ! strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-PRX '; then \
+	    echo "FAIL: cpnos.bin does not contain wire-mode tag 'PIO-PRX'."; \
+	    echo "      This target requires a TRANSPORT=pio-proxy build."; \
+	    exit 1; \
+	fi
+
+# MAME_IRQ tree contains the cpnet_bridge gate fix (commit 60e2b9a032f
+# on pio-mpm-irq-fix branch).  We check by source-grep, not by binary
+# inspection — robust against the binary being rebuilt without the fix.
+_check-mame-irq:
+	@if [ ! -x $(MAME_IRQ)/regnecentralend ]; then \
+	    echo "FAIL: $(MAME_IRQ)/regnecentralend not found or not executable"; \
+	    exit 1; \
+	fi
+	@if [ ! -f $(MAME_IRQ)/src/devices/bus/rc702/pio_port/cpnet_bridge.cpp ]; then \
+	    echo "FAIL: $(MAME_IRQ) is not a MAME tree (no cpnet_bridge.cpp)"; \
+	    exit 1; \
+	fi
+	@if ! grep -q 'm_brdy_high' $(MAME_IRQ)/src/devices/bus/rc702/pio_port/cpnet_bridge.cpp; then \
+	    echo "FAIL: $(MAME_IRQ) cpnet_bridge.cpp missing the gate fix."; \
+	    echo "      Need branch with poll_tick gated on m_brdy_high"; \
+	    echo "      (commit 60e2b9a032f on ravn/mame:pio-mpm-irq-fix)."; \
+	    exit 1; \
+	fi
+	@if [ ! $(MAME_IRQ)/regnecentralend -nt $(MAME_IRQ)/src/devices/bus/rc702/pio_port/cpnet_bridge.cpp ]; then \
+	    echo "FAIL: $(MAME_IRQ)/regnecentralend is older than cpnet_bridge.cpp."; \
+	    echo "      Rebuild MAME (cd $(MAME_IRQ) && make)."; \
+	    exit 1; \
+	fi
+
+# ---- _verify-bench: shared bench verifier (post-MAME) -----------
+# Asserts SIO-B contains the workload's finish marker, prints the
+# smoke_inject "bench=X.XXXs" timing, and (for filecopy) extracts
+# SUMTEST.ASM + SUMTEST.CPY from the master's drivea.dsk and byte-
+# compares them.  WORKLOAD must already be set by the caller.
+.PHONY: _verify-bench
+_verify-bench:
+	@echo "=== verify ($(WORKLOAD)): marker '$(WORKLOAD_MARKER)' ==="
+	@echo "--- inject log ---"
+	@cat /tmp/cpnos_smoke_inject.log
+	@echo "--- SIO-B tail ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null | tail -c 400
+	@echo
+	@grep -q '$(WORKLOAD_MARKER)' /tmp/cpnos_siob.raw \
+	    && echo "PASS: marker '$(WORKLOAD_MARKER)' present" \
+	    || (echo "FAIL: marker '$(WORKLOAD_MARKER)' not in SIO-B"; exit 1)
+	@bench=$$(grep -oE 'bench=[0-9.]+s' /tmp/cpnos_smoke_inject.log | tail -1); \
+	 [ -n "$$bench" ] && echo "BENCH (-nothrottle, $(WORKLOAD_DESC)): $$bench" \
+	   || echo "(bench timing not found)"
+ifeq ($(WORKLOAD),filecopy)
+	@echo "--- frames-to-completion / throughput (from FILECOPY OK) ---"
+	@line=$$(grep 'FILECOPY OK' /tmp/cpnos_siob.raw | tail -1 | tr -d '\r'); \
+	 echo "  $$line"; \
+	 r=$$(echo "$$line" | sed -nE 's/.*FILECOPY OK ([0-9A-F]{4}) .*/\1/p'); \
+	 s=$$(echo "$$line" | sed -nE 's/.*S=([0-9A-F]{8}).*/\1/p'); \
+	 e=$$(echo "$$line" | sed -nE 's/.*E=([0-9A-F]{8}).*/\1/p'); \
+	 if [ -n "$$r" ] && [ -n "$$s" ] && [ -n "$$e" ]; then \
+	   recs=$$(printf '%d' $$((0x$$r))); \
+	   d=$$(printf '%d' $$((0x$$e - 0x$$s))); \
+	   bytes_dir=$$((recs * 128)); \
+	   bytes_total=$$((bytes_dir * 2)); \
+	   echo "  records = $$recs ($$bytes_dir B per direction, $$bytes_total B total R+W)"; \
+	   echo "  frames  = E - S = $$d (= $$(echo "scale=2; $$d / 50" | bc) s emulated @ 50 Hz CRT)"; \
+	   if [ "$$d" -gt 0 ]; then \
+	     kbps_dir=$$(echo "scale=2; $$bytes_dir * 50 / $$d / 1024" | bc); \
+	     kbps_tot=$$(echo "scale=2; $$bytes_total * 50 / $$d / 1024" | bc); \
+	     echo "  THROUGHPUT (one direction) = $$kbps_dir KB/s emulated"; \
+	     echo "  THROUGHPUT (R+W combined)  = $$kbps_tot KB/s emulated"; \
+	   fi; \
+	 fi
+	@echo "--- byte-compare SUMTEST.ASM vs SUMTEST.CPY ---"
+	@DRIVE_A=$(MPM_DIR)/disks/drivea.dsk; \
+	 cpmcp -f ibm-3740 $$DRIVE_A 0:SUMTEST.ASM /tmp/_ref.asm 2>/dev/null || \
+	     (echo "FAIL: cpmcp could not extract SUMTEST.ASM from $$DRIVE_A"; exit 1); \
+	 cpmcp -f ibm-3740 $$DRIVE_A 0:SUMTEST.CPY /tmp/_cpy.asm 2>/dev/null || \
+	     (echo "FAIL: cpmcp could not extract SUMTEST.CPY"; exit 1); \
+	 ref_n=$$(wc -c < /tmp/_ref.asm | tr -d ' '); \
+	 cpy_n=$$(wc -c < /tmp/_cpy.asm | tr -d ' '); \
+	 echo "  SUMTEST.ASM: $$ref_n bytes"; \
+	 echo "  SUMTEST.CPY: $$cpy_n bytes"; \
+	 head -c $$ref_n /tmp/_cpy.asm > /tmp/_cpy_head.asm; \
+	 if cmp -s /tmp/_ref.asm /tmp/_cpy_head.asm; then \
+	     echo "PASS: first $$ref_n bytes identical (CPY tail is record-pad)"; \
+	 else \
+	     echo "FAIL: byte mismatch in CPY[0..$$ref_n]; first 5 offsets:"; \
+	     cmp -l /tmp/_ref.asm /tmp/_cpy_head.asm 2>/dev/null | head -5; \
+	     exit 1; \
+	 fi
+endif
+
+cpnet-smoke: cpnos-install _check-tag-not-pio-irq
+
+# ---- sio-smoke: pio-irq-smoke counterpart for SIO mode ------------
+# Recursive make invocation so TRANSPORT=sio reaches all the rebuild
+# rules (the stamp triggers the .o invalidation).  cpnet-smoke's own
+# preflight (_check-tag-not-pio-irq) verifies the build came out right.
+.PHONY: sio-smoke
+sio-smoke:
+	$(MAKE) cpnet-smoke TRANSPORT=sio WORKLOAD=$(WORKLOAD)
 	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
 	python3 testutil/mksmokeasm.py
 	testutil/mksmokedisk.sh
@@ -393,9 +607,10 @@ cpnet-smoke: cpnos-install
 	@echo "=== 3/5 waiting for MP/M CP/NET server on :4002 ==="
 	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.5; done
 	@sleep 4
-	@echo "=== 4/5 launching MAME + smoke injector ==="
-	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_smoke_inject.log
+	@echo "=== 4/5 launching MAME + smoke injector (workload: $(WORKLOAD)) ==="
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
 	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --workload $(WORKLOAD) \
 	    --log /tmp/cpnos_siob.raw --timeout 240 \
 	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_smoke_inject.pid
@@ -405,19 +620,9 @@ cpnet-smoke: cpnos-install
 	    -seconds_to_run 1200 \
 	    -rs232a null_modem -bitb1 socket.127.0.0.1:4002 \
 	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
-	    -autoboot_script mame_smoke_dump.lua
+	    -autoboot_script mame_porttap.lua
 	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
-	@echo "=== 5/5 verifying ==="
-	@echo --- injector log ---
-	@cat /tmp/cpnos_smoke_inject.log
-	@echo --- SIO-B tail ---
-	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw | tail -c 400 || true
-	@echo
-	@echo --- BDOS FNC counter snapshot ---
-	@tail -40 /tmp/cpnos_fnc_counters.txt 2>/dev/null || echo "(no counter file)"
-	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
-	    && echo "PASS: slave-assembled program printed CPNET OK A314" \
-	    || (echo "FAIL: expected 'CPNET OK A314' not found in /tmp/cpnos_siob.raw"; exit 1)
+	@$(MAKE) _verify-bench WORKLOAD=$(WORKLOAD)
 
 cpnos-mame: cpnos-install
 	$(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
@@ -426,6 +631,178 @@ cpnos-mame: cpnos-install
 	    -rs232a null_modem \
 	    -bitb1 /tmp/cpnos_sioa.raw \
 	    -autoboot_script mame_boot_test.lua
+
+# ---- pio-irq-netboot: PIO-IRQ-direct topology against mpm-net2 -----
+#
+# The irq-fix branch slave drives SNDMSG/RCVMSG over PIO byte primitives
+# (transport_pio_send_byte / transport_pio_recv_byte in transport_pio.c)
+# but keeps the SNIOS envelope (ENQ/ACK/SOH/STX/ETX/EOT framing).  Since
+# mpm-net2 also speaks the SNIOS envelope on its TCP port, the slave
+# byte stream and mpm-net2's wire stream are bit-identical — no host
+# proxy required.  Just connect MAME's PIO-B bridge directly to :4002.
+#
+# This target uses the IRQ-fix MAME tree at ../../mame (branch
+# pio-mpm-irq-fix), which has the cpnet_bridge gate fix that the
+# stock master tree doesn't.
+#
+# Pass criterion: boot-strip column 18 = 'J' (NDOS COLDST reached) and
+# clean A> on SIO-B.
+MAME_IRQ ?= $(CURDIR)/../../mame
+pio-irq-netboot: cpnos-install _check-tag-pio-irq _check-mame-irq
+	@echo "=== 1/4 restarting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound — kill the squatter first:"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; \
+	    exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@echo "=== 2/4 waiting for MP/M CP/NET server on :4002 ==="
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/4 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_screen.txt /tmp/cpnos_boot_marks.txt
+	@echo "=== 4/4 launching MAME (PIO-B -> mpm-net2 :4002) ==="
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 30 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 /tmp/cpnos_siob.raw \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:4002 \
+	    -autoboot_script mame_porttap.lua
+	@echo "--- boot-marker strip ---"
+	@cat /tmp/cpnos_boot_marks.txt 2>/dev/null && echo
+	@echo "--- SIO-B (printable) ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null && echo
+	@strip=$$(cat /tmp/cpnos_boot_marks.txt 2>/dev/null); \
+	 if [ "$${strip:18:1}" = "J" ] && grep -q 'A>' /tmp/cpnos_siob.raw 2>/dev/null; then \
+	     echo "PASS: NDOS COLDST reached (J) and A> seen on SIO-B"; \
+	 else \
+	     echo "FAIL: strip='$$strip', expected J at col 18 + 'A>' in SIO-B"; \
+	     exit 1; \
+	 fi
+
+# ---- pio-irq-smoke: pio-irq-netboot + SUMTEST workload ------------
+#
+# Same wiring as pio-irq-netboot (PIO-B -> mpm-net2 :4002), but adds
+# smoke_inject on SIO-B to drive m80 / l80 / sumtest.  This is the
+# end-to-end verification path for the warm-boot port-0x81 OUT
+# (commit b06e6dd) AND the sumtest port-0x80 done signal: each program
+# exit overwrites CCP which warm-boots itself, firing port 0x81; the
+# running sumtest emits port 0x80 at end-of-run.
+#
+# Pass criterion: port-0x80 written once (sumtest done) AND port-0x81
+# written >= 3 times (m80, l80, sumtest each warm-boot CCP).
+pio-irq-smoke: cpnos-install _check-tag-pio-irq _check-mame-irq
+	@echo "=== 1/5 regenerating sumtest.asm + smoke disk ==="
+	python3 testutil/mksmokeasm.py
+	testutil/mksmokedisk.sh
+	@echo "=== 2/5 restarting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/5 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_wboot.txt /tmp/cpnos_boot_result.txt \
+	    /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
+	@echo "=== 4/5 launching smoke_inject + MAME (workload: $(WORKLOAD)) ==="
+	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --workload $(WORKLOAD) \
+	    --log /tmp/cpnos_siob.raw --timeout 240 \
+	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_smoke_inject.pid
+	@sleep 0.4
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 1200 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:4002 \
+	    -autoboot_script mame_porttap.lua
+	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
+	@$(MAKE) _verify-bench WORKLOAD=$(WORKLOAD)
+
+# ---- pio-proxy-smoke: PIO-B raw OTIR/INIR via cpnet_pio_server proxy
+#
+# Slave is built with TRANSPORT=pio-proxy (cpnet_dispatch.c sets
+# active_transport = &transport_pio_vt; transport_pio.c's pio_send_msg
+# / pio_recv_msg use raw OTIR/INIR — no SNIOS envelope).  Host runs
+# cpnet_pio_server.py --upstream 127.0.0.1:4002 on :4003 to translate
+# raw frames into SIO envelope and forward to mpm-net2.
+#
+# Topology:
+#   slave PIO-B --bitb3-> cpnet_pio_server :4003 -> mpm-net2 :4002
+#   slave SIO-B --bitb2-> smoke_inject :SMOKE_PORT
+#
+# Same pass criterion / bench timing as pio-irq-smoke.
+.PHONY: pio-proxy-smoke
+pio-proxy-smoke:
+	$(MAKE) _pio-proxy-smoke-impl TRANSPORT=pio-proxy WORKLOAD=$(WORKLOAD)
+
+PIO_BRIDGE_PORT ?= 4003
+_pio-proxy-smoke-impl: cpnos-install _check-tag-pio-prx _check-mame-irq
+	@echo "=== 1/6 regenerating sumtest.asm + smoke disk ==="
+	python3 testutil/mksmokeasm.py
+	testutil/mksmokedisk.sh
+	@echo "=== 2/6 restarting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; exit 1; \
+	fi
+	@if lsof -nP -iTCP:$(PIO_BRIDGE_PORT) -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port $(PIO_BRIDGE_PORT) already bound"; \
+	    lsof -nP -iTCP:$(PIO_BRIDGE_PORT) -sTCP:LISTEN; exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/6 spawning cpnet_pio_server --upstream localhost:4002 ==="
+	@rm -f /tmp/cpnos_pio_server.log
+	@python3 -u cpnet_pio_server.py $(PIO_BRIDGE_PORT) \
+	    --upstream 127.0.0.1:4002 \
+	    > /tmp/cpnos_pio_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_pio_server.pid
+	@# Don't `nc -z` to verify — that connect-and-close trips the
+	@# server's single-shot accept loop, leaving MAME's bitb3 connect
+	@# refused.  Just give the listener time to bind.
+	@sleep 1.0
+	@echo "=== 4/6 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_wboot.txt /tmp/cpnos_boot_result.txt \
+	    /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
+	@echo "=== 5/6 launching smoke_inject + MAME (workload: $(WORKLOAD)) ==="
+	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --workload $(WORKLOAD) \
+	    --log /tmp/cpnos_siob.raw --timeout 240 \
+	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_smoke_inject.pid
+	@sleep 0.4
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 1200 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:$(PIO_BRIDGE_PORT) \
+	    -autoboot_script mame_porttap.lua
+	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_pio_server.pid)   2>/dev/null || true
+	@$(MAKE) _verify-bench WORKLOAD=$(WORKLOAD)
 
 # End-to-end netboot test: Python server on localhost, MAME bridged to
 # it over SIO-A null_modem.

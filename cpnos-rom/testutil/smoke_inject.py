@@ -20,23 +20,24 @@ import socket
 import sys
 import time
 
-STEPS = [
-    # (expected-prompt-tail, bytes-to-send-once-matched)
-    # MP/M's CP/NET server only exposes its drive A: to the slave, so
-    # everything runs out of slave A: (same physical disk as M80/L80).
-    # First TYPE the file to verify CP/NET READ returns the expected
-    # bytes — if TYPE shows garbage, the bug is in the read chain
-    # before M80 ever sees it.
-    (b'A>', b'type tiny.asm\r'),
-    (b'A>', b'm80 tiny,=tiny.asm\r'),
-    (b'A>', b'dir tiny.*\r'),
-    (b'A>', b'm80 sumtest,=sumtest.asm\r'),
-    (b'A>', b'dir sumtest.*\r'),
-    (b'A>', b'l80 sumtest,sumtest/n/e\r'),
-    (b'A>', b'sumtest\r'),
-]
-
-FINISH_MARKER = b'CPNET OK '
+WORKLOADS = {
+    # Each workload is (steps, finish_marker).
+    # 'sumtest': m80 + l80 assembles+links+runs sumtest.asm; output is
+    #   "CPNET OK A314" (deterministic 16-bit sum of 1..1000 mod 65536).
+    # 'filecopy': pre-assembled FILECOPY.COM reads SUMTEST.ASM and
+    #   writes SUMTEST.CPY via BDOS F_READ/F_WRITE.  Pure I/O — no
+    #   m80/l80 in the timed window.  Marker "FILECOPY OK".
+    'sumtest': (
+        [(b'A>', b'm80 sumtest,=sumtest.asm\r'),
+         (b'A>', b'l80 sumtest,sumtest/n/e\r'),
+         (b'A>', b'sumtest\r')],
+        b'CPNET OK ',
+    ),
+    'filecopy': (
+        [(b'A>', b'filecopy\r')],
+        b'FILECOPY OK ',
+    ),
+}
 
 
 def main():
@@ -44,7 +45,11 @@ def main():
     ap.add_argument('port', type=int)
     ap.add_argument('--log', default='/tmp/cpnos_siob.raw')
     ap.add_argument('--timeout', type=float, default=300.0)
+    ap.add_argument('--workload', choices=sorted(WORKLOADS), default='sumtest')
     args = ap.parse_args()
+    STEPS, FINISH_MARKER = WORKLOADS[args.workload]
+    print(f'workload: {args.workload} ({len(STEPS)} step(s), '
+          f'marker={FINISH_MARKER!r})', flush=True)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -69,22 +74,46 @@ def main():
     last_data_at = time.monotonic()
     next_nudge_at = time.monotonic() + 10.0
 
+    bench_start = [None]   # set when first step fires
+    bench_end = [None]     # set when CPNET OK detected
+
+    def maybe_fire_step():
+        nonlocal step_idx, cooldown_until
+        if step_idx >= len(STEPS): return False
+        if time.monotonic() < cooldown_until: return False
+        prompt, cmd = STEPS[step_idx]
+        if buf[-len(prompt):] != prompt: return False
+        if bench_start[0] is None:
+            bench_start[0] = time.monotonic()
+            print(f'[bench_start] t={bench_start[0]:.3f}s', flush=True)
+        print(f'[step {step_idx}] prompt {prompt!r} matched; '
+              f'sending {cmd!r} (t+{time.monotonic()-bench_start[0]:.3f}s)',
+              flush=True)
+        for b in cmd:
+            conn.sendall(bytes([b]))
+            time.sleep(0.02)
+        step_idx += 1
+        cooldown_until = time.monotonic() + 0.5
+        buf.clear()
+        return True
+
     while time.monotonic() < deadline:
-        # If the slave has been silent for >10 s and we haven't finished
-        # all steps, nudge with a lone CR.  Catches the occasional case
-        # where a byte got lost and CCP is waiting for EOL — same thing
-        # the user was doing manually by pressing Enter (issue #44).
-        if (step_idx < len(STEPS)
-                and time.monotonic() >= next_nudge_at
-                and time.monotonic() - last_data_at > 10.0):
-            print(f'[nudge] idle {time.monotonic()-last_data_at:.1f}s, '
-                  f'sending CR', flush=True)
-            conn.sendall(b'\r')
-            next_nudge_at = time.monotonic() + 10.0
+        # No nudge mechanism: with maybe_fire_step() now also called on
+        # recv-timeout, the harness reliably sees a quiet A> within
+        # ~0.5 s of CCP printing it.  Nudging on idle was injecting
+        # phantom CRs DURING m80/l80 work (when CCP is busy and silent
+        # by design), causing extra A> echoes after the program ends —
+        # which is exactly the "I had to type enter" behavior we're
+        # eliminating.  If a real byte got lost mid-command, the
+        # harness will time out at the deadline; that's a clean fail
+        # signal for the benchmark.
 
         try:
             data = conn.recv(256)
         except socket.timeout:
+            # No new bytes — but check the buffer anyway in case the
+            # slave just printed a quiet A> and is waiting for input.
+            maybe_fire_step()
             continue
         if not data:
             print('peer closed', flush=True)
@@ -97,35 +126,15 @@ def main():
 
         if step_idx >= len(STEPS) and FINISH_MARKER in buf and not saw_marker:
             saw_marker = True
-            print('[marker] CPNET OK found', flush=True)
-            # Keep a small tail so we capture the 4-digit result.
+            bench_end[0] = time.monotonic()
+            elapsed = bench_end[0] - bench_start[0] if bench_start[0] else -1
+            print(f'[marker] CPNET OK found (bench={elapsed:.3f}s)', flush=True)
             deadline = min(deadline, time.monotonic() + 3.0)
             continue
 
-        if step_idx < len(STEPS) and time.monotonic() >= cooldown_until:
-            prompt, cmd = STEPS[step_idx]
-            # Match the prompt at the tail of the buffer so we only
-            # fire when the slave is idle waiting for input, not on
-            # an A> emitted earlier as part of a banner.
-            if buf[-len(prompt):] == prompt:
-                print(f'[step {step_idx}] prompt {prompt!r} matched; '
-                      f'sending {cmd!r}', flush=True)
-                # Send one char at a time with a small inter-char
-                # delay so CCP's per-char echo loop (which does a
-                # SIO-B CONOUT + network bookkeeping per byte) has
-                # time to drain the SIO-B RX register before the
-                # next bit hits.  At 38400 baud each byte takes
-                # ~260 µs over the wire; CCP's echo path is slower
-                # than that once BDOS fn 10 round-trips through
-                # our BIOS JT, so without pacing we lose bytes.
-                for b in cmd:
-                    conn.sendall(bytes([b]))
-                    time.sleep(0.02)     # 20 ms per char
-                step_idx += 1
-                cooldown_until = time.monotonic() + 0.5
-                # Drop the matched prompt from the buffer so we don't
-                # re-match the SAME A>.
-                buf.clear()
+        # Bytes arrived: check if the buf tail now ends with the
+        # expected prompt and fire the next step if so.
+        maybe_fire_step()
 
     conn.close()
     log.close()

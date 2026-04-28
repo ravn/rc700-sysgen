@@ -775,6 +775,277 @@ Three commits after the audit:
   `tests/cpnet_bridge/dump_logs.sh`, the ravn/mame#6 issue mirror
   `docs/mame-rc702-piob-slot-regression.md`.
 
+### Phase 27: IRQ-driven snios-on-PIO + 3-way bench (Apr 28, 2026) — Hard
+
+- **Goal**: fix the snios-on-PIO direct path so it actually works,
+  then bench it against SIO and PIO-proxy modes.  Phase 26 left it
+  failing at "INIT OKPNILOR..." stalls after 4-25 sectors, filed as
+  ravn/rc700-gensmedet#56 with a "fourth race" framing.
+- **Root cause** (not a race): `transport_pio_recv_byte` treated the
+  byte value `0xFF` as "no byte yet" sentinel, but `0xFF` is a valid
+  data byte that mpm-net2 sends throughout cpnos.com.  Sector 4 of
+  cpnos.com contains 19 0xFF bytes — the first sector with any —
+  matching the "stall after ~4 iterations" report.  The "intermittent"
+  framing was misleading: `cpnos.com.count(0xff)` would have nailed
+  it in 30 seconds.  Saved as memory
+  `feedback_intermittent_is_hypothesis.md`.
+  Full RCA: `tasks/session34-direct-pio-stall-rootcause.md`.
+- **Fix** (architecturally correct, ~50 LoC):
+  - PIO-B chip IE on (init.c).
+  - 256-byte SPSC ring buffer at 0xF700 (page-aligned, in unused
+    tail of PAYLOAD region).  uint8_t head/tail = free mod-256 wrap.
+  - `isr_pio_par` reads `PORT_PIO_B_DATA` and pushes into ring.
+  - `transport_pio_recv_byte` pops from ring with timeout.
+  - `enable_interrupts()` moved before `NETBOOT()` (otherwise the
+    ISR can't fire during the boot phase).
+  - `cpnet_bridge::poll_tick` re-gated on `m_brdy_high && buffer_non_empty`
+    (the "always strobe" workaround for the polled path's 0xFF=empty
+    issue would over-strobe and overwrite m_input under the IRQ
+    design).
+- **MAME-side issue uncovered**: Mode 1 entry doesn't auto-raise
+  BRDY (Zilog datasheet says it should, 2 cycles after mode select).
+  Bridge's optimistic-init `m_brdy_high=true` self-bootstraps via
+  `set_mode(OUTPUT)` callback.  Filed **ravn/mame#8**.
+- **Banner reorder**: signon now prints BEFORE `NETBOOT()` so the
+  screen layout is row 0 = banner, row 1 = netboot progress dots,
+  row 2 = blank, row 3 = `A>`.  Wire-mode banner tag extended from
+  3 chars to 7 chars (`"WWW-MMM"`); branch ships `"PIO-IRQ"`.
+- **Bench results** (sumtest workload pending; netboot only here):
+
+  | Mode | Wall median (-nothrottle) | Wall median (real-time) |
+  |------|---:|---:|
+  | PIO-PROXY (raw OTIR/INIR + host proxy) | 1668 ms | (not measured) |
+  | PIO-IRQ direct (snios envelope on PIO) | 1874 ms | 3738 ms |
+
+  Both 9/9 OK with strict success check (boot marker `+PSJ` AND
+  clean `A>` prompt).  PROXY is ~12% faster cold-boot; IRQ-direct
+  is more variable (stddev 68 ms vs 3 ms) due to per-byte ISR
+  cascade vs bulk OTIR/INIR.
+
+- **`smoke_inject.py` fix**: prompt-check now runs on recv-timeout,
+  not just on data-received.  Removed the 10s nudge mechanism; it
+  was injecting phantom CRs during program work and creating extra
+  A> echoes.  This is the "I had to type Enter manually" report.
+
+- **sumtest port-write done signal**: sumtest.asm now does
+  `mvi a, 055h; out 080h` after printing CPNET OK.  Lua tap traps
+  port 0x80 via `install_write_tap` for deterministic completion
+  detection — no SIO-B byte parsing, no display memory scanning.
+  (Tried port 0xFF first; that maps to 8237 DMA on rc702.cpp:175.)
+
+- **Lessons** (saved as feedback memories):
+  - Sentinel preconditions must travel with the value across use
+    sites; promoting context-specific sentinels to a shared `#define`
+    invites silent breakage when the precondition no longer holds.
+  - "Intermittent" is a hypothesis label, not a property — falsify
+    it with cheap data-content checks before chasing timing causes.
+
+- **Issues + TODOs raised**: see `tasks/session35-irq-fix-and-bench.md`
+  for the full list (Pico-side proxy port, 32-bit CRT counter mirror,
+  multi-channel SNIOS investigation).
+
+### Phase 27b: warm-boot port instrumentation (Apr 28, 2026) — Easy
+
+- **Goal**: generic "Nth program exited" detection for harnesses
+  driving multi-program workloads, without screen/SIO-B scraping.
+- **Mechanism**: 4-byte OUT in `impl_wboot` (resident BIOS) writes
+  0x57 to port 0x81 on every CP/M warm boot.  Companion
+  `mame_porttap.lua` extends the existing port-0x80 sumtest-done tap
+  with a port-0x81 wboot tap; `/tmp/cpnos_wboot.txt` carries a
+  saturating counter + `emu.time()` per fire.  Catches every program
+  that overwrites CCP (m80, l80, sumtest, all non-trivial transients);
+  by-design misses programs that just RET back into a still-resident
+  CCP — those don't warm-boot, so there's nothing to instrument.
+- **End-to-end verification deferred**: netboot reported as regressed
+  after Phase 27 commit (NETBOOT returns 0, `-PS` boot marker).  OUT
+  mechanism itself verified by disassembly at clang/cpnos.lis +
+  0xefc8: `3e 57 d3 81`.
+
+### Phase 27d: 3-way bench complete (SIO / PIO-IRQ / PIO-PROXY) (Apr 28, 2026) — Medium
+
+- **Goal**: comparable workload bench across the three CP/NET transports
+  on the same `m80 + l80 + sumtest` workload (sumtest = unrolled
+  sum-of-1..1000).  Session 35 had netboot-only numbers; this is the
+  first apples-to-apples workload comparison.
+- **TRANSPORT= build flag** (`make cpnos TRANSPORT=sio|pio-irq|pio-proxy`):
+  - snios.s calls indirect through `_xport_send_byte` /
+    `_xport_recv_byte`; Makefile aliases via `ld --defsym` to the
+    chip-specific primitives at link time.
+  - `clang/transport_stamp` invalidates .o cache when TRANSPORT changes
+    (without it, switching modes incrementally relinks stale objects).
+  - Banner tag from `-DTRANSPORT_NAME='"$TRANSPORT_NAME"'` so the
+    on-screen banner reflects the chosen wire.
+  - For pio-proxy: `-DTRANSPORT_PROXY` triggers a different
+    active_transport (`&transport_pio_vt`, raw OTIR/INIR frames),
+    skips the 256 B IRQ ring at 0xF700 (transport_pio.c +
+    isr.c #ifndef TRANSPORT_PROXY), preprocesses payload.ld so the
+    upper-bound ASSERT relaxes to display memory at 0xF800.
+- **Auto-exit**: mame_porttap.lua reads `/tmp/cpnos_smoke_inject.log`
+  every periodic; on `[marker] CPNET OK found` schedules
+  `manager.machine:exit()` 0.5 s later.  Without this, `make
+  *-smoke` ran to `-seconds_to_run 1200` (20 minutes) on every PASS
+  — masked by manual `pkill regnecentralend` between iterations.
+  Saved as memory `feedback_bench_must_self_terminate`.
+- **Bench results** (-nothrottle, mpm-net2 backend; smoke_inject
+  step1->marker is the timed window):
+
+  | Workload  | SIO     | PIO-IRQ          | PIO-PROXY        |
+  |-----------|--------:|-----------------:|-----------------:|
+  | sumtest   | 35.8 s  | 27.5 s (1.30×)   | 25.4 s (1.41×)   |
+  | filecopy  | 14.8 s  |  8.4 s (**1.81×**) |  7.7 s (**2.02×**) |
+
+  Frames-to-completion (filecopy, 32-bit CRT counter @ 50 Hz):
+
+  | Workload  | SIO    | PIO-IRQ | PIO-PROXY |
+  |-----------|-------:|--------:|----------:|
+  | filecopy  | 3416   | 1883    | 1687      |
+
+  Workload shape:
+    sumtest = `m80 sumtest,=sumtest.asm` + `l80 sumtest,sumtest/n/e`
+              + `sumtest` (run).  CPU-dominated; the m80 step alone
+              takes ~25 s of the wall in SIO mode.
+    filecopy = pre-assembled FILECOPY.COM reads SUMTEST.ASM record-by-
+              record via BDOS F_READ and writes SUMTEST.CPY via F_WRITE.
+              ~358 reads + ~358 writes over CP/NET — no compiler in
+              the timed window.  Verify step extracts both files via
+              cpmcp and byte-compares (first 45735 B identical in all
+              three modes; CPY's last 89 B is record-pad).
+
+  PIO-PROXY beats PIO-IRQ by ~8% (envelope avoidance) and SIO by
+  ~30% on the CPU-bound sumtest.  On the I/O-dominated filecopy the
+  parallel-transport advantage is much clearer: PIO-IRQ ~1.8×,
+  PIO-PROXY ~2.0× over SIO.
+- **Reproducible via**: `make {sio,pio-irq,pio-proxy}-smoke
+  WORKLOAD={sumtest,filecopy}`.  Each target preflight-checks the
+  cpnos build's wire-mode tag (SIO / PIO-IRQ / PIO-PRX in cpnos.bin),
+  MAME tree has the bridge gate fix (`m_brdy_high` in
+  cpnet_bridge.cpp), and the binary is newer than the source.
+- **32-bit CRT frame counter** added to isr_crt at 0xFFFC..0xFFFF
+  (50 Hz CRT VRTC), mirroring rcbios.  filecopy.com snapshots S/E
+  and prints both in the FILECOPY OK marker; the verify step diffs
+  them for emulation-second-precise timing immune to MAME wall-clock
+  jitter.
+- **NDOS Err 06, Func 10**: appears between m80 exit and l80 start
+  in all three runs.  Per session 23, this is "Close Checksum Error"
+  from MP/M's FCB checksum mechanism — m80 (CP/M 2.2 era, predates
+  CP/NET) clobbers FCB reserved bytes between F_MAKE and F_CLOSE.
+  Cosmetic in this bench (m80 still produces correct .REL output);
+  same root cause as the PIPNET fix from session 23.
+
+### Phase 27c: netboot "regression" was a test-setup mismatch (Apr 28, 2026) — Easy
+
+- **Symptom** carried over from 27b: every netboot run today produced
+  boot strip `INIT OKPNI...-PS` (LOGIN never fired), reported as a
+  regression vs Phase 27's 9/9 OK.
+- **Root cause**: the test entry point was wrong for this branch, not
+  the code.  The irq-fix slave drives SNDMSG/RCVMSG on PIO byte
+  primitives but keeps the SNIOS envelope.  Compatible host: anything
+  that speaks SNIOS envelope on TCP — mpm-net2 itself does.  Setups
+  tried during the burn:
+  - `make cpnet-smoke`: wires only SIO-A → :4002.  Slave's PIO bytes
+    go nowhere; slave doesn't use SIO-A in this branch.
+  - `tests/cpnet_bridge/harness.py --mode pio-netboot`: spawns
+    `cpnet_pio_server` in self-contained mode, which expects RAW SCB
+    frames — protocol mismatch with envelope-on-PIO slave.  Also
+    blocked at the symbol-extract step because `_pio_par_byte` /
+    `_pio_par_count` were dropped by `ld.lld --gc-sections` after the
+    IRQ-ring rewrite removed their writers (commit f10c99f).
+  - **Correct setup** (committed in `be1059c` as `make pio-irq-netboot`):
+    `-piob cpnet_bridge -bitb3 socket.127.0.0.1:4002` — MAME PIO-B
+    bridge connects directly to mpm-net2's TCP port; slave envelope
+    bytes flow straight through.  Boot strip `INIT OKPNILOREC+PSJ`,
+    A> on SIO-B, 30 s -nothrottle.
+- **Side fixes** in `be1059c`:
+  - `__attribute__((used))` + explicit `KEEP(*(.bss._pio_par_*))` in
+    payload.ld so the harness's symbol-extract step works.  ld.lld
+    drops sections marked SHF_GNU_RETAIN regardless of `((used))`,
+    needs the linker-script KEEP.
+- **Lesson** (saved as `project_pio_irq_test_topology` memory):
+  before assuming a regression, verify the test harness was designed
+  for the slave's *current* transport configuration.  When the slave
+  protocol changes (envelope on serial → envelope on PIO), every
+  test entry point that wires the host needs to be re-evaluated for
+  shape compatibility.
+
+### Phase 26: PIO-to-mpm-net2 — proxy vs direct snios (Apr 27, 2026) — Hard
+
+- **Goal**: get CP/NOS netboot working against real `mpm-net2`
+  (z80pack MP/M + SERVER.RSP) over the PIO transport, not just our
+  Python `netboot_server.py` responder.  Two designs compared:
+  - **Proxy**: Z80 sends raw PIO SCBs; a host-side Python translator
+    wraps them in the SIO ENQ/ACK/SOH/CKS/EOT envelope and forwards
+    to mpm-net2 :4002.  Z80 work unchanged from Phase 25.
+  - **Direct (snios on PIO)**: snios.s envelope code is left intact
+    but its byte primitives are rewired from SIO chip ports to PIO
+    chip ports.  No host-side proxy; MAME's PIO bridge connects
+    directly to mpm-net2.  Bytes on the wire are the same envelope
+    SIO would produce, just on the PIO line.
+- **Proxy implementation**: extended `cpnet_pio_server.py` with a
+  `--upstream HOST:PORT` flag.  `upstream_send` / `upstream_recv`
+  mirror snios.s as a Python client (slave-side ENQ/ACK exchange).
+  PING (FNC=0xC0) handled locally; everything else forwarded.
+  End-to-end netboot against mpm-net2: **1.44 s emulated, full
+  NDOS COLDST**, 60 frames, ~10 ms host wall per frame for the
+  envelope round-trips.  Works robustly.
+- **Direct implementation**: snios.s `_transport_send_byte` /
+  `_transport_recv_byte` calls swapped for `_transport_pio_*`
+  versions.  Frame-level transport_pio_vt and pio_probe deleted
+  on the experiment branch (saves ~340 B payload).  cpnos_main's
+  probe block dropped (always default to SIO transport vtable;
+  SIO vtable's send_msg/recv_msg = snios_sndmsg_c/snios_rcvmsg_c
+  which now use PIO bytes).
+- **Three bugs found and patched**:
+  1. **Stale-prefix byte on Mode 1→0** (transport_pio.c).  MAME's
+     z80pio.cpp `set_mode(MODE_OUTPUT)` immediately fires
+     `out_pb_callback(m_output)`, leaking the previous send's last
+     byte before the actual data.  mpm-net2 saw a stale `05`
+     between ACK and SOH, errored.  Fix: pre-load `m_output` via
+     data-port write while still in Mode 1 (the chip's
+     `MODE_INPUT::data_write` latches `m_output` without firing
+     the callback), then flip to Mode 0 — `set_mode` then emits
+     the byte we want.
+  2. **PIO-B chip IRQ stealing bytes** (init.c).  Default init
+     enabled chip-side IE (`0x83`); `isr_pio_par` fired on each
+     byte arrival and `IN A,(0x11)` from the ISR consumed the
+     byte before snios's busy-poll could see it.  LOGIN's 1-byte
+     payload survived; OPEN's 37-byte payload didn't.  Fix:
+     chip IE off at init (`0x83` → `0x03`).
+  3. **Bridge `rdy_w` skipping strobe on empty buffer** (the
+     smoking gun for OPEN; `mame:cpnet_bridge.cpp@9c2cbb4e1a9`).
+     The bridge gated its strobe on `m_input_index < m_input_count`.
+     When the buffer drained mid-frame and Z80 kept polling, the
+     chip's `m_input` retained the last *real* byte, not 0xff.
+     Each Z80 IN returned the same stale byte; snios's NETIN
+     stored duplicates and accumulated wrong CKS, eventually
+     bailing with retry-exhausted timeout.  Fix: drop the gate;
+     always strobe on BRDY rising edge.  When buffer is empty,
+     `read()` returns `0xff`; chip latches `0xff`; Z80's
+     `transport_pio_recv_byte` correctly polls past the
+     `0xff` sentinel.
+- **Why SIO worked but PIO didn't** (the question that drove this
+  whole investigation): SIO uses MAME's stock `null_modem` slot,
+  which sits on `bitbanger_device` + `posix_osd_socket` directly.
+  The SIO chip emulation paces bytes at the configured baud rate
+  (38400 here) and reports availability via the RR0 char-available
+  bit; Z80 only reads `PORT_SIO_A_DATA` when that bit is set, and
+  the chip emulation never caches "the last byte" across a
+  no-data window.  PIO goes through our project-specific
+  `cpnet_bridge.cpp` slot; the Z80-PIO chip emulation caches
+  `m_input` between strobes, exposing every quirk above.
+- **Status after the three fixes**: snios-on-PIO reaches LOGIN,
+  OPEN, and several READ-SEQ iterations against mpm-net2.
+  Stalls intermittently after 4-25 sectors — a fourth race remains.
+  Filed as **ravn/rc700-gensmedet#56**.
+- **Verdict**: proxy wins for routine use (robust, 1.44 s
+  end-to-end, simple).  Direct is functional but flaky;
+  filed for future work.
+- **Branches**: `ravn/rc700-gensmedet:pio-mpm-netboot` (commits
+  `62c2b61` proxy WIP, `20d9203` snios-PIO experiment, `7a50843`
+  initial comparison report, `ba9277c` init.c IE-off, `4afa036`
+  deeper-investigation report).  `ravn/mame:master` (`9c2cbb4e1a9`
+  rdy_w fix — landed directly to master since merged from earlier
+  Phase 25 work).
+
 ### Phase 25: PIO CP/NET driver + MAME bridge to standards (Apr 27, 2026) — Medium
 
 - **Goal**: real PIO transport in CP/NOS (not just speed-test

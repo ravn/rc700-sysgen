@@ -72,7 +72,17 @@ RESIDENT
 RESIDENT
 [[noreturn]] void impl_wboot(void) {
     /* CP/M warm boot.  In CP/NOS the whole OS image is in RAM and
-     * re-runnable from COLDST, which re-fetches CCP.SPR via NDOS. */
+     * re-runnable from COLDST, which re-fetches CCP.SPR via NDOS.
+     *
+     * Test instrumentation: emit a port-0x81 write so MAME Lua taps
+     * can count program exits without scraping the screen.  Port 0x81
+     * is in RC702's unmapped 0x20-0xEF range (rc702.cpp:155-163), so
+     * there is no contention on real hardware either; on a stock
+     * machine the OUT is a no-op.  Used by smoke_inject's "wait until
+     * Nth program has exited" detection.  4 bytes (3E 57 D3 81),
+     * 18 T-states.  Value 0x57 = 'W' for "Warm boot" -- only the
+     * write event is meaningful, not the data byte. */
+    __asm__ volatile("ld a, 0x57\n\t out (0x81), a" : : : "a");
     enter_coldst();
 }
 
@@ -87,14 +97,16 @@ uint8_t kbd_ring[KBD_RING_SIZE];
 uint8_t kbd_head;   /* written by ISR */
 uint8_t kbd_tail;   /* written by CONIN */
 
-/* CP/NET fast-link bring-up stub (Option P, see docs/cpnet_fast_link.md).
- * isr_pio_par stores the most-recent byte received on PIO-B and bumps
- * the counter.  External tooling (MAME bridge + Python harness) reads
- * these via memory tap to verify the host->Z80 path end-to-end.  This
- * is bring-up scaffolding; replaced by the real CP/NET RX ring once
- * the protocol layer goes in. */
-uint8_t pio_par_byte;   /* last byte received on PIO-B */
-uint8_t pio_par_count;  /* count of bytes received (wraps at 0xFF) */
+/* Legacy harness counters from the polled-PIO bring-up phase.  Replaced
+ * by pio_rx_buf/head/tail (transport_pio.c) when the IRQ ring landed in
+ * commit f10c99f.  Kept (with `used`) because tests/cpnet_bridge/
+ * harness.py extracts their addresses from payload.elf and treats them
+ * as required symbols — dropping them via --gc-sections breaks the
+ * harness's pre-MAME symbol-extraction step.  Two BSS bytes; readers
+ * see permanent zero, which is fine for pio-netboot mode (success is
+ * the boot-strip 'J', not these counters). */
+__attribute__((used)) uint8_t pio_par_byte;
+__attribute__((used)) uint8_t pio_par_count;
 
 RESIDENT
 uint8_t impl_const(void) {

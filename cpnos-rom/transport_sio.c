@@ -56,10 +56,21 @@ static bool sio_probe(void) {
     return true;
 }
 
+/* Wire-mode tag (banner field).  Provided via -D from the Makefile's
+ * TRANSPORT= flag; SNIOS envelope routing for that mode is fixed by
+ * the linker's --defsym aliases on _xport_send_byte / _xport_recv_byte.
+ * Default matches this branch's historical default. */
+#ifndef TRANSPORT_NAME
+#define TRANSPORT_NAME "PIO-IRQ"
+#endif
+#define _PAD7(s) (s "       ")
+_Static_assert(sizeof(_PAD7(TRANSPORT_NAME)) >= 8,
+               "TRANSPORT_NAME pad failed (name + space-padding < 7 chars)");
+
 RESIDENT_DATA
 cpnet_transport_t transport_sio_vt = {
     .probe    = sio_probe,
     .send_msg = snios_sndmsg_c,
     .recv_msg = snios_rcvmsg_c,
-    .name     = "SIO",
+    .name     = _PAD7(TRANSPORT_NAME),  /* first 7 bytes go to banner */
 };

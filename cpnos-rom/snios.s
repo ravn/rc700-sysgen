@@ -53,8 +53,16 @@
     .equ CFG_MSGBUF,  45
 
     .extern _cfgtbl
-    .extern _transport_send_byte
-    .extern _transport_recv_byte
+    ; SNIOS byte-level transport — single indirection through
+    ; _xport_send_byte / _xport_recv_byte.  The Makefile's TRANSPORT=
+    ; flag aliases these (via ld --defsym) to the chip-specific
+    ; primitives:
+    ;   TRANSPORT=sio      -> _transport_send_byte / _transport_recv_byte
+    ;   TRANSPORT=pio-irq  -> _transport_pio_send_byte / _transport_pio_recv_byte
+    ; SNIOS envelope code is unchanged across modes; only the chip
+    ; ports differ (SIO 0x08/0x0A vs PIO 0x11/0x13).
+    .extern _xport_send_byte
+    .extern _xport_recv_byte
     .extern _cpnet_send_msg
     .extern _cpnet_recv_msg
 
@@ -123,12 +131,12 @@ RCVMSG_DISPATCH:
 ;= Direct calls into _transport_* (SIO-A)        =
 ;================================================
 
-; SENDBY - Send byte in A via transport.
+; SENDBY - Send byte in A via PIO byte transport (experiment).
 ; Preserves: HL, DE (protocol loop counters and checksum must survive).
 SENDBY:
     push hl
     push de
-    call _transport_send_byte       ; arg already in A
+    call _xport_send_byte   ; arg already in A
     pop  de
     pop  hl
     ret
@@ -140,7 +148,7 @@ RECVBY:
     push de
 RECVBY1:
     ld   hl, 0xFFFF                 ; max timeout per call
-    call _transport_recv_byte
+    call _xport_recv_byte
     ld   a, d
     inc  a                          ; D=0xFF -> A=0 (timeout); D=0 -> A=1
     jr   z, RECVBY1                 ; timeout: retry forever
@@ -156,7 +164,7 @@ RECVBT:
     push de
     push hl
     ld   hl, RECV_TIMEOUT_TICKS
-    call _transport_recv_byte
+    call _xport_recv_byte
     ld   a, d                       ; grab result (D=0xFF => timeout)
     inc  a                          ; Z=1 on timeout
     ld   a, e                       ; A = byte (Z preserved by ld)
@@ -444,31 +452,10 @@ SNDERR1:
 ;================================================
 ;= NTWKIN - NETWORK INITIALIZATION               =
 ;================================================
-; CP/NET 1.2: no handshake needed.  Drain any stale bytes from the
-; SIO RX buffer (only meaningful when active_transport == sio; PIO has
-; no buffered RX), set the ACTIVE flag.
+; CP/NET 1.2: no handshake needed.  PIO-only experiment: SNIOS now
+; lives entirely on PIO bytes; nothing to drain (PIO has no buffered
+; RX past the byte the chip latches), so just set the ACTIVE flag.
 NTWKIN:
-    .extern _active_transport
-    .extern _transport_sio_vt
-    ; Skip SIO drain when active != SIO (active==PIO has nothing to
-    ; drain and the SIO RX buffer is full of irrelevant null_modem
-    ; noise that would otherwise eat ~300ms emulated).
-    ld   hl, (_active_transport)
-    ld   de, _transport_sio_vt
-    or   a                          ; clear carry for sbc
-    sbc  hl, de
-    jr   nz, NTWKIN_DONE            ; HL != SIO vtable -> skip drain
-    ; active == SIO: drain RX.  transport_recv_byte with a tiny
-    ; per-poll budget returns TRANSPORT_TIMEOUT promptly when the
-    ; buffer is empty.
-NTWKDR:
-    ld   hl, 64
-    call _transport_recv_byte
-    ld   a, d
-    inc  a
-    jr   nz, NTWKDR
-NTWKIN_DONE:
-    ; Mark network active.
     ld   a, ACTIVE
     ld   (_cfgtbl + CFG_NETST), a
     xor  a

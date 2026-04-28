@@ -43,6 +43,22 @@ done
 cpmrm -f ibm-3740 "$OUT_DISK" 0:SUMTEST.ASM 2>/dev/null || true
 cpmcp -f ibm-3740 "$OUT_DISK" "$HERE/sumtest.asm" 0:SUMTEST.ASM
 
+# Pre-assemble filecopy.com on host so the file-I/O bench (WORKLOAD=
+# filecopy) can run it directly without an m80/l80 step.  Pure 8080
+# source, zmac --dri -8 produces a CP/M .COM image at zout/filecopy.cim.
+ZMAC=$(cd "$HERE/../../zmac/bin" && pwd)/zmac
+if [ -x "$ZMAC" ]; then
+    (cd "$HERE" && "$ZMAC" -8 --dri filecopy.asm > /dev/null 2>&1)
+    if [ -f "$HERE/zout/filecopy.cim" ]; then
+        cpmrm -f ibm-3740 "$OUT_DISK" 0:FILECOPY.COM 2>/dev/null || true
+        cpmcp -f ibm-3740 "$OUT_DISK" "$HERE/zout/filecopy.cim" 0:FILECOPY.COM
+    else
+        echo "warning: zmac did not produce filecopy.cim; FILECOPY.COM not staged" >&2
+    fi
+else
+    echo "warning: zmac not found at $ZMAC; FILECOPY.COM not staged" >&2
+fi
+
 # Also stage a minimal tiny.asm for M80 diagnostic — smallest possible
 # valid M80 source.  If M80 fails even on this, the bug isn't in our
 # generated sumtest.asm at all.

@@ -74,10 +74,15 @@ static const uint8_t port_init[] = {
     PORT_PIO_A_CTRL, 0x4F,
     PORT_PIO_A_CTRL, 0x83,
 
-    /* PIO-B (CP/NET fast link, J3): vector=0x22, mode 1 input + ICW, EI.
-     * Bring-up stub feeds isr_pio_par which counts bytes; replaced by
-     * real frame ring once Option P protocol layer lands.
-     * See docs/cpnet_fast_link.md. */
+    /* PIO-B (CP/NET fast link, J3): vector=0x22, mode 1 input,
+     * IE ON.  Each chip strobe (real byte from the bridge) fires
+     * isr_pio_par via IM2 vector 0x22; the ISR reads PORT_PIO_B_DATA
+     * (clearing chip m_ip) and pushes the byte into pio_rx_buf for
+     * snios's transport_pio_recv_byte to pop.  No polling on
+     * PORT_PIO_B_DATA, so there's no "0xFF data byte vs empty FIFO"
+     * conflation — empty queue is signalled by head==tail, real bytes
+     * (any value 0x00..0xFF) sit in the queue.  See
+     * tasks/session34-direct-pio-stall-rootcause.md. */
     PORT_PIO_B_CTRL, 0x22,
     PORT_PIO_B_CTRL, 0x4F,
     PORT_PIO_B_CTRL, 0x83,

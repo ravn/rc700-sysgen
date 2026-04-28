@@ -248,3 +248,115 @@ obsolete — see deprecation banner on
 - [ ] Pi-side z80pack invocation: in-process Python binding vs
       subprocess with TCP loopback.
 
+### TODO (2026-04-28): use CP/NET disk traffic as "program running" signal
+
+The sumtest workload tap currently detects "command done, ready for next"
+via display-cursor stability + new-A>-row.  Works but slightly fragile
+(needs row > last_prompt_row, which can be wrong if the screen
+scrolls between commands).
+
+A more robust signal: watch CP/NET frame traffic on the bridge.  When
+a program is running and doing file I/O, bytes flow.  When CCP is
+idle at A>, no bytes flow.  Idle for ~500ms = CCP at prompt, ready
+for next command.
+
+Could be done by:
+- Instrumenting cpnet_bridge.cpp with a timestamped "last RX byte" and
+  exposing it via a known address Lua can read; OR
+- Parsing host-side proxy log (cpnet_pio_server.py) per-frame timing
+  in real time; OR
+- Watching MAME's bitbanger socket for activity.
+
+### TODO (2026-04-28): port the cpnet_pio_server proxy to a Pico
+
+`cpnos-rom/cpnet_pio_server.py` currently runs on the host PC: it
+listens on TCP, talks DRI envelope upstream to mpm-net2 (port 4002),
+and forwards raw SCB frames downstream to MAME's bridge / a real
+Pi-Pico bridge (port 4003).  Question: can the proxy run on the Pico
+itself, eliminating the host PC from the production setup?
+
+Two angles:
+1. **MicroPython port** of cpnet_pio_server.py.  ~600 lines fits
+   easily in 264 KB SRAM (RP2040) or 520 KB SRAM (RP2350).  Throughput
+   is the question: MicroPython ~10-50× slower than CPython; per-byte
+   envelope ops would slow per-frame to ~10 ms vs ~1 ms host.  Pico W
+   adds WiFi latency to mpm-net2 (~5-20 ms typical).  Enough for cold
+   netboot, marginal for sustained workloads.
+2. **C SDK port** for production.  PIO state machine handles
+   STB/BRDY in hardware (zero-CPU per byte); lwIP for TCP to
+   mpm-net2.  Closer to host-Python performance, fully embedded.
+   Bigger engineering investment.
+
+Goal: eliminate the host-PC dependency.  Slave (Z80 + RC702) +
+Pi/Pico (CP/NET proxy + bridge) connects directly to mpm-net2 server.
+
+### TODO (2026-04-28): investigate multi-channel SNIOS in any CP/NET impl
+
+Question: do any CP/NET SNIOS implementations support more than one
+communications channel (e.g., one over SIO + one over PIO simultaneously,
+with traffic routed by frame type / priority)?  If yes, the design might
+be applicable here — fast PIO link for bulk, slow SIO for control.  If
+no (every SNIOS we've seen is single-transport), worth knowing as a
+reference point for any multi-link design we'd build.
+
+Sources to check:
+- cpnet-z80 contrib SNIOS variants (snios-0/1/2 on z80pack).
+- DRI's original CP/NET 1.2 distribution.
+- CpnetSerialServer.jar / Java NIOS implementations.
+- SEBHC docs (http://sebhc.durgadas.com/CPNET-docs/).
+
+### DONE (2026-04-28, commit 092d323): 32-bit CRT frame counter
+
+cpnos-rom's `isr_crt` now increments a 32-bit counter at
+`0xFFFC..0xFFFF` on every CTC ch2 VRTC IRQ — mirrors rcbios's RTC
+location (`RC702_BIOS_SPECIFICATION.md` §3.4).  Used by the file-I/O
+bench (`testutil/filecopy.asm`) to record frames-to-completion via
+the FILECOPY OK marker's S=/E= fields.  ~13 bytes of asm in `isr.c`,
+INC (HL) sets Z so borrow-propagate via jr nz from each byte.
+
+### TODO (2026-04-28): pulse — raw-bandwidth bench, no protocol
+
+Slave program that bypasses BDOS / SNIOS / `active_transport`,
+drives PIO-B / SIO-A chip ports directly to measure raw chip-level
+bandwidth.  TX phase + ACK + RX phase + frame snapshots.
+
+Host requires `pulse_host.py` (~150 LoC borrowed from
+`netboot_server.py`) that handles netboot then transitions on a
+sentinel byte sequence to byte-counter mode.  Replaces mpm-net2 for
+the duration of the bench.
+
+Time: ~3 h full (3 modes × 2 dir), ~1 h reduced (SIO + PIO-IRQ TX).
+Detailed design in `tasks/session36-fileio-bench-and-pulse-design.md`.
+
+### TODO (2026-04-28): install_write_tap on IO space — open puzzle
+
+`mame_porttap.lua` installs `install_write_tap` on IO space ports
+0x80 / 0x81 with `ok=true err=nil`, but the callbacks never fire when
+slave does Z80 OUT.  Verified the OUT does execute (sumtest's
+`out 80h` runs because we see the subsequent CONOUT bytes).
+
+Hypothesis: API arg-shape mismatch, or `cpu.spaces["io"]` doesn't
+intercept OUT in this MAME tree.  Worth a 30 min sanity check by
+tapping a known-active IO port (e.g., 0x10 PIO-A data, written every
+key event) — if THAT fires, the issue is something else; if not, it's
+the API/MAME-build interaction.
+
+Side-effect of the puzzle: warm-boot port-0x81 instrumentation
+(commit `b06e6dd`) is unreachable telemetry.  Either fix the tap or
+remove the OUT.
+
+### TODO (2026-04-28): consider polled-PIO mode using bare bitbanger
+
+Documented in `docs/cpnet_bridge_vs_bitbanger.md`.  Drop
+`cpnet_bridge` slot device + slave's IRQ ring, use Mode-1 INIR
+busy-poll receive instead.  Aligns with the project goal of "Z80
+side as fast as possible, host side does the complex work" since
+the slave path becomes a tight INIR loop with no ISR / ring / handshake
+state machine.  Trade-off: slave busy-polls during transfers, can't
+do concurrent CRT / keyboard work — fine for benches, may not be
+fine for production.
+
+Worth a one-day spike: gut `cpnet_bridge` to a bare bitbanger wrapper,
+build cpnos with `transport_pio_recv_byte` rewritten as INIR,
+re-run the 3-way bench, see if the simpler architecture pays off.
+
