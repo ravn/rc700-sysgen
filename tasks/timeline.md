@@ -844,6 +844,25 @@ Three commits after the audit:
   for the full list (Pico-side proxy port, 32-bit CRT counter mirror,
   multi-channel SNIOS investigation).
 
+### Phase 27b: warm-boot port instrumentation (Apr 28, 2026) — Easy
+
+- **Goal**: generic "Nth program exited" detection for harnesses
+  driving multi-program workloads, without screen/SIO-B scraping.
+- **Mechanism**: 4-byte OUT in `impl_wboot` (resident BIOS) writes
+  0x57 to port 0x81 on every CP/M warm boot.  Companion
+  `mame_porttap.lua` extends the existing port-0x80 sumtest-done tap
+  with a port-0x81 wboot tap; `/tmp/cpnos_wboot.txt` carries a
+  saturating counter + `emu.time()` per fire.  Catches every program
+  that overwrites CCP (m80, l80, sumtest, all non-trivial transients);
+  by-design misses programs that just RET back into a still-resident
+  CCP — those don't warm-boot, so there's nothing to instrument.
+- **End-to-end verification deferred**: netboot regressed in the local
+  environment after Phase 27 commit (NETBOOT returns 0, `-PS` boot
+  marker on every run).  Same code, same MAME branch, same mpm-net2 —
+  9/9 in Phase 27 above, 0/N now.  Cause not yet identified; the OUT
+  mechanism itself is verified by disassembly only at clang/cpnos.lis
+  + 0xefc8: `3e 57 d3 81`.
+
 ### Phase 26: PIO-to-mpm-net2 — proxy vs direct snios (Apr 27, 2026) — Hard
 
 - **Goal**: get CP/NOS netboot working against real `mpm-net2`
