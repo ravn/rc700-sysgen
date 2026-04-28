@@ -241,6 +241,17 @@ void isr_pio_kbd(void) {
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
+#ifdef TRANSPORT_PROXY
+    /* In TRANSPORT=pio-proxy the PIO-B IRQ never fires (init.c keeps
+     * the chip's IE bit clear for that mode), but we still publish a
+     * vector so the IVT slot resolves.  This stub is just iret. */
+    __asm__ volatile(
+        ".byte 0x08\n\t"           /* ex af,af' */
+        ".byte 0x08\n\t"           /* ex af,af' (pair, no-op) */
+        "ei\n\t"
+        "reti\n\t"
+    );
+#else
     __asm__ volatile(
         ".byte 0x08\n\t"           /* ex af,af' */
         "exx\n\t"
@@ -278,4 +289,5 @@ void isr_pio_par(void) {
         "ei\n\t"
         "reti\n\t"
     );
+#endif
 }

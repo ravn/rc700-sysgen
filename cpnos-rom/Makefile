@@ -103,8 +103,18 @@ else ifeq ($(TRANSPORT),sio)
 TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_send_byte \
                     --defsym=_xport_recv_byte=_transport_recv_byte
 TRANSPORT_NAME = SIO
+else ifeq ($(TRANSPORT),pio-proxy)
+# pio-proxy uses raw OTIR/INIR frames (transport_pio_vt) — no SNIOS
+# envelope, so the byte-level _xport_* aliases aren't on the hot path.
+# Still need to alias them or the linker complains; point at the PIO
+# byte primitives (the bridge tolerates whatever bytes appear on the
+# wire — only the frame-level matters for correctness).
+TRANSPORT_DEFSYMS = --defsym=_xport_send_byte=_transport_pio_send_byte \
+                    --defsym=_xport_recv_byte=_transport_pio_recv_byte
+TRANSPORT_NAME = PIO-PRX
+SERVER_CFLAGS += -DTRANSPORT_PROXY
 else
-$(error TRANSPORT must be 'pio-irq' or 'sio')
+$(error TRANSPORT must be 'pio-irq', 'sio', or 'pio-proxy')
 endif
 
 # Banner tag baked into transport_sio_vt.name (cpnos prints it as the
@@ -123,7 +133,15 @@ PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnet_dispatch.o $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o \
                clang/payload_checksum.o
-PAYLOAD_LD = payload.ld
+PAYLOAD_LD = clang/payload.ld
+
+# Preprocess payload.ld so the linker sees TRANSPORT_PROXY-conditional
+# ASSERTs (e.g., the upper bound for __payload_end depends on whether
+# the IRQ ring buffer at 0xF700 is in the layout).  ld.lld doesn't run
+# cpp on linker scripts itself.
+clang/payload.ld: payload.ld clang/transport_stamp
+	@mkdir -p clang
+	$(CC) --target=z80 -E -P -x c $(SERVER_CFLAGS) -o $@ $<
 
 # ---- Relocator (PROM0 reset + #embed'd payload halves) -----------
 # Tiny: reset.s for stack setup, relocator.c with two #embed arrays.
@@ -448,6 +466,14 @@ _check-tag-not-pio-irq:
 	    exit 1; \
 	fi
 
+# Slave was built with active_transport->name = "PIO-PRX" (pio-proxy mode).
+_check-tag-pio-prx:
+	@if ! strings clang/cpnos.bin 2>/dev/null | grep -q '^PIO-PRX '; then \
+	    echo "FAIL: cpnos.bin does not contain wire-mode tag 'PIO-PRX'."; \
+	    echo "      This target requires a TRANSPORT=pio-proxy build."; \
+	    exit 1; \
+	fi
+
 # MAME_IRQ tree contains the cpnet_bridge gate fix (commit 60e2b9a032f
 # on pio-mpm-irq-fix branch).  We check by source-grep, not by binary
 # inspection — robust against the binary being rebuilt without the fix.
@@ -655,6 +681,88 @@ pio-irq-smoke: cpnos-install _check-tag-pio-irq _check-mame-irq
 	@printf '  port-0x81 wboot count: '; \
 	 awk -F= '/^count=/{print $$2+0}' /tmp/cpnos_wboot.txt 2>/dev/null | tail -1 \
 	    || echo '0'
+
+# ---- pio-proxy-smoke: PIO-B raw OTIR/INIR via cpnet_pio_server proxy
+#
+# Slave is built with TRANSPORT=pio-proxy (cpnet_dispatch.c sets
+# active_transport = &transport_pio_vt; transport_pio.c's pio_send_msg
+# / pio_recv_msg use raw OTIR/INIR — no SNIOS envelope).  Host runs
+# cpnet_pio_server.py --upstream 127.0.0.1:4002 on :4003 to translate
+# raw frames into SIO envelope and forward to mpm-net2.
+#
+# Topology:
+#   slave PIO-B --bitb3-> cpnet_pio_server :4003 -> mpm-net2 :4002
+#   slave SIO-B --bitb2-> smoke_inject :SMOKE_PORT
+#
+# Same pass criterion / bench timing as pio-irq-smoke.
+.PHONY: pio-proxy-smoke
+pio-proxy-smoke:
+	$(MAKE) _pio-proxy-smoke-impl TRANSPORT=pio-proxy
+
+PIO_BRIDGE_PORT ?= 4003
+_pio-proxy-smoke-impl: cpnos-install _check-tag-pio-prx _check-mame-irq
+	@echo "=== 1/6 regenerating sumtest.asm + smoke disk ==="
+	python3 testutil/mksmokeasm.py
+	testutil/mksmokedisk.sh
+	@echo "=== 2/6 restarting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; exit 1; \
+	fi
+	@if lsof -nP -iTCP:$(PIO_BRIDGE_PORT) -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port $(PIO_BRIDGE_PORT) already bound"; \
+	    lsof -nP -iTCP:$(PIO_BRIDGE_PORT) -sTCP:LISTEN; exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/6 spawning cpnet_pio_server --upstream localhost:4002 ==="
+	@rm -f /tmp/cpnos_pio_server.log
+	@python3 -u cpnet_pio_server.py $(PIO_BRIDGE_PORT) \
+	    --upstream 127.0.0.1:4002 \
+	    > /tmp/cpnos_pio_server.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_pio_server.pid
+	@# Don't `nc -z` to verify — that connect-and-close trips the
+	@# server's single-shot accept loop, leaving MAME's bitb3 connect
+	@# refused.  Just give the listener time to bind.
+	@sleep 1.0
+	@echo "=== 4/6 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_wboot.txt /tmp/cpnos_boot_result.txt \
+	    /tmp/cpnos_smoke_inject.log /tmp/cpnos_boot_marks.txt
+	@echo "=== 5/6 launching smoke_inject + MAME ==="
+	@python3 -u testutil/smoke_inject.py $(SMOKE_PORT) \
+	    --log /tmp/cpnos_siob.raw --timeout 240 \
+	    > /tmp/cpnos_smoke_inject.log 2>&1 & \
+	 echo $$! > /tmp/cpnos_smoke_inject.pid
+	@sleep 0.4
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 1200 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 socket.127.0.0.1:$(SMOKE_PORT) \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:$(PIO_BRIDGE_PORT) \
+	    -autoboot_script mame_porttap.lua
+	@kill $$(cat /tmp/cpnos_smoke_inject.pid) 2>/dev/null || true
+	@kill $$(cat /tmp/cpnos_pio_server.pid)   2>/dev/null || true
+	@echo "=== 6/6 verifying ==="
+	@echo "--- inject log ---"
+	@cat /tmp/cpnos_smoke_inject.log
+	@echo "--- pio_server log (tail) ---"
+	@tail -10 /tmp/cpnos_pio_server.log 2>/dev/null
+	@echo "--- SIO-B tail ---"
+	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null | tail -c 400
+	@echo
+	@grep -q 'CPNET OK A314' /tmp/cpnos_siob.raw \
+	    && echo "PASS: sumtest printed CPNET OK A314" \
+	    || (echo "FAIL: 'CPNET OK A314' not in SIO-B"; exit 1)
+	@bench=$$(grep -oE 'bench=[0-9.]+s' /tmp/cpnos_smoke_inject.log | tail -1); \
+	 [ -n "$$bench" ] && echo "BENCH (-nothrottle, m80+l80+sumtest): $$bench" \
+	   || echo "(bench timing not found)"
 
 # End-to-end netboot test: Python server on localhost, MAME bridged to
 # it over SIO-A null_modem.

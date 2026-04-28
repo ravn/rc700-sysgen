@@ -88,16 +88,19 @@ static uint8_t pio_b_dir;            /* zeroed BSS = INPUT initially */
  * "no byte yet" (#56). */
 #define PIO_RX_BUF_SIZE 256
 #define PIO_RX_BUF_MASK 0xFF
-/* head/tail in regular BSS (1 byte each, zeroed by relocator). */
+#ifndef TRANSPORT_PROXY
+/* IRQ ring buffer for envelope-on-PIO modes (sio / pio-irq).  Skipped
+ * in TRANSPORT=pio-proxy because that mode uses raw OTIR/INIR frames
+ * (transport_pio_vt) — no byte-level recv path, so the ring is dead
+ * weight and the 256 B at 0xF700 freed for the larger payload. */
 volatile uint8_t pio_rx_head;   /* ISR writes only */
 volatile uint8_t pio_rx_tail;   /* mainline writes only */
 /* Buf in dedicated .pio_rx_bss section (NOLOAD, page-aligned at
- * 0xEC80 — see payload.ld PIO_RX region).  Page-alignment lets the
- * ISR use ld h,buf>>8 + ld l,head as a single fast 16-bit address.
- * 128-byte size covers the 165-byte READ-SEQ burst with mainline
- * draining during the ISR cascade. */
+ * 0xF700 — see payload.ld PIO_RX region).  Page-alignment lets the
+ * ISR use ld h,buf>>8 + ld l,head as a single fast 16-bit address. */
 __attribute__((section(".pio_rx_bss")))
 volatile uint8_t pio_rx_buf[PIO_RX_BUF_SIZE];
+#endif
 
 RESIDENT
 static void pio_b_set_output(void) {
@@ -122,16 +125,14 @@ static void pio_b_set_input(void) {
     pio_b_dir = PIO_DIR_INPUT;
 }
 
-/* The frame-level PIO transport (raw SCBs, used with the host-side
- * cpnet_pio_server.py Python responder) is disabled on this branch.
- * On pio-mpm-netboot the SNIOS envelope rides on PIO byte primitives
- * (see snios.s edit), so this raw-frame path is dead.  #if 0 instead
- * of deleting so the merge target (main) keeps the symbols visible
- * via the rest of the codebase.
- *
- * If you need the raw-frame path back, set this to #if 1 and put
- * the probe block back into cpnos_main.c. */
-#if 0
+/* Frame-level PIO transport (raw SCBs, paired with cpnet_pio_server.py
+ * --upstream on the host).  Compiled only in TRANSPORT=pio-proxy
+ * builds where cpnet_dispatch.c sets active_transport =
+ * &transport_pio_vt.  In TRANSPORT=pio-irq / sio builds these are
+ * unreferenced and we'd waste payload space carrying them — payload
+ * already runs to within ~30 B of 0xF700 (pio_rx_bss), so adding
+ * ~130 B of unreachable frame code overflows.  Guard at compile time. */
+#ifdef TRANSPORT_PROXY
 RESIDENT
 uint8_t pio_send_msg(uint8_t *msg) {
     pio_b_set_output();
@@ -160,6 +161,19 @@ uint8_t pio_send_msg(uint8_t *msg) {
  * including Python interpreter wake-up (~10 ms wall + MAME speed-up),
  * still fast-fails the SIO-fallback path in well under a second. */
 #define PIO_FIRST_BYTE_BUDGET 0x4000U
+
+/* "Buffer empty" sentinel for pio_recv_msg's first-byte polling.  The
+ * MAME cpnet_bridge::read() handler returns 0xFF when the input queue
+ * is drained (no host bytes yet), so we spin reading the data port
+ * until we see something else — that's the first byte (FMT) of the
+ * response SCB, which is structurally either 0x00 (request) or 0x01
+ * (response) and never 0xFF.  Once FMT lands, INIR reads the rest of
+ * the frame whatever the byte values are.
+ *
+ * This polling-for-FMT is safe in pio-proxy mode because FMT∉{0xFF}.
+ * It would NOT be safe to extend to subsequent bytes (cpnos.com has
+ * 0xFF data bytes).  See session 33/34 RCA for the original burn. */
+#define PIO_RX_EMPTY_VAL 0xFFU
 
 /* Receive a complete CP/NET frame.  Reads 5 header bytes (the first
  * via PORT_PIO_B_DATA polling for non-FF, the next 4 via INIR), then
@@ -222,42 +236,21 @@ got_first:
  * literal-byte construction is robust either way.
  *
  * CKS is sum-to-zero (two's complement of the body sum). */
+/* Probe stub for the pio-proxy-only build.  Real PING/PONG handshake
+ * code lived here on the cpnet-pio-direct branch but cost ~170 B and
+ * isn't on any hot path: in current bench shape, cpnet_probe() is
+ * never invoked (netboot's first cpnet_xact validates round-trip
+ * far more thoroughly than a one-byte ping would).  Keeping a stub
+ * just so the vtable's .probe slot resolves. */
 RESIDENT
-bool pio_probe(void) {
-    uint8_t msg[7];
-    msg[FMT] = 0x00;
-    msg[DID] = 0x00;
-    msg[SID] = RC702_SLAVEID;
-    msg[FNC] = PING_FNC;
-    msg[SIZ] = 0x00;
-    msg[5]   = PING_BYTE;
-    {
-        uint8_t s = 0;
-        for (uint8_t i = 0; i < 6U; ++i) s += msg[i];
-        msg[6] = (uint8_t)(0U - s);
-    }
-
-    if (pio_send_msg(msg) != 0) return false;
-    if (pio_recv_msg(msg) != 0) return false;
-
-    /* Validate response: sum-to-zero + mirrored header. */
-    uint8_t s = 0;
-    for (uint8_t i = 0; i < 7U; ++i) s += msg[i];
-    return (s == 0U)
-        && msg[FMT] == 0x01
-        && msg[DID] == RC702_SLAVEID
-        && msg[SID] == 0x00
-        && msg[FNC] == PING_FNC
-        && msg[SIZ] == 0x00
-        && msg[5]   == PONG_BYTE;
-}
+bool pio_probe(void) { return true; }
 
 RESIDENT_DATA
 cpnet_transport_t transport_pio_vt = {
     .probe    = pio_probe,
     .send_msg = pio_send_msg,
     .recv_msg = pio_recv_msg,
-    .name     = "PIO",
+    .name     = "PIO-PRX",     /* banner tag for pio-proxy mode */
 };
 #endif
 
@@ -291,6 +284,14 @@ void transport_pio_send_byte(uint8_t c) {
 
 RESIDENT
 uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
+#ifdef TRANSPORT_PROXY
+    /* Stub — pio-proxy uses transport_pio_vt frame-level I/O, not
+     * byte-level.  This symbol still has to exist because snios.s's
+     * SENDBY/RECVBY (envelope code) reference _xport_recv_byte at link
+     * time even when the runtime path skips the envelope. */
+    (void)timeout_ticks;
+    return TRANSPORT_TIMEOUT;
+#else
     pio_b_set_input();
     while (timeout_ticks--) {
         uint8_t t = pio_rx_tail;
@@ -301,6 +302,7 @@ uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
         }
     }
     return TRANSPORT_TIMEOUT;
+#endif
 }
 
 /* Speed-test BSS variables (referenced by isr.c).  Kept for the

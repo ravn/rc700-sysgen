@@ -23,9 +23,20 @@
 
 /* Lives in .resident.data so it has a known initialiser at load time
  * and writeable storage at runtime (the .resident section is RAM
- * after the relocator copies it). */
+ * after the relocator copies it).
+ *
+ * TRANSPORT_PROXY (Makefile -D, set by TRANSPORT=pio-proxy) selects
+ * raw OTIR/INIR frames via transport_pio_vt; pairs with
+ * cpnet_pio_server.py --upstream on the host.  Default is the SIO-
+ * shaped vtable, which carries the SNIOS ENQ/ACK/SOH envelope on
+ * whatever byte transport the linker's _xport_send_byte alias picks
+ * (sio: SIO-A; pio-irq: PIO-B IRQ ring). */
 RESIDENT_DATA
+#ifdef TRANSPORT_PROXY
+cpnet_transport_t *active_transport = &transport_pio_vt;
+#else
 cpnet_transport_t *active_transport = &transport_sio_vt;
+#endif
 
 RESIDENT
 uint8_t cpnet_send_msg(uint8_t *msg) {
