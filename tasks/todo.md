@@ -360,3 +360,70 @@ Worth a one-day spike: gut `cpnet_bridge` to a bare bitbanger wrapper,
 build cpnos with `transport_pio_recv_byte` rewritten as INIR,
 re-run the 3-way bench, see if the simpler architecture pays off.
 
+### TODO (2026-04-28): TCP_NODELAY on MAME ↔ mpm-net2 socket
+
+Per `docs/cpnet_throughput_analysis.md`, ENQ (1 byte) is exactly
+the kind of small write Nagle penalises.  CP/NET has many of these
+turnarounds per frame.  TCP_NODELAY status on the mpm-net2 listener
++ MAME bitbanger client isn't verified; could be eating tens of ms
+per turnaround out of the measured 58 ms per RTT.
+
+Cheap to set, possibly large effect.  30 min check:
+
+1. `mpm-net2`'s SERVER.RSP socket setup — find the accept/listen
+   path, add `setsockopt(SOL_TCP, TCP_NODELAY, 1)`.
+2. MAME's bitbanger TCP socket — check `osd/modules/...` for the
+   socket creation path.
+3. Re-run filecopy bench — compare emulated frames before/after.
+
+If the delta is significant (>10%), wins for free on every CP/NET
+configuration.
+
+### TODO (2026-04-28): native (non-z80pack) host CP/NET server
+
+mpm-net2 is itself a simulated Z80 (z80pack/cpmsim running MP/M II's
+SERVER.RSP), so every SCB byte arriving at the host TCP listener is
+parsed at 4 MHz emulated Z80 speed — adding ~5-10 emulated ms per
+frame to the bench.  Replace with a native Python/C server that does
+SCB parsing at host CPU speed.
+
+`cpnos-rom/netboot_server.py` is a starting point — already speaks
+LOGIN / OPEN / READ-SEQ / CLOSE for cpnos.img.  Would need to grow
+to cover full CP/NET BDOS surface (DIR, FCB tracking across extents,
+WRITE-RAND, RENAME, COMPUTE FILE SIZE, etc) before it could replace
+mpm-net2 for general workload benches.
+
+Estimated effect: 2-4× on PIO modes (host-side parsing was substantial),
+no effect on SIO (still line-rate-limited at 38400 baud).
+
+Aligns with project goal "host side does the complex work."
+
+### TODO (2026-04-28): physical-hardware bring-up to verify projection
+
+`docs/cpnet_throughput_analysis.md` projects PIO/SIO ratio widens
+from ~2× (MAME) to ~4-7× (physical RC702 with Pi/Pico bridge on J3).
+Verify by actually wiring it.
+
+Steps (rough):
+1. Pi/Pico-side firmware that responds to chip STB strobes,
+   forwards to a host CP/NET server.
+2. Cable/connector for J3 expansion port.
+3. Same filecopy bench, real RC702.
+4. Report frames-to-completion + KB/s; compare to MAME numbers.
+
+Memory project_pico_count says user has 2 Pi Picos available — one
+already on the cbl923 keyboard rig, second earmarked for J3.
+Hardware is on hand.
+
+### TODO (2026-04-28): reduce MAME cpnet_bridge poll quantum
+
+The `m_poll_timer` in `cpnet_bridge.cpp` fires every 1 ms.  Per
+`docs/cpnet_throughput_analysis.md`, CP/NET frames have 4 ACK
+turnarounds where the slave waits for a host byte; each eats at least
+1 ms of the timer quantum.  Lowering to ~100 µs would shave ~3
+emulated seconds off the filecopy bench.  Trade-off: more host CPU
+in the timer callback.
+
+Test with `attotime::from_usec(100)` instead of `from_msec(1)`,
+re-run bench, compare.  Cheap to test.
+
