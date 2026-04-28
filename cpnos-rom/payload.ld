@@ -40,13 +40,26 @@ MEMORY {
    * relocator doesn't touch this region.  Power-on RAM = 0x00 in MAME
    * and typically on real hardware too; real-HW warm boot relies on
    * the prior image having left it in a sensible state. */
-  SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x200
+  SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x1E0   /* ends at 0xEC00 (IVT) */
+
+  /* PIO-B receive ring buffer (.pio_rx_buf section).  Page-aligned
+   * 256-byte buffer at 0xF700 — the head/tail are 8-bit so wrap is
+   * free (uint8_t arithmetic).  Sits in the unused tail of the
+   * payload memory region (0xED00..0xF800).  Hard-asserted to not
+   * overlap actual payload code below. */
+  PIO_RX (rwx) : ORIGIN = 0xF700, LENGTH = 0x100
 }
 
 /* IVT location shared with init.c (setup_ivt).  Defined here so the
  * ASSERTs can check overlap with .payload / .scratch_bss.  Issue #35. */
 __ivt_start = 0xEC00;
 __ivt_end   = __ivt_start + 18 * 2;
+
+/* PIO ring page address — kept consistent with PIO_RX MEMORY region
+ * origin.  isr.c uses _pio_rx_buf_page as a high-byte literal in
+ * `ld h, _pio_rx_buf_page` since the GAS-on-Z80 assembler doesn't
+ * accept (_pio_rx_buf >> 8) as an immediate. */
+_pio_rx_buf_page = 0xF7;
 
 SECTIONS {
   .payload 0xED00 : {
@@ -127,8 +140,16 @@ SECTIONS {
     __scratch_bss_end = .;
   } > SCRATCH
 
-  ASSERT(__scratch_bss_end <= 0xEC20,
-         "scratch_bss overflowed into stack region!")
+  ASSERT(__scratch_bss_end <= 0xEC00,
+         "scratch_bss overflowed into IVT region!")
+
+  /* PIO-B receive ring (page-aligned at 0xF700). */
+  .pio_rx_bss 0xF700 (NOLOAD) : {
+    *(.pio_rx_bss)
+  } > PIO_RX
+
+  ASSERT(__payload_end <= 0xF700,
+         "payload grew into pio_rx_bss region — shrink payload or move buffer")
 
   /* Issue #35: IVT must not overlap payload or BSS (memcpy / BSS
    * clear would stomp the vector table). */

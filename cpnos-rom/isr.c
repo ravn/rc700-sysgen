@@ -248,29 +248,26 @@ void isr_pio_par(void) {
         "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A; clears chip IP */
         "ld   e, a\n\t"             /* stash byte */
 
-        /* SPSC ring push for snios.  Mirror of isr_pio_kbd. */
-        /* new_head = (head + 1) & 0x3F */
+        /* SPSC ring push for snios.  256-byte buffer at page-aligned
+         * address (0xF700 per payload.ld), so HL = page<<8 | head is
+         * a single 16-bit address.  uint8_t wrap is free — no mask. */
+        /* new_head = (uint8_t)(head + 1) — wraps at 256. */
         "ld   hl, _pio_rx_head\n\t"
         "ld   a, (hl)\n\t"
         "inc  a\n\t"
-        "and  0x3F\n\t"
         "ld   d, a\n\t"             /* D = new_head */
 
-        /* if (new_head == tail) drop — ring full, byte lost.  Under
-         * flow-controlled CP/NET this can't happen; we don't bother
-         * recording the overrun. */
+        /* if (new_head == tail) drop — ring full, byte lost. */
         "ld   hl, _pio_rx_tail\n\t"
         "ld   a, (hl)\n\t"
         "cp   d\n\t"
         "jr   z, 2f\n\t"
 
-        /* ring[head] = byte;  head = new_head */
-        "ld   hl, _pio_rx_head\n\t"
-        "ld   a, (hl)\n\t"
-        "ld   h, 0\n\t"
+        /* ring[head] = byte; head = new_head.  Page-aligned 256-byte
+         * buf — H = buf>>8 (0xf7) is a constant; L = head. */
+        "ld   a, (_pio_rx_head)\n\t"
         "ld   l, a\n\t"
-        "ld   bc, _pio_rx_buf\n\t"
-        "add  hl, bc\n\t"
+        "ld   h, _pio_rx_buf_page\n\t"
         "ld   (hl), e\n\t"
         "ld   a, d\n\t"
         "ld   (_pio_rx_head), a\n\t"

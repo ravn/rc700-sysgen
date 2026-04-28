@@ -86,14 +86,18 @@ static uint8_t pio_b_dir;            /* zeroed BSS = INPUT initially */
  * the ISR doesn't bother to detect it.  Replaces the old 0xFF=empty
  * sentinel which conflated a real 0xFF data byte from mpm-net2 with
  * "no byte yet" (#56). */
-#define PIO_RX_BUF_SIZE 64
-#define PIO_RX_BUF_MASK 0x3F
-/* BSS (not RESIDENT_DATA) — buf contents are don't-care at boot,
- * head/tail start as 0 from the BSS clear in init_hardware.  Saves
- * 66 bytes of PROM. */
-volatile uint8_t pio_rx_buf[PIO_RX_BUF_SIZE];
+#define PIO_RX_BUF_SIZE 256
+#define PIO_RX_BUF_MASK 0xFF
+/* head/tail in regular BSS (1 byte each, zeroed by relocator). */
 volatile uint8_t pio_rx_head;   /* ISR writes only */
 volatile uint8_t pio_rx_tail;   /* mainline writes only */
+/* Buf in dedicated .pio_rx_bss section (NOLOAD, page-aligned at
+ * 0xEC80 — see payload.ld PIO_RX region).  Page-alignment lets the
+ * ISR use ld h,buf>>8 + ld l,head as a single fast 16-bit address.
+ * 128-byte size covers the 165-byte READ-SEQ burst with mainline
+ * draining during the ISR cascade. */
+__attribute__((section(".pio_rx_bss")))
+volatile uint8_t pio_rx_buf[PIO_RX_BUF_SIZE];
 
 RESIDENT
 static void pio_b_set_output(void) {
@@ -292,7 +296,7 @@ uint16_t transport_pio_recv_byte(uint16_t timeout_ticks) {
         uint8_t t = pio_rx_tail;
         if (pio_rx_head != t) {
             uint8_t b = pio_rx_buf[t];
-            pio_rx_tail = (uint8_t)((t + 1) & PIO_RX_BUF_MASK);
+            pio_rx_tail = (uint8_t)(t + 1);   /* wraps at 256 */
             return b;
         }
     }
