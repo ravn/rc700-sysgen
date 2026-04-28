@@ -248,3 +248,25 @@ obsolete — see deprecation banner on
 - [ ] Pi-side z80pack invocation: in-process Python binding vs
       subprocess with TCP loopback.
 
+### TODO (2026-04-28): 32-bit CRT frame counter in cpnos isr_crt
+
+cpnos-rom's `isr_crt` (in `cpnos-rom/isr.c`) currently does the CRT
+refresh DMA reinit but doesn't keep a frame count.  rcbios already
+exposes a 32-bit `crt_frame_count` (or equivalent — verify exact
+symbol name and address before mirroring) that increments once per
+CTC ch2 VRTC IRQ.  Mirror that in cpnos at the **same memory
+location** as rcbios so harness Lua taps and tests can read frames
+identically across both BIOSes.
+
+Steps:
+1. Find rcbios's frame-counter symbol + address (search bios.c +
+   linker map for the CRT-ISR-incremented variable).
+2. Add equivalent uint32_t in cpnos's BSS at the matching address
+   (linker script PROVIDE() if needed).
+3. Update isr.c::isr_crt asm body to `inc` the 32-bit counter.
+4. Document the address in tasks/timeline.md.
+
+Use case: lets workload benchmarks count emulated time in CRT frames
+(50 Hz wall = 60 Hz on RC702 actually — verify) for finer-grained
+per-frame measurement than wall-clock seconds.
+

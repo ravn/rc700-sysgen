@@ -44,8 +44,13 @@ typedef struct cpnet_transport {
     /* recv_msg(msg): read header (5 B), parse SIZ, read payload+CKS
      * into the same buffer.  Returns 0 success, 0xFF error. */
     uint8_t (*recv_msg)(uint8_t *msg);
-    /* 3-character transport tag for the signon banner ("PIO"/"SIO").
-     * Not NUL-terminated — read exactly 3 bytes. */
+    /* 7-character transport+mode tag for the signon banner.  Layout
+     * is "WWW-MMM" where WWW is the wire ("PIO"/"SIO") and MMM is the
+     * driver mode ("IRQ" / "POL" / "PRX").  Not NUL-terminated — read
+     * exactly 7 bytes.  Lets the operator see at a glance what they
+     * just booted: "PIO-IRQ" = snios-on-PIO with chip-IRQ ring,
+     * "PIO-PRX" = raw OTIR/INIR over PIO with host-side proxy,
+     * "SIO-POL" = traditional polled SIO async transport. */
     const char *name;
 } cpnet_transport_t;
 

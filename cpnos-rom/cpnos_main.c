@@ -324,12 +324,12 @@ extern uint16_t netboot_mpm(void);
 extern void impl_conout(uint8_t c);
 
 static void nos_handoff(void) {
-    /* Banner: "RC702 CP/NOS XXX yyyy-mm-dd <hash>\r\n".  XXX is patched
-     * in place from active_transport->name (3 chars, not NUL-term).
-     * Banner is .data (mutable) so the patch sticks at runtime.
-     * Build date + short git hash come from cpnos_buildinfo.h. */
-    static char banner[] = "RC702 CP/NOS XXX " BUILD_INFO_STR "\r\n";
-    __builtin_memcpy(&banner[13], active_transport->name, 3);
+    /* Banner: "RC702 CP/NOS WWW-MMM yyyy-mm-dd <hash>\r\n".  WWW-MMM is
+     * patched in place from active_transport->name (7 chars, not
+     * NUL-term, format "WWW-MMM" — wire-mode).  Banner is .data
+     * (mutable) so the patch sticks at runtime. */
+    static char banner[] = "RC702 CP/NOS XXX-XXX " BUILD_INFO_STR "\r\n";
+    __builtin_memcpy(&banner[13], active_transport->name, 7);
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
 
     /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to NDOSRL +
