@@ -248,6 +248,21 @@ obsolete — see deprecation banner on
 - [ ] Pi-side z80pack invocation: in-process Python binding vs
       subprocess with TCP loopback.
 
+### TODO (2026-04-28): investigate multi-channel SNIOS in any CP/NET impl
+
+Question: do any CP/NET SNIOS implementations support more than one
+communications channel (e.g., one over SIO + one over PIO simultaneously,
+with traffic routed by frame type / priority)?  If yes, the design might
+be applicable here — fast PIO link for bulk, slow SIO for control.  If
+no (every SNIOS we've seen is single-transport), worth knowing as a
+reference point for any multi-link design we'd build.
+
+Sources to check:
+- cpnet-z80 contrib SNIOS variants (snios-0/1/2 on z80pack).
+- DRI's original CP/NET 1.2 distribution.
+- CpnetSerialServer.jar / Java NIOS implementations.
+- SEBHC docs (http://sebhc.durgadas.com/CPNET-docs/).
+
 ### TODO (2026-04-28): 32-bit CRT frame counter in cpnos isr_crt
 
 cpnos-rom's `isr_crt` (in `cpnos-rom/isr.c`) currently does the CRT

@@ -323,15 +323,24 @@ extern uint16_t netboot_mpm(void);
  * and falls through to NDOS+3 = COLDST.  See cpnos-build/src/cpnos.asm. */
 extern void impl_conout(uint8_t c);
 
-static void nos_handoff(void) {
-    /* Banner: "RC702 CP/NOS WWW-MMM yyyy-mm-dd <hash>\r\n".  WWW-MMM is
+/* Banner is printed BEFORE NETBOOT() so the screen layout is:
+ *   row 0 (cursor home): "RC702 CP/NOS WWW-MMM yyyy-mm-dd HH:MM hash"
+ *   row 1: 25 netboot progress dots followed by CR/LF on EOF
+ * Operator sees the OS identity immediately on power-on, then watches
+ * the dots fill in below it.  Previously the banner was printed by
+ * nos_handoff() AFTER netboot, so the dots appeared on row 0 and the
+ * banner on row 1 — backwards from what operators expect. */
+static void print_banner(void) {
+    /* "RC702 CP/NOS WWW-MMM yyyy-mm-dd HH:MM hash\r\n".  WWW-MMM is
      * patched in place from active_transport->name (7 chars, not
      * NUL-term, format "WWW-MMM" — wire-mode).  Banner is .data
      * (mutable) so the patch sticks at runtime. */
     static char banner[] = "RC702 CP/NOS XXX-XXX " BUILD_INFO_STR "\r\n";
     __builtin_memcpy(&banner[13], active_transport->name, 7);
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
+}
 
+static void nos_handoff(void) {
     /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to NDOSRL +
      * 0x300 = 0xCF00.  NDOS COLDST reads ZP[1..2] = 0xCF03 and walks
      * 0xCF02..0xCF34 in place, replacing slots 1..5 + 15 with NDOS
@@ -399,6 +408,11 @@ static void nos_handoff(void) {
      * netboot regardless of transport.  See
      * tasks/session34-direct-pio-stall-rootcause.md. */
     enable_interrupts();
+
+    /* Print banner BEFORE netboot so it appears on row 0 and the
+     * netboot progress dots flow on row 1 (operator's natural
+     * "OS identity at top, progress below" expectation). */
+    print_banner();
 
     uint16_t entry = NETBOOT();
     BOOT_MARK(15, entry ? '+' : '-');  /* netboot return: + ok, - fail */
