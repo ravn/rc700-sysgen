@@ -211,47 +211,54 @@ void isr_crt(void) {
  * to kbd_ring; drops on full ring.  Ring buffer symbols (kbd_ring /
  * kbd_head / kbd_tail) live in resident.c.
  *
- * Registers used: A, F, BC, DE, HL.  Save set: AF + BC + DE + HL
- * (8 bytes of PUSH/POP). */
+ * Registers used: A, F, BC, HL.  Save set: AF + BC + HL (6 bytes of
+ * PUSH/POP).  The key byte is stashed on the stack (PUSH AF early,
+ * POP AF after the head/tail logic) instead of in E, and new_head is
+ * carried in A rather than D — `cp (hl)` lets us compare against
+ * (_kbd_tail) without DE. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_kbd(void) {
     __asm__ volatile(
         "push af\n\t"
         "push bc\n\t"
-        "push de\n\t"
         "push hl\n\t"
 
-        "in   a, (0x10)\n\t"        /* PORT_PIO_A_DATA -> A */
-        "ld   e, a\n\t"             /* stash key */
+        "in   a, (0x10)\n\t"        /* PORT_PIO_A_DATA -> A = key */
+        "push af\n\t"               /* stash key on stack (A goes high byte) */
 
-        /* new_head = (head + 1) & 0x0F */
+        /* new_head = (head + 1) & 0x0F, in A */
         "ld   hl, _kbd_head\n\t"
         "ld   a, (hl)\n\t"
         "inc  a\n\t"
         "and  0x0F\n\t"
-        "ld   d, a\n\t"             /* D = new_head */
 
         /* if (new_head == tail) drop */
         "ld   hl, _kbd_tail\n\t"
-        "ld   a, (hl)\n\t"
-        "cp   d\n\t"
+        "cp   (hl)\n\t"
         "jr   z, 1f\n\t"
 
-        /* ring[head] = key;  head = new_head */
-        "ld   hl, _kbd_head\n\t"
-        "ld   a, (hl)\n\t"
-        "ld   h, 0\n\t"
+        /* head = new_head (A still holds new_head) */
+        "ld   (_kbd_head), a\n\t"
+
+        /* HL = &ring[old_head] = ring + ((new_head - 1) & 0x0F) */
+        "dec  a\n\t"
+        "and  0x0F\n\t"
         "ld   l, a\n\t"
+        "ld   h, 0\n\t"
         "ld   bc, _kbd_ring\n\t"
         "add  hl, bc\n\t"
-        "ld   (hl), e\n\t"
-        "ld   a, d\n\t"
-        "ld   (_kbd_head), a\n\t"
+
+        /* Pop key from stack into A (clobbers F — we no longer need it). */
+        "pop  af\n\t"
+        "ld   (hl), a\n\t"          /* ring[old_head] = key */
+        "jr   2f\n\t"
+
     "1:\n\t"
+        "pop  af\n\t"               /* drop path: discard the stashed key */
+    "2:\n\t"
 
         "pop  hl\n\t"
-        "pop  de\n\t"
         "pop  bc\n\t"
         "pop  af\n\t"
         "ei\n\t"
@@ -270,10 +277,11 @@ void isr_pio_kbd(void) {
  * host-send / speed-rx test modes which don't use the IRQ-driven
  * recv ring.  --gc-sections drops the unused BSS allocations.
  *
- * Registers used: A, F, DE, HL.  Save set: AF + DE + HL (6 bytes of
- * PUSH/POP).  BC is left alone — userspace may have important state
- * there, and userspace shadow regs are preserved by definition since
- * we never EXX. */
+ * Registers used: A, F, HL.  Save set: AF + HL (4 bytes of PUSH/POP).
+ * The byte is stashed on the stack between the head/tail check and the
+ * ring write; new_head is carried in A; pio_rx_buf is page-aligned so
+ * `ld h, _pio_rx_buf_page; ld l, head` builds &ring[head] without BC.
+ * Userspace BC/DE/shadow registers all stay intact across the IRQ. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
@@ -288,39 +296,40 @@ void isr_pio_par(void) {
 #else
     __asm__ volatile(
         "push af\n\t"
-        "push de\n\t"
         "push hl\n\t"
 
         "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A; clears chip IP */
-        "ld   e, a\n\t"             /* stash byte */
+        "push af\n\t"               /* stash the byte on the stack */
 
         /* SPSC ring push for snios.  256-byte buffer at page-aligned
          * address (0xF700 per payload.ld), so HL = page<<8 | head is
-         * a single 16-bit address.  uint8_t wrap is free — no mask. */
-        /* new_head = (uint8_t)(head + 1) — wraps at 256. */
+         * a single 16-bit address.  uint8_t wrap is free — no mask.
+         * new_head = (uint8_t)(head + 1), in A. */
         "ld   hl, _pio_rx_head\n\t"
         "ld   a, (hl)\n\t"
         "inc  a\n\t"
-        "ld   d, a\n\t"             /* D = new_head */
 
         /* if (new_head == tail) drop — ring full, byte lost. */
         "ld   hl, _pio_rx_tail\n\t"
-        "ld   a, (hl)\n\t"
-        "cp   d\n\t"
+        "cp   (hl)\n\t"
         "jr   z, 2f\n\t"
 
-        /* ring[head] = byte; head = new_head.  Page-aligned 256-byte
-         * buf — H = buf>>8 (0xf7) is a constant; L = head. */
-        "ld   a, (_pio_rx_head)\n\t"
+        /* head = new_head; ring[old_head] = byte.  Page-aligned 256-byte
+         * buf — H = buf>>8 (0xf7) is a constant; L = old_head. */
+        "ld   (_pio_rx_head), a\n\t"
+        "dec  a\n\t"                 /* A = old_head (uint8 wrap) */
         "ld   l, a\n\t"
         "ld   h, _pio_rx_buf_page\n\t"
-        "ld   (hl), e\n\t"
-        "ld   a, d\n\t"
-        "ld   (_pio_rx_head), a\n\t"
+
+        "pop  af\n\t"                /* recover stashed byte into A */
+        "ld   (hl), a\n\t"           /* ring[old_head] = byte */
+        "jr   3f\n\t"
+
     "2:\n\t"
+        "pop  af\n\t"                /* drop path: discard the stashed byte */
+    "3:\n\t"
 
         "pop  hl\n\t"
-        "pop  de\n\t"
         "pop  af\n\t"
         "ei\n\t"
         "reti\n\t"
