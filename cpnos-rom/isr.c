@@ -101,7 +101,9 @@ void isr_noop(void) {
  *   - (re)load attribute word count = 0 (no attributes used)
  *   - unmask DMA channels
  *   - re-arm CTC ch2 for next frame
- *   - bump tick counter at 0xEC30 (MAME probe verifies we fired)
+ *   - bump 32-bit frame counter at 0xFFFC..0xFFFF (MAME probes read
+ *     the low byte to verify the ISR fired; mainline code reads all 4
+ *     bytes for a 50 Hz wall-clock-immune timestamp)
  *   - if cur_dirty: push 8275 cursor regs, clear flag (defers per-char
  *     8275 writes from impl_conout to once-per-frame here, eliminating
  *     visible flicker on netboot banner / CCP DIR / etc.)
@@ -118,16 +120,16 @@ void isr_crt(void) {
         "push af\n\t"
         "push hl\n\t"
 
-        /* Breadcrumb tick at 0xEC30 (was 0xEC20 pre-IVT-relocation). */
-        "ld   hl, 0xEC30\n\t"
-        "inc  (hl)\n\t"
-
         /* 32-bit frame counter at 0xFFFC..0xFFFF — mirrors rcbios's
          * RTC location (RC702_BIOS_SPECIFICATION.md §3.4).  50 Hz ticks
          * (CRT VRTC).  Wraps at ~993 days.  Used by the file-I/O bench
          * to record frames-to-completion (immune to MAME wall-clock
-         * variation).  ~13 bytes; INC (HL) sets Z on zero, so propagate
-         * carry by jr nz from each byte. */
+         * variation), and by the MAME taps as the "did the CRT ISR
+         * fire" probe (reading the low byte at 0xFFFC suffices — it
+         * passes through 0 once every 5.12 s but the test logs the
+         * value alongside other counters so a transient zero is
+         * unambiguous).  ~13 bytes; INC (HL) sets Z on zero, so
+         * propagate carry by jr nz from each byte. */
         "ld   hl, 0xFFFC\n\t"
         "inc  (hl)\n\t"
         "jr   nz, 8f\n\t"

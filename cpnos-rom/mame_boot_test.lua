@@ -137,13 +137,17 @@ local function finish(result, space)
     f:write(string.format(
         "BOOT[0xD000..2]=%02x %02x %02x (want c3 ?? ?? — JP NDOSE)\n",
         space:read_u8(0xD000), space:read_u8(0xD001), space:read_u8(0xD002)))
-    f:write("\n--- 0xEC00 (breadcrumbs; 0xEC20 = CRT ISR tick counter) ---\n")
+    f:write("\n--- 0xEC00 (breadcrumbs) ---\n")
     -- Dump through 0xEC5F so the impl_conout/const/conin breadcrumb
     -- counters at 0xEC40..0xEC43 (resident.c) are visible.  Keep until
     -- issue #38 (boot path flaky) is reliably green.
     f:write(hex_dump(space, 0xEC00, 96) .. "\n")
-    f:write(string.format("CRT ISR ticks = %d (expect > 0 if VRTC wired)\n",
-        space:read_u8(0xEC20)))
+    -- 32-bit CRT frame counter at 0xFFFC..0xFFFF (LE; low byte first).
+    -- Bumped once per VRTC IRQ at 50 Hz.  Probe: nonzero -> ISR fired.
+    local t0 = space:read_u8(0xFFFC); local t1 = space:read_u8(0xFFFD)
+    local t2 = space:read_u8(0xFFFE); local t3 = space:read_u8(0xFFFF)
+    f:write(string.format("CRT frame counter = 0x%02x%02x%02x%02x (expect > 0 if VRTC wired)\n",
+        t3, t2, t1, t0))
     f:write("\n--- 0xE400 (cpnos_main breadcrumbs) ---\n")
     f:write(hex_dump(space, 0xE400, 16) .. "\n")
     f:write("\n--- CFGTBL (SLAVEID at +1, NETST at +0) ---\n")

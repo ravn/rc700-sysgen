@@ -113,13 +113,14 @@ emu.register_periodic(function ()
 	-- earlier experiments showed install_read_tap and
 	-- install_write_tap on 0xEA38-area / 0xEF8E broke the IM2 IRQ
 	-- chain in MAME's emulation (symptom: crt_ticks counter at
-	-- 0xEC30 stayed at uninitialized BSS, never incrementing) so
+	-- 0xFFFC stayed at uninitialized BSS, never incrementing) so
 	-- both CRT VRTC and PIO-B IRQs stopped firing.  Pure polling
 	-- has no such side effect.
 	local cur = prog:read_u8(PIO_PAR_COUNT_ADDR)
 	if cur ~= last_count then
 		local byte = prog:read_u8(PIO_PAR_BYTE_ADDR)
-		local crt_ticks = prog:read_u8(0xEC30)
+		-- 32-bit CRT frame counter at 0xFFFC..0xFFFF (low byte first).
+		local crt_ticks = prog:read_u8(0xFFFC)
 		local f = io.open(TAP_LOG, "a")
 		if f then
 			f:write(string.format("count=%d byte=0x%02X crt_ticks=%d\n",
