@@ -1,1 +1,5 @@
 *.ASM text eol=crlf
+
+# CP/M-extracted file trees keep their original byte-exact content
+# (CRLF line endings, Ctrl-Z padding, .COM / .OVR / .HLP binaries).
+cpnos-rom/e_drive_seed/** binary
