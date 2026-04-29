@@ -357,7 +357,12 @@ static void nos_handoff(void) {
      *   0x0000..0x0002 = JP 0xCF03 (= NDOSRL+0x303 — NDOS's BIOS-JT
      *                    walk target)
      *   0x0003         = IOBYTE = 0 (all TTY)
-     *   0x0004         = current drive/user = 0 (A:, user 0)
+     *   0x0004         = current drive/user = 0x04 (E:, user 0).  E: is
+     *                    bound to master I: (4 MB hard disk) in
+     *                    cfgtbl.c, so CCP's first prompt comes up on the
+     *                    big disk rather than the 256 KB A: floppy that
+     *                    netboot fetched CPNOS.IMG from.  Floppy A:..D:
+     *                    are still mounted and reachable via `A:` etc.
      *   0x0005..0x0007 = JP CPNOS_BDOS_ADDR (= cpnos.com's BDOSE).
      *                    NDOS COLDST overwrites this with its own
      *                    intercept entry as soon as it runs, so this
@@ -366,7 +371,7 @@ static void nos_handoff(void) {
     static const uint8_t ZP_INIT[8] = {
         0xC3, 0x03, 0xCF,                          /* JP 0xCF03 */
         0x00,                                       /* IOBYTE */
-        0x00,                                       /* drive/user */
+        0x04,                                       /* drive/user (E:, user 0) */
         0xC3,
         (uint8_t)(CPNOS_BDOS_ADDR & 0xFF),          /* BDOS lo */
         (uint8_t)((CPNOS_BDOS_ADDR >> 8) & 0xFF),   /* BDOS hi */

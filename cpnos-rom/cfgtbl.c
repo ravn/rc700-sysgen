@@ -76,12 +76,19 @@ struct cfgtbl cfgtbl;
 void cfgtbl_init(void) {
     cfgtbl.slaveid = RC702_SLAVEID;
     /* Drive A:-D: mapped to server master (slave ID 0x00) drives A:-D:.
-     * NDOS's LOAD for CCP.SPR picks up CDISK (0 = A:) by default, so
-     * A: needs to be network. */
+     * NDOS's LOAD for CCP.SPR uses ccpfcb (cpndos.asm:ccpfcb) which
+     * hardcodes drive byte 1 (= A:), so A: must be network and must
+     * carry CCP.SPR for the cold-boot CCP load to succeed. */
     cfgtbl.drive[0] = NET_DRV('A', 0x00);
     cfgtbl.drive[1] = NET_DRV('B', 0x00);
     cfgtbl.drive[2] = NET_DRV('C', 0x00);
     cfgtbl.drive[3] = NET_DRV('D', 0x00);
+    /* E:, F: -> master I:, J: (4 MB hard disks).  Master XIOS exposes
+     * harddisk DPHs at drive numbers 8 and 9 (see bnkxios-net-2.mac);
+     * NDOS encodes them as 'I' and 'J'.  Disk images are seeded by the
+     * cpmsim/mpm-net2 launcher from disks/library/mpm-net2-drive[ij].dsk. */
+    cfgtbl.drive[4] = NET_DRV('I', 0x00);
+    cfgtbl.drive[5] = NET_DRV('J', 0x00);
     cfgtbl.sid = 0xFF;          /* SNIOS rewrites to SLAVEID at init */
     cfgtbl.fnc = 0x05;          /* LIST function */
 }

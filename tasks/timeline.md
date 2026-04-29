@@ -905,7 +905,40 @@ Three commits after the audit:
 - **Lessons**: the `+static-stack` BSS-spill policy is the single
   biggest source of waste in C-side functions; #74 (push/pop for
   short-lived spills) would be the most impactful fix.  Dense-range
-  switches on u8 keys are a recurring 8-bit→16-bit promotion source.
+  switches on u8 keys are a recurring 8-bit->16-bit promotion source.
+
+### Phase 28b: bigger MP/M disks; CCP boots on E:=master I: (Apr 29, 2026) — Easy
+
+- **Goal**: stop being constrained to 256 KB 8" SS-SD floppies for
+  master-side MP/M, and have the slave's first prompt land on a
+  4 MB drive instead of A:.
+- **Method**: master MP/M's `bnkxios-net-2.mac` already declares HD
+  DPHs at drive numbers 8/9/15 (I/J/P).  No XIOS rebuild — just
+  populate `disks/drive[ij].dsk` and extend the slave's CFGTBL.
+  - `cpnos-rom/cfgtbl.c`: added `drive[4]=NET_DRV('I',0)`,
+    `drive[5]=NET_DRV('J',0)` so slave E:/F: route to master I:/J:.
+  - `cpnos-rom/cpnos_main.c`: ZP[4] = 0x04 so CCP comes up at E>
+    instead of A>.  CCP.SPR LOAD path was unaffected — that uses
+    `ccpfcb` (cpndos.asm) which hardcodes drive byte 1 (A:), so
+    boot still pulls CCP.SPR from master A:.  Fixed an outdated
+    cfgtbl.c comment that claimed CDISK drove the LOAD.
+  - `z80pack/cpmsim/mpm-net2`: cp library copies of
+    `mpm-net2-drive[ij].dsk` -> `disks/drive[ij].dsk` on every
+    launch, with mkdskimg fallback if the library disks are
+    missing.  Pre-formatted 4 MB images created via
+    `mkfs.cpm -f z80pack-hd` and staged in `disks/library/`.
+- **Verdict**: live-tested via PIO-IRQ netboot.  Banner +
+  18-char boot strip ending in `J` (NDOS COLDST reached) +
+  25 sector dots + `E>` prompt confirmed on both the SIO-B mirror
+  (`/tmp/cpnos_siob.raw`) and the MAME CRT screenshot.
+- **Cost**: payload 2536 -> 2548 B (+12 B for two extra
+  `NET_DRV('I'/'J',0)` stores).  Still ~480 B headroom under
+  PROM0+PROM1 = 4 KB.
+- **Caveat**: existing pass criteria (`pio-irq-netboot`,
+  `pio-irq-smoke`, `cpnet-smoke`) grep for `A>` in SIO-B; they need
+  updating to match `E>`.  Smoke workloads that explicitly do
+  `A:`/`B:`/`C:` etc. are unaffected since A:..D: still mount the
+  same 256 KB floppies as before.
 
 ### Phase 27d: 3-way bench complete (SIO / PIO-IRQ / PIO-PROXY) (Apr 28, 2026) — Medium
 
