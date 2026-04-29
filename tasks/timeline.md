@@ -861,6 +861,52 @@ Three commits after the audit:
   mechanism itself verified by disassembly at clang/cpnos.lis +
   0xefc8: `3e 57 d3 81`.
 
+### Phase 28: cpnos-rom payload codegen audit (Apr 29, 2026) — Easy
+
+- **Goal**: assess whether the 2536 B cpnos-rom payload is at the
+  llvm-z80 codegen ceiling, or if the gap to slot-1 (2 KB, ~488 B) is
+  a compiler-fix away vs a refactor away.
+- **Method**: ranked all 130 functions by size from `clang/cpnos.lis`,
+  read the largest (`_netboot_mpm` 202 B, `_cpnos_cold_entry` 137 B,
+  `_init_hardware` 110 B, `_specc` 101 B, `_isr_crt` 101 B,
+  `_impl_conout` 88 B, `_xport_*` family) and looked for recurring
+  patterns.  Built minimal repros for each new finding, verified
+  against the project flags (`-Oz +static-stack -disable-lsr`).
+- **Verdict**: **not at the ceiling.**  Several recurring missed
+  optimizations identified.  Hand-written 8080 SNIOS asm is tight;
+  the C-side functions show common gaps.
+- **Filed (4 new ravn/llvm-z80 issues)**:
+  - **#83** — dead `and 1` after `ld a,1` for `_Bool` store
+  - **#84** — loop body backs up HL through BC unnecessarily
+    (in-place writes already advance HL); plus DJNZ miss
+  - **#85** — sequential consecutive-address stores not lowered to
+    HL-walked `ld (hl),v / inc hl` chain
+  - **#86** — switch range-check on `u8` discriminant uses 16-bit
+    SUB/SBC instead of 8-bit CP
+- **Comments added** to existing issues:
+  - **#60** (Redundant LD A,reg) — `xor a; out; ld a,$0; out`
+    instance from `_isr_crt`
+  - **#18** (Known-value register copy) — constant routed
+    DE→L→A in `_init_hardware`'s `set_i_reg($EC)` call
+- **Already covered** by prior issues #73 (small memcpy unroll),
+  #74 (BSS spill across single CALL), #78 (LDIR post-state DE/HL
+  not reused) — no refile.
+- **Source-side wins** independently of compiler (filed in
+  tasks/todo.md): drop the vtable indirection (~38 B; build is
+  already TRANSPORT-specific), gate BOOT_MARK in production
+  (~30-50 B), pad LOGIN_PWD copy to 12 B to hit the LDIR
+  threshold.
+- **Realistic shave estimates**:
+  - Source-only: ~80-100 B → ~2440 B
+  - + compiler fixes: ~100-150 B → ~2300 B
+  - + drop vtable: → ~2260 B
+  - Closing the full ~488 B gap to slot-1 needs a console
+    subsystem refactor on top.  Not yet planned.
+- **Lessons**: the `+static-stack` BSS-spill policy is the single
+  biggest source of waste in C-side functions; #74 (push/pop for
+  short-lived spills) would be the most impactful fix.  Dense-range
+  switches on u8 keys are a recurring 8-bit→16-bit promotion source.
+
 ### Phase 27d: 3-way bench complete (SIO / PIO-IRQ / PIO-PROXY) (Apr 28, 2026) — Medium
 
 - **Goal**: comparable workload bench across the three CP/NET transports

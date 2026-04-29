@@ -167,6 +167,7 @@ Known bugs to file:
 - [ ] Audit ravn/llvm-z80 issues list for others that affect upstream
 
 ## Parked (not working on now)
+- [ ] **ISRs: drop EXX/EX AF,AF', PUSH only what's used.** Current ISRs (`isr_crt`, `isr_pio_par`, `isr_pio_kbd` in cpnos-rom/isr.c) blindly bracket the body with `EX AF,AF'; EXX` / `EXX; EX AF,AF'` to save AF + BC + DE + HL via shadows. That's 1 byte each direction (cheap) but reserves the entire shadow set globally — non-ISR code can't use shadow regs without coordination, and the cost is fixed regardless of which regs the ISR actually clobbers. Replace with explicit `PUSH AF` / `PUSH HL` / etc. for only the regs the body touches; let the ISR body use main regs freely. Frees shadow regs for hot-path resident code (e.g., the SNIOS envelope inner loop). Cost: 1 byte per PUSH/POP pair vs 1 byte per EXX, but most ISRs only need 1-2 regs. Net savings depend on per-ISR clobber set; estimate ~5-15 B across the three ISRs plus reclaiming shadow regs as a general-purpose resource.
 - [ ] 58K rel.1.4: 4 ISR-specific auto-labels remain in BIOS_58K_14.MAC (sub_e43dh, lee8ah, lee8bh, lf421h)
 - [ ] VERIFY.COM disassembly: Pascal-compiled disk verification utility (10KB). VERIFY.MAC in RC702E BIOS is a related but separate compilation (4KB app block, missing runtime). Low value — compiler output won't produce readable source.
 - [x] **Microcontroller-as-host-bridge** — resolved 2026-04-25 by
@@ -426,4 +427,33 @@ in the timer callback.
 
 Test with `attotime::from_usec(100)` instead of `from_msec(1)`,
 re-run bench, compare.  Cheap to test.
+
+## cpnos-rom payload codegen analysis (2026-04-29)
+
+Payload is 2536 B in PROM0+PROM1 (4 KB).  Long-term goal per memory
+[CP/NOS → PROM 1 via compiler]: fit in PROM 1 (2 KB).  Gap: ~488 B.
+
+### Already filed against ravn/llvm-z80 (compiler-side)
+- [ ] #73 — small fixed-length `__builtin_memcpy` (≤8 B) unrolls to ~40 B of immediate stores instead of LDIR.  Worked around in `netboot_mpm.c:120-123` with a hand byte loop; still not optimal (17 B vs ~11 B LDIR).
+- [ ] #74 — short-lived 16-bit spills go to BSS (or SP-relative) instead of PUSH/POP.  Hits `_xport_recv_byte` and `_cpnos_cold_entry`.
+- [ ] #78 — LDIR's post-state DE/HL = dst+count not reused for `ptr += count`; hot path in `_netboot_mpm` reloads from BSS and re-adds (~6 B × 358 RTTs).
+- [ ] #83 — dead `and 1` after `ld a,1` for `_Bool` store (PIO direction flag).  ~4 B.
+- [ ] #84 — IVT loop and marker-print loop back up HL through BC unnecessarily; in-place writes already advance HL.  ~9 B per loop.
+- [ ] #85 — sequential consecutive-address stores not lowered to HL-walked `ld (hl),v / inc hl` chain.  `_cpnet_xact` init alone is ~4 B; pattern recurs.
+- [ ] #86 — switch range-check on `u8` discriminant uses 16-bit SUB/SBC instead of 8-bit CP.  Hits `_specc` (~5-7 B).
+- Comments added: #60 (xor a; out; ld a,$0; out variant in `_isr_crt`), #18 (constant-routed-through-DE→L→A in `_init_hardware` set_i_reg call).
+
+### Source-side wins independent of compiler
+- [ ] **Drop vtable indirection (~38 B).**  Build is already TRANSPORT-specific (`-DTRANSPORT_NAME=...` + linker `--defsym`).  `cpnet_send_msg` (18 B), `cpnet_recv_msg` (20 B), `cpnet_probe`, `transport_sio_vt` (8 B data), `active_transport` (2 B) and the `__call_iy` dispatch path are pure overhead — nothing else picks transport at runtime.  Replace with a direct call (alias `cpnet_send_msg → snios_sndmsg_c` / `pio_send_msg` per build).
+- [ ] **Gate BOOT_MARK in production (~30-50 B).**  `_netboot_mpm` and `_cpnos_cold_entry` together write ~12 BOOT_MARK bytes to `$f843..$f84e` (5 B each).  `-DBOOT_MARK_ENABLED=0` for shipping builds.
+- [ ] **Pad LOGIN_PWD copy to 12 bytes** (or unroll to HL-walk) so it hits the LDIR threshold (issue #73 workaround).  ~6 B.
+
+### Other observations
+- Hand-written 8080 SNIOS asm: tight, no waste.
+- ISRs: ~2-6 B each savable (mostly via #60 / #84-class fixes).
+- Console subsystem (`_specc`, `_impl_conout`, cursor functions): ~5-15 B savable, mostly via #85 / #86.
+- Realistic shave with current compiler (source-only): ~80-100 B → ~2440 B.
+- Plus compiler fixes (#73, #74, #78, #83-#86): another ~100-150 B → ~2300 B.
+- Plus drop vtable: → ~2260 B.
+- Closing the full 488 B gap to slot-1 (2 KB) needs all of the above plus a console-subsystem refactor.  Not yet planned.
 
