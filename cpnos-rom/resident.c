@@ -24,6 +24,7 @@
 #define RESIDENT
 #endif
 
+#if MIRROR_SIOB
 /* Busy-wait SIO-B transmit.  Used by impl_conout to mirror every
  * console byte to the null-modem log. */
 RESIDENT
@@ -31,6 +32,7 @@ static void console_putc(uint8_t c) {
     while ((_port_in(PORT_SIO_B_CTRL) & SIO_RR0_TX_BUF_EMPTY) == 0) { }
     _port_out(PORT_SIO_B_DATA, c);
 }
+#endif
 
 /* Resident tail-call trampoline: `JP (HL)` from snios.s. */
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
@@ -312,9 +314,11 @@ uint8_t impl_conin(void) {
 
 RESIDENT
 void impl_conout(uint8_t c) {
+#if MIRROR_SIOB
     /* Serial mirror first — captures the raw byte stream for null-modem
      * logs regardless of what we do to the CRT side. */
     console_putc(c);
+#endif
 
     if (xflg != 0) {
         xy_step(c);

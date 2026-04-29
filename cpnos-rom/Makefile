@@ -12,6 +12,13 @@
 
 ENABLE_FDC ?= 0
 
+# Mirror every impl_conout byte to SIO-B as well as the CRT.  Default 1
+# matches existing smoke / netboot tests that grep /tmp/cpnos_siob.raw
+# for the boot prompt.  Set MIRROR_SIOB=0 for CRT-only -- impl_conout
+# becomes a single-target write, ~12 B smaller in resident code, and
+# SIO-B stays silent so the channel is free for other uses.
+MIRROR_SIOB ?= 1
+
 # Bring-up scaffolding: enables the PIO-B 10-byte CP/NET frame loopback
 # test in cpnos_main (Z80 sends -> harness mirrors -> Z80 validates).
 # Off by default since session 33 — the real driver (transport_pio.c
@@ -42,6 +49,7 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -Xclang -target-feature -Xclang +static-stack \
          -mllvm -disable-lsr \
          -DENABLE_FDC=$(ENABLE_FDC) \
+         -DMIRROR_SIOB=$(MIRROR_SIOB) \
          -DRC702_SLAVEID=0x01 \
          $(SERVER_CFLAGS) \
          -Iclang -I. \
