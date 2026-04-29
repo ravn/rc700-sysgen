@@ -907,6 +907,51 @@ Three commits after the audit:
   short-lived spills) would be the most impactful fix.  Dense-range
   switches on u8 keys are a recurring 8-bit->16-bit promotion source.
 
+### Phase 28c: ISRs preserve shadow regs (PPAS no longer corrupted) (Apr 29, 2026) — Easy
+
+- **Trigger**: extracted PolyPascal v3.10 (PPAS.COM, 28416 B) onto E:.
+  Disassembly showed PPAS uses the shadow bank as persistent
+  workspace — 216 `EXX` and 208 `EX AF,AF'` opcodes, with dense
+  clusters in the editor / runtime dispatch.  Cpnos-rom's three IM2
+  ISRs (`isr_crt`, `isr_pio_kbd`, `isr_pio_par`) bracket their bodies
+  with `EX AF,AF'; EXX` / `EXX; EX AF,AF'`, which clobbers PPAS's
+  shadow registers on every interrupt.  At 50 Hz CRT VRTC alone, the
+  Pascal runtime state corrupts within milliseconds.
+- **Investigation (clang interrupt attribute)**:
+  `__attribute__((interrupt))` is fully wired in llvm-z80
+  (`Z80FrameLowering.cpp`, `Z80CallLowering.cpp`,
+  `Z80RegisterInfo.cpp`).  CSR list `Z80_Interrupt_CSR =
+  {AF,BC,DE,HL,IX,IY}` filters down to actually-clobbered regs.  Lit
+  test `llvm/test/CodeGen/Z80/interrupt.ll` shows a one-store ISR
+  emits exactly `push af / ... / pop af / ei / reti`.  Cpnos build
+  doesn't pass `+shadow-regs`, so the EXX-based EXX_CSR_SaveList
+  isn't used today.
+- **Fix**: keep the ISRs as `__attribute__((naked))` with manual asm
+  (the bodies are 100% inline asm anyway), but replace `EX AF,AF';
+  EXX` bracket with explicit PUSH/POP for only the registers each
+  ISR actually clobbers:
+  | ISR | Uses | Save set |
+  |-----|------|----------|
+  | `isr_crt` | A, F, HL | AF + HL (4 B) |
+  | `isr_pio_kbd` | A, F, BC, DE, HL | AF + BC + DE + HL (8 B) |
+  | `isr_pio_par` | A, F, DE, HL | AF + DE + HL (6 B) |
+  | `isr_noop` | none | none |
+
+  None of the ISRs touch IX/IY; all userspace shadow registers are
+  preserved by definition since we never EXX.
+- **Cost**: payload 2548 -> 2554 B (+6 B with MIRROR_SIOB=1, mirrors
+  to 2528 -> 2534 B with mirror off).  T-states: isr_crt +26 T at
+  50 Hz = 0.03% CPU; isr_pio_par +47 T per byte at 31 KB/s peak =
+  ~37% of CPU during netboot bursts only (acceptable, netboot is
+  one-shot).
+- **Verified**: `PPAS PRIMES` runs cleanly under MAME with the new
+  ISRs after extracting PPAS.COM/ERM/HLP onto E: (master I: 4 MB HD).
+- **Followup TODO**: convert each ISR to a C function with
+  `__attribute__((interrupt))` and inline-asm clobber lists, so the
+  compiler computes the save set automatically.  Current naked form
+  produces identical code; the conversion is purely an ergonomics
+  win.
+
 ### Phase 28b: bigger MP/M disks; CCP boots on E:=master I: (Apr 29, 2026) — Easy
 
 - **Goal**: stop being constrained to 256 KB 8" SS-SD floppies for

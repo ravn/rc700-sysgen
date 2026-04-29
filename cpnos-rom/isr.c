@@ -4,27 +4,31 @@
  * IVT lives at 0xEC00 (set up by init.c).  Each entry is a 16-bit
  * pointer to one of the ISR symbols below.
  *
- * Register preservation: every ISR swaps to the Z80 shadow register
- * set via `ex af,af'` + `exx`, so the body's use of A/BC/DE/HL is
- * safe.  Compiled C is built with +shadow-regs, which means the main
- * register set is the one live at interrupt time; the shadow set is
- * therefore free for the ISR.  IX/IY are not swapped but the ISRs
- * never touch them.
+ * Register preservation: every ISR PUSHes only the register pairs it
+ * actually clobbers, then POPs them on exit.  Crucially the ISRs do
+ * NOT touch the Z80 shadow set (BC'/DE'/HL'/AF') — userspace programs
+ * (PolyPascal interpreter, BDS C, WordStar) stash persistent runtime
+ * state there and any EX AF,AF' / EXX in an ISR would silently corrupt
+ * that state on every interrupt.  None of the ISR bodies use IX/IY.
  *
- * Encoding wart: clang's integrated assembler (like GNU-as on Z80)
- * rejects the apostrophe in `ex af, af'`, so the swap is encoded as
- * `.byte 0x08`.  The same trick is in the prior isr.s.
+ * Phase 3 step 2 (2026-04-26): replaced isr.s.  Co-location with
+ * resident.c's BSS vars (kbd_ring, pio_par_*, curx/cury, cur_dirty)
+ * is the win — the ISRs and the BSS they touch live in the same
+ * compilation unit family now.
+ *
+ * 2026-04-29: switched from EX AF,AF' + EXX bracket to explicit
+ * PUSH/POP per ISR.  EXX swaps the shadow bank into main; userspace
+ * code that holds live state in the shadow bank (every PolyPascal
+ * v3.10 dispatch — 233 EXX/EX AF,AF' instructions in PPAS.COM) loses
+ * that state on every VRTC IRQ.  The new sequence is +6 bytes overall
+ * (isr_crt unchanged in size, isr_pio_kbd +4, isr_pio_par +2) but
+ * keeps the shadow regs free for userspace.
  *
  * All ISRs live in `.resident.isr` so they survive the OUT (0x18)
  * PROM disable.  The init helpers below (set_i_reg / enable_im2 /
  * enable_interrupts / disable_interrupts) are also resident so they
  * can be called from resident contexts (warm boot path) without a
  * PROM-vs-RAM dance.
- *
- * Phase 3 step 2 (2026-04-26): replaced isr.s.  Co-location with
- * resident.c's BSS vars (kbd_ring, pio_par_*, curx/cury, cur_dirty)
- * is the win — the ISRs and the BSS they touch live in the same
- * compilation unit family now.  Same instructions, same encoding.
  */
 
 #include <stdint.h>
@@ -102,6 +106,8 @@ void isr_noop(void) {
  *     8275 writes from impl_conout to once-per-frame here, eliminating
  *     visible flicker on netboot banner / CCP DIR / etc.)
  *
+ * Registers used: A, F, HL.  Save set: AF + HL (4 bytes of PUSH/POP).
+ *
  * Mainline writes cur_dirty *after* curx/cury, so reading them here
  * races benignly: we may see a slightly-stale position one frame later,
  * but never a torn pair (single-byte stores are atomic on Z80). */
@@ -109,8 +115,8 @@ ISR_SECTION
 __attribute__((naked))
 void isr_crt(void) {
     __asm__ volatile(
-        ".byte 0x08\n\t"           /* ex af,af' */
-        "exx\n\t"
+        "push af\n\t"
+        "push hl\n\t"
 
         /* Breadcrumb tick at 0xEC30 (was 0xEC20 pre-IVT-relocation). */
         "ld   hl, 0xEC30\n\t"
@@ -191,8 +197,8 @@ void isr_crt(void) {
         "out  (0x00), a\n\t"
     "1:\n\t"
 
-        "exx\n\t"
-        ".byte 0x08\n\t"           /* ex af,af' */
+        "pop  hl\n\t"
+        "pop  af\n\t"
         "ei\n\t"
         "reti\n\t"
     );
@@ -201,13 +207,18 @@ void isr_crt(void) {
 /* PIO-A keyboard ISR.  Fires on each PIO-A interrupt (one per keystroke
  * with PIO-A in input mode + IRQ enabled).  Reads the byte and enqueues
  * to kbd_ring; drops on full ring.  Ring buffer symbols (kbd_ring /
- * kbd_head / kbd_tail) live in resident.c. */
+ * kbd_head / kbd_tail) live in resident.c.
+ *
+ * Registers used: A, F, BC, DE, HL.  Save set: AF + BC + DE + HL
+ * (8 bytes of PUSH/POP). */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_kbd(void) {
     __asm__ volatile(
-        ".byte 0x08\n\t"           /* ex af,af' */
-        "exx\n\t"
+        "push af\n\t"
+        "push bc\n\t"
+        "push de\n\t"
+        "push hl\n\t"
 
         "in   a, (0x10)\n\t"        /* PORT_PIO_A_DATA -> A */
         "ld   e, a\n\t"             /* stash key */
@@ -237,8 +248,10 @@ void isr_pio_kbd(void) {
         "ld   (_kbd_head), a\n\t"
     "1:\n\t"
 
-        "exx\n\t"
-        ".byte 0x08\n\t"           /* ex af,af' */
+        "pop  hl\n\t"
+        "pop  de\n\t"
+        "pop  bc\n\t"
+        "pop  af\n\t"
         "ei\n\t"
         "reti\n\t"
     );
@@ -255,8 +268,10 @@ void isr_pio_kbd(void) {
  * host-send / speed-rx test modes which don't use the IRQ-driven
  * recv ring.  --gc-sections drops the unused BSS allocations.
  *
- * Shadow registers (after exx + ex af,af') so we don't perturb mainline
- * code's register state. */
+ * Registers used: A, F, DE, HL.  Save set: AF + DE + HL (6 bytes of
+ * PUSH/POP).  BC is left alone — userspace may have important state
+ * there, and userspace shadow regs are preserved by definition since
+ * we never EXX. */
 ISR_SECTION
 __attribute__((naked))
 void isr_pio_par(void) {
@@ -265,15 +280,14 @@ void isr_pio_par(void) {
      * the chip's IE bit clear for that mode), but we still publish a
      * vector so the IVT slot resolves.  This stub is just iret. */
     __asm__ volatile(
-        ".byte 0x08\n\t"           /* ex af,af' */
-        ".byte 0x08\n\t"           /* ex af,af' (pair, no-op) */
         "ei\n\t"
         "reti\n\t"
     );
 #else
     __asm__ volatile(
-        ".byte 0x08\n\t"           /* ex af,af' */
-        "exx\n\t"
+        "push af\n\t"
+        "push de\n\t"
+        "push hl\n\t"
 
         "in   a, (0x11)\n\t"        /* PORT_PIO_B_DATA -> A; clears chip IP */
         "ld   e, a\n\t"             /* stash byte */
@@ -303,8 +317,9 @@ void isr_pio_par(void) {
         "ld   (_pio_rx_head), a\n\t"
     "2:\n\t"
 
-        "exx\n\t"
-        ".byte 0x08\n\t"           /* ex af,af' */
+        "pop  hl\n\t"
+        "pop  de\n\t"
+        "pop  af\n\t"
         "ei\n\t"
         "reti\n\t"
     );
