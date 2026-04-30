@@ -50,14 +50,17 @@ MEMORY {
    * and typically on real hardware too; real-HW warm boot relies on
    * the prior image having left it in a sensible state.
    *
-   * Phase B (2026-04-30): split into LO + HI.  LO butts up against IVT
-   * (0xEC00) and is just big enough for _cfgtbl + _kbd_ring + smalls
-   * (~214 B used, 224 B reserved).  HI lives in the previously-unused
-   * IVT->payload gap and holds netboot's _msg buffer (200 B).  The
-   * 0xEA20..0xEB20 region the LO scratch used to occupy is now free for
-   * cpnos.com's load image, lifting NDOS from 0xDD80 -> 0xDEA0. */
-  SCRATCH    (rwx) : ORIGIN = 0xEB20, LENGTH = 0xE0   /* ends at 0xEC00 (IVT) */
-  SCRATCH_HI (rwx) : ORIGIN = 0xEC24, LENGTH = 0xDC   /* IVT+0x24 .. payload-1 */
+   * Option β (2026-04-30, post init/resident split): scratch BSS moved
+   * to a single region above IVT (0xF524..0xF6FF) so cpnos.com can
+   * load up to 0xED00.  The 0xF410..0xF4FF range is RESERVED FOR THE
+   * STACK -- reset.s sets SP=0xF500, stack grows down into that 240 B
+   * region.  Anything in BSS that ends up below 0xF500 would be
+   * silently corrupted by stack pushes -- the linker ASSERTs below
+   * catch this.  cfgtbl, _msg, kbd_ring, and static-stack frames all
+   * live here.  The two `.scratch_bss*` input sections are kept
+   * distinct (legacy section attrs in source) but mapped to one
+   * SCRATCH region. */
+  SCRATCH (rwx) : ORIGIN = 0xF524, LENGTH = 0x1DC  /* above IVT, below PIO_RX */
 
   /* PIO-B receive ring buffer (.pio_rx_buf section).  Page-aligned
    * 256-byte buffer at 0xF700 — the head/tail are 8-bit so wrap is
@@ -69,7 +72,7 @@ MEMORY {
 
 /* IVT location shared with init.c (setup_ivt).  Defined here so the
  * ASSERTs can check overlap with .payload / .scratch_bss.  Issue #35. */
-__ivt_start = 0xEC00;
+__ivt_start = 0xF500;
 __ivt_end   = __ivt_start + 18 * 2;
 
 /* PIO ring page address — kept consistent with PIO_RX MEMORY region
@@ -158,6 +161,15 @@ SECTIONS {
   ASSERT(_snios_jt == 0xED33,
          "_snios_jt drifted; update cpnos-build/src/cpnios-shim.asm NIOS EQU")
 
+  /* Stack & cpnos.com layout invariants.  Option β (2026-04-30) bumped
+   * cpnos.com's CODE up to 0xED00 and moved the stack from 0xED00 to
+   * 0xF500; if either drifts the system silently corrupts itself
+   * (stack-vs-loaded-image collision -- exactly what bit us during
+   * Option β bring-up).  __stack_top mirrors the SP value reset.s
+   * loads.  Reset.s should reference these symbols to stay in sync. */
+  __stack_top = 0xF500;
+  __stack_low = 0xF410;     /* growth headroom: 0xF410..0xF4FF (240 B) */
+
   __payload_size = __payload_end - __payload_start;
 
   /* Hard guard: payload must fit in the available ROM space.  Exact
@@ -186,26 +198,28 @@ SECTIONS {
      * on the C declarations. */
     KEEP(*(.bss._pio_par_byte))
     KEEP(*(.bss._pio_par_count))
+    *(.scratch_bss_hi)    /* legacy section attr from netboot_mpm.c msg[] */
     *(.bss*)
     *(COMMON)
     __scratch_bss_end = .;
   } > SCRATCH
 
-  ASSERT(__scratch_bss_end <= 0xEC00,
-         "scratch_bss overflowed into IVT region!")
+  ASSERT(__scratch_bss_end <= 0xF700,
+         "scratch_bss overflowed into PIO_RX region!")
 
-  /* High scratch BSS — netboot's _msg buffer lives here (placed via
-   * __attribute__((section(".scratch_bss_hi"))) in netboot_mpm.c).
-   * Sits in the IVT->payload gap so the low scratch_bss can shrink
-   * and the cpnos.com load region can lift.  Phase B (2026-04-30). */
-  .scratch_bss_hi (NOLOAD) : {
-    __scratch_bss_hi_start = .;
-    *(.scratch_bss_hi)
-    __scratch_bss_hi_end = .;
-  } > SCRATCH_HI
-
-  ASSERT(__scratch_bss_hi_end <= 0xED00,
-         "scratch_bss_hi overflowed into payload region!")
+  /* Stack-vs-cpnos.com / stack-vs-resident / stack-vs-scratch ASSERTs.
+   * `__cpnos_load_end` comes via --defsym from the Makefile (=
+   * CPNOS_NDOS_ADDR + 0xC80).  Together these turn the kind of silent
+   * memory corruption that broke Option β bring-up into link-time
+   * failures with clear messages. */
+  ASSERT(__cpnos_load_end <= 0xED00,
+         "cpnos.com CODE end overflows resident BIOS at 0xED00")
+  ASSERT(__stack_top > __cpnos_load_end,
+         "stack top <= cpnos.com load end -- pushes will corrupt loaded image")
+  ASSERT(__payload_end <= __stack_low,
+         "resident payload extends into stack growth area 0xF410..0xF4FF")
+  ASSERT(__scratch_bss_start >= __stack_top,
+         "scratch_bss starts below __stack_top -- stack will corrupt BSS")
 
   /* PIO-B receive ring (page-aligned at 0xF700). */
   .pio_rx_bss 0xF700 (NOLOAD) : {

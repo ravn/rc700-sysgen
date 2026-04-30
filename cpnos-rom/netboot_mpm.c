@@ -54,12 +54,12 @@ extern void impl_conout(uint8_t c);
 
 /* cpnos.com produced by RMAC+LINK is CODE-only (DATA section at
  * NDOSRL is runtime-initialized BSS, not stored in the file).
- * Phase A (2026-04-30) placement:
- *   CODE_BASE = 0xDD80 (NDOS), DATA_BASE = 0xD980 (NDOSRL)
- * The .COM file is the CODE section -- 3085 B linked at 0xDD80
- * and record-padded to 3200 B (0xC80) on disk; file offset 0 =
- * memory CPNOS_NDOS_ADDR.  Source of truth is cpnos.sym (extracted
- * into clang/cpnos_addrs.h as CPNOS_NDOS_ADDR). */
+ * Option β (2026-04-30) placement:
+ *   CODE_BASE = 0xE080 (NDOS), DATA_BASE = 0xDC80 (NDOSRL)
+ * The .COM file is the CODE section -- linked at CODE_BASE and
+ * record-padded to 0xC80 on disk; file offset 0 = memory
+ * CPNOS_NDOS_ADDR.  Source of truth is cpnos.sym (extracted into
+ * clang/cpnos_addrs.h as CPNOS_NDOS_ADDR). */
 #include "cpnos_addrs.h"
 #define IMG_BASE   ((uint8_t *)CPNOS_NDOS_ADDR)
 #define ENTRY_ADDR (CPNOS_NDOS_ADDR)
@@ -81,11 +81,9 @@ static const uint8_t FCB_HEAD[12] = {
     'I','M','G',                          /* +9..+11 ext */
 };
 
-/* msg[] lives in the high scratch region (0xEC24..0xECFF -- the 220 B
- * gap between IVT and payload).  Phase B (2026-04-30): pulled out of
- * the low scratch_bss to free it for cpnos.com's load region, lifting
- * NDOS from 0xDD80 -> 0xDEA0.  The buffer is only used during netboot
- * -- post-netboot, NDOS hands its own buffer pointer to SNDMSG/RCVMSG. */
+/* msg[] lives in the high scratch region (post Option β: 0xF524..0xF6FF
+ * above IVT).  Only used during netboot -- post-netboot NDOS hands its
+ * own buffer pointer to SNDMSG/RCVMSG. */
 static uint8_t msg[MSG_MAX] __attribute__((section(".scratch_bss_hi")));
 
 /* Build and send a CP/NET request, then wait for the response.
@@ -156,15 +154,14 @@ uint16_t netboot_mpm(void) {
         __builtin_memcpy(dma, &msg[DAT + 37], 128);
         dma += 128;
         impl_conout('.');            /* one dot per 128-byte sector */
-        /* Safety: refuse to overflow into our running scratch BSS lo
-         * region (cfgtbl / kbd_ring -- netboot uses those through the
-         * READ-SEQ loop).  Phase B (2026-04-30): _msg moved to the
-         * high scratch region so the lo region butts against IVT at
-         * 0xEC00; cpnos.com loads into 0xDEA0..0xEB20.  Strict `>`:
-         * dma == 0xEB20 means the last 128 B sector landed exactly
-         * at the limit (loaded into 0xEAA0..0xEB1F), which is fine --
-         * the next iteration's READ-SEQ returns EOF and breaks. */
-        if (dma > (uint8_t *)0xEB20) return 0;
+        /* Safety: refuse to overflow into our resident BIOS at 0xED00.
+         * Option β (post init/resident split): scratch BSS moved to
+         * upper RAM (0xF410..) so cpnos.com's load region runs up to
+         * 0xED00.  Strict `>`: dma == 0xED00 means the last 128 B
+         * sector landed exactly at the limit (loaded into
+         * 0xEC80..0xECFF), which is fine -- the next READ-SEQ returns
+         * EOF and breaks. */
+        if (dma > (uint8_t *)0xED00) return 0;
     }
     BOOT_MARK(13, 'E');              /* EOF reached */
     impl_conout(0x0d); impl_conout(0x0a);

@@ -311,8 +311,18 @@ clang/relocator.o: relocator.c clang/init.bin clang/payload_a.bin clang/payload_
 
 # ---- Link payload (no PROM awareness) ----------------------------
 
-clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
-	$(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) \
+clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD) cpnos-build/d/cpnos.sym
+	@# Extract NDOS load address from cpnos.sym and pass cpnos.com end
+	@# (NDOS + 0xC80) as a linker symbol so payload.ld's stack/cpnos
+	@# overlap ASSERTs can fire.  Catches the Option β bring-up bug
+	@# (stack at 0xED00 colliding with raised cpnos.com top) at link
+	@# time instead of as silent boot-time RAM corruption.
+	@N=$$(perl -ne 'while (/([0-9A-Fa-f]{4})\s+NDOS\b/g) { print "$$1"; last }' cpnos-build/d/cpnos.sym); \
+	 [ -n "$$N" ] || { echo "ERROR: NDOS symbol missing from cpnos.sym"; exit 1; }; \
+	 NEND=$$(printf '0x%X' $$(( 0x$$N + 0xC80 ))); \
+	 echo "payload.elf: __cpnos_load_end = $$NEND (NDOS 0x$$N + 0xC80)"; \
+	 $(LD) --gc-sections --emit-relocs -T $(PAYLOAD_LD) \
+	    --defsym=__cpnos_load_end=$$NEND \
 	    $(TRANSPORT_DEFSYMS) $(PAYLOAD_OBJS) -o $@
 
 clang/payload.bin: clang/payload.elf cpnos-build/patch_payload_checksum.py
@@ -348,8 +358,12 @@ clang/payload_a.bin clang/payload_b.bin: clang/payload.bin
 clang/relocator.elf: $(RELOC_OBJS) $(RELOC_LD) clang/payload.elf
 	@addr=$$($(NM) clang/payload.elf | awk '/ _cpnos_cold_entry$$/ {print "0x"$$1}'); \
 	 test -n "$$addr" || { echo "ERROR: _cpnos_cold_entry not found in payload"; exit 1; }; \
-	 echo "relocator: _cpnos_cold_entry=$$addr"; \
-	 $(LD) --gc-sections -T $(RELOC_LD) --defsym=_cpnos_cold_entry=$$addr \
+	 stack=$$($(NM) clang/payload.elf | awk '/ __stack_top$$/ {print "0x"$$1}'); \
+	 test -n "$$stack" || { echo "ERROR: __stack_top not found in payload"; exit 1; }; \
+	 echo "relocator: _cpnos_cold_entry=$$addr  __stack_top=$$stack"; \
+	 $(LD) --gc-sections -T $(RELOC_LD) \
+	       --defsym=_cpnos_cold_entry=$$addr \
+	       --defsym=__stack_top=$$stack \
 	       $(RELOC_OBJS) -o $@
 
 # ---- Produce prom0.bin / prom1.bin --------------------------------

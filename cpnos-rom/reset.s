@@ -5,12 +5,16 @@
 ; (relocator.c) which does the heavy lifting: two #embed'd payload
 ; chunks copied to RAM at 0xED00, then jp _cpnos_cold_entry.
 ;
-; Three instructions of glue is all the asm there is.  The rest of
-; the relocator lives in C with C23 semantics (#embed, typed arrays).
+; SP value comes from __stack_top in the payload's linker script
+; (see payload.ld; --defsym from the Makefile makes the symbol
+; visible to relocator.elf too).  payload.ld's ASSERTs keep the
+; stack from colliding with cpnos.com's load region or the resident
+; payload.
 
     .section .reset, "ax"
     .global _reset
+    .extern __stack_top
 _reset:
     di
-    ld   sp, 0xED00
+    ld   sp, __stack_top
     jp   _relocate
