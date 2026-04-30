@@ -167,6 +167,9 @@ Known bugs to file:
 - [ ] Audit ravn/llvm-z80 issues list for others that affect upstream
 
 ## Parked (not working on now)
+- [ ] **Let the linker fill memory-map gaps with small code/data.**  Current `payload.ld` declares contiguous regions (PAYLOAD 0xED00 + SCRATCH 0xEA20 + PIO_RX 0xF700) and treats the dead spaces between them as off-limits.  Holes catalogued in `cpnos-rom/docs/memory_map.md` (~3.85 KB total): 0xDC80..0xE9FF (3.4 KB; cpnos→NIOS gap), 0xEC24..0xECFF (220 B), 0xF66A..0xF6FF (150 B), 0xFFD0..0xFFFB (44 B), 0xEA18..0xEA1F (8 B).  After the cpnos.com lift (Phase A) closes the biggest hole, teach the linker to place small functions / rodata into the remaining gaps via `MEMORY` regions + matching output sections so we get every byte.  Likely useful in conjunction with the init/resident split (Phase B) since init code is generally fragmented and easy to slot.  (recorded 2026-04-30)
+
+
 - [ ] **Replace or re-install WS for cpnos.**  The `ws.com` + overlays we copied from `rc703-div-bios-typer/` use direct memory-mapped video writes, with a screen base / size that does NOT match cpnos's 0xF800..0xFFCF / 80x25 layout.  Effects observed at `^J H 2`: BSS at `0xEAxx` (curx/cury/kbd_ring) clobbered to 0x20, frame counter at `0xFFFC..0xFFFF` overwritten, screen freezes with garbage.  PPAS is fine because it uses BIOS CONOUT only.  Two fix options: (a) find a WS distribution copy that uses CONOUT only, or (b) get `WINSTALL.COM` (the WordStar terminal-config tool) and retarget the existing WS to match our slave's layout.  Diagnosis evidence: probe trajectories + dumps captured 2026-04-30; details in `tasks/timeline.md` Phase 28d.
 
 
