@@ -471,6 +471,55 @@ Payload is 2536 B in PROM0+PROM1 (4 KB).  Long-term goal per memory
 - Console subsystem (`_specc`, `_impl_conout`, cursor functions): ~5-15 B savable, mostly via #85 / #86.
 - Closing the full ~232 B gap to slot-1 (2 KB) likely needs all of #73 / #74 / #78 / #83-#87 in llvm-z80 plus a console-subsystem refactor.  Not yet planned.
 
+### Re-scan after Phase B (2026-04-30 evening)
+
+`payload.bin` is now 2438 B (production build, default flags this
+session).  PROM-1 budget = 2048 B -> still 390 B over.
+
+Pattern-matched the listing in `clang/cpnos.lis` against every open
+`ravn/llvm-z80` issue.  Hits in compiler-generated code (excluding
+`snios.s` hand-asm):
+
+| Issue | Pattern | Hits | Approx win |
+|-------|---------|------|------------|
+| #75   | `call X ; ret` (unconditional)            | 2 | -2 B (1 B each in `_cursor_right`, `_specc`) |
+| #85   | sequential `ld (HL),v ; inc HL`           | 2 | -4..6 B |
+| #78   | LDIR + reload of dst/src                  | 1 | -3..5 B |
+| #87/73| 8-byte `__builtin_memcpy` unrolled        | 0 in code (already worked around in `netboot_mpm.c:131`) | -10..15 B if fix lets us drop the workaround |
+| #76 / #77 / #80 / #83 / #71 / #60 / #84 / #79 | various | **0** | 0 |
+
+Functions ranked by size in current payload:
+
+|  Size | Symbol | Source |
+|------:|--------|--------|
+| 430 B | `_snios_rcvmsg_c` | hand-asm in `snios.s` (not compiler) |
+| 235 B | `_netboot_mpm`    | C |
+| 117 B | `_cpnet_xact`     | C |
+| 110 B | `_init_hardware`  | C |
+| 107 B | `_cpnos_cold_entry` | C |
+| 101 B | `_specc`          | C |
+|  97 B | `_isr_crt`        | mostly asm |
+|  88 B | `_impl_conout`    | C |
+
+**Conclusion.**  Even if every open compiler issue landed today the
+payload would shrink ~10..30 B (well under 2 %).  The remaining 390 B
+to fit PROM-1 must come from the *structural* items (init/resident
+split, CFGTBL/MSGBUF reuse, Path 3 payload-origin lift), not from
+codegen.  No new compiler issues filed -- existing #73-#87 already
+cover what's there, and the 0-hit issues are still useful for rcbios
+where SDCC is now within ~100 B of clang.
+
+Action items (existing, just re-prioritised by impact for cpnos-rom):
+
+- [ ] Re-rank PROM-1 fit by structural delta first: init/resident
+      split (~700 B est) >> CFGTBL/MSGBUF reuse (~200 B) >> Path 3
+      payload origin (~256 B) >> all open codegen issues combined
+      (~30 B).
+- [ ] Re-run this scan (`python3 ... cpnos.lis`) after each
+      `resident.c` / `netboot_mpm.c` change so the table stays
+      honest; pre-Phase-B numbers in the 2026-04-29 block above are
+      already stale.
+
 ## Phase A + B follow-ups (2026-04-30)
 
 After the NDOS lift to 0xDEA0 (commits `6251525` Phase A, `a1e9ce9`
