@@ -61,10 +61,15 @@ extern void impl_conout(uint8_t c);
 #define ENTRY_ADDR (CPNOS_NDOS_ADDR)
 
 /* MP/M II default password on mpm-net2-1.dsk.  Override at build time
- * with -DRC702_LOGIN_PWD='"OTHER   "' (8 chars, space padded). */
+ * with -DRC702_LOGIN_PWD='"OTHER   "' (8 chars, space padded).  The
+ * literal landed in .payload (resident rodata) when used as a plain
+ * string literal -- pinned into .init.rodata so the byte sequence
+ * sits in PROM-only init memory. */
 #ifndef RC702_LOGIN_PWD
 #define RC702_LOGIN_PWD "PASSWORD"
 #endif
+__attribute__((section(".init.rodata")))
+static const uint8_t login_pwd[8] = RC702_LOGIN_PWD;
 
 /* FCB header for A:CPNOS.IMG (drive + 8.3 name).  Bytes +12..+35
  * are left zero — msg[] lives in BSS so the zero tail is already
@@ -126,8 +131,8 @@ uint16_t netboot_mpm(void) {
      * the trailing 7 bytes drops below the unroll threshold and
      * dispatches to the runtime _memcpy stub (LDIR), which is much
      * smaller per call site (the stub itself is shared). */
-    msg[DAT] = RC702_LOGIN_PWD[0];
-    __builtin_memcpy(&msg[DAT + 1], &RC702_LOGIN_PWD[1], 7);
+    msg[DAT] = login_pwd[0];
+    __builtin_memcpy(&msg[DAT + 1], &login_pwd[1], 7);
     if (cpnet_xact(64, 7) != 0) return 0;
     BOOT_MARK(10, 'L');              /* LOGIN ok */
 

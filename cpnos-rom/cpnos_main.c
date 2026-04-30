@@ -371,6 +371,10 @@ static void nos_handoff(void) {
      *   0x0005..0x0007 = JP CPNOS_BDOS_ADDR = cpnos.com's BDOSE entry.
      *                    NDOS COLDST overwrites this with its own
      *                    intercept entry; kept for ABI conformance. */
+    /* ZP_INIT cannot move to .init.rodata: nos_handoff runs AFTER
+     * PROM disable, so reading from a PROM-resident address would
+     * read from RAM-shadowed-under-PROM (TPA garbage / zeroed power-on
+     * RAM) and silently install wrong bytes at the zero page. */
     static const uint8_t ZP_INIT[8] = {
         0xC3,
         (uint8_t)((BIOS_JT_COPY_ADDR + 3) & 0xFF),
