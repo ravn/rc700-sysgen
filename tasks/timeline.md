@@ -907,6 +907,82 @@ Three commits after the audit:
   short-lived spills) would be the most impactful fix.  Dense-range
   switches on u8 keys are a recurring 8-bit->16-bit promotion source.
 
+### Phase 28e: source-side size shave + PPAS regression test + IMD pipeline doc (Apr 30, 2026) — Medium
+
+User declared cpnos "feature complete for my purposes now" -- this
+session focuses on cleanup, size, and capturing the workflow.
+
+**TPA in banner.**  Banner now reads `RC702 CP/NOS 52K PIO-IRQ
+<date> <hash>`.  The `52K` is computed at PROM build time from the
+NDOS address extracted from `cpnos-build/d/cpnos.sym` (TPA top =
+NDOSE = NDOS + 0x0122; TPA size = (NDOS + 0x22 - 0x100) / 1024).
+Auto-updates whenever NDOS placement shifts.
+
+**Vtable removal (-134 B).**  `cpnet_transport_t` was a remnant of
+a planned runtime SIO/PIO probe that never shipped.  Replaced the
+indirect dispatch with `#define cpnet_send_msg snios_sndmsg_c`
+aliases in `transport.h`.  Killed `cpnet_dispatch.c`, the two
+vtable structs, the `active_transport` pointer, the static
+`sio_probe` stub, and the BC<->HL juggling in
+`snios.s`'s `SNDMSG_DISPATCH` / `RCVMSG_DISPATCH`.  Banner uses
+`TRANSPORT_NAME` literal directly -- no runtime patch from
+`active_transport->name`.
+
+**BOOT_MARK_ENABLED build flag.**  19 BOOT_MARK call sites x ~5 B
+each were ~95 B that don't ship in production.  New default-1 flag
+collapses the macro to `((void)0)` when set 0; dropping the marker
+saves 98 B (yet better than the 30-50 B audit estimate -- clang
+cleared more dead code than expected).
+
+**LOGIN password copy (-6 B).**  `__builtin_memcpy(8)` unrolls into
+4 immediate stores (~40 B); a byte for-loop runs ~16 B; the
+"manual byte 0 + memcpy 7" idiom drops below clang's unroll
+threshold and dispatches to the runtime `_memcpy` LDIR stub
+(shared, ~3 B per call site).  Stays in plain C per project rule
+"prefer C over inline asm".
+
+**Cumulative size impact**:
+  - default (MIRROR_SIOB=1): 2548 -> 2410 B (-138 B)
+  - production (MIRROR_SIOB=0 BOOT_MARK_ENABLED=0): 2528 -> 2280 B (-248 B)
+
+PROM-1 budget is 2048 B -- so default is 362 B over, production is
+232 B over.  The remaining gap likely needs llvm-z80 codegen fixes
+(BSS-spill across CALL is the biggest single offender).
+
+**ravn/llvm-z80 #87 filed.**  `__builtin_memcpy(8)` unrolling at
+`-Oz` is a `MaxStoresPerMemcpyOptSize` setting too high for Z80 --
+on this target the "inline stores" branch is much larger than the
+"call shared LDIR stub" branch.  Threshold of ~1 byte would
+recover ~50-80 B project-wide on top of this session's work.
+
+**`make cpnos-ppas-test` regression.**  End-to-end driver:
+  `E>` -> `PPAS<CR>` -> `>>` -> `L PRIMES<CR>` -> `>>` -> `R<CR>`
+  -> wait for "29989" in SIO-B mirror -> `>>` -> `Q<CR>` -> `E>`.
+Wall-clock ~50 s.  Direct kbd_ring injection (MAME's
+natural-keyboard layer doesn't fully wire to the RC702 driver).
+Critical lesson: split the keystroke feed at `>>` boundaries --
+queueing "L PRIMES<CR>" during PPAS's CP/NET load of PPAS.ERM
+caused the leading 'L' to be dropped (some part of the load path
+flushes the input ring).
+
+**`docs/imd_to_mpm.md`.**  Captures the IMD -> cpmsim recipe used
+this session for PolyPascal v3.10: imd2raw parser + sector skew +
+EXM=1 extent semantics + per-disk diskdef table + the bounce-mpm
+step.  Generic enough to extract any RC700 5.25" mini disk.
+
+**Open follow-ups.**
+- ravn/llvm-z80 #87 (memcpy threshold) — would unlock another
+  ~50-80 B of free shrinkage.
+- "Rewrite ISRs in C with __attribute__((interrupt)) + port vars"
+  (todo.md, parked).  All prereqs verified working today.
+- "Replace or re-install WS for cpnos" (todo.md, parked from
+  Phase 28d) -- not blocking, but would let the WS-on-E: tree
+  actually be usable.
+- "NDOS into the PROMs" (todo.md, parked) -- collapses cold-boot
+  netboot from ~4 KB to ~2 KB.
+- 18 commits ahead of origin/main + 1 commit ahead in z80pack
+  submodule, awaiting an explicit `git push`.
+
 ### Phase 28d: WS 3.x from rc703-div-bios-typer is unusable as-is (Apr 30, 2026) — Easy
 
 - **Symptom**: `WS PRIMES.PAS`; load works; opening the help-level menu (`^J H 2`) consistently corrupts the cpnos slave -- screen freezes / shows garbage / cury+curx clobbered to 0x20, frame counter at 0xFFFC..0xFFFF gets overwritten with spaces.

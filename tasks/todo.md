@@ -452,16 +452,19 @@ Payload is 2536 B in PROM0+PROM1 (4 KB).  Long-term goal per memory
 - Comments added: #60 (xor a; out; ld a,$0; out variant in `_isr_crt`), #18 (constant-routed-through-DE→L→A in `_init_hardware` set_i_reg call).
 
 ### Source-side wins independent of compiler
-- [ ] **Drop vtable indirection (~38 B).**  Build is already TRANSPORT-specific (`-DTRANSPORT_NAME=...` + linker `--defsym`).  `cpnet_send_msg` (18 B), `cpnet_recv_msg` (20 B), `cpnet_probe`, `transport_sio_vt` (8 B data), `active_transport` (2 B) and the `__call_iy` dispatch path are pure overhead — nothing else picks transport at runtime.  Replace with a direct call (alias `cpnet_send_msg → snios_sndmsg_c` / `pio_send_msg` per build).
-- [ ] **Gate BOOT_MARK in production (~30-50 B).**  `_netboot_mpm` and `_cpnos_cold_entry` together write ~12 BOOT_MARK bytes to `$f843..$f84e` (5 B each).  `-DBOOT_MARK_ENABLED=0` for shipping builds.
-- [ ] **Pad LOGIN_PWD copy to 12 bytes** (or unroll to HL-walk) so it hits the LDIR threshold (issue #73 workaround).  ~6 B.
+- [x] **Drop vtable indirection (~38 B est, -134 B actual)** — done 2026-04-30 in commit `3d4de26`.  `cpnet_transport_t` typedef + `transport_sio_vt` / `transport_pio_vt` + `active_transport` + `cpnet_dispatch.c` all gone; `cpnet_send_msg` / `cpnet_recv_msg` are now `#define` aliases of `snios_sndmsg_c` / `snios_rcvmsg_c` (or `pio_send_msg` under TRANSPORT_PROXY).  `snios.s`'s `SNDMSG_DISPATCH` / `RCVMSG_DISPATCH` are now plain `jp SNDMSG` / `jp RCVMSG` -- no BC<->HL juggling.  Bigger than the audit estimate because clang `--gc-sections` cleared a chain of dead wrappers once the vtable was gone.
+- [x] **Gate BOOT_MARK in production (~30-50 B est, -98 B actual)** — done 2026-04-30 in commit `7a11af3`.  Default `BOOT_MARK_ENABLED=1` keeps the 19-char strip on for bring-up; `-DBOOT_MARK_ENABLED=0` collapses every site to `((void)0)` and `--gc-sections` drops the static "INIT OK" literal too.
+- [x] **Pad LOGIN_PWD copy / split (~6 B)** — done 2026-04-30 in commit `6bded89`.  `__builtin_memcpy(8)` unrolled to ~40 B; the for-loop ran ~16 B; the manual-byte-0 + `memcpy(7)` idiom drops below clang's threshold and dispatches to the `_memcpy` runtime stub.  Stays in plain C per project rule "prefer C over inline asm".
+
+### Cumulative size budget (after Phase 28e)
+- default (MIRROR_SIOB=1):  2548 -> 2410 B (-138 B)
+- production (BOOT_MARK_ENABLED=0 MIRROR_SIOB=0):  2528 -> 2280 B (-248 B)
+- PROM-1 budget = 2048 B; production is 232 B over, default is 362 B over.
+- ravn/llvm-z80 #87 (memcpy unroll threshold) filed 2026-04-30 -- once fixed, expect another ~50-80 B project-wide just from the stock memcpy lowerings.
 
 ### Other observations
 - Hand-written 8080 SNIOS asm: tight, no waste.
 - ISRs: ~2-6 B each savable (mostly via #60 / #84-class fixes).
 - Console subsystem (`_specc`, `_impl_conout`, cursor functions): ~5-15 B savable, mostly via #85 / #86.
-- Realistic shave with current compiler (source-only): ~80-100 B → ~2440 B.
-- Plus compiler fixes (#73, #74, #78, #83-#86): another ~100-150 B → ~2300 B.
-- Plus drop vtable: → ~2260 B.
-- Closing the full 488 B gap to slot-1 (2 KB) needs all of the above plus a console-subsystem refactor.  Not yet planned.
+- Closing the full ~232 B gap to slot-1 (2 KB) likely needs all of #73 / #74 / #78 / #83-#87 in llvm-z80 plus a console-subsystem refactor.  Not yet planned.
 
