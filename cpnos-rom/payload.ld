@@ -220,6 +220,16 @@ SECTIONS {
   ASSERT(__scratch_bss_start >= __stack_top,
          "scratch_bss starts below __stack_top -- stack will corrupt BSS")
 
+  /* zp_init_data is the 8-byte CP/M zero-page seed copied to
+   * 0x0000..0x0007 by resident_handoff AFTER PROM disable.  Reading
+   * it from a .init.rodata address would silently fail because PROM
+   * 0x???? becomes RAM (zero or TPA garbage) post-disable.  This
+   * ASSERT catches a future move into init at link time instead of
+   * as a silent boot regression (the trap that bit Option β cleanup
+   * pass 1 -- "boot completes netboot, then dies on NDOS COLDST"). */
+  ASSERT(_zp_init_data >= 0xED00 && _zp_init_data < 0xF800,
+         "zp_init_data must be resident (read after PROM disable)")
+
   /* PIO-B receive ring (page-aligned at 0xF700). */
   .pio_rx_bss 0xF700 (NOLOAD) : {
     *(.pio_rx_bss)
