@@ -8,6 +8,17 @@ Work in progress!
 
 ---
 
+2026-04-30: CP/NOS feature-complete for current goals.  Cold-boot
+banner reads `RC702 CP/NOS 52K PIO-IRQ <date> <hash>`; slave boots
+straight to `E>` (= master `I:` 4 MB hard disk on cpmsim mpm-net2),
+with floppy A:..D: + a second 4 MB disk on `F:`.  ISRs no longer
+touch the Z80 shadow register set, so PolyPascal v3 (Hejlsberg's
+pre-Turbo native compiler) and other shadow-reg-using programs run
+cleanly.  End-to-end regression `make cpnos-ppas-test` drives the
+slave through PolyPascal computing primes < 30 000 in ~50 s.  See
+`docs/imd_to_mpm.md` for how to extract files from RC700 IMD images
+onto the master MP/M disks.
+
 2026-04-27: CP/NOS now speaks both PIO and SIO at reasonable speeds in MAME.
 
 2026-04-22: CP/NET client and server now work in MAME against z80pack MP/M-net over serial port A only at 38400 8N1.  CP/NOS now fits in a single 2 KB EPROM.
