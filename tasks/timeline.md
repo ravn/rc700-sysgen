@@ -911,7 +911,7 @@ Three commits after the audit:
 
 - **Symptom**: `WS PRIMES.PAS`; load works; opening the help-level menu (`^J H 2`) consistently corrupts the cpnos slave -- screen freezes / shows garbage / cury+curx clobbered to 0x20, frame counter at 0xFFFC..0xFFFF gets overwritten with spaces.
 - **Root cause** (verified by Lua probe + state dumps): the `ws.com` we lifted from `rc703-div-bios-typer/` was installed for a memory-mapped screen layout that differs from our cpnos slave's.  WS does direct memory writes (not BIOS CONOUT) to its configured screen base; that base + size assumption overlaps both our scratch BSS at `0xEAxx` (cury/curx/kbd_ring/cfgtbl) and the resident BIOS frame counter at `0xFFFC..0xFFFF`.  Each WS status redraw fills 48+ bytes past `0xFFCF` plus stomps low BSS.
-- **Why PPAS works**: PolyPascal's interpreter uses BIOS CONOUT for all screen output -- no direct memory writes -- so its 80x25 view stays inside our display range.
+- **Why PPAS works**: PolyPascal-compiled binaries use BIOS CONOUT for all screen output -- no direct memory writes -- so their 80x25 view stays inside our display range.  (PolyPascal v3 is a native Z80 compiler -- precursor to Turbo Pascal -- not a P-code interpreter, despite the term being misused in earlier notes.)
 - **Not a cpnos-rom bug.**  The ISR refactor and frame-counter placement are correct against any well-installed CP/M program.  Moving the counter wouldn't help -- WS also corrupts BSS at `0xEAxx`, same root cause.
 - **Action**: track the "re-install or replace WS" task in `tasks/todo.md`.  Either find a WS that uses BIOS CONOUT only (no direct video) or run WINSTALL.COM (not in our `ws/` set) to retarget the existing copy.
 

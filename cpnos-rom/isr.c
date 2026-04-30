@@ -7,9 +7,12 @@
  * Register preservation: every ISR PUSHes only the register pairs it
  * actually clobbers, then POPs them on exit.  Crucially the ISRs do
  * NOT touch the Z80 shadow set (BC'/DE'/HL'/AF') — userspace programs
- * (PolyPascal interpreter, BDS C, WordStar) stash persistent runtime
- * state there and any EX AF,AF' / EXX in an ISR would silently corrupt
- * that state on every interrupt.  None of the ISR bodies use IX/IY.
+ * (PolyPascal-compiled binaries, BDS C, WordStar) stash persistent
+ * runtime state there and any EX AF,AF' / EXX in an ISR would silently
+ * corrupt that state on every interrupt.  None of the ISR bodies use
+ * IX/IY.  PolyPascal v3 is a native Z80 compiler (precursor to Turbo
+ * Pascal); its compiled programs use the shadow regs as cheap register-
+ * bank state across tight inner loops.
  *
  * Phase 3 step 2 (2026-04-26): replaced isr.s.  Co-location with
  * resident.c's BSS vars (kbd_ring, pio_par_*, curx/cury, cur_dirty)
@@ -18,11 +21,11 @@
  *
  * 2026-04-29: switched from EX AF,AF' + EXX bracket to explicit
  * PUSH/POP per ISR.  EXX swaps the shadow bank into main; userspace
- * code that holds live state in the shadow bank (every PolyPascal
- * v3.10 dispatch — 233 EXX/EX AF,AF' instructions in PPAS.COM) loses
- * that state on every VRTC IRQ.  The new sequence is +6 bytes overall
- * (isr_crt unchanged in size, isr_pio_kbd +4, isr_pio_par +2) but
- * keeps the shadow regs free for userspace.
+ * code that holds live state in the shadow bank (every PolyPascal v3
+ * compiled binary — 216 EXX + 208 EX AF,AF' instructions in PPAS.COM
+ * itself) loses that state on every VRTC IRQ.  The new sequence is
+ * +6 bytes overall (isr_crt unchanged in size, isr_pio_kbd +4,
+ * isr_pio_par +2) but keeps the shadow regs free for userspace.
  *
  * All ISRs live in `.resident.isr` so they survive the OUT (0x18)
  * PROM disable.  The init helpers below (set_i_reg / enable_im2 /
