@@ -74,15 +74,27 @@ enum : uint16_t {
  * the "RC702 CP/NOS v1.2" banner on row 1 and after CCP starts writing
  * its prompt at (0,0) — only a long scroll past row 24 ages them out.
  *
+ * Build-time gated by BOOT_MARK_ENABLED (Makefile -D, default 1).
+ * Set to 0 for a production / size-constrained PROM and the macro
+ * collapses to a no-op; about 30-50 B saved.  Useful during bring-up,
+ * dead weight once the boot path is solid.
+ *
  * The local volatile `_dst` is *not* cosmetic.  Without it clang's
  * Z80 backend folds `((uint8_t*)0xF800)[CONST + const]` as
  * `0xF800 + CONST + const`, dropping any further `+i` runtime offset
  * (UB-class fold — same issue family as ravn/llvm-z80#49).  Forcing
  * the base through a variable defeats the fold. */
 #define BOOT_MARK_BASE 60
+#ifndef BOOT_MARK_ENABLED
+#define BOOT_MARK_ENABLED 1
+#endif
+#if BOOT_MARK_ENABLED
 #define BOOT_MARK(col, ch) do { \
     volatile uint8_t *_dst = (volatile uint8_t *)DISPLAY_ADDR; \
     _dst[BOOT_MARK_BASE + (col)] = (uint8_t)(ch); \
 } while (0)
+#else
+#define BOOT_MARK(col, ch) ((void)0)
+#endif
 
 #endif /* CPNOS_HAL_H */

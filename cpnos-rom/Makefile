@@ -19,6 +19,13 @@ ENABLE_FDC ?= 0
 # SIO-B stays silent so the channel is free for other uses.
 MIRROR_SIOB ?= 1
 
+# Boot-progress marker: 19 single-byte writes to the upper-right of
+# row 0 ("INIT OKPNILOREC+PSJ" by the time CCP starts).  Default 1
+# keeps the marker on for bring-up / debugging.  Set to 0 for the
+# tightest production PROM -- saves ~30-50 B by collapsing every
+# BOOT_MARK() call site to a no-op.  See hal.h for placement.
+BOOT_MARK_ENABLED ?= 1
+
 # Bring-up scaffolding: enables the PIO-B 10-byte CP/NET frame loopback
 # test in cpnos_main (Z80 sends -> harness mirrors -> Z80 validates).
 # Off by default since session 33 — the real driver (transport_pio.c
@@ -50,6 +57,7 @@ CFLAGS = --target=z80 -std=c23 -Oz -nostdlib -g \
          -mllvm -disable-lsr \
          -DENABLE_FDC=$(ENABLE_FDC) \
          -DMIRROR_SIOB=$(MIRROR_SIOB) \
+         -DBOOT_MARK_ENABLED=$(BOOT_MARK_ENABLED) \
          -DRC702_SLAVEID=0x01 \
          $(SERVER_CFLAGS) \
          -Iclang -I. \
