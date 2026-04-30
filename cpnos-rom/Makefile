@@ -208,8 +208,16 @@ clang/cpnos_addrs.h: cpnos-build/d/cpnos.com
 	    cpnos-build/d/cpnos.sym > $@.tmp
 	@grep -q '^#define CPNOS_BDOS_ADDR' $@.tmp || \
 	    { echo "ERROR: BDOS symbol missing from cpnos.sym"; rm -f $@.tmp; exit 1; }
+	@# TPA top reported by CP/M utilities = NDOSE = NDOS + 0x0122 (the
+	@# NDOS BDOS-replacement entry).  TPA size = TPA top - 0x0100.
+	@N=$$(perl -ne 'while (/([0-9A-Fa-f]{4})\s+NDOS\b/g) { print "$$1"; last }' cpnos-build/d/cpnos.sym); \
+	 [ -n "$$N" ] || { echo "ERROR: NDOS symbol missing from cpnos.sym"; rm -f $@.tmp; exit 1; }; \
+	 NV=$$((0x$$N)); \
+	 TPA_KB=$$(( (NV + 0x122 - 0x100) / 1024 )); \
+	 echo "#define CPNOS_NDOS_ADDR 0x$$N" >> $@.tmp; \
+	 echo "#define CPNOS_TPA_KB $$TPA_KB" >> $@.tmp
 	@mv $@.tmp $@
-	@echo "cpnos_addrs.h: $$(grep CPNOS_BDOS_ADDR $@)"
+	@echo "cpnos_addrs.h: $$(grep -E 'BDOS_ADDR|NDOS_ADDR|TPA_KB' $@ | tr '\n' ' ')"
 
 # Build info — UTC date + short git hash, regenerated every build so
 # the signon banner reflects the moment this PROM was burnt.  The

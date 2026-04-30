@@ -331,13 +331,25 @@ extern void impl_conout(uint8_t c);
  * nos_handoff() AFTER netboot, so the dots appeared on row 0 and the
  * banner on row 1 — backwards from what operators expect. */
 static void print_banner(void) {
-    /* "RC702 CP/NOS WWW-MMM yyyy-mm-dd HH:MM hash\r\n".  WWW-MMM is
-     * patched in place from active_transport->name (7 chars, not
-     * NUL-term, format "WWW-MMM" — wire-mode).  Banner is .data
-     * (mutable) so the patch sticks at runtime. */
-    static char banner[] = "RC702 CP/NOS XXX-XXX " BUILD_INFO_STR "\r\n";
-    __builtin_memcpy(&banner[13], active_transport->name, 7);
+    /* "RC702 CP/NOS NNK WWW-MMM yyyy-mm-dd HH:MM hash\r\n".
+     * NNK is the TPA size in KB, computed at build time from the NDOS
+     * address extracted from cpnos.sym (TPA top = NDOSE = NDOS +
+     * 0x0122; TPA size = (NDOS + 0x22) / 1024).  WWW-MMM is patched
+     * in place from active_transport->name (7 chars, not NUL-term,
+     * format "WWW-MMM" — wire-mode).  Banner is .data (mutable) so
+     * the transport patch sticks at runtime.  The transport-name
+     * offset uses sizeof on the head literal, so it stays correct
+     * regardless of how many digits CPNOS_TPA_KB takes. */
+#define _STR(x) #x
+#define STR(x) _STR(x)
+#define BANNER_HEAD "RC702 CP/NOS " STR(CPNOS_TPA_KB) "K "
+    static char banner[] = BANNER_HEAD "XXX-XXX " BUILD_INFO_STR "\r\n";
+    __builtin_memcpy(&banner[sizeof(BANNER_HEAD) - 1],
+                     active_transport->name, 7);
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
+#undef BANNER_HEAD
+#undef STR
+#undef _STR
 }
 
 static void nos_handoff(void) {
