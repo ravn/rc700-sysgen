@@ -36,10 +36,6 @@ extern uint8_t snios_ntwkin(void);
 /* BIOS CONOUT — resident at 0xF20C after cpnos_main copies .resident. */
 extern void impl_conout(uint8_t c);
 
-/* Used to live in a dedicated PROM1 section at 0x2000.  Merged into
- * PROM0 in Phase 18 (issue #39) — no longer section-pinned. */
-#define PROM1_CODE
-
 /* DRI CP/NET frame header offsets. */
 #define FMT 0
 #define DID 1
@@ -81,10 +77,10 @@ static const uint8_t FCB_HEAD[12] = {
     'I','M','G',                          /* +9..+11 ext */
 };
 
-/* msg[] lives in the high scratch region (post Option β: 0xF524..0xF6FF
- * above IVT).  Only used during netboot -- post-netboot NDOS hands its
- * own buffer pointer to SNDMSG/RCVMSG. */
-static uint8_t msg[MSG_MAX] __attribute__((section(".scratch_bss_hi")));
+/* msg[] lives in the unified scratch_bss region above IVT (post
+ * Option β at 0xF524..0xF6FF).  Only used during netboot --
+ * post-netboot NDOS hands its own buffer pointer to SNDMSG/RCVMSG. */
+static uint8_t msg[MSG_MAX];
 
 /* Build and send a CP/NET request, then wait for the response.
  * Data must already be in msg[DAT..DAT+dat_len-1].  siz_minus_1 must be

@@ -198,7 +198,6 @@ SECTIONS {
      * on the C declarations. */
     KEEP(*(.bss._pio_par_byte))
     KEEP(*(.bss._pio_par_count))
-    *(.scratch_bss_hi)    /* legacy section attr from netboot_mpm.c msg[] */
     *(.bss*)
     *(COMMON)
     __scratch_bss_end = .;

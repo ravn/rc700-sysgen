@@ -18,25 +18,18 @@ extern void isr_pio_par(void);
 extern void set_i_reg(uint8_t page);
 extern void enable_im2(void);
 
-/* IVT at 0xF100; each slot is 2 bytes, so slot N lives at 0xF100+2N.
+/* IVT at __ivt_start (page-aligned, supplied by payload.ld).  Each
+ * slot is 2 bytes, so slot N lives at __ivt_start + 2N.
  *   slot 0..3  (vec 0x00..0x06): CTC channels 0..3 (ch2 = CRT refresh)
  *   slot 8..10 (vec 0x10..0x14): SIO-B rx/tx/extstatus (polled, slots
  *                                 installed as noop for the daisy chain)
  *   slot 16    (vec 0x20):       PIO-A keyboard
  *   slot 17    (vec 0x22):       PIO-B (unused)
- */
-/* IVT moved from 0xF100 to 0xEC00 in session 33 follow-up: with
- * BIOS_BASE at 0xED00, .resident code spans 0xED00..~0xF250 and
- * 0xF100..0xF123 fell inside that range, so the old IVT slot would
- * have been overwritten by memcpy (or stomped resident code if IVT
- * were written first).  0xEC00 sits between scratch_bss LO (which
- * after Phase B ends at 0xEC00) and RESIDENT (0xED00..), with enough
- * room for 18 × 2-byte entries.  scratch_bss HI (just _msg, post-
- * Phase B) lives in the 0xEC24..0xECEC tail of the IVT page. */
-/* IVT location provided by the linker script (cpnos_rom.ld) so the
- * ld ASSERTs and setup_ivt() stay in sync.  If .resident or BSS grows
- * to overlap _ivt_start.._ivt_end, the link fails at build time (issue
- * #35) instead of silently stomping the vector table at boot. */
+ *
+ * Option β (2026-04-30): IVT moved from 0xEC00 to 0xF500 so cpnos.com
+ * can load up to 0xED00.  The address is owned by the linker; the ld
+ * ASSERTs catch overlaps with .payload, .scratch_bss, or the stack
+ * region (issue #35). */
 extern uint8_t _ivt_start[];
 #define IVT_ADDR     ((uint16_t)(uintptr_t)_ivt_start)
 #define IVT_ENTRIES  18
