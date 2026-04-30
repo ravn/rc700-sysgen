@@ -332,22 +332,17 @@ extern void impl_conout(uint8_t c);
  * banner on row 1 — backwards from what operators expect. */
 static void print_banner(void) {
     /* "RC702 CP/NOS NNK WWW-MMM yyyy-mm-dd HH:MM hash\r\n".
-     * NNK is the TPA size in KB, computed at build time from the NDOS
-     * address extracted from cpnos.sym (TPA top = NDOSE = NDOS +
-     * 0x0122; TPA size = (NDOS + 0x22) / 1024).  WWW-MMM is patched
-     * in place from active_transport->name (7 chars, not NUL-term,
-     * format "WWW-MMM" — wire-mode).  Banner is .data (mutable) so
-     * the transport patch sticks at runtime.  The transport-name
-     * offset uses sizeof on the head literal, so it stays correct
-     * regardless of how many digits CPNOS_TPA_KB takes. */
+     * NNK is the TPA size in KB (CPNOS_TPA_KB, build-time from
+     * cpnos.sym).  WWW-MMM is the TRANSPORT_NAME literal (define
+     * via Makefile -DTRANSPORT_NAME='"PIO-IRQ"' / "SIO" / "PIO-PRX").
+     * Both are stringified at compile time -- no runtime patching,
+     * no vtable load, just a static literal in .resident.data. */
 #define _STR(x) #x
 #define STR(x) _STR(x)
-#define BANNER_HEAD "RC702 CP/NOS " STR(CPNOS_TPA_KB) "K "
-    static char banner[] = BANNER_HEAD "XXX-XXX " BUILD_INFO_STR "\r\n";
-    __builtin_memcpy(&banner[sizeof(BANNER_HEAD) - 1],
-                     active_transport->name, 7);
+    static const char banner[] =
+        "RC702 CP/NOS " STR(CPNOS_TPA_KB) "K "
+        TRANSPORT_NAME " " BUILD_INFO_STR "\r\n";
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
-#undef BANNER_HEAD
 #undef STR
 #undef _STR
 }
@@ -405,14 +400,13 @@ static void nos_handoff(void) {
     cfgtbl_init();
     init_hardware();
 
-    /* Experiment branch (pio-mpm-netboot): SNIOS now drives PIO byte
-     * primitives directly (snios.s edit).  The frame-level
-     * transport_pio_vt + pio_probe / pio_send_msg / pio_recv_msg
-     * machinery is unused on this branch and gets gc-section'd; we
-     * just keep active_transport at its default (transport_sio_vt,
-     * whose send/recv route through SNDMSG/RCVMSG, which now talk
-     * PIO).  Mark 'P' unconditionally so the strip indicates the
-     * physical wire (PIO) even though the SNIOS envelope is on top. */
+    /* SNIOS drives PIO byte primitives via the linker's
+     * --defsym=_xport_send_byte=_transport_pio_send_byte alias
+     * (transport_pio.c).  cpnet_send_msg / cpnet_recv_msg are now
+     * direct #define aliases of snios_sndmsg_c / snios_rcvmsg_c
+     * (transport.h, no vtable).  Mark 'P' unconditionally so the
+     * boot strip indicates the physical wire (PIO) even though the
+     * SNIOS envelope is on top. */
     BOOT_MARK(7, 'P');
 
     /* IRQ-driven snios-on-PIO needs Z80 IFF on during netboot:

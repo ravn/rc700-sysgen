@@ -31,37 +31,30 @@
 void transport_send_byte(uint8_t c);
 uint16_t transport_recv_byte(uint16_t timeout_ticks);
 
-/* Frame-level vtable.  Each backend implements one instance. */
-typedef struct cpnet_transport {
-    /* probe(): try to elicit a PONG response from the host.  Returns
-     * true on a valid PONG, false on timeout/bad-frame.  May take up
-     * to ~100 ms emulated. */
-    bool    (*probe)(void);
-    /* send_msg(msg): hand a fully-formed SCB (msg[0..]=FMT..CKS) to
-     * the wire.  Caller has computed the CKS.  Returns 0 success,
-     * 0xFF error. */
-    uint8_t (*send_msg)(uint8_t *msg);
-    /* recv_msg(msg): read header (5 B), parse SIZ, read payload+CKS
-     * into the same buffer.  Returns 0 success, 0xFF error. */
-    uint8_t (*recv_msg)(uint8_t *msg);
-    /* 7-character transport+mode tag for the signon banner.  Layout
-     * is "WWW-MMM" where WWW is the wire ("PIO"/"SIO") and MMM is the
-     * driver mode ("IRQ" / "POL" / "PRX").  Not NUL-terminated — read
-     * exactly 7 bytes.  Lets the operator see at a glance what they
-     * just booted: "PIO-IRQ" = snios-on-PIO with chip-IRQ ring,
-     * "PIO-PRX" = raw OTIR/INIR over PIO with host-side proxy,
-     * "SIO-POL" = traditional polled SIO async transport. */
-    const char *name;
-} cpnet_transport_t;
-
-extern cpnet_transport_t transport_sio_vt;
-extern cpnet_transport_t transport_pio_vt;
-extern cpnet_transport_t *active_transport;
-
-/* Active-transport dispatch — the single seam SNIOS jt and netboot
- * route through. */
-uint8_t cpnet_send_msg(uint8_t *msg);
-uint8_t cpnet_recv_msg(uint8_t *msg);
-bool    cpnet_probe(void);
+/* The transport is fixed at build time:
+ *   default          : SNIOS envelope on top of byte transport (sio /
+ *                      pio-irq via linker --defsym aliases on
+ *                      _xport_send_byte / _xport_recv_byte).
+ *   TRANSPORT_PROXY  : raw OTIR/INIR frames; pairs with
+ *                      cpnet_pio_server.py --upstream on the host.
+ *
+ * cpnet_send_msg / cpnet_recv_msg are #define aliases of the actual
+ * implementation functions, so callers just emit a direct call (3 B
+ * tail-call) instead of the vtable indirection that used to live in
+ * cpnet_dispatch.c (deleted 2026-04-30).  Saved ~38 B in the payload
+ * (16 B vtable structs + 2 B active_transport pointer + ~20 B of
+ * dispatch wrappers + the BC<->HL conversions that snios.s no longer
+ * needs to bounce through). */
+#ifdef TRANSPORT_PROXY
+extern uint8_t pio_send_msg(uint8_t *msg);
+extern uint8_t pio_recv_msg(uint8_t *msg);
+#define cpnet_send_msg pio_send_msg
+#define cpnet_recv_msg pio_recv_msg
+#else
+extern uint8_t snios_sndmsg_c(uint8_t *msg);
+extern uint8_t snios_rcvmsg_c(uint8_t *msg);
+#define cpnet_send_msg snios_sndmsg_c
+#define cpnet_recv_msg snios_rcvmsg_c
+#endif
 
 #endif

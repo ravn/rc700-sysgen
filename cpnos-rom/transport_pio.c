@@ -236,22 +236,6 @@ got_first:
  * literal-byte construction is robust either way.
  *
  * CKS is sum-to-zero (two's complement of the body sum). */
-/* Probe stub for the pio-proxy-only build.  Real PING/PONG handshake
- * code lived here on the cpnet-pio-direct branch but cost ~170 B and
- * isn't on any hot path: in current bench shape, cpnet_probe() is
- * never invoked (netboot's first cpnet_xact validates round-trip
- * far more thoroughly than a one-byte ping would).  Keeping a stub
- * just so the vtable's .probe slot resolves. */
-RESIDENT
-bool pio_probe(void) { return true; }
-
-RESIDENT_DATA
-cpnet_transport_t transport_pio_vt = {
-    .probe    = pio_probe,
-    .send_msg = pio_send_msg,
-    .recv_msg = pio_recv_msg,
-    .name     = "PIO-PRX",     /* banner tag for pio-proxy mode */
-};
 #endif
 
 /* ---- Byte-level PIO transport ---------------------------------

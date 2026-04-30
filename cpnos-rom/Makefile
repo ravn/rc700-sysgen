@@ -138,7 +138,7 @@ PAYLOAD_OBJS = clang/runtime.o clang/bios_jt.o \
                clang/cpnos_main.o \
                clang/resident.o clang/cfgtbl.o clang/init.o \
                clang/transport_sio.o clang/transport_pio.o \
-               clang/cpnet_dispatch.o $(NETBOOT_OBJ) \
+               $(NETBOOT_OBJ) \
                clang/snios.o clang/isr.o \
                clang/payload_checksum.o
 PAYLOAD_LD = clang/payload.ld
@@ -269,10 +269,6 @@ clang/transport_sio.o: transport_sio.c transport.h hal.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clang/transport_pio.o: transport_pio.c transport.h hal.h
-	@mkdir -p clang
-	$(CC) $(CFLAGS) -c $< -o $@
-
-clang/cpnet_dispatch.o: cpnet_dispatch.c transport.h
 	@mkdir -p clang
 	$(CC) $(CFLAGS) -c $< -o $@
 

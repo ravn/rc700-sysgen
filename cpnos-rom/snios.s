@@ -63,8 +63,7 @@
     ; ports differ (SIO 0x08/0x0A vs PIO 0x11/0x13).
     .extern _xport_send_byte
     .extern _xport_recv_byte
-    .extern _cpnet_send_msg
-    .extern _cpnet_recv_msg
+    ; SNDMSG / RCVMSG are defined later in this file; no externs needed.
 
 ;----------------------------------------------------------------
 ;  SNIOS jump table  (first 24 bytes — public ABI for NDOS)
@@ -113,18 +112,15 @@ _snios_rcvmsg_c:
 ;----------------------------------------------------------------
 ;  jt dispatch trampolines.  NDOS reaches the SNDMSG/RCVMSG slots
 ;  through the resident jt copy at 0xEA00 with msg pointer in BC.
-;  cpnet_send_msg / cpnet_recv_msg are sdcccall(1) C functions —
-;  they expect the pointer in HL.  Convert and tail-call.
+;  SNDMSG / RCVMSG (defined above) take the pointer in BC already,
+;  so the trampolines are pure tail-calls -- no register juggling
+;  and no detour through a C-side vtable dispatcher.
 ;----------------------------------------------------------------
 SNDMSG_DISPATCH:
-    ld   h, b
-    ld   l, c
-    jp   _cpnet_send_msg
+    jp   SNDMSG
 
 RCVMSG_DISPATCH:
-    ld   h, b
-    ld   l, c
-    jp   _cpnet_recv_msg
+    jp   RCVMSG
 
 ;================================================
 ;= CHARACTER I/O WRAPPERS                       =

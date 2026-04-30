@@ -38,39 +38,6 @@ uint16_t transport_recv_byte(uint16_t timeout_ticks) {
     return TRANSPORT_TIMEOUT;
 }
 
-/* Frame-level send/recv.  The SIO wire format wraps each SCB in
- * ENQ/ACK/SOH+CKS/EOT (see snios.s) — so the C-callable entry points
- * are the existing snios_sndmsg_c / snios_rcvmsg_c.  Both take HL=msg
- * (sdcccall(1)) and return A=0 success / 0xFF error. */
-extern uint8_t snios_sndmsg_c(uint8_t *msg);
-extern uint8_t snios_rcvmsg_c(uint8_t *msg);
-
-/* Probe for SIO is a no-op: there is always a SIO peer at boot
- * time (or we wouldn't have netbooted via SIO in the first place
- * before this driver landed).  If probe() ever needs to be more
- * thoughtful, it would emit a PING SCB and wait for a PONG; left as
- * unconditional success because the meaningful reachability test
- * happens at netboot LOGIN time anyway. */
-RESIDENT
-static bool sio_probe(void) {
-    return true;
-}
-
-/* Wire-mode tag (banner field).  Provided via -D from the Makefile's
- * TRANSPORT= flag; SNIOS envelope routing for that mode is fixed by
- * the linker's --defsym aliases on _xport_send_byte / _xport_recv_byte.
- * Default matches this branch's historical default. */
-#ifndef TRANSPORT_NAME
-#define TRANSPORT_NAME "PIO-IRQ"
-#endif
-#define _PAD7(s) (s "       ")
-_Static_assert(sizeof(_PAD7(TRANSPORT_NAME)) >= 8,
-               "TRANSPORT_NAME pad failed (name + space-padding < 7 chars)");
-
-RESIDENT_DATA
-cpnet_transport_t transport_sio_vt = {
-    .probe    = sio_probe,
-    .send_msg = snios_sndmsg_c,
-    .recv_msg = snios_rcvmsg_c,
-    .name     = _PAD7(TRANSPORT_NAME),  /* first 7 bytes go to banner */
-};
+/* Frame-level send/recv: see snios.s for SNDMSG/RCVMSG and the
+ * snios_sndmsg_c / snios_rcvmsg_c wrappers.  cpnet_send_msg in
+ * transport.h is a #define alias of those; no vtable dispatch. */
