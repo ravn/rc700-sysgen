@@ -544,25 +544,182 @@ TPA), enough to round CPNOS_TPA_KB up to 56.  Blocked by:
       pattern for any *other* externs cpnos.com imports.  Right now
       only NIOS has a drift-trap.
 
-### Init/resident split (alternative to Path 3)
+### Init/resident split (alternative to Path 3) — DETAILED PLAN 2026-04-30
 
-Move init-only code (`init_hardware`, `cfgtbl_init`, `print_banner`,
-`netboot_mpm` and friends) into a new `.init` section that runs
-from PROM and is reclaimed as scratch_bss extension after PROM
-disable.  Estimate from CLAUDE notes: ~700 B more freeable RAM,
-which can absorb cpnos.com lift instead of forcing it into the
-0xEA20..0xED00 budget.
+**Goal.**  Move init-only code (`init_hardware`, `setup_ivt`,
+`cfgtbl_init`, `print_banner`, `netboot_mpm`, `cpnet_xact`,
+`install_fcb`, `reuse_fcb`) plus their rodata (`port_init[]`,
+`FCB_HEAD`, banner, "INIT OK" marker) into a `.init` section that
+**runs in place from PROM**.  Resident shrinks 2438 B -> ~1809 B in
+RAM; 629 B of code+rodata stops occupying the 0xED00 region.
 
-- [ ] Identify the call-graph closure of "needed only before
-      `nos_handoff()`".  netboot helpers, banner, init.c bootstrap.
-- [ ] Add `.init.text` / `.init.rodata` sections in `payload.ld`,
-      placed at 0xED00..0xED00+init_size, then a runtime hand-off
-      that frees that range for a different linker region after
-      PROM disable.
-- [ ] Move marker-print loop, IVT setup, screen-clear into `.init`.
-- [ ] Verify nothing in the resident path takes the address of an
-      `.init` symbol (would survive past PROM disable as a dangling
-      reference).
+**Why "runs in place" and not "loaded then discarded".**  Loading
+init into RAM and discarding it doesn't shrink the PROM image.
+Running it from PROM keeps PROM image the same total size but the
+*resident RAM footprint* drops.  That's the lever for TPA growth
+and/or BIOS_BASE lowering.
+
+#### Sizing facts (llvm-nm on clang/payload.elf, 2026-04-30)
+
+Init-only code+rodata: 629 B
+| Symbol            | Size  | Source             |
+|-------------------|-------|--------------------|
+| init_hardware     | 110 B | init.c             |
+| port_init[]       | 110 B | init.c (rodata)    |
+| "INIT OK" marker  |   8 B | init.c (rodata)    |
+| cfgtbl_init       |  52 B | cfgtbl.c           |
+| netboot_mpm       | 235 B | netboot_mpm.c      |
+| cpnet_xact        |  49 B | netboot_mpm.c      |
+| FCB_HEAD          |  12 B | netboot_mpm.c      |
+| print_banner+text |  53 B | cpnos_main.c       |
+
+Init-only BSS (already off-resident-payload, just notes):
+- `_msg` 200 B, currently `.scratch_bss_hi` at 0xEC24.
+
+Resident size after split: 2438 - 629 = ~1809 B in RAM.
+
+#### Constraints / pre-flight checks
+
+- **No resident -> init refs found.**  Explore-agent grep across
+  resident.c, isr.c, transport_pio.c, snios.s, bios_jt.s, runtime.s
+  returned zero references to any init-only symbol.  Clean cut is
+  possible.
+- **Init -> resident-RAM refs are fine.**  Init calls `impl_conout`,
+  `snios_*`, `_port_out`, `_memcpy`, `clear_screen`, `isr_*` (via
+  function pointers in `setup_ivt`).  All resolve to RAM addresses
+  >= 0xED00 which are exposed regardless of PROM mapping, so init
+  running from PROM can call them once the relocator has copied
+  resident.
+- **`clear_screen`** (16 B) is currently resident, called only by
+  `init_hardware`.  Cheap to leave resident; optional move.
+- **IVT** (0xEC00..0xEC23) is RAM, written by `setup_ivt`, read by
+  IM2 hardware throughout.  Stays where it is.
+- **`_cfgtbl`** (173 B, BSS) is written by `cfgtbl_init` (init) and
+  read by SNIOS (resident).  Stays in resident BSS.
+- **`_msg`** (200 B, BSS) is written/read only during netboot.
+  Already in `.scratch_bss_hi` (not in PROM image).  Post-split it
+  is fully discardable -- 0xEC24..0xECEC becomes free RAM.
+
+#### Boot sequence after split
+
+1. `reset.s` @ PROM 0x0000: `DI; SP <- 0xED00; JP _relocate`.
+2. `relocator` @ PROM ~0x0010: copy **only resident** bytes from
+   PROM (LMA) to RAM 0xED00..0xED00+resident_size; verify
+   checksum; `JP _init_entry` (PROM address ~0x0100).
+3. `_init_entry` @ PROM ~0x0100: setup_ivt, port_init loop,
+   clear_screen (calls into RAM), banner (calls `impl_conout` in
+   RAM), netboot_mpm (calls `snios_*` in RAM).  All resident
+   targets are valid because relocator already populated 0xED00.
+4. `_init_entry` tail: `JP _resident_handoff` (RAM 0xED00+offset).
+5. `_resident_handoff` (resident, RAM): `OUT prom_disable;
+   snios_ntwkin if not done; JP NDOS`.
+
+Critical: PROM disable happens *after* JP into RAM, so the OUT
+instruction itself executes from RAM.  Init code in PROM is
+abandoned at that JP.
+
+#### Step-by-step implementation
+
+1. **Tag init sources.**  Add `__attribute__((section(".init.text")))`
+   to `init_hardware`, `setup_ivt`, `cfgtbl_init`, `print_banner`,
+   `netboot_mpm`, `cpnet_xact`, `install_fcb`, `reuse_fcb`.  Add
+   `__attribute__((section(".init.rodata")))` to `port_init[]`,
+   `FCB_HEAD`, `banner`, "INIT OK".
+
+2. **Verify clang honours rodata-section attributes.**  Lit test
+   first: confirm `static const __attribute__((section(".x"))) ...`
+   actually places the array.  Filed as ravn/llvm-z80 issue if not.
+
+3. **Linker layout.**  `payload.ld` becomes a two-region script:
+   - `RESIDENT (rwx) : ORIGIN = 0xED00, LENGTH = ...` -- VMA=LMA,
+     same as today (LMA is updated by Makefile when relocator
+     embeds it).
+   - `INIT (rx) : ORIGIN = 0x0100, LENGTH = 0x0700` -- VMA=LMA,
+     runs in place from PROM 0.
+   - `.init.text` / `.init.rodata` sections placed in `INIT`.
+   - ASSERT `__init_end <= 0x0800` (PROM 0 budget after relocator).
+
+4. **Relocator update.**  `relocator.c` already #embeds
+   `payload_a.bin` + `payload_b.bin` and copies them to RAM.
+   Update Makefile so those embeds contain only the resident
+   bytes -- `objcopy --only-section=.resident* --only-section=.text*
+   ... -O binary` after `objcopy --remove-section=.init.*`.
+   Update `_cpnos_cold_entry` extern resolution to instead point
+   at `_init_entry` (still extracted via llvm-nm + --defsym).
+
+5. **Reset/entry chain.**  Today `cpnos_cold_entry` does
+   `cfgtbl_init -> init_hardware -> EI -> banner -> netboot ->
+   prom_disable -> snios_ntwkin -> nos_handoff`.  Split into:
+   - `_init_entry` (in `.init.text`): everything up to and
+     including netboot_mpm; tail `JP _resident_handoff`.
+   - `_resident_handoff` (in `.resident`): EI; PROM disable;
+     snios_ntwkin if not done in init; JP NDOS.
+
+6. **Drop `_msg` from `.scratch_bss_hi`.**  Place it in a new
+   `.init.bss` section linked into the same RAM region
+   (0xEC24..0xECFF works -- that RAM survives PROM disable).
+   Net: post-split, scratch_bss_hi is empty and 0xEC24..0xECFF is
+   free RAM, available for cpnos.com extension.
+
+7. **Pick a "what to do with freed RAM" path** (separate decision):
+   - **Option β (recommended first):** keep `BIOS_BASE = 0xED00`,
+     remove scratch_bss_hi region, advance cpnos.com end target
+     from 0xEB1F to 0xECFF (raise `DATA_BASE`/`CODE_BASE` by
+     ~0x1E0 = ~480 B).  Mechanical change in `cpnos-build/Makefile`
+     + `payload.ld` ASSERTs.  No `cpbios.asm` audit needed.
+   - **Option α (Path 3 prep first):** lower `BIOS_BASE` from
+     0xED00 to 0xEC00.  Requires the `cpbios.asm` hand-typed VMA
+     audit listed above.  Bigger change.
+   - Recommend β -- delivers TPA gain immediately, leaves Path 3
+     as a separate later step.
+
+8. **Build pipeline.**
+   - `Makefile`: split objcopy into `.resident.bin` + `.init.bin`;
+     embed `.resident.bin` into relocator; embed `.init.bin` at
+     PROM 0 0x0100 via a new `.prom0_init` section in relocator.ld.
+   - `split_proms.py`: lay out PROM 0 = reset + relocator + init.bin
+     + payload_a; PROM 1 = payload_b; pad with 0xFF.
+
+9. **Tests / verify.**
+   - `llvm-nm clang/payload.elf` shows init symbols in `.init.text`
+     at addresses < 0x0800 and resident symbols at >= 0xED00.
+   - `make integration-test` (PPAS primes E2E in MAME): full pass.
+   - Diff `payload.bin` size: down by ~629 B in resident region.
+   - Banner shows updated TPA (after Option β).
+
+#### Risk register
+
+- **Section attr drift**: clang may not place `static const` rodata
+  in custom sections.  Mitigate with a build-time `llvm-nm | grep
+  init.rodata` check.  XFAIL lit test if broken.
+- **Init address drift between builds**: `_init_entry` PROM address
+  must be reachable from relocator at link time -- already the
+  pattern for `_cpnos_cold_entry` via `--defsym`, just rename.
+- **PROM disable timing**: must be in RAM-resident code, not init
+  code in PROM.  Step 5 enforces this by moving prom_disable out
+  of `cpnos_cold_entry` into `_resident_handoff`.
+
+#### Effort estimate
+
+- Split + Option β: ~1 day (mostly Makefile + linker script +
+  attribute tagging + verify).
+- Split + Option α (with cpbios audit): ~2-3 days.
+
+#### Open sub-tasks (from this plan)
+
+- [ ] Lit test: clang honours `((section(".x.rodata")))` on
+      `static const` arrays.  File issue against ravn/llvm-z80 if
+      it fails.
+- [ ] Tag init sources with `((section(".init.text")))` /
+      `((section(".init.rodata")))` (no behaviour change yet).
+- [ ] Two-region payload.ld + ASSERTs on init/resident sizes.
+- [ ] Split objcopy + relocator embed update.
+- [ ] Entry chain split: `_init_entry` in init, `_resident_handoff`
+      in resident.
+- [ ] Move `_msg` from `.scratch_bss_hi` to `.init.bss`.
+- [ ] Pick Option α/β; implement chosen RAM-reuse path.
+- [ ] Verify via `make integration-test`.
+- [ ] Update `docs/memory_map.md` with post-split layout.
 
 ### Smaller / cleanup items
 
