@@ -80,7 +80,12 @@ static const uint8_t FCB_HEAD[12] = {
     'I','M','G',                          /* +9..+11 ext */
 };
 
-static uint8_t msg[MSG_MAX];
+/* msg[] lives in the high scratch region (0xEC24..0xECFF -- the 220 B
+ * gap between IVT and payload).  Phase B (2026-04-30): pulled out of
+ * the low scratch_bss to free it for cpnos.com's load region, lifting
+ * NDOS from 0xDD80 -> 0xDEA0.  The buffer is only used during netboot
+ * -- post-netboot, NDOS hands its own buffer pointer to SNDMSG/RCVMSG. */
+static uint8_t msg[MSG_MAX] __attribute__((section(".scratch_bss_hi")));
 
 /* Build and send a CP/NET request, then wait for the response.
  * Data must already be in msg[DAT..DAT+dat_len-1].  siz_minus_1 must be
@@ -147,11 +152,15 @@ uint16_t netboot_mpm(void) {
         __builtin_memcpy(dma, &msg[DAT + 37], 128);
         dma += 128;
         impl_conout('.');            /* one dot per 128-byte sector */
-        /* Safety: refuse to overflow into our running scratch BSS at
-         * 0xEA20 (cfgtbl / _msg / kbd_ring -- netboot itself relies on
-         * those staying intact through the READ-SEQ loop).  Phase B
-         * will relocate scratch BSS so cpnos.com can lift further. */
-        if (dma >= (uint8_t *)0xEA20) return 0;
+        /* Safety: refuse to overflow into our running scratch BSS lo
+         * region (cfgtbl / kbd_ring -- netboot uses those through the
+         * READ-SEQ loop).  Phase B (2026-04-30): _msg moved to the
+         * high scratch region so the lo region butts against IVT at
+         * 0xEC00; cpnos.com loads into 0xDEA0..0xEB20.  Strict `>`:
+         * dma == 0xEB20 means the last 128 B sector landed exactly
+         * at the limit (loaded into 0xEAA0..0xEB1F), which is fine --
+         * the next iteration's READ-SEQ returns EOF and breaks. */
+        if (dma > (uint8_t *)0xEB20) return 0;
     }
     BOOT_MARK(13, 'E');              /* EOF reached */
     impl_conout(0x0d); impl_conout(0x0a);

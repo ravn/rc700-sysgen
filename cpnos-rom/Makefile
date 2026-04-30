@@ -1007,6 +1007,13 @@ cpnos-ppas-test:
 	@echo "=== 4/4 syncing ROMs to IRQ-fix MAME tree ==="
 	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
 	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@echo "=== generating clang/cpnos_ppas_addrs.lua from payload.elf ==="
+	@KH=$$($(NM) clang/payload.elf | awk '/_kbd_head$$/{print $$1}'); \
+	 KR=$$($(NM) clang/payload.elf | awk '/_kbd_ring$$/{print $$1}'); \
+	 [ -n "$$KH" ] && [ -n "$$KR" ] || { echo "ERROR: kbd_head/kbd_ring missing from payload.elf"; exit 1; }; \
+	 printf 'return {\n  kbd_head = 0x%s,\n  kbd_ring = 0x%s,\n}\n' "$$KH" "$$KR" \
+	   > clang/cpnos_ppas_addrs.lua
+	@cat clang/cpnos_ppas_addrs.lua
 	@echo "=== launching MAME with PPAS test driver (max ~4 min) ==="
 	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
 	    -nothrottle -window -skip_gameinfo \

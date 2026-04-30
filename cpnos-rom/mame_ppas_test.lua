@@ -17,8 +17,13 @@
 --   "PASS"  + a one-line summary, OR
 --   "FAIL: <reason>"
 
-local KBD_HEAD = 0xEA24
-local KBD_RING = 0xEA2A
+-- BSS addresses for kbd_head/kbd_ring are extracted from the linked
+-- payload.elf at build time into clang/cpnos_ppas_addrs.lua so the
+-- harness automatically tracks scratch_bss layout changes (Phase B
+-- moved these from 0xEA24/0xEA2A to 0xEB24/0xEB2A).
+local addrs = dofile("clang/cpnos_ppas_addrs.lua")
+local KBD_HEAD = addrs.kbd_head
+local KBD_RING = addrs.kbd_ring
 
 local SIOB_RAW = "/tmp/cpnos_siob.raw"
 local RESULT   = "/tmp/cpnos_ppas_result.txt"

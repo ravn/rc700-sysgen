@@ -15,21 +15,19 @@ LOCAL_SRC := src
 # Link addresses.  cpnos.com's CODE section is 0xC0D B but the .COM
 # file on disk is record-padded to 0xC80 B (with 0x1A trailing fill);
 # netboot_mpm.c loads the full 0xC80 B (records can't be partial).
-# So CODE_BASE + 0xC80 must sit below cpnos-rom's scratch BSS at
-# 0xEA20 to avoid corrupting the slave's running cfgtbl/_msg/kbd_ring
-# during the READ-SEQ loop.
+# So CODE_BASE + 0xC80 must sit at or below cpnos-rom's low scratch
+# BSS to avoid corrupting cfgtbl/kbd_ring during the READ-SEQ loop.
 #
-# Phase A (2026-04-30):
-#   CODE 0xDD80..0xE9FF   NDOS DD83, end butts against scratch BSS
-#                         at 0xEA20 with 0x20 B headroom
-#   DATA 0xD980..0xDD7F   NDOSRL D980, BDOSDS DB6A
-# TPA = 0x0100..0xD97F = 0xD880 = 55424 B (54.125 KB strict; reported
-# via NDOSE = NDOS+0x122 = 0xDEA2 -> 55K).
-# Was: CODE LD000 / DATA DCC00 (TPA ~51 KB).  A more aggressive base
-# (CODE LE080 / DATA DDC80, +1 KB TPA) overlapped scratch BSS during
-# the READ-SEQ loop -- relocating scratch BSS is Phase B work.
-CODE_BASE ?= LDD80
-DATA_BASE ?= DD980
+# Phase B (2026-04-30): _msg moved into a new SCRATCH_HI region in the
+# IVT->payload gap, so the low scratch BSS shrinks to 0xEB20..0xEC00.
+#   CODE 0xDEA0..0xEB1F   NDOS DEA3, end butts against scratch lo
+#                         at 0xEB20 with 1 B headroom
+#   DATA 0xDAA0..0xDE9F   NDOSRL DAA0, BDOSDS DC8A
+# TPA = 0x0100..0xDA9F = 0xD9A0 = 55712 B (54.40 KB strict; reported
+# via NDOSE -> ~56K).
+# Was Phase A: CODE LDD80 / DATA DD980 (TPA 55K).
+CODE_BASE ?= LDEA0
+DATA_BASE ?= DDAA0
 
 export CPMDrive_D := $(CURDIR)/d
 export CPMDrive_A := $(CURDIR)/a

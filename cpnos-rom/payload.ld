@@ -39,8 +39,16 @@ MEMORY {
    * runtime-populated tables).  NOT carried in the ROM image — the
    * relocator doesn't touch this region.  Power-on RAM = 0x00 in MAME
    * and typically on real hardware too; real-HW warm boot relies on
-   * the prior image having left it in a sensible state. */
-  SCRATCH (rwx) : ORIGIN = 0xEA20, LENGTH = 0x1E0   /* ends at 0xEC00 (IVT) */
+   * the prior image having left it in a sensible state.
+   *
+   * Phase B (2026-04-30): split into LO + HI.  LO butts up against IVT
+   * (0xEC00) and is just big enough for _cfgtbl + _kbd_ring + smalls
+   * (~214 B used, 224 B reserved).  HI lives in the previously-unused
+   * IVT->payload gap and holds netboot's _msg buffer (200 B).  The
+   * 0xEA20..0xEB20 region the LO scratch used to occupy is now free for
+   * cpnos.com's load image, lifting NDOS from 0xDD80 -> 0xDEA0. */
+  SCRATCH    (rwx) : ORIGIN = 0xEB20, LENGTH = 0xE0   /* ends at 0xEC00 (IVT) */
+  SCRATCH_HI (rwx) : ORIGIN = 0xEC24, LENGTH = 0xDC   /* IVT+0x24 .. payload-1 */
 
   /* PIO-B receive ring buffer (.pio_rx_buf section).  Page-aligned
    * 256-byte buffer at 0xF700 — the head/tail are 8-bit so wrap is
@@ -157,6 +165,19 @@ SECTIONS {
 
   ASSERT(__scratch_bss_end <= 0xEC00,
          "scratch_bss overflowed into IVT region!")
+
+  /* High scratch BSS — netboot's _msg buffer lives here (placed via
+   * __attribute__((section(".scratch_bss_hi"))) in netboot_mpm.c).
+   * Sits in the IVT->payload gap so the low scratch_bss can shrink
+   * and the cpnos.com load region can lift.  Phase B (2026-04-30). */
+  .scratch_bss_hi (NOLOAD) : {
+    __scratch_bss_hi_start = .;
+    *(.scratch_bss_hi)
+    __scratch_bss_hi_end = .;
+  } > SCRATCH_HI
+
+  ASSERT(__scratch_bss_hi_end <= 0xED00,
+         "scratch_bss_hi overflowed into payload region!")
 
   /* PIO-B receive ring (page-aligned at 0xF700). */
   .pio_rx_bss 0xF700 (NOLOAD) : {
