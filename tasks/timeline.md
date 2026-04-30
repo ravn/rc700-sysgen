@@ -161,6 +161,87 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 30: cpnos TPA growth (Apr 30, 2026) — Phase A + B
+
+- **Goal**: maximize the TPA on the cpnos slave by sliding NDOS
+  upward in RAM.  cpnos.com is non-relocatable and link-addressed,
+  so each lift is a coordinated change to `cpnos-build/Makefile`
+  CODE_BASE/DATA_BASE plus the resident BIOS layout in
+  `cpnos-rom/payload.ld`.
+
+- **Phase A (commit `6251525`)**: NDOS 0xD000 → 0xDD80 (TPA 51 K → 55 K
+  reported, +1.7 KB strict).  Blockers cleaned up along the way:
+  - `nos_handoff()` used to memcpy a 24 B SNIOS jump table to a fixed
+    0xEA00 slot every cold boot (~16 B of code + the 24 B copy at
+    0xEA00 was forced live).  Replaced by pinning the cpnet-z80 NIOS
+    extern at 0xED33 (= the resident `_snios_jt` symbol) via
+    `cpnos-build/src/cpnios-shim.asm` -- a build-time constant.
+    `payload.ld` now asserts `_snios_jt == 0xED33` so any drift is a
+    link error, not a silent runtime stomp.
+  - Resident `enter_coldst()` had `jp 0xD003` hard-coded; replaced
+    with inline-asm `jp %0 : "i" (CPNOS_NDOS_ADDR + 3)` so the target
+    follows `cpnos.sym` automatically.
+  - `nos_handoff()`'s BIOS-JT copy address (was 0xCF00 hard-coded)
+    becomes parametric via `BIOS_JT_COPY_ADDR = CPNOS_NDOS_ADDR -
+    0x100`.  `cpnos_addrs.h` is generated from `cpnos.sym` at PROM
+    build time -- one source of truth.  **(Medium)** -- the
+    individual edits were small, but each was a chase to find a
+    hard-coded address that had been "fine forever" because NDOS had
+    never moved.
+  - cpnos.com payload-stamp: a 23-char "YYYY-MM-DD HH:MM <git>" tag
+    written into the trailing 0x1A record padding by
+    `cpnos-build/stamp_cpnos.py` and printed by `netboot_mpm.c` after
+    EOF.  Operator can read off the screen which build of the
+    monolith landed -- decoupled from the resident BIOS's banner
+    stamp.  Two distinct stamps because the PROM and the cpnos.com
+    are produced in separate make sub-builds.
+
+- **Phase B (commit `a1e9ce9`)**: NDOS 0xDD80 → 0xDEA0 (+288 B, but
+  `CPNOS_TPA_KB = (NDOS+0x22)/1024` rounds down to the same 55 K).
+  - `_msg` (200 B netboot frame buffer) moved out of low scratch_bss
+    via `__attribute__((section(".scratch_bss_hi")))` into a new
+    SCRATCH_HI region in the previously-unused 0xEC24..0xECEC IVT->
+    payload gap.
+  - Low scratch_bss (now just `_cfgtbl` + `_kbd_ring` + smalls,
+    ~218 B) shrinks to 0xEB20..0xEC00 and butts up against IVT.
+    cpnos.com's record-padded file end (0xDEA0+0xC80 = 0xEB20)
+    butts up against the new low scratch start with 0 B headroom.
+  - Path 2 was bounded: in the 0xEA20..0xED00 budget, scratch_bss
+    (418 B) + IVT (36 B) only fit if `_msg` moves out (the post-IVT
+    220 B gap is the only single hole large enough to absorb 200 B
+    in one piece).  Going further requires moving IVT itself or
+    sliding the payload origin -- Path 3 territory, hits the brittle
+    `cpbios.asm` hand-typed addresses noted in the
+    `feedback_state_certainty` memory.
+  - Off-by-one bug found mid-test: netboot's safety check was
+    `if (dma >= 0xEB20)`, which fires on the *successful* last
+    sector landing exactly at the limit.  Changed to strict `>` so
+    the next iteration's READ-SEQ EOF response can still drive the
+    break.  **(Painful)** -- the symptom was 25 dots then silence,
+    not a test failure with a clear cause.
+  - `mame_ppas_test.lua` had hard-coded `KBD_HEAD = 0xEA24` /
+    `KBD_RING = 0xEA2A`; broke on the Phase B move.  Fixed by
+    auto-extracting via `llvm-nm` into `clang/cpnos_ppas_addrs.lua`
+    in the integration-test target.  **(Medium)** -- caught only
+    because the harness sat in stage 2 timeout for 60 s; quick to
+    fix once located.  Audited the rest of the cpnos-rom tree for
+    similar hard-coded scratch_bss addresses -- only one stale
+    *comment* in `init.c` (now fixed); no other live references.
+
+- **Integration-test alias added** (commit `e08f963`): `make test`
+  and `make integration-test` both run `cpnos-ppas-test`.  Plain
+  `make` still only builds.  The PPAS regression covers transport
+  + NDOS + BDOS + console + keyboard + file load + run + output
+  framing, which is enough to catch any layout move that broke a
+  load-time invariant.  **(Easy)** -- mechanical Makefile edit.
+
+- **Cumulative result**: NDOS rose 0x11A0 = 4512 B over Phases A+B
+  (51 K -> 55 K reported, ~55.7 K strict).  The net TPA growth on
+  Phase B alone (288 B) is real but doesn't show in `STAT`-style
+  reporting because of integer KB rounding.  To reach 56 K reported,
+  NDOS needs to land at 0xDFDE or higher -- another ~318 B of
+  layout work, which hits Path 3.
+
 ## Phase 19: PROM-oblivious payload + C23 #embed relocator (Apr 23, 2026) — branch `conout-codes`
 
 - **Goal**: split the 2 KB PROM0 budget across both physical EPROMs

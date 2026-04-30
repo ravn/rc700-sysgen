@@ -29,9 +29,10 @@ extern void enable_im2(void);
  * BIOS_BASE at 0xED00, .resident code spans 0xED00..~0xF250 and
  * 0xF100..0xF123 fell inside that range, so the old IVT slot would
  * have been overwritten by memcpy (or stomped resident code if IVT
- * were written first).  0xEC00 sits in the 0xEB20..0xED00 gap
- * between BSS (0xEA20..0xEB20) and RESIDENT (0xED00..), with enough
- * room for 18 × 2-byte entries. */
+ * were written first).  0xEC00 sits between scratch_bss LO (which
+ * after Phase B ends at 0xEC00) and RESIDENT (0xED00..), with enough
+ * room for 18 × 2-byte entries.  scratch_bss HI (just _msg, post-
+ * Phase B) lives in the 0xEC24..0xECEC tail of the IVT page. */
 /* IVT location provided by the linker script (cpnos_rom.ld) so the
  * ld ASSERTs and setup_ivt() stay in sync.  If .resident or BSS grows
  * to overlap _ivt_start.._ivt_end, the link fails at build time (issue

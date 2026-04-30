@@ -471,3 +471,72 @@ Payload is 2536 B in PROM0+PROM1 (4 KB).  Long-term goal per memory
 - Console subsystem (`_specc`, `_impl_conout`, cursor functions): ~5-15 B savable, mostly via #85 / #86.
 - Closing the full ~232 B gap to slot-1 (2 KB) likely needs all of #73 / #74 / #78 / #83-#87 in llvm-z80 plus a console-subsystem refactor.  Not yet planned.
 
+## Phase A + B follow-ups (2026-04-30)
+
+After the NDOS lift to 0xDEA0 (commits `6251525` Phase A, `a1e9ce9`
+Phase B), the in-RAM resident layout is packed tight with 0 B
+headroom between cpnos.com and scratch_bss LO.  These items are the
+remaining axes to pull on.
+
+### Path 3 (lift payload origin from 0xED00 to 0xEC00)
+
+Would let cpnos.com end advance to 0xEC00 (NDOS = 0xDF80, +224 B
+TPA), enough to round CPNOS_TPA_KB up to 56.  Blocked by:
+
+- [ ] **Audit `cpbios.asm` hand-typed VMA references.**  Per memory
+      `project_cpnos_address_coupling_brittle`: cpbios.asm
+      "rbcout" etc. hand-typed.  Need to enumerate every literal
+      address tied to BIOS_BASE = 0xED00 in cpnos-build/src/ and
+      teach RMAC to take them via EQUs sourced from cpnos.sym (or
+      from a generated .asm fragment), the way cpnios-shim.asm now
+      sources NIOS = 0xED33.  Until this is done, moving payload
+      origin will produce silent runtime failures, not link errors.
+- [ ] **Add a payload.ld assert** that mirrors the cpnios-shim
+      pattern for any *other* externs cpnos.com imports.  Right now
+      only NIOS has a drift-trap.
+
+### Init/resident split (alternative to Path 3)
+
+Move init-only code (`init_hardware`, `cfgtbl_init`, `print_banner`,
+`netboot_mpm` and friends) into a new `.init` section that runs
+from PROM and is reclaimed as scratch_bss extension after PROM
+disable.  Estimate from CLAUDE notes: ~700 B more freeable RAM,
+which can absorb cpnos.com lift instead of forcing it into the
+0xEA20..0xED00 budget.
+
+- [ ] Identify the call-graph closure of "needed only before
+      `nos_handoff()`".  netboot helpers, banner, init.c bootstrap.
+- [ ] Add `.init.text` / `.init.rodata` sections in `payload.ld`,
+      placed at 0xED00..0xED00+init_size, then a runtime hand-off
+      that frees that range for a different linker region after
+      PROM disable.
+- [ ] Move marker-print loop, IVT setup, screen-clear into `.init`.
+- [ ] Verify nothing in the resident path takes the address of an
+      `.init` symbol (would survive past PROM disable as a dangling
+      reference).
+
+### Smaller / cleanup items
+
+- [ ] **CPNOS_TPA_KB rounding.**  Current `(NDOS+0x22)/1024` floors
+      to KB, so Phase B's 288 B win disappears in the banner.
+      Either switch to nearest-KB rounding, or report bytes (e.g.
+      "55 K (+0x120)").  One-line Makefile change.
+- [ ] **Update `cpnos-rom/docs/memory_map.md`** to reflect Phase B
+      end-to-end.  An addendum block was added at the top of the
+      doc in 2026-04-30; the rest of the doc still narrates the
+      pre-A layout (0xD000 NDOS, 0xEA00 NIOS, etc.) and should be
+      regenerated from `llvm-nm --numeric-sort clang/payload.elf`.
+- [ ] **CFGTBL/MSGBUF reuse for netboot.**  Per cfgtbl.c:14, SNIOS
+      uses `_cfgtbl + 45` as MSGBUF (128 B) post-netboot.  netboot
+      currently allocates a separate `_msg[200]`.  If netboot can
+      stage frames in `_cfgtbl[+45..+172]` with the same buffer
+      reused after `cfgtbl_init()` re-initializes the header, we
+      save 200 B of resident RAM.  Caveat: netboot's max response
+      (171 B) is bigger than MSGBUF's 128 B; would need to either
+      shrink the response (reduce FCB carry?) or extend MSGBUF for
+      our slave only.  Investigate cost.
+- [ ] **Auto-extracted addresses for *other* harnesses.**  Only
+      `mame_ppas_test.lua` was caught and fixed (Phase B); audit
+      `mame_*` lua scripts and Python tests for other hard-coded
+      BSS addresses that would silently rot on a future move.
+

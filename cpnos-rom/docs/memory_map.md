@@ -2,7 +2,27 @@
 
 Snapshot taken from a `MIRROR_SIOB=1 BOOT_MARK_ENABLED=1` build at
 commit `c3e0c2d`.  All numbers will shift slightly with future
-shrinkage but the *structure* is stable.  Authoritative sources:
+shrinkage but the *structure* is stable.
+
+> **2026-04-30 — Phase A + B updates (commits 6251525, a1e9ce9):**
+>
+> | Region          | Pre-A (this doc) | Post-B (current) |
+> |-----------------|------------------|------------------|
+> | NDOSRL (DATA)   | 0xCC00           | 0xDAA0           |
+> | NDOS  (CODE)    | 0xD000           | 0xDEA0           |
+> | cpnos.com end   | 0xDC80           | 0xEB20           |
+> | scratch_bss LO  | 0xEA20..0xEC00   | 0xEB20..0xEC00   |
+> | scratch_bss HI  | (didn't exist)   | 0xEC24..0xECEC (`_msg`) |
+> | NIOS jump table | 0xEA00 (memcpy'd)| 0xED33 (= `_snios_jt`, no memcpy) |
+> | TPA reported    | 52 K             | 55 K             |
+>
+> The "3.4 K GAP" between cpnos.com end and NIOS that this doc
+> describes is closed -- cpnos.com now butts up against scratch_bss
+> LO with 0 B headroom.  See `tasks/timeline.md` Phase 30 for
+> the path-A vs path-B reasoning, and run `make cpnos && llvm-nm
+> --numeric-sort clang/payload.elf` for live addresses.
+
+Authoritative sources:
 
 - `cpnos-rom/clang/payload.elf` (via `llvm-nm --numeric-sort`)
 - `cpnos-rom/cpnos-build/d/cpnos.sym`
