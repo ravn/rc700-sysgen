@@ -46,6 +46,7 @@ extern uint8_t _ivt_start[];
 /* Unified port-init table.  Each pair (port, value) is written in
  * order with OUT (C),A.  Centralises ~30 scattered port writes into
  * one table + one loop — smaller than inline port_out calls. */
+__attribute__((section(".init.rodata")))
 static const uint8_t port_init[] = {
     /* CTC ch0: vector=0, SIO-A baud timer. */
     PORT_CTC0, 0x00,   PORT_CTC0, 0x47,   PORT_CTC0, 0x01,
@@ -118,6 +119,7 @@ static const uint8_t port_init[] = {
     PORT_CRT_CMD,   0x23,
 };
 
+__attribute__((section(".init.text")))
 static void setup_ivt(void) {
     /* 18 x 16-bit slots at IVT_ADDR (page-aligned).  All slots default
      * to isr_noop; CTC ch2 (slot 2) gets the CRT refresh ISR. */
@@ -136,6 +138,7 @@ static void setup_ivt(void) {
     enable_im2();
 }
 
+__attribute__((section(".init.text")))
 void init_hardware(void) {
     /* IVT + IM2 first so any stray interrupt lands on isr_noop rather
      * than the reset vector.  Interrupts stay disabled; resident_entry
@@ -168,7 +171,8 @@ void init_hardware(void) {
      * 0..6 (display row 0, cols 60..66 — upper-right strip).  See
      * BOOT_MARK in hal.h for the placement rationale. */
     {
-        static const char marker[] = "INIT OK";
+        static const __attribute__((section(".init.rodata")))
+            char marker[] = "INIT OK";
         for (uint8_t i = 0; i < sizeof(marker) - 1; ++i) {
             BOOT_MARK(i, marker[i]);
         }

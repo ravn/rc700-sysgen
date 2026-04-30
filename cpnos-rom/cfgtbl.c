@@ -73,6 +73,7 @@ struct cfgtbl cfgtbl;
 /* Set the few non-zero fields.  Everything else stayed zero at BSS
  * clear.  Must run before any SNIOS call (cpnos_main calls us before
  * netboot). */
+__attribute__((section(".init.text")))
 void cfgtbl_init(void) {
     cfgtbl.slaveid = RC702_SLAVEID;
     /* Drive A:-D: mapped to server master (slave ID 0x00) drives A:-D:.

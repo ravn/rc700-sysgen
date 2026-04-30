@@ -86,12 +86,24 @@ SECTIONS {
     *(.resident.*)
     KEEP(*(.resident.data))
 
-    /* Everything else — init code, netboot, C helpers, runtime stubs,
-     * compiler-emitted rodata (switch tables etc).  All lands at RAM
-     * addresses so jumptables resolve correctly after relocation. */
+    /* Init-only code+rodata, tagged with `((section(".init.text")))` /
+     * `((section(".init.rodata")))` in init.c, cfgtbl.c, netboot_mpm.c,
+     * and cpnos_main.c (print_banner).  Step 1 of the init/resident
+     * split (tasks/todo.md "Init/resident split"): in this initial
+     * commit they still land in .payload and get relocated to RAM
+     * along with everything else.  Later commits will move them to a
+     * separate INIT memory region that runs in place from PROM. */
+    __init_text_start = .;
+    *(.init.text)
+    *(.init.text.*)
+    __init_text_end = .;
     *(.text.init)
     *(.text.init.*)
     *(.text*)
+    __init_rodata_start = .;
+    *(.init.rodata)
+    *(.init.rodata.*)
+    __init_rodata_end = .;
     *(.rodata*)
     *(.data*)
 

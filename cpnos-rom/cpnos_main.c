@@ -331,6 +331,7 @@ extern void impl_conout(uint8_t c);
  * the dots fill in below it.  Previously the banner was printed by
  * nos_handoff() AFTER netboot, so the dots appeared on row 0 and the
  * banner on row 1 — backwards from what operators expect. */
+__attribute__((section(".init.text")))
 static void print_banner(void) {
     /* "RC702 CP/NOS NNK WWW-MMM yyyy-mm-dd HH:MM hash\r\n".
      * NNK is the TPA size in KB (CPNOS_TPA_KB, build-time from
@@ -340,7 +341,7 @@ static void print_banner(void) {
      * no vtable load, just a static literal in .resident.data. */
 #define _STR(x) #x
 #define STR(x) _STR(x)
-    static const char banner[] =
+    static const __attribute__((section(".init.rodata"))) char banner[] =
         "RC702 CP/NOS " STR(CPNOS_TPA_KB) "K "
         TRANSPORT_NAME " " BUILD_INFO_STR "\r\n";
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
