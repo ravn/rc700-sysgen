@@ -695,10 +695,10 @@ pio-irq-netboot: cpnos-install _check-tag-pio-irq _check-mame-irq
 	@echo "--- SIO-B (printable) ---"
 	@tr -cd '\11\12\15\40-\176' < /tmp/cpnos_siob.raw 2>/dev/null && echo
 	@strip=$$(cat /tmp/cpnos_boot_marks.txt 2>/dev/null); \
-	 if [ "$${strip:18:1}" = "J" ] && grep -q 'A>' /tmp/cpnos_siob.raw 2>/dev/null; then \
-	     echo "PASS: NDOS COLDST reached (J) and A> seen on SIO-B"; \
+	 if [ "$${strip:18:1}" = "J" ] && grep -q 'E>' /tmp/cpnos_siob.raw 2>/dev/null; then \
+	     echo "PASS: NDOS COLDST reached (J) and E> seen on SIO-B"; \
 	 else \
-	     echo "FAIL: strip='$$strip', expected J at col 18 + 'A>' in SIO-B"; \
+	     echo "FAIL: strip='$$strip', expected J at col 18 + 'E>' in SIO-B"; \
 	     exit 1; \
 	 fi
 
@@ -865,7 +865,7 @@ cpnos-warmboot-test: cpnos-install
 	@python3 -u netboot_server.py $(NETBOOT_PORT) > /tmp/cpnos_netboot_server.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_netboot_server.pid
 	@python3 -u sio_b_driver.py $(SIOB_PORT) \
-	    --trigger 'A>' --inject '\x03' --timeout 30 \
+	    --trigger 'E>' --inject '\x03' --timeout 30 \
 	    > /tmp/cpnos_siob_driver.log 2>&1 & \
 	 echo $$! > /tmp/cpnos_siob_driver.pid
 	@sleep 0.3
@@ -968,7 +968,7 @@ conout-acid: cpnos-install testutil/acid.com
 	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
-# Interactive: boot CP/NOS, leave MAME running at the A> prompt so a
+# Interactive: boot CP/NOS, leave MAME running at the E> prompt so a
 # human can type on the native keyboard (PIO-A path).  SIO-B output
 # still streams to /tmp/cpnos_siob.raw so the other side can watch
 # what got typed + echoed.  Exit by closing the MAME window (Esc).

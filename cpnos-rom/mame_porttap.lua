@@ -89,7 +89,7 @@ emu.register_periodic(function ()
         local content = log:read("*a")
         log:close()
         if content and content:find("[marker] CPNET OK found", 1, true) then
-            -- Give CCP one more periodic to drain the trailing A>
+            -- Give CCP one more periodic to drain the trailing E>
             -- prompt onto SIO-B (so /tmp/cpnos_siob.raw is complete).
             if exit_after == nil then
                 exit_after = emu.time() + 0.5

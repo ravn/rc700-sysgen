@@ -16,7 +16,7 @@ local _final_snap_t = -1
 -- After the PASS/FAIL condition is first detected, keep the emulation
 -- running for this many frames so SIO-B TX finishes draining (at 38400
 -- baud a byte needs ~13 frames of 1/50 s to transmit; 15 frames covers
--- any short tail like "\r\nA>").
+-- any short tail like "\r\nE>").
 local DRAIN_FRAMES = 15
 local pending_finish = nil
 local pending_frame  = 0
@@ -262,16 +262,17 @@ emu.register_frame_done(function()
     -- 0xF200+ and doesn't touch the BDOS vector.  Previous null-trap
     -- (c3 00 00) caused the walk to scribble low memory instead.
     -- Real success criterion: CCP prints its prompt on the 8275 display.
-    -- CP/M CCP emits "\r\nA>" once loaded and running.  We scan the
-    -- display buffer for "A>" anywhere — covers both the first prompt
-    -- and any position after scrolling.  Weaker intermediate gates
-    -- (PC in loaded region, C3 at zero page) were misleading: they
+    -- CP/M CCP emits "\r\nE>" once loaded and running (cpnos-rom seeds
+    -- ZP[4]=0x04 in cpnos_main.c so CDISK starts on master I:= slave E:).
+    -- We scan the display buffer for "E>" anywhere — covers both the
+    -- first prompt and any position after scrolling.  Weaker intermediate
+    -- gates (PC in loaded region, C3 at zero page) were misleading: they
     -- fired at ~2.5s while NDOS was still streaming CCP.SPR.
     for row = 0, 24 do
         for col = 0, 78 do
-            if space:read_u8(DSPSTR + row * 80 + col) == string.byte('A')
+            if space:read_u8(DSPSTR + row * 80 + col) == string.byte('E')
                and space:read_u8(DSPSTR + row * 80 + col + 1) == string.byte('>') then
-                pending_finish = string.format("PASS (A> at row %d col %d)", row, col)
+                pending_finish = string.format("PASS (E> at row %d col %d)", row, col)
                 pending_frame = frame
                 return
             end
@@ -308,7 +309,7 @@ emu.register_frame_done(function()
         local b0 = space:read_u8(0x0000)
         local v5 = space:read_u8(0x0005)
         pending_finish = string.format(
-            "FAIL: no A> prompt (B0=%02x V5=%02x PC=%04X)",
+            "FAIL: no E> prompt (B0=%02x V5=%02x PC=%04X)",
             b0, v5,
             manager.machine.devices[":maincpu"].state["PC"].value)
         pending_frame = frame
