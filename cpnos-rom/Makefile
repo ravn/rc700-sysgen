@@ -972,6 +972,46 @@ conout-acid: cpnos-install testutil/acid.com
 	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
+# PPAS regression: drive cpnos through "PPAS PRIMES" / "R" / "Q",
+# verify primes are printed (looks for the last prime, 29989), and
+# verify Q returns to the CCP E> prompt.  Forces MIRROR_SIOB=1 so the
+# Lua script can scrape /tmp/cpnos_siob.raw for completion markers.
+# MP/M is restarted from scratch so the run is hermetic.
+cpnos-ppas-test:
+	@echo "=== 1/4 (re)starting MP/M with fresh disks ==="
+	-screen -S mpm -X quit >/dev/null 2>&1 || true
+	@sleep 1
+	@if lsof -nP -iTCP:4002 -sTCP:LISTEN 2>/dev/null | grep -q .; then \
+	    echo "ERROR: port 4002 already bound -- kill the squatter first:"; \
+	    lsof -nP -iTCP:4002 -sTCP:LISTEN; \
+	    exit 1; \
+	fi
+	cd $(MPM_DIR) && screen -dmS mpm ./mpm-net2
+	@echo "=== 2/4 waiting for MP/M CP/NET server on :4002 ==="
+	@until nc -z 127.0.0.1 4002 2>/dev/null; do sleep 0.3; done
+	@sleep 2
+	@echo "=== 3/4 building cpnos-rom with MIRROR_SIOB=1 + installing ==="
+	$(MAKE) MIRROR_SIOB=1 cpnos-install
+	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_sioa.raw \
+	       /tmp/cpnos_ppas_log.txt /tmp/cpnos_ppas_result.txt
+	@echo "=== 4/4 syncing ROMs to IRQ-fix MAME tree ==="
+	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
+	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
+	@echo "=== launching MAME with PPAS test driver (max ~4 min) ==="
+	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
+	    -nothrottle -window -skip_gameinfo \
+	    -seconds_to_run 240 \
+	    -rs232a null_modem -bitb1 /tmp/cpnos_sioa.raw \
+	    -rs232b null_modem -bitb2 /tmp/cpnos_siob.raw \
+	    -piob cpnet_bridge \
+	    -bitb3 socket.127.0.0.1:4002 \
+	    -autoboot_script mame_ppas_test.lua
+	@echo "--- ppas-test log tail ---"
+	@tail -30 /tmp/cpnos_ppas_log.txt 2>/dev/null
+	@echo "--- result ---"
+	@cat /tmp/cpnos_ppas_result.txt 2>/dev/null || echo '(no result file)'
+	@grep -q '^PASS' /tmp/cpnos_ppas_result.txt 2>/dev/null
+
 # Interactive: boot CP/NOS, leave MAME running at the E> prompt so a
 # human can type on the native keyboard (PIO-A path).  SIO-B output
 # still streams to /tmp/cpnos_siob.raw so the other side can watch
