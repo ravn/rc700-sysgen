@@ -117,10 +117,13 @@ uint16_t netboot_mpm(void) {
     BOOT_MARK(9, 'I');               /* NTWKIN ok */
 
     /* --- LOGIN -----------------------------------------------------
-     * Plain byte loop; clang unrolls an 8-byte __builtin_memcpy as 4×
-     * 16-bit immediate stores (~40 B).  A byte loop against the runtime
-     * stub is far smaller. */
-    for (uint8_t i = 0; i < 8; ++i) msg[DAT + i] = RC702_LOGIN_PWD[i];
+     * Direct __builtin_memcpy(8) was unrolled by clang into 4× 16-bit
+     * immediate stores (~40 B).  Setting byte 0 manually and memcpying
+     * the trailing 7 bytes drops below the unroll threshold and
+     * dispatches to the runtime _memcpy stub (LDIR), which is much
+     * smaller per call site (the stub itself is shared). */
+    msg[DAT] = RC702_LOGIN_PWD[0];
+    __builtin_memcpy(&msg[DAT + 1], &RC702_LOGIN_PWD[1], 7);
     if (cpnet_xact(64, 7) != 0) return 0;
     BOOT_MARK(10, 'L');              /* LOGIN ok */
 
