@@ -114,6 +114,14 @@ SECTIONS {
   ASSERT(_bios_conout - _bios_boot == 12, "BIOS CONOUT offset must be +12")
   ASSERT(_bios_sectran - _bios_boot == 48, "BIOS SECTRAN offset must be +48")
 
+  /* cpnos-build/src/cpnios-shim.asm pins NDOS's NIOS extern symbol at
+   * 0xED33 directly, so NDOS calls land in the resident SNIOS jump
+   * table without a runtime memcpy.  If _snios_jt ever drifts, the
+   * shim must be updated in lockstep -- this assert turns drift into
+   * a build failure with a clear message.  Phase A (2026-04-30). */
+  ASSERT(_snios_jt == 0xED33,
+         "_snios_jt drifted; update cpnos-build/src/cpnios-shim.asm NIOS EQU")
+
   __payload_size = __payload_end - __payload_start;
 
   /* Hard guard: payload must fit in the available ROM space.  Exact

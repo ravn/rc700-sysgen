@@ -402,14 +402,16 @@ MAME_PROM1 = $(MAME)/roms/rc702/prom1.ic65
 # fails to take effect — both must be refreshed.
 MPM_DISK_LIB = ../z80pack/cpmsim/disks/library
 cpnos-disk-install: cpnos-build/d/cpnos.com
-	@echo "=== installing cpnos.com onto MP/M library disks ==="
+	@echo "=== stamping cpnos.com with build timestamp ==="
+	@python3 cpnos-build/stamp_cpnos.py cpnos-build/d/cpnos.com clang/cpnos_stamped.com
+	@echo "=== installing stamped cpnos.com onto MP/M library disks ==="
 	@cpmrm -f ibm-3740 $(MPM_DISK_LIB)/mpm-net2-1.dsk 0:cpnos.img 2>/dev/null || true
 	cpmcp -f ibm-3740 $(MPM_DISK_LIB)/mpm-net2-1.dsk \
-	    cpnos-build/d/cpnos.com 0:cpnos.img
+	    clang/cpnos_stamped.com 0:cpnos.img
 	@if [ -f $(MPM_DISK_LIB)/cpnetsmk-1.dsk ]; then \
 	    cpmrm -f ibm-3740 $(MPM_DISK_LIB)/cpnetsmk-1.dsk 0:cpnos.img 2>/dev/null || true; \
 	    cpmcp -f ibm-3740 $(MPM_DISK_LIB)/cpnetsmk-1.dsk \
-	        cpnos-build/d/cpnos.com 0:cpnos.img; \
+	        clang/cpnos_stamped.com 0:cpnos.img; \
 	    echo "  refreshed cpnos.img on cpnetsmk-1.dsk"; \
 	 fi
 	@echo "  refreshed cpnos.img on mpm-net2-1.dsk"

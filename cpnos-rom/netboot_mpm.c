@@ -53,15 +53,16 @@ extern void impl_conout(uint8_t c);
 #define MSG_MAX 200
 
 /* cpnos.com produced by RMAC+LINK is CODE-only (DATA section at
- * 0xCC00 is runtime-initialized BSS, not stored in the file).  The
- * 4 KB file is the CODE section, linked at 0xD000.  File offset 0 =
- * memory 0xD000 = `c3 21 df` (JP BIOS).
- * Verified 2026-04-22 by comparing cpnos.com bytes to in-memory
- * layout and observing that offset 0xDF21-0xCC00 = 0x1321 runs past
- * the 4 KB file end — confirming the file covers 0xD000..0xDFD9 not
- * 0xCC00..0xDFD9. */
-#define IMG_BASE   ((uint8_t *)0xD000)
-#define ENTRY_ADDR 0xD000
+ * NDOSRL is runtime-initialized BSS, not stored in the file).
+ * Phase A (2026-04-30) placement:
+ *   CODE_BASE = 0xDD80 (NDOS), DATA_BASE = 0xD980 (NDOSRL)
+ * The .COM file is the CODE section -- 3085 B linked at 0xDD80
+ * and record-padded to 3200 B (0xC80) on disk; file offset 0 =
+ * memory CPNOS_NDOS_ADDR.  Source of truth is cpnos.sym (extracted
+ * into clang/cpnos_addrs.h as CPNOS_NDOS_ADDR). */
+#include "cpnos_addrs.h"
+#define IMG_BASE   ((uint8_t *)CPNOS_NDOS_ADDR)
+#define ENTRY_ADDR (CPNOS_NDOS_ADDR)
 
 /* MP/M II default password on mpm-net2-1.dsk.  Override at build time
  * with -DRC702_LOGIN_PWD='"OTHER   "' (8 chars, space padded). */
@@ -146,11 +147,24 @@ uint16_t netboot_mpm(void) {
         __builtin_memcpy(dma, &msg[DAT + 37], 128);
         dma += 128;
         impl_conout('.');            /* one dot per 128-byte sector */
-        /* Safety: refuse to overflow into BIOS area (now 0xED00+). */
-        if (dma >= (uint8_t *)0xEC00) return 0;
+        /* Safety: refuse to overflow into our running scratch BSS at
+         * 0xEA20 (cfgtbl / _msg / kbd_ring -- netboot itself relies on
+         * those staying intact through the READ-SEQ loop).  Phase B
+         * will relocate scratch BSS so cpnos.com can lift further. */
+        if (dma >= (uint8_t *)0xEA20) return 0;
     }
     BOOT_MARK(13, 'E');              /* EOF reached */
     impl_conout(0x0d); impl_conout(0x0a);
+
+    /* --- print build stamp from last 24 B of payload --------------
+     * stamp_cpnos.py wrote 23 ASCII bytes + 0x00 sentinel into the
+     * trailing 0x1A padding of cpnos.com.  dma now points one past
+     * the last loaded byte, so the stamp lives at dma-24..dma-1. */
+    {
+        const uint8_t *s = dma - 24;
+        for (uint8_t i = 0; i < 23 && s[i] != 0; ++i) impl_conout(s[i]);
+        impl_conout(0x0d); impl_conout(0x0a);
+    }
 
     /* --- CLOSE ---------------------------------------------------- */
     reuse_fcb();

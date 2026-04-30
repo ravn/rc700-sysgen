@@ -47,17 +47,19 @@ extern void jump_to(uint16_t addr) __attribute__((noreturn));
 RESIDENT
 void bios_stub_ret(void) { }
 
-/* Re-enter NDOS COLDST.  Phase 2B (2026-04-26): cpnos.com no longer
- * has an entry stub at 0xD000 — that address is now NDOS+0 = JP NDOSE
- * (BDOS dispatch).  COLDST is at NDOS+3 = 0xD003.  Setting SP back to
- * the CP/M-convention TPA top (0x0100) before the jump matches what
- * cpnos_cold_entry's tail does on first boot. */
+/* Re-enter NDOS COLDST.  cpnos.com starts at NDOS with NDOS+0 = JP
+ * NDOSE (BDOS dispatch) and NDOS+3 = COLDST.  Setting SP back to the
+ * CP/M-convention TPA top (0x0100) before the jump matches what
+ * cpnos_cold_entry's tail does on first boot.  CPNOS_NDOS_ADDR is
+ * extracted from cpnos.sym at PROM build time (clang/cpnos_addrs.h),
+ * so this stays right whenever cpnos-build's CODE_BASE moves. */
+#include "cpnos_addrs.h"
 RESIDENT
 [[noreturn]] void enter_coldst(void) {
     __asm__ volatile(
         "ld sp, 0x0100\n\t"
-        "jp 0xD003"
-        : : : "memory");
+        "jp %0"
+        : : "i" (CPNOS_NDOS_ADDR + 3) : "memory");
     __builtin_unreachable();
 }
 

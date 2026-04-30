@@ -12,14 +12,24 @@ SRC  := /Users/ravn/z80/cpnet-z80/dist/src
 # Altos).  If src/<name>.asm exists it wins over $(SRC)/<name>.asm.
 LOCAL_SRC := src
 
-# Link addresses.  Must sit below our BIOS resident at 0xF200 and
-# display RAM at 0xF800.  Current choice:
-#   CODE 0xD000..0xDFF8   NDOS D003, NIOS D993, BDOS DCAA, BIOS DF21
-#   DATA 0xCC00..0xCEE4   NDOSRL CC00, BDOSDS CEA8
-# Leaves TPA 0x0100..0xCBFF (~51 KB) and everything above 0xDFF8 free
-# for the RC702-native BIOS + IVT + BSS + display.
-CODE_BASE ?= LD000
-DATA_BASE ?= DCC00
+# Link addresses.  cpnos.com's CODE section is 0xC0D B but the .COM
+# file on disk is record-padded to 0xC80 B (with 0x1A trailing fill);
+# netboot_mpm.c loads the full 0xC80 B (records can't be partial).
+# So CODE_BASE + 0xC80 must sit below cpnos-rom's scratch BSS at
+# 0xEA20 to avoid corrupting the slave's running cfgtbl/_msg/kbd_ring
+# during the READ-SEQ loop.
+#
+# Phase A (2026-04-30):
+#   CODE 0xDD80..0xE9FF   NDOS DD83, end butts against scratch BSS
+#                         at 0xEA20 with 0x20 B headroom
+#   DATA 0xD980..0xDD7F   NDOSRL D980, BDOSDS DB6A
+# TPA = 0x0100..0xD97F = 0xD880 = 55424 B (54.125 KB strict; reported
+# via NDOSE = NDOS+0x122 = 0xDEA2 -> 55K).
+# Was: CODE LD000 / DATA DCC00 (TPA ~51 KB).  A more aggressive base
+# (CODE LE080 / DATA DDC80, +1 KB TPA) overlapped scratch BSS during
+# the READ-SEQ loop -- relocating scratch BSS is Phase B work.
+CODE_BASE ?= LDD80
+DATA_BASE ?= DD980
 
 export CPMDrive_D := $(CURDIR)/d
 export CPMDrive_A := $(CURDIR)/a

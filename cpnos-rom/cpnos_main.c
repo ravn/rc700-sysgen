@@ -12,9 +12,12 @@
  *   4. PROM disable (OUT 0x18) — safe, we're executing from 0xED00.
  *   5. CP/M zero-page setup (JP WBOOT at 0x0000, JP BDOS at 0x0005).
  *   6. SNIOS — drain SIO RX, seed NETST=ACTIVE.
- *   7. Copy our SNIOS jump table to 0xEA00 where DRI NDOS expects it.
- *   8. Enable interrupts (CRT refresh ISR wakes the display).
- *   9. Jump to CP/NOS entry at 0xD000.
+ *   7. Enable interrupts (CRT refresh ISR wakes the display).
+ *   8. Jump to CP/NOS entry at CPNOS_NDOS_ADDR (Phase A: 0xE080;
+ *      pre-Phase-A: 0xD000).  cpnios-shim.asm pins NIOS directly at
+ *      cpnos-rom's resident _snios_jt symbol (0xED33), so step 7's
+ *      runtime memcpy that used to copy snios_jt to a fixed 0xEA00
+ *      slot is no longer needed.
  */
 
 #include <stdint.h>
@@ -27,7 +30,6 @@ extern void init_hardware(void);
 extern void cfgtbl_init(void);
 extern uint8_t snios_ntwkin(void);
 extern void enable_interrupts(void);
-extern uint8_t snios_jt[24];
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
 extern void enter_coldst(void) __attribute__((noreturn));
 
@@ -311,16 +313,15 @@ extern uint16_t netboot_mpm(void);
 #define NETBOOT() netboot_mpm()
 #endif
 
-#define NDOS_SNIOS_ADDR  0xEA00  /* NDOS_BASE(0xDE00) + NDOS code_len(0xC00) */
-
-/* Boot orchestration after netboot: signon + BIOS-JT copy + ZP[0..4].
- * Replaces cpbios.asm's `boot:` routine (Phase 2A).  Keeps everything
- * in C so the JT base 0xCF00 / signon string / IOBYTE convention live
- * alongside the impls they coordinate with.
+/* Boot orchestration after netboot: signon + BIOS-JT copy + ZP[0..7].
+ * Replaces cpbios.asm's `boot:` routine.  Keeps everything in C so the
+ * JT base / signon string / IOBYTE convention live alongside the impls
+ * they coordinate with.
  *
- * cpnos.com's tiny entry stub at 0xD000 finishes ZP setup with ZP[5..7]
+ * cpnos.com's tiny entry stub at NDOS finishes ZP setup with ZP[5..7]
  * (= JP BDOS+6, where BDOS's address is a cpnos.com link-time symbol)
- * and falls through to NDOS+3 = COLDST.  See cpnos-build/src/cpnos.asm. */
+ * and falls through to NDOS+3 = COLDST.  Phase A (2026-04-30) lifted
+ * NDOS from 0xD000 to 0xE080 (TPA grew 51 -> 55 KB strict). */
 extern void impl_conout(uint8_t c);
 
 /* Banner is printed BEFORE NETBOOT() so the screen layout is:
@@ -347,36 +348,32 @@ static void print_banner(void) {
 #undef _STR
 }
 
-static void nos_handoff(void) {
-    /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to NDOSRL +
-     * 0x300 = 0xCF00.  NDOS COLDST reads ZP[1..2] = 0xCF03 and walks
-     * 0xCF02..0xCF34 in place, replacing slots 1..5 + 15 with NDOS
-     * wrapper addresses.  Other slots (BOOT, PUNCH/READER/HOME,
-     * SELDSK..WRITE, SECTRAN) keep their resident-JT targets — all
-     * unreachable in CP/NOS (cpbdos implements only fn 0..12, no disk
-     * dispatch), so they all land harmlessly on bios_stub_ret. */
-    __builtin_memcpy((void *)0xCF00, (const void *)0xED00, 51);
+/* BIOS-JT copy lands at NDOSRL + 0x300 inside cpnos.com's data area.
+ * NDOSRL = NDOS - 0x400, so the copy address is NDOS - 0x100.  NDOS
+ * COLDST walks the table via ZP[0001..0002], replacing slots 1..5 + 15
+ * with NDOS wrapper addresses.  Other slots (BOOT/PUNCH/READER/HOME/
+ * SELDSK..WRITE/SECTRAN) keep their resident-JT targets -- unreachable
+ * in CP/NOS so they land harmlessly on bios_stub_ret. */
+#define BIOS_JT_COPY_ADDR (CPNOS_NDOS_ADDR - 0x100)
 
-    /* CP/M 2.2 zero page bytes 0..7.  Phase 2B: ZP[5..7] is also set
-     * here now (was: cpnos.asm).  BDOS's address is link-time-determined
-     * inside cpnos.com; CPNOS_BDOS_ADDR comes from cpnos.sym extraction
-     * at PROM build time.
-     *   0x0000..0x0002 = JP 0xCF03 (= NDOSRL+0x303 — NDOS's BIOS-JT
-     *                    walk target)
-     *   0x0003         = IOBYTE = 0 (all TTY)
-     *   0x0004         = current drive/user = 0x04 (E:, user 0).  E: is
-     *                    bound to master I: (4 MB hard disk) in
-     *                    cfgtbl.c, so CCP's first prompt comes up on the
-     *                    big disk rather than the 256 KB A: floppy that
-     *                    netboot fetched CPNOS.IMG from.  Floppy A:..D:
-     *                    are still mounted and reachable via `A:` etc.
-     *   0x0005..0x0007 = JP CPNOS_BDOS_ADDR (= cpnos.com's BDOSE).
+static void nos_handoff(void) {
+    /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to the
+     * NDOS-data slot. */
+    __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, (const void *)0xED00, 51);
+
+    /* CP/M 2.2 zero page bytes 0..7.
+     *   0x0000..0x0002 = JP (BIOS_JT_COPY_ADDR+3) = NDOS's BIOS-JT walk
+     *                    entry (WBOOT slot of the copied jt).
+     *   0x0003         = IOBYTE = 0 (all TTY).
+     *   0x0004         = current drive/user = 0x04 (E:, user 0).  E:
+     *                    binds to master I: 4 MB HD via cfgtbl.c.
+     *   0x0005..0x0007 = JP CPNOS_BDOS_ADDR = cpnos.com's BDOSE entry.
      *                    NDOS COLDST overwrites this with its own
-     *                    intercept entry as soon as it runs, so this
-     *                    is only the seed CCP would observe before
-     *                    COLDST — kept for ABI conformance. */
+     *                    intercept entry; kept for ABI conformance. */
     static const uint8_t ZP_INIT[8] = {
-        0xC3, 0x03, 0xCF,                          /* JP 0xCF03 */
+        0xC3,
+        (uint8_t)((BIOS_JT_COPY_ADDR + 3) & 0xFF),
+        (uint8_t)(((BIOS_JT_COPY_ADDR + 3) >> 8) & 0xFF),
         0x00,                                       /* IOBYTE */
         0x04,                                       /* drive/user (E:, user 0) */
         0xC3,
@@ -438,11 +435,11 @@ static void nos_handoff(void) {
     snios_ntwkin();
     BOOT_MARK(17, 'S');                /* SNIOS primed */
 
-    /* Copy our 24-byte SNIOS jump table to the address where DRI
-     * NDOS expects SNIOS to live (= NIOS in cpnos.com link). */
-    __builtin_memcpy((void *)NDOS_SNIOS_ADDR, snios_jt, 24);
-
-    /* enable_interrupts moved up to before NETBOOT() (see PIO-IRQ
+    /* No snios_jt memcpy: cpnos-build/src/cpnios-shim.asm pins NIOS
+     * directly at our resident _snios_jt symbol (0xED33) via the LINK
+     * EQU.  NDOS calls land in resident BIOS without a runtime copy.
+     *
+     * enable_interrupts moved up to before NETBOOT() (see PIO-IRQ
      * comment there).  IFF stays on through this final stretch. */
 
 #if defined(PIO_SPEED_TEST) || defined(PIO_LOOPBACK_TEST)
