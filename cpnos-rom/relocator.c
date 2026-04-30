@@ -1,20 +1,28 @@
 /* cpnos-rom PROM relocator (C23).
  *
- * Reconstructs the CP/NOS payload at RAM 0xED00 from two #embed'd
- * binary chunks that sit in PROM0 tail and PROM1, then tail-calls
- * the payload's cold entry.
+ * Reconstructs the CP/NOS resident payload at RAM 0xED00 from two
+ * #embed'd binary chunks that sit in PROM0 tail and PROM1, then
+ * tail-calls the payload's cold entry.  Init code (init.bin) is
+ * embedded separately at PROM 0 0x0100 and runs in place -- it is
+ * NOT copied to RAM.  See tasks/todo.md "Init/resident split".
  *
- * Why two chunks?  The Z80 maps PROM0 at 0x0000..0x07FF and PROM1
- * at 0x2000..0x27FF, with a 6 KB address hole in between.  The
- * payload is a single contiguous blob linked at 0xED00, but to fit
- * it in the two EPROMs we cut it at the PROM0/PROM1 boundary.  The
- * build splits payload.bin into payload_a.bin (PROM0 tail) and
- * payload_b.bin (PROM1), and this file #embed's each into its own
- * linker-placed section.
+ * Why two chunks for the resident?  The Z80 maps PROM0 at
+ * 0x0000..0x07FF and PROM1 at 0x2000..0x27FF, with a 6 KB address
+ * hole in between.  The resident is a single contiguous blob linked
+ * at 0xED00, but to fit it in the two EPROMs we cut it at the
+ * PROM0/PROM1 boundary.  The build splits payload.bin (resident
+ * bytes only) into payload_a.bin (PROM0 tail) and payload_b.bin
+ * (PROM1), and this file #embed's each into its own linker-placed
+ * section.
  *
  * Entry flow:
  *   reset.s (at 0x0000) DI + SP + jp _relocate  ->  this function
- *   relocate() memcpys payload_a then payload_b  ->  _cpnos_cold_entry
+ *   relocate() memcpys payload_a then payload_b -> _cpnos_cold_entry
+ *
+ * cpnos_cold_entry runs from RAM and calls cfgtbl_init /
+ * init_hardware / print_banner / netboot_mpm at PROM addresses
+ * (0x0100..0x03FF) -- those run in place from PROM until PROM
+ * disable.
  *
  * The payload's cold entry address is resolved at link time via
  * --defsym (the Makefile extracts it from the payload ELF with nm).
@@ -25,16 +33,25 @@
  * this link via `--defsym _cpnos_cold_entry=0x...` (see Makefile). */
 extern void cpnos_cold_entry(void) __attribute__((noreturn));
 
-/* Chunk A: first (2 KB - relocator size) bytes of payload.  Lives in
- * PROM0 tail, placed by relocator.ld at 0x0080 (after reset vector
- * + whatever code lands in .init below).  The linker script ASSERTs
- * that .init fits below the .prom0_tail base. */
+/* Init image: lives at PROM 0 0x0100 -- linked at the same VMA as
+ * the .init output section in payload.elf so absolute references
+ * inside init code resolve.  Never copied to RAM; runs in place
+ * from PROM until PROM disable.  See tasks/todo.md, step 3. */
+__attribute__((section(".prom0_init"), used))
+static const uint8_t init_image[] = {
+#embed "clang/init.bin" if_empty(0)
+};
+
+/* Chunk A: first PROM0_TAIL_SIZE bytes of resident payload.  Lives
+ * in PROM0 tail, placed by relocator.ld at 0x0400 (after .reset +
+ * relocator code + .prom0_init).  The Makefile keeps PROM0_TAIL_SIZE
+ * in sync with the relocator.ld base. */
 __attribute__((section(".prom0_tail"), used))
 static const uint8_t payload_a[] = {
 #embed "clang/payload_a.bin" if_empty(0)
 };
 
-/* Chunk B: remaining payload bytes.  Lives in PROM1 at 0x2000. */
+/* Chunk B: remaining resident payload bytes.  Lives in PROM1 at 0x2000. */
 __attribute__((section(".prom1"), used))
 static const uint8_t payload_b[] = {
 #embed "clang/payload_b.bin" if_empty(0)

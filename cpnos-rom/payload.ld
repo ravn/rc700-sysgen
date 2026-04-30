@@ -30,9 +30,18 @@
 ENTRY(_cpnos_cold_entry)
 
 MEMORY {
-  /* Payload: up to 4 KB.  Limited by the combined size of the two
-   * 2 KB EPROMs minus the relocator.  Real cap is tracked by the
-   * ASSERT below once we have both artifacts. */
+  /* Init-only code+rodata.  Lives at PROM 0 addresses, runs in
+   * place from PROM, never copied to RAM.  After PROM disable
+   * the underlying RAM is exposed and reused as cpnos.com TPA.
+   * The relocator embeds init.bin into PROM 0 at exactly this
+   * VMA so absolute references resolve.  Init/resident split,
+   * step 3 (tasks/todo.md). */
+  INIT    (rx)  : ORIGIN = 0x0100, LENGTH = 0x0300
+
+  /* Payload (resident): copied to RAM at 0xED00 by the relocator.
+   * Limited by the combined size of the two 2 KB EPROMs minus the
+   * relocator + init.bin.  Real cap tracked by the relocator's
+   * ASSERTs once it consumes both artifacts. */
   PAYLOAD (rwx) : ORIGIN = 0xED00, LENGTH = 0x1000
 
   /* Zero-init RAM used by C code (static locals without initializer,
@@ -70,6 +79,25 @@ __ivt_end   = __ivt_start + 18 * 2;
 _pio_rx_buf_page = 0xF7;
 
 SECTIONS {
+  /* Init-only output section -- runs in place from PROM 0 at 0x0100.
+   * The Makefile extracts these bytes via `objcopy --only-section=.init`
+   * into init.bin and the relocator embeds them at PROM 0 0x0100 so
+   * VMA == LMA and absolute references inside init code resolve.
+   * Symbols inside .init can call resident-RAM symbols at 0xED00+
+   * because the relocator populates that range before any init code
+   * runs (cpnos_cold_entry in resident orchestrates the calls). */
+  .init 0x0100 : {
+    __init_start = .;
+    *(.init.text)
+    *(.init.text.*)
+    *(.init.rodata)
+    *(.init.rodata.*)
+    __init_end = .;
+  } > INIT
+
+  __init_size = __init_end - __init_start;
+  ASSERT(__init_size <= 0x0300, ".init exceeds 768 B INIT region budget")
+
   .payload 0xED00 : {
     __payload_start = .;
 
@@ -86,24 +114,12 @@ SECTIONS {
     *(.resident.*)
     KEEP(*(.resident.data))
 
-    /* Init-only code+rodata, tagged with `((section(".init.text")))` /
-     * `((section(".init.rodata")))` in init.c, cfgtbl.c, netboot_mpm.c,
-     * and cpnos_main.c (print_banner).  Step 1 of the init/resident
-     * split (tasks/todo.md "Init/resident split"): in this initial
-     * commit they still land in .payload and get relocated to RAM
-     * along with everything else.  Later commits will move them to a
-     * separate INIT memory region that runs in place from PROM. */
-    __init_text_start = .;
-    *(.init.text)
-    *(.init.text.*)
-    __init_text_end = .;
+    /* Resident text + rodata + data.  .init.* was already harvested
+     * into the .init output section above so resident is everything
+     * that isn't init-tagged. */
     *(.text.init)
     *(.text.init.*)
     *(.text*)
-    __init_rodata_start = .;
-    *(.init.rodata)
-    *(.init.rodata.*)
-    __init_rodata_end = .;
     *(.rodata*)
     *(.data*)
 

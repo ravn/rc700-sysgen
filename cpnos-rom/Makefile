@@ -305,7 +305,7 @@ clang/netboot_mpm.o: netboot_mpm.c hal.h
 # relocator.ld discards — link fails on .bss relocation.
 CFLAGS_RELOC = $(subst -Xclang -target-feature -Xclang +static-stack,,$(CFLAGS))
 
-clang/relocator.o: relocator.c clang/payload_a.bin clang/payload_b.bin
+clang/relocator.o: relocator.c clang/init.bin clang/payload_a.bin clang/payload_b.bin
 	@mkdir -p clang
 	$(CC) $(CFLAGS_RELOC) -c $< -o $@
 
@@ -316,19 +316,27 @@ clang/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
 	    $(TRANSPORT_DEFSYMS) $(PAYLOAD_OBJS) -o $@
 
 clang/payload.bin: clang/payload.elf cpnos-build/patch_payload_checksum.py
-	$(OBJCOPY) -O binary $< $@
-	# Patch the payload integrity checksum into the last 2 bytes.
-	# The relocator (relocator.c) recomputes this at runtime to
-	# detect missing prom1.ic65, bit rot, or version mismatch
-	# instead of hanging silently at PC=0x0039.  See
-	# cpnos-build/patch_payload_checksum.py and payload.ld
-	# (.payload_checksum section).
+	$(OBJCOPY) -O binary --only-section=.payload $< $@
+	# Patch the payload integrity checksum into the last 2 bytes
+	# of the resident image.  See patch_payload_checksum.py /
+	# payload.ld (.payload_checksum section).
 	python3 cpnos-build/patch_payload_checksum.py $@
 
-# Split payload into the two chunks the relocator #embed's.  Split
-# point matches relocator.ld's .prom0_tail base (0xC0): 1856 bytes
-# fit in PROM0 after the relocator (0x800 - 0xC0 = 0x740 = 1856).
-PROM0_TAIL_SIZE = 1856
+# Init image: .init output section -- runs in place from PROM 0
+# at 0x0100, never copied to RAM.  Init/resident split, step 3.
+clang/init.bin: clang/payload.elf
+	$(OBJCOPY) -O binary --only-section=.init $< $@
+
+# Split resident payload.bin into the two chunks the relocator
+# #embed's.  Split point = relocator.ld's .prom0_tail base.  After
+# the init/resident split (step 3) PROM 0 layout is:
+#   0x0000 reset (0x0F)
+#   0x0010 relocator code (~0x?? B, capped at 0x100)
+#   0x0100 init.bin (.init runs in place, up to 0x300)
+#   0x0400 .prom0_tail = first PROM0_TAIL_SIZE bytes of resident
+#   0x2000 .prom1     = remaining resident bytes
+# PROM0_TAIL_SIZE = 0x800 - 0x400 = 0x400 = 1024 bytes.
+PROM0_TAIL_SIZE = 1024
 clang/payload_a.bin clang/payload_b.bin: clang/payload.bin
 	dd if=$< of=clang/payload_a.bin bs=1 count=$(PROM0_TAIL_SIZE) status=none
 	dd if=$< of=clang/payload_b.bin bs=1 skip=$(PROM0_TAIL_SIZE) status=none
