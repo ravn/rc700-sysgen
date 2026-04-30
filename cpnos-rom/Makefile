@@ -167,9 +167,17 @@ RELOC_LD = relocator.ld
 
 ALL_OBJS = $(PAYLOAD_OBJS) $(RELOC_OBJS)
 
-.PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean
+.PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean \
+        integration-test test
 
 all: cpnos
+
+# Integration test: full E2E with z80pack mpm-net2 + MAME running CP/NOS
+# slave + PolyPascal compiling and running PRIMES.PAS.  Catches the
+# whole stack (transport, NDOS, BDOS, console, keyboard, file load,
+# code execution, output framing).  Not part of `all` -- a normal build
+# shouldn't boot MAME.  `make test` is an alias.
+integration-test test: cpnos-ppas-test
 
 cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
