@@ -29,6 +29,15 @@
 extern void init_hardware(void);
 extern void cfgtbl_init(void);
 #include "cfgtbl.h"
+
+/* BIOS jump table base = BIOS_BASE.  `_bios_boot` is the first entry
+ * label exported from bios_jt.s and pinned at the start of .payload
+ * by payload.ld.  Reference it as a C array so the source-of-truth
+ * for BIOS_BASE stays in payload.ld -- moving BIOS_BASE only requires
+ * updating the ORIGIN + the matching ASSERT, never literal addresses
+ * in C.  Z80 ABI prepends `_`, so the C-visible name is `bios_boot`
+ * and the linker symbol is `_bios_boot`. */
+extern uint8_t bios_boot[];
 extern uint8_t snios_ntwkin(void);
 extern void enable_interrupts(void);
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
@@ -428,7 +437,7 @@ static void resident_handoff(uint16_t entry) {
          *    payload.ld ASSERT) into the now-RAM zero page.
          * 3. enter_coldst (resident asm helper) loads SP=0x100 and
          *    JPs to NDOS+3 (COLDST). */
-        __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, (const void *)0xEE00, 51);
+        __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, bios_boot, 51);
 
         const void *src = zp_init_data;
         void       *dst = (void *)0;
