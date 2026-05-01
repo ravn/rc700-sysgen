@@ -125,14 +125,8 @@ uint16_t netboot_mpm(void) {
     if (snios_ntwkin() != 0) return 0;
     BOOT_MARK(9, 'I');               /* NTWKIN ok */
 
-    /* --- LOGIN -----------------------------------------------------
-     * Direct __builtin_memcpy(8) was unrolled by clang into 4× 16-bit
-     * immediate stores (~40 B).  Setting byte 0 manually and memcpying
-     * the trailing 7 bytes drops below the unroll threshold and
-     * dispatches to the runtime _memcpy stub (LDIR), which is much
-     * smaller per call site (the stub itself is shared). */
-    msg[DAT] = login_pwd[0];
-    __builtin_memcpy(&msg[DAT + 1], &login_pwd[1], 7);
+    /* --- LOGIN ----------------------------------------------------- */
+    __builtin_memcpy(&msg[DAT], login_pwd, 8);
     if (cpnet_xact(64, 7) != 0) return 0;
     BOOT_MARK(10, 'L');              /* LOGIN ok */
 
