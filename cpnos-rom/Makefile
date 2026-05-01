@@ -360,10 +360,13 @@ clang/relocator.elf: $(RELOC_OBJS) $(RELOC_LD) clang/payload.elf
 	 test -n "$$addr" || { echo "ERROR: _cpnos_cold_entry not found in payload"; exit 1; }; \
 	 stack=$$($(NM) clang/payload.elf | awk '/ __stack_top$$/ {print "0x"$$1}'); \
 	 test -n "$$stack" || { echo "ERROR: __stack_top not found in payload"; exit 1; }; \
-	 echo "relocator: _cpnos_cold_entry=$$addr  __stack_top=$$stack"; \
+	 bios=$$($(NM) clang/payload.elf | awk '/ _bios_boot$$/ {print "0x"$$1}'); \
+	 test -n "$$bios" || { echo "ERROR: _bios_boot not found in payload"; exit 1; }; \
+	 echo "relocator: _cpnos_cold_entry=$$addr  __stack_top=$$stack  _bios_boot=$$bios"; \
 	 $(LD) --gc-sections -T $(RELOC_LD) \
 	       --defsym=_cpnos_cold_entry=$$addr \
 	       --defsym=__stack_top=$$stack \
+	       --defsym=_bios_boot=$$bios \
 	       $(RELOC_OBJS) -o $@
 
 # ---- Produce prom0.bin / prom1.bin --------------------------------
