@@ -544,7 +544,71 @@ TPA), enough to round CPNOS_TPA_KB up to 56.  Blocked by:
       pattern for any *other* externs cpnos.com imports.  Right now
       only NIOS has a drift-trap.
 
-### Init/resident split (alternative to Path 3) — DETAILED PLAN 2026-04-30
+### Init/resident split (DONE 2026-05-01, branch `init-resident-split`)
+
+**Result: resident 2438 B -> 1746 B (-692 B, -28%); TPA 55K -> 56K
+(Option β); 8 commits on branch `init-resident-split`, all green
+through `make integration-test`.**
+
+| Commit | Description |
+|--------|-------------|
+| `ad61dd2` | Plan written |
+| `c6c00a4` | Step 2: tag init code+rodata in `.init.*` sections |
+| `03a4248` | Step 3: split `.init` out, runs in place from PROM 0 0x0100 |
+| `e131c16` | Option β: cpnos.com lift to 0xE080, +1K TPA, stack-collision asserts |
+| `fa3dd6e` | Cleanup: drop dead `PROM1_CODE`, `scratch_bss_hi` consolidation |
+| `336210f` | Pin `RC702_LOGIN_PWD` to `.init.rodata` (-8 B resident) |
+| `607e496` | Split `cpnos_cold_entry` into init phase + resident handoff |
+| `67780c8` | Shrink "INIT OK" marker to single 'I' (-26 B init) |
+
+#### Key lessons (worth memory'ing)
+
+- **Stack-vs-cpnos.com collision** silently overwrote the build stamp
+  area when `SP=0xED00` and cpnos.com loaded up to 0xED00.  Now caught
+  at link time via `__cpnos_load_end < __stack_top` ASSERT in
+  `payload.ld`.  Also: `_zp_init_data` (read post-PROM-disable) MUST
+  live in `.resident.data`; ASSERT enforces this.  Both checks
+  enforced by `--defsym=__cpnos_load_end=...` from cpnos.sym.
+- **PROM-resident `_msg` etc. read post-disable yields silent boot
+  failure** (NDOS COLDST gets garbage zero-page bytes).  Caught only
+  by integration test on first attempt; now caught by linker assert.
+- **Init code can call resident-RAM helpers freely** because resident
+  RAM (>=0xED00) is unaffected by PROM mapping.  PROM disable is a
+  one-shot fence: cross via `JP _resident_handoff` (in RAM), don't
+  try to OUT inside init.
+
+#### Compiler issues filed (this branch)
+
+- ravn/llvm-z80 #88 — N×16-bit constant pattern fill not lowered to
+  seed-and-LDIR idiom (~6-8 B per call site, hits `setup_ivt`).
+- ravn/llvm-z80 #89 — Loop-invariant 16-bit constant reloaded into
+  DE every iteration despite IR-level hoist (regalloc clobbers DE
+  for loop counter spill).
+
+#### Follow-up items still open
+
+- [ ] **`set_i_reg(0xF5)` codegen pessimization.**  In `setup_ivt`,
+      clang routes the constant 0xF5 through DE -> L -> A -> call in
+      10 B instead of `ld a,0xF5; call _set_i_reg` in 5 B.  Worth
+      filing as a separate llvm-z80 issue (sibling to #89).  Saves
+      ~5 B at every `set_i_reg` / similar single-byte-arg call.
+- [ ] **`INIT_TEXT` / `INIT_RODATA` macros** (CLion squiggle suppression).
+      `((section(".init.text")))` is treated as suspicious by CLion's
+      host-triple analyzer; wrap in macros like the existing
+      `RESIDENT` / `RESIDENT_BSS` pattern in `transport_pio.c` /
+      `cfgtbl.c`.  Cosmetic only.
+- [ ] **Path 3 prep** (lower `BIOS_BASE` from 0xED00 to 0xEC00) is
+      now possible after init/resident split: resident only needs
+      1746 B, fits in 0xEC00..0xF40F.  Still blocked on the
+      `cpbios.asm` hand-typed VMA audit (see "Path 3" section above
+      and memory `project_cpnos_address_coupling_brittle`).
+- [ ] **CFGTBL/MSGBUF reuse for netboot** (see "Smaller / cleanup
+      items" below) — independent of split; would save 200 B BSS.
+- [ ] **Doc refresh** — `cpnos-rom/docs/memory_map.md` addendum was
+      bumped to "Option β" but the body of the doc still describes
+      the pre-Phase-A layout.  Regenerate from `llvm-nm`.
+
+#### Original detailed plan (kept for reference)
 
 **Goal.**  Move init-only code (`init_hardware`, `setup_ivt`,
 `cfgtbl_init`, `print_banner`, `netboot_mpm`, `cpnet_xact`,
@@ -705,21 +769,27 @@ abandoned at that JP.
   attribute tagging + verify).
 - Split + Option α (with cpbios audit): ~2-3 days.
 
-#### Open sub-tasks (from this plan)
+#### Sub-tasks from this plan (all DONE 2026-04-30..2026-05-01)
 
-- [ ] Lit test: clang honours `((section(".x.rodata")))` on
-      `static const` arrays.  File issue against ravn/llvm-z80 if
-      it fails.
-- [ ] Tag init sources with `((section(".init.text")))` /
-      `((section(".init.rodata")))` (no behaviour change yet).
-- [ ] Two-region payload.ld + ASSERTs on init/resident sizes.
-- [ ] Split objcopy + relocator embed update.
-- [ ] Entry chain split: `_init_entry` in init, `_resident_handoff`
-      in resident.
-- [ ] Move `_msg` from `.scratch_bss_hi` to `.init.bss`.
-- [ ] Pick Option α/β; implement chosen RAM-reuse path.
-- [ ] Verify via `make integration-test`.
-- [ ] Update `docs/memory_map.md` with post-split layout.
+- [x] Lit test: clang honours `((section(".x.rodata")))` on
+      `static const` arrays.  Verified locally (no upstream issue
+      needed).
+- [x] Tag init sources with `((section(".init.text")))` /
+      `((section(".init.rodata")))` (commit `c6c00a4`).
+- [x] Two-region payload.ld + ASSERTs on init/resident sizes
+      (commits `03a4248`, `e131c16`).
+- [x] Split objcopy + relocator embed update (commit `03a4248`).
+- [x] Entry chain split: cpnos_cold_entry into init phase +
+      resident_handoff (commit `607e496`).
+- [x] `_msg` consolidated into the unified scratch_bss region above
+      IVT (commit `fa3dd6e`).  ".scratch_bss_hi" attr removed; one
+      region only post-Option β.
+- [x] Option β chosen and implemented (commit `e131c16`).  Path 3
+      (Option α, `BIOS_BASE` lowering) deferred -- still requires
+      `cpbios.asm` hand-typed-VMA audit.
+- [x] Verify via `make integration-test` (every step passed).
+- [ ] Update `docs/memory_map.md` body with post-split layout
+      (addendum is current; body is stale).
 
 ### Smaller / cleanup items
 

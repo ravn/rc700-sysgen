@@ -161,6 +161,53 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 31: Init/resident split + Option β (Apr 30 - May 1, 2026) — branch `init-resident-split`
+
+- **Goal**: shrink cpnos-rom resident RAM footprint by moving init-only
+  code out of the relocated payload, then exploit the freed RAM for TPA.
+
+- **Result**: resident 2438 B -> 1746 B (-692 B, -28 %); TPA 55 K -> 56 K
+  reported.  8 commits, all green through `make integration-test`.
+
+- **Mechanism**: `.init.text` / `.init.rodata` sections at PROM 0 0x0100,
+  embedded by relocator and run in place from PROM (never copied to
+  RAM).  cpnos_cold_entry split into init-phase (PROM, runs to netboot
+  end) + resident_handoff (RAM, does PROM disable + NDOS coldstart).
+  Option β raised cpnos.com CODE_BASE 0xDEA0 -> 0xE080, moving
+  scratch_bss + IVT from 0xEB20+ up to 0xF410+ to clear the path.
+
+- **Pain points caught (and now linker-asserted)**:
+  - Initial Option β attempt left `SP=0xED00` while cpnos.com loaded
+    up to 0xED00; stack pushes during `impl_conout` calls overwrote
+    the loaded build stamp at 0xECE8.  Symptom: "no E> prompt".  Fix:
+    moved SP to 0xF500 + added 4 layout ASSERTs in payload.ld (cpnos
+    end ≤ resident base, stack top > load end, etc).  **(Hard)** —
+    silent corruption, only visible by hex-dumping the SIO output.
+  - First attempt to move ZP_INIT to `.init.rodata` broke NDOS COLDST
+    silently (zero-page LDIR'd from PROM-shadowed RAM post-disable).
+    Fix: pinned as global `zp_init_data` in `.resident.data` with
+    linker ASSERT that its address is in 0xED00..0xF7FF.
+    **(Painful)** — caught only by integration test, not link-time;
+    ASSERT now turns the same trap into a build error.
+
+- **Compiler issues filed during the work**:
+  - ravn/llvm-z80 #88 — N×16-bit constant fill loop should lower to
+    seed-and-LDIR idiom (~6-8 B per call site, hits `setup_ivt`).
+  - ravn/llvm-z80 #89 — Loop-invariant 16-bit constant reloaded into
+    DE every iteration despite IR-level hoist (regalloc clobbers DE
+    for loop counter).  IR is clean; backend-side bug.
+
+- **Easy/Medium/Hard/Painful tags**:
+  - Tagging sources with section attrs: **(Easy)**.
+  - Two-region linker script + relocator embed update: **(Medium)**.
+  - Stack collision diagnosis: **(Hard)**.
+  - ZP_INIT post-PROM-disable trap: **(Painful)**.
+
+- **Files touched**: `init.c`, `cfgtbl.c`, `netboot_mpm.c`,
+  `cpnos_main.c`, `reset.s`, `payload.ld`, `relocator.c`, `relocator.ld`,
+  `Makefile`, `cpnos-build/Makefile`, `docs/memory_map.md`,
+  `tasks/todo.md`.
+
 ## Phase 30: cpnos TPA growth (Apr 30, 2026) — Phase A + B
 
 - **Goal**: maximize the TPA on the cpnos slave by sliding NDOS
