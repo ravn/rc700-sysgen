@@ -282,8 +282,7 @@ GOTENQ:
     call NETOUT                     ; CKS
     ld   a, EOT
     call SENDBY
-    call GETACK
-    ret                             ; A=0 success (from CHKACK)
+    jp   GETACK                     ; tail-call, A=0 success (from CHKACK)
 
 ; GETACK - Wait for ACK, retry on timeout or NAK.
 GETACK:
