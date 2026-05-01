@@ -21,6 +21,7 @@
  */
 
 #include <stdint.h>
+#include "cfgtbl.h"
 
 #ifndef RC702_SLAVEID
 #define RC702_SLAVEID 0x70
@@ -44,23 +45,11 @@
 #define LOCAL   0x0000
 #define NET_DRV(letter, srv)  ((uint16_t)((0x80 | ((letter) - 'A')) | ((srv) << 8)))
 
-struct cfgtbl {
-    uint8_t  netst;                /* +0 */
-    uint8_t  slaveid;              /* +1 */
-    uint16_t drive[16];            /* +2  A: .. P: */
-    uint16_t console;              /* +34 */
-    uint16_t list;                 /* +36 */
-    uint8_t  bufidx;               /* +38 */
-    uint8_t  fmt;                  /* +39 */
-    uint8_t  did;                  /* +40 */
-    uint8_t  sid;                  /* +41 */
-    uint8_t  fnc;                  /* +42 */
-    uint8_t  siz;                  /* +43 */
-    uint8_t  msg0;                 /* +44 list number */
-    uint8_t  msgbuf[128];          /* +45 */
-};
+/* struct cfgtbl moved to cfgtbl.h so netboot_mpm.c can share the
+ * outbound message-frame slots as its own staging buffer. */
 
-static_assert(sizeof(struct cfgtbl) == 173, "CFGTBL layout must be 173 bytes");
+static_assert(sizeof(struct cfgtbl) == 210,
+              "CFGTBL must be 210 B (173 DRI ABI + 37 netboot tail)");
 static_assert(__builtin_offsetof(struct cfgtbl, slaveid) == 1, "SLAVEID @ +1");
 static_assert(__builtin_offsetof(struct cfgtbl, console) == 34, "console @ +34");
 static_assert(__builtin_offsetof(struct cfgtbl, fmt) == 39, "FMT @ +39");

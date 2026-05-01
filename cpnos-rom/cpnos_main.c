@@ -28,6 +28,7 @@
 
 extern void init_hardware(void);
 extern void cfgtbl_init(void);
+#include "cfgtbl.h"
 extern uint8_t snios_ntwkin(void);
 extern void enable_interrupts(void);
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
@@ -391,6 +392,14 @@ static void resident_handoff(uint16_t entry) {
      * netboot-loaded image.  We're at 0xED00 (RAM); still running. */
     _port_out(PORT_RAMEN, 0x00);
     BOOT_MARK(16, 'P');                /* PROMs disabled */
+
+    /* Restore cfgtbl.fnc to LIST (0x05) -- netboot's cpnet_xact left
+     * it at the last function code (16 = CLOSE).  cfgtbl shares its
+     * outbound message-frame area with netboot's msg[] (saves 163 B
+     * BSS), but cfgtbl_init's fnc=5 invariant must hold for SNIOS's
+     * post-netboot LIST behaviour.  fnc=5 is the cfgtbl_init value;
+     * keep them in sync if cfgtbl_init is touched. */
+    cfgtbl.fnc = 0x05;
 
     /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
      * own NTWKIN may re-run this; idempotent. */

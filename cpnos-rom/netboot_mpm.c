@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include "hal.h"
 #include "transport.h"
+#include "cfgtbl.h"
 
 /* memcpy from runtime.s — no libc headers in a freestanding build. */
 extern void *memcpy(void *dest, const void *src, unsigned int n);
@@ -44,9 +45,13 @@ extern void impl_conout(uint8_t c);
 #define SIZ 4
 #define DAT 5
 
-/* Biggest response is READ-SEQ: 5 hdr + 1 rc + 36 FCB + 128 data + 1 cks = 171.
- * Round up for safety. */
-#define MSG_MAX 200
+/* msg[] aliases the cfgtbl outbound message-frame area starting at
+ * cfgtbl.fmt (offset +39 inside cfgtbl).  msg[0..4] = fmt/did/sid/
+ * fnc/siz, msg[5] = msg0/DAT[0], msg[6..170] = msgbuf[0..127] +
+ * netboot_tail[0..36].  Sharing this buffer with SNIOS saves ~163 B
+ * BSS over a separate msg[200] static.  Biggest response is
+ * READ-SEQ: 5 hdr + 166 data = 171 B; cfgtbl.fmt+0..170 fits. */
+#define msg ((uint8_t *)&cfgtbl.fmt)
 
 /* cpnos.com produced by RMAC+LINK is CODE-only (DATA section at
  * NDOSRL is runtime-initialized BSS, not stored in the file).
@@ -81,11 +86,6 @@ static const uint8_t FCB_HEAD[12] = {
     'C','P','N','O','S',' ',' ',' ',     /* +1..+8  name */
     'I','M','G',                          /* +9..+11 ext */
 };
-
-/* msg[] lives in the unified scratch_bss region above IVT (post
- * Option β at 0xF524..0xF6FF).  Only used during netboot --
- * post-netboot NDOS hands its own buffer pointer to SNDMSG/RCVMSG. */
-static uint8_t msg[MSG_MAX];
 
 /* Build and send a CP/NET request, then wait for the response.
  * Data must already be in msg[DAT..DAT+dat_len-1].  siz_minus_1 must be
