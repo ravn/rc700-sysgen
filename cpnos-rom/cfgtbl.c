@@ -59,26 +59,35 @@ static_assert(__builtin_offsetof(struct cfgtbl, msgbuf) == 45, "MSGBUF @ +45");
 RESIDENT_BSS
 struct cfgtbl cfgtbl;
 
+/* Template for the contiguous slaveid + drive[0..5] block (cfgtbl
+ * offsets +1..+13).  Lifted out of cfgtbl_init's per-field stores so
+ * the function lowers to a single LDIR -- saves ~30 B of init code
+ * versus 7 individual `ld hl,$X; ld (nn),hl` pairs.  Drives A:-D: map
+ * to server master (slave 0) drives A:-D: -- NDOS's LOAD for CCP.SPR
+ * uses ccpfcb (cpndos.asm:ccpfcb) which hardcodes drive byte 1 (= A:),
+ * so A: must be network and must carry CCP.SPR for cold-boot CCP load.
+ * E:, F: -> master I:, J: (4 MB hard disks; master XIOS exposes
+ * harddisk DPHs at drive numbers 8 and 9 -- see bnkxios-net-2.mac).
+ * Disk images seeded by the cpmsim/mpm-net2 launcher from
+ * disks/library/mpm-net2-drive[ij].dsk. */
+__attribute__((section(".init.rodata")))
+static const uint8_t cfgtbl_init_template[13] = {
+    RC702_SLAVEID,                                                /* +1  slaveid */
+    NET_DRV('A', 0x00) & 0xFF, (NET_DRV('A', 0x00) >> 8) & 0xFF,  /* +2  drive[0] */
+    NET_DRV('B', 0x00) & 0xFF, (NET_DRV('B', 0x00) >> 8) & 0xFF,  /* +4  drive[1] */
+    NET_DRV('C', 0x00) & 0xFF, (NET_DRV('C', 0x00) >> 8) & 0xFF,  /* +6  drive[2] */
+    NET_DRV('D', 0x00) & 0xFF, (NET_DRV('D', 0x00) >> 8) & 0xFF,  /* +8  drive[3] */
+    NET_DRV('I', 0x00) & 0xFF, (NET_DRV('I', 0x00) >> 8) & 0xFF,  /* +10 drive[4] */
+    NET_DRV('J', 0x00) & 0xFF, (NET_DRV('J', 0x00) >> 8) & 0xFF,  /* +12 drive[5] */
+};
+
 /* Set the few non-zero fields.  Everything else stayed zero at BSS
  * clear.  Must run before any SNIOS call (cpnos_main calls us before
  * netboot). */
 __attribute__((section(".init.text")))
 void cfgtbl_init(void) {
-    cfgtbl.slaveid = RC702_SLAVEID;
-    /* Drive A:-D: mapped to server master (slave ID 0x00) drives A:-D:.
-     * NDOS's LOAD for CCP.SPR uses ccpfcb (cpndos.asm:ccpfcb) which
-     * hardcodes drive byte 1 (= A:), so A: must be network and must
-     * carry CCP.SPR for the cold-boot CCP load to succeed. */
-    cfgtbl.drive[0] = NET_DRV('A', 0x00);
-    cfgtbl.drive[1] = NET_DRV('B', 0x00);
-    cfgtbl.drive[2] = NET_DRV('C', 0x00);
-    cfgtbl.drive[3] = NET_DRV('D', 0x00);
-    /* E:, F: -> master I:, J: (4 MB hard disks).  Master XIOS exposes
-     * harddisk DPHs at drive numbers 8 and 9 (see bnkxios-net-2.mac);
-     * NDOS encodes them as 'I' and 'J'.  Disk images are seeded by the
-     * cpmsim/mpm-net2 launcher from disks/library/mpm-net2-drive[ij].dsk. */
-    cfgtbl.drive[4] = NET_DRV('I', 0x00);
-    cfgtbl.drive[5] = NET_DRV('J', 0x00);
+    __builtin_memcpy(&cfgtbl.slaveid, cfgtbl_init_template,
+                     sizeof(cfgtbl_init_template));
     cfgtbl.sid = 0xFF;          /* SNIOS rewrites to SLAVEID at init */
     cfgtbl.fnc = 0x05;          /* LIST function */
 }

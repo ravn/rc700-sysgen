@@ -155,13 +155,14 @@ void isr_crt(void) {
         "ld   a, 0x07\n\t"
         "out  (0xFA), a\n\t"
 
-        /* Clear DMA byte-pointer flip-flop. */
+        /* Clear DMA byte-pointer flip-flop, then write the display
+         * source addr's low byte (0x00) -- one `xor a` feeds both OUTs
+         * (saves 2 B over a separate `ld a, 0x00`). */
         "xor  a\n\t"
         "out  (0xFC), a\n\t"
 
         /* Display source addr = 0xF800. */
-        "ld   a, 0x00\n\t"
-        "out  (0xF4), a\n\t"
+        "out  (0xF4), a\n\t"        /* low byte 0x00 (A still 0) */
         "ld   a, 0xF8\n\t"
         "out  (0xF4), a\n\t"
 
