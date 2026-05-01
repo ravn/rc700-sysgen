@@ -160,14 +160,9 @@ void init_hardware(void) {
     extern void clear_screen(void);
     clear_screen();
 
-    /* Visible bring-up marker: "INIT OK" via BOOT_MARK at indices
-     * 0..6 (display row 0, cols 60..66 — upper-right strip).  See
-     * BOOT_MARK in hal.h for the placement rationale. */
-    {
-        static const __attribute__((section(".init.rodata")))
-            char marker[] = "INIT OK";
-        for (uint8_t i = 0; i < sizeof(marker) - 1; ++i) {
-            BOOT_MARK(i, marker[i]);
-        }
-    }
+    /* Visible bring-up marker: 'I' at BOOT_MARK index 0 (display row 0,
+     * col 60).  Single char instead of "INIT OK" -- the 7-byte rodata
+     * + 7-iteration write loop was ~18 B for marginal value;
+     * cpnos_cold_entry already paints the boot-strip after this. */
+    BOOT_MARK(0, 'I');
 }
