@@ -162,7 +162,7 @@ uint16_t netboot_mpm(void) {
          * sector landed exactly at the limit (loaded into
          * 0xEC80..0xECFF), which is fine -- the next READ-SEQ returns
          * EOF and breaks. */
-        if (dma > (uint8_t *)0xED00) return 0;
+        if (dma > (uint8_t *)0xEE00) return 0;
     }
     BOOT_MARK(13, 'E');              /* EOF reached */
     impl_conout(0x0d); impl_conout(0x0a);

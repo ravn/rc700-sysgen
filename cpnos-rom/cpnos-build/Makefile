@@ -28,8 +28,17 @@ LOCAL_SRC := src
 # TPA = 0x0100..0xDC7F = 0xDB80 = 56192 B (54.875 KB strict; reported
 # via NDOSE rounding to ~56K).
 # Was Phase B: CODE LDEA0 / DATA LDAA0 (TPA 55K).
-CODE_BASE ?= LE080
-DATA_BASE ?= DDC80
+# Path 3 (2026-05-01): BIOS_BASE raised 0xED00 -> 0xEE00 in cpnos-rom
+# (resident moves up 256 B; upper-RAM scratch + IVT shift to stay
+# below the new stack top at 0xF700).  Max CODE_BASE = 0xEE00 - 0xC80
+# = 0xE180 (+0x100 vs Option β).
+#   CODE 0xE180..0xEDFF   NDOS E183, end butts against resident BIOS
+#                         at 0xEE00 with 0 B headroom
+#   DATA 0xDD80..0xE17F   NDOSRL DD80, BDOSDS DF6A
+# TPA = 0x0100..0xDD7F = 0xDC80 = 56448 B (55.125 KB strict;
+# CPNOS_TPA_KB rounds to 57).
+CODE_BASE ?= LE180
+DATA_BASE ?= DDD80
 
 export CPMDrive_D := $(CURDIR)/d
 export CPMDrive_A := $(CURDIR)/a

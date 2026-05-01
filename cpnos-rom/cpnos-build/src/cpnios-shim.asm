@@ -16,9 +16,9 @@
 ; the runtime memcpy in cpnos_main.c::nos_handoff().
 ;
 ; The literal MUST equal cpnos-rom's `_snios_jt` address (= bios_jt
-; base 0xED00 + sizeof(bios_jt) = 0xED00 + 51 = 0xED33).  An
+; base 0xEE00 + sizeof(bios_jt) = 0xEE00 + 51 = 0xEE33).  An
 ; ASSERT in cpnos-rom/payload.ld catches drift if either side moves.
 
-NIOS	EQU	0ED33h
+NIOS	EQU	0EE33h
 	public	NIOS
 	end

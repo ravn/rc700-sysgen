@@ -428,7 +428,7 @@ static void resident_handoff(uint16_t entry) {
          *    payload.ld ASSERT) into the now-RAM zero page.
          * 3. enter_coldst (resident asm helper) loads SP=0x100 and
          *    JPs to NDOS+3 (COLDST). */
-        __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, (const void *)0xED00, 51);
+        __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, (const void *)0xEE00, 51);
 
         const void *src = zp_init_data;
         void       *dst = (void *)0;
