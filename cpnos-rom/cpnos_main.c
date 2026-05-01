@@ -28,6 +28,7 @@
 
 extern void init_hardware(void);
 extern void cfgtbl_init(void);
+#include "cfgtbl.h"
 extern uint8_t snios_ntwkin(void);
 extern void enable_interrupts(void);
 extern void jump_to(uint16_t addr) __attribute__((noreturn));
@@ -331,6 +332,7 @@ extern void impl_conout(uint8_t c);
  * the dots fill in below it.  Previously the banner was printed by
  * nos_handoff() AFTER netboot, so the dots appeared on row 0 and the
  * banner on row 1 — backwards from what operators expect. */
+__attribute__((section(".init.text")))
 static void print_banner(void) {
     /* "RC702 CP/NOS NNK WWW-MMM yyyy-mm-dd HH:MM hash\r\n".
      * NNK is the TPA size in KB (CPNOS_TPA_KB, build-time from
@@ -340,7 +342,7 @@ static void print_banner(void) {
      * no vtable load, just a static literal in .resident.data. */
 #define _STR(x) #x
 #define STR(x) _STR(x)
-    static const char banner[] =
+    static const __attribute__((section(".init.rodata"))) char banner[] =
         "RC702 CP/NOS " STR(CPNOS_TPA_KB) "K "
         TRANSPORT_NAME " " BUILD_INFO_STR "\r\n";
     for (const char *p = banner; *p; ++p) impl_conout((uint8_t)*p);
@@ -356,79 +358,48 @@ static void print_banner(void) {
  * in CP/NOS so they land harmlessly on bios_stub_ret. */
 #define BIOS_JT_COPY_ADDR (CPNOS_NDOS_ADDR - 0x100)
 
-static void nos_handoff(void) {
-    /* Copy our 17-entry resident BIOS JT (51 B at 0xED00) to the
-     * NDOS-data slot. */
-    __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, (const void *)0xED00, 51);
+/* CP/M zero-page seed copied to 0x0000..0x0007 by resident_handoff
+ * AFTER PROM disable.  MUST live in .resident.data (RAM-resident,
+ * relocated by the relocator from PROM bytes to 0xED00+) so the LDIR
+ * source address survives PROM disable.  Pinned via section attr +
+ * `used` so the linker keeps it; payload.ld ASSERTs the symbol's
+ * address is inside the resident range, turning a future move into
+ * .init.rodata into a link-time error.  The `zp_init_data` name is
+ * file-scope (no static + no dot in symbol) so linker-script
+ * ASSERTs can reference it directly. */
+__attribute__((section(".resident.data"), used))
+const uint8_t zp_init_data[8] = {
+    0xC3,
+    (uint8_t)((BIOS_JT_COPY_ADDR + 3) & 0xFF),
+    (uint8_t)(((BIOS_JT_COPY_ADDR + 3) >> 8) & 0xFF),
+    0x00,                                  /* IOBYTE */
+    0x04,                                  /* drive/user (E:) */
+    0xC3,
+    (uint8_t)(CPNOS_BDOS_ADDR & 0xFF),
+    (uint8_t)((CPNOS_BDOS_ADDR >> 8) & 0xFF),
+};
 
-    /* CP/M 2.2 zero page bytes 0..7.
-     *   0x0000..0x0002 = JP (BIOS_JT_COPY_ADDR+3) = NDOS's BIOS-JT walk
-     *                    entry (WBOOT slot of the copied jt).
-     *   0x0003         = IOBYTE = 0 (all TTY).
-     *   0x0004         = current drive/user = 0x04 (E:, user 0).  E:
-     *                    binds to master I: 4 MB HD via cfgtbl.c.
-     *   0x0005..0x0007 = JP CPNOS_BDOS_ADDR = cpnos.com's BDOSE entry.
-     *                    NDOS COLDST overwrites this with its own
-     *                    intercept entry; kept for ABI conformance. */
-    static const uint8_t ZP_INIT[8] = {
-        0xC3,
-        (uint8_t)((BIOS_JT_COPY_ADDR + 3) & 0xFF),
-        (uint8_t)(((BIOS_JT_COPY_ADDR + 3) >> 8) & 0xFF),
-        0x00,                                       /* IOBYTE */
-        0x04,                                       /* drive/user (E:, user 0) */
-        0xC3,
-        (uint8_t)(CPNOS_BDOS_ADDR & 0xFF),          /* BDOS lo */
-        (uint8_t)((CPNOS_BDOS_ADDR >> 8) & 0xFF),   /* BDOS hi */
-    };
-    const void *src = ZP_INIT;
-    void       *dst = (void *)0;
-    unsigned    n   = sizeof(ZP_INIT);
-    __asm__ volatile("ldir"
-        : "+{de}"(dst), "+{hl}"(src), "+{bc}"(n)
-        :
-        : "memory");
-}
-
-[[noreturn]] void cpnos_cold_entry(void) {
-    /* PROMs are still mapped at 0x0000..0x07FF and 0x2000..0x27FF;
-     * we're running from RAM at 0xED00 so we don't care.  Leave them
-     * enabled until step (4) below. */
-
-    cfgtbl_init();
-    init_hardware();
-
-    /* SNIOS drives PIO byte primitives via the linker's
-     * --defsym=_xport_send_byte=_transport_pio_send_byte alias
-     * (transport_pio.c).  cpnet_send_msg / cpnet_recv_msg are now
-     * direct #define aliases of snios_sndmsg_c / snios_rcvmsg_c
-     * (transport.h, no vtable).  Mark 'P' unconditionally so the
-     * boot strip indicates the physical wire (PIO) even though the
-     * SNIOS envelope is on top. */
-    BOOT_MARK(7, 'P');
-
-    /* IRQ-driven snios-on-PIO needs Z80 IFF on during netboot:
-     * isr_pio_par fires per chip strobe and pushes bytes into
-     * pio_rx_buf for transport_pio_recv_byte to pop.  No IFF -> no
-     * ISR -> no bytes -> stuck at LOGIN.  Original SIO-only design
-     * deferred EI until after netboot so CRT VRTC IRQs wouldn't
-     * race SIO poll loops; that constraint doesn't apply to the
-     * PIO-IRQ path, and CRT ISR is short enough not to disrupt
-     * netboot regardless of transport.  See
-     * tasks/session34-direct-pio-stall-rootcause.md. */
-    enable_interrupts();
-
-    /* Print banner BEFORE netboot so it appears on row 0 and the
-     * netboot progress dots flow on row 1 (operator's natural
-     * "OS identity at top, progress below" expectation). */
-    print_banner();
-
-    uint16_t entry = NETBOOT();
-    BOOT_MARK(15, entry ? '+' : '-');  /* netboot return: + ok, - fail */
-
-    /* Disable the PROMs — exposes RAM underneath for the TPA and
-     * netboot-loaded image.  We're at 0xED00; still running fine. */
+/* Resident handoff -- runs from RAM at 0xED00+ AFTER the init phase
+ * (which lives in PROM-resident .init).  This is split out so it
+ * survives PROM disable: cpnos_cold_entry above lives in .init and
+ * gets unmapped the moment PROMs go off, so the OUT (0x18),A
+ * instruction itself, plus everything after it, must execute from
+ * RAM.  Tail-called by cpnos_cold_entry() with `entry` = 0 on
+ * netboot failure, otherwise NDOS's cold-start vector. */
+[[noreturn]]
+static void resident_handoff(uint16_t entry) {
+    /* Disable the PROMs -- exposes RAM underneath for the TPA and
+     * netboot-loaded image.  We're at 0xED00 (RAM); still running. */
     _port_out(PORT_RAMEN, 0x00);
     BOOT_MARK(16, 'P');                /* PROMs disabled */
+
+    /* Restore cfgtbl.fnc to LIST (0x05) -- netboot's cpnet_xact left
+     * it at the last function code (16 = CLOSE).  cfgtbl shares its
+     * outbound message-frame area with netboot's msg[] (saves 163 B
+     * BSS), but cfgtbl_init's fnc=5 invariant must hold for SNIOS's
+     * post-netboot LIST behaviour.  fnc=5 is the cfgtbl_init value;
+     * keep them in sync if cfgtbl_init is touched. */
+    cfgtbl.fnc = 0x05;
 
     /* Prime SNIOS: drain SIO RX, seed NETST=ACTIVE, clear SIZ.  NDOS's
      * own NTWKIN may re-run this; idempotent. */
@@ -437,29 +408,74 @@ static void nos_handoff(void) {
 
     /* No snios_jt memcpy: cpnos-build/src/cpnios-shim.asm pins NIOS
      * directly at our resident _snios_jt symbol (0xED33) via the LINK
-     * EQU.  NDOS calls land in resident BIOS without a runtime copy.
-     *
-     * enable_interrupts moved up to before NETBOOT() (see PIO-IRQ
-     * comment there).  IFF stays on through this final stretch. */
+     * EQU.  NDOS calls land in resident BIOS without a runtime copy. */
 
 #if defined(PIO_SPEED_TEST) || defined(PIO_LOOPBACK_TEST)
     /* PIO-B bring-up test runs after IRQs are on so the receive ring
-     * fills via isr_pio_par.  Skipped if netboot failed — without
+     * fills via isr_pio_par.  Skipped if netboot failed -- without
      * netboot we can't trust resident state. */
     if (entry != 0) {
         pio_loopback_test();
     }
 #endif
 
-    /* Phase 2B: cpnos.asm entry stub deleted.  PROM C does signon +
-     * JT copy + ZP[0..7] entirely (nos_handoff above), then enters
-     * NDOS COLDST.  enter_coldst lives in resident.c so the
-     * "where's COLDST" knowledge has one home (impl_wboot/impl_boot
-     * call it too on warm-boot re-entry). */
     if (entry != 0) {
-        nos_handoff();
+        /* 1. Copy 17-entry resident BIOS JT (51 B at 0xED00) into NDOS's
+         *    data area at NDOS - 0x100 = NDOSRL + 0x300.  NDOS COLDST
+         *    walks this via ZP[1..2] and rewrites BDOS-related slots
+         *    with its own intercept addresses.
+         * 2. LDIR zp_init_data[8] (in .resident.data, pinned by
+         *    payload.ld ASSERT) into the now-RAM zero page.
+         * 3. enter_coldst (resident asm helper) loads SP=0x100 and
+         *    JPs to NDOS+3 (COLDST). */
+        __builtin_memcpy((void *)BIOS_JT_COPY_ADDR, (const void *)0xED00, 51);
+
+        const void *src = zp_init_data;
+        void       *dst = (void *)0;
+        unsigned    n   = sizeof(zp_init_data);
+        __asm__ volatile("ldir"
+            : "+{de}"(dst), "+{hl}"(src), "+{bc}"(n)
+            :
+            : "memory");
+
         BOOT_MARK(18, 'J');             /* about to JP NDOS COLDST */
         enter_coldst();
     }
     for (;;) { }
+}
+
+/* Init phase: runs in place from PROM 0 0x0100..0x0??? (.init).
+ * Tail-called by the relocator after it copies resident bytes to
+ * 0xED00.  Calls into resident-RAM helpers (impl_conout, snios_*,
+ * runtime stubs) work because the relocator already populated
+ * 0xED00+ before JPing here.  PROMs are still mapped through
+ * netboot completion; resident_handoff (RAM) does the OUT. */
+__attribute__((section(".init.text")))
+[[noreturn]] void cpnos_cold_entry(void) {
+    cfgtbl_init();
+    init_hardware();
+
+    /* SNIOS drives PIO byte primitives via the linker's
+     * --defsym=_xport_send_byte=_transport_pio_send_byte alias
+     * (transport_pio.c).  Mark 'P' so the boot strip indicates the
+     * physical wire (PIO) regardless of SNIOS envelope above. */
+    BOOT_MARK(7, 'P');
+
+    /* IRQ-driven snios-on-PIO needs IFF on during netboot:
+     * isr_pio_par fires per chip strobe and pushes bytes into
+     * pio_rx_buf for transport_pio_recv_byte to pop. */
+    enable_interrupts();
+
+    /* Banner BEFORE netboot so it appears on row 0; netboot dots flow
+     * on row 1 (operator's "OS identity at top, progress below"
+     * expectation). */
+    print_banner();
+
+    uint16_t entry = NETBOOT();
+    BOOT_MARK(15, entry ? '+' : '-');
+
+    /* Tail call into resident RAM -- everything after this point
+     * (PROM disable, snios_ntwkin, nos_handoff, enter_coldst) MUST
+     * run from RAM because PROM disable un-maps the .init region. */
+    resident_handoff(entry);
 }

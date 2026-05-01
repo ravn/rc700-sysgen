@@ -4,23 +4,35 @@ Snapshot taken from a `MIRROR_SIOB=1 BOOT_MARK_ENABLED=1` build at
 commit `c3e0c2d`.  All numbers will shift slightly with future
 shrinkage but the *structure* is stable.
 
-> **2026-04-30 — Phase A + B updates (commits 6251525, a1e9ce9):**
+> **2026-04-30 — Phase A + B + init/resident split + Option β:**
 >
-> | Region          | Pre-A (this doc) | Post-B (current) |
-> |-----------------|------------------|------------------|
-> | NDOSRL (DATA)   | 0xCC00           | 0xDAA0           |
-> | NDOS  (CODE)    | 0xD000           | 0xDEA0           |
-> | cpnos.com end   | 0xDC80           | 0xEB20           |
-> | scratch_bss LO  | 0xEA20..0xEC00   | 0xEB20..0xEC00   |
-> | scratch_bss HI  | (didn't exist)   | 0xEC24..0xECEC (`_msg`) |
-> | NIOS jump table | 0xEA00 (memcpy'd)| 0xED33 (= `_snios_jt`, no memcpy) |
-> | TPA reported    | 52 K             | 55 K             |
+> | Region          | Pre-A         | Post-B        | Post-β (current) |
+> |-----------------|---------------|---------------|------------------|
+> | NDOSRL (DATA)   | 0xCC00        | 0xDAA0        | 0xDC80           |
+> | NDOS  (CODE)    | 0xD000        | 0xDEA0        | 0xE080           |
+> | cpnos.com end   | 0xDC80        | 0xEB20        | 0xED00           |
+> | scratch_bss     | 0xEA20..0xEC00| split LO + HI | 0xF524..0xF6FF   |
+> | IVT             | 0xEC00        | 0xEC00        | 0xF500           |
+> | Stack (SP top)  | 0xED00        | 0xED00        | 0xF500           |
+> | NIOS jump table | 0xEA00 (copy) | 0xED33 (pin)  | 0xED33 (pin)     |
+> | Init code       | in resident @ 0xED00 | same  | PROM 0 0x0100, in place |
+> | Resident size   | 2438 B        | 2438 B        | 1808 B           |
+> | TPA reported    | 52 K          | 55 K          | 56 K             |
 >
-> The "3.4 K GAP" between cpnos.com end and NIOS that this doc
-> describes is closed -- cpnos.com now butts up against scratch_bss
-> LO with 0 B headroom.  See `tasks/timeline.md` Phase 30 for
-> the path-A vs path-B reasoning, and run `make cpnos && llvm-nm
-> --numeric-sort clang/payload.elf` for live addresses.
+> Init/resident split (commits c6c00a4, 03a4248): init-only code
+> (init_hardware, cfgtbl_init, print_banner, netboot_mpm) tagged
+> `((section(".init.text/.init.rodata")))` and runs in place from
+> PROM 0 0x0100..0x0375.  Resident shrank by 630 B.
+>
+> Option β (commit e131c16): freed RAM consolidated above resident;
+> stack moved from 0xED00 to 0xF500 to clear cpnos.com's lifted top;
+> scratch_bss + IVT moved up; cpnos.com CODE_BASE bumped to 0xE080.
+> Layout asserts in `payload.ld` catch stack/cpnos/scratch overlaps
+> at link time (`__cpnos_load_end`, `__stack_top`, `__stack_low`).
+>
+> Run `make cpnos && llvm-nm --numeric-sort clang/payload.elf` for
+> live addresses.  See `tasks/timeline.md` Phase 30 + `tasks/todo.md`
+> "Init/resident split" for path-α vs β reasoning.
 
 Authoritative sources:
 

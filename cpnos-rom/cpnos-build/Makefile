@@ -15,19 +15,21 @@ LOCAL_SRC := src
 # Link addresses.  cpnos.com's CODE section is 0xC0D B but the .COM
 # file on disk is record-padded to 0xC80 B (with 0x1A trailing fill);
 # netboot_mpm.c loads the full 0xC80 B (records can't be partial).
-# So CODE_BASE + 0xC80 must sit at or below cpnos-rom's low scratch
-# BSS to avoid corrupting cfgtbl/kbd_ring during the READ-SEQ loop.
+# So CODE_BASE + 0xC80 must sit at or below cpnos-rom's resident BIOS
+# (0xED00) to avoid corrupting it during the READ-SEQ loop.
 #
-# Phase B (2026-04-30): _msg moved into a new SCRATCH_HI region in the
-# IVT->payload gap, so the low scratch BSS shrinks to 0xEB20..0xEC00.
-#   CODE 0xDEA0..0xEB1F   NDOS DEA3, end butts against scratch lo
-#                         at 0xEB20 with 1 B headroom
-#   DATA 0xDAA0..0xDE9F   NDOSRL DAA0, BDOSDS DC8A
-# TPA = 0x0100..0xDA9F = 0xD9A0 = 55712 B (54.40 KB strict; reported
-# via NDOSE -> ~56K).
-# Was Phase A: CODE LDD80 / DATA DD980 (TPA 55K).
-CODE_BASE ?= LDEA0
-DATA_BASE ?= DDAA0
+# Option β (2026-04-30, post init/resident split): scratch BSS + IVT
+# moved to upper RAM (0xF410..0xF6FF) so the entire 0xEB20..0xECFF
+# range is now available for cpnos.com.  Max CODE_BASE = 0xED00 -
+# 0xC80 = 0xE080.
+#   CODE 0xE080..0xECFF   NDOS E083, end butts against resident BIOS
+#                         at 0xED00 with 0 B headroom
+#   DATA 0xDC80..0xE07F   NDOSRL DC80, BDOSDS DE6A (offsets shifted +0x1E0)
+# TPA = 0x0100..0xDC7F = 0xDB80 = 56192 B (54.875 KB strict; reported
+# via NDOSE rounding to ~56K).
+# Was Phase B: CODE LDEA0 / DATA LDAA0 (TPA 55K).
+CODE_BASE ?= LE080
+DATA_BASE ?= DDC80
 
 export CPMDrive_D := $(CURDIR)/d
 export CPMDrive_A := $(CURDIR)/a

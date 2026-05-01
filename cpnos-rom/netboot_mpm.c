@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include "hal.h"
 #include "transport.h"
+#include "cfgtbl.h"
 
 /* memcpy from runtime.s — no libc headers in a freestanding build. */
 extern void *memcpy(void *dest, const void *src, unsigned int n);
@@ -36,10 +37,6 @@ extern uint8_t snios_ntwkin(void);
 /* BIOS CONOUT — resident at 0xF20C after cpnos_main copies .resident. */
 extern void impl_conout(uint8_t c);
 
-/* Used to live in a dedicated PROM1 section at 0x2000.  Merged into
- * PROM0 in Phase 18 (issue #39) — no longer section-pinned. */
-#define PROM1_CODE
-
 /* DRI CP/NET frame header offsets. */
 #define FMT 0
 #define DID 1
@@ -48,49 +45,53 @@ extern void impl_conout(uint8_t c);
 #define SIZ 4
 #define DAT 5
 
-/* Biggest response is READ-SEQ: 5 hdr + 1 rc + 36 FCB + 128 data + 1 cks = 171.
- * Round up for safety. */
-#define MSG_MAX 200
+/* msg[] aliases the cfgtbl outbound message-frame area starting at
+ * cfgtbl.fmt (offset +39 inside cfgtbl).  msg[0..4] = fmt/did/sid/
+ * fnc/siz, msg[5] = msg0/DAT[0], msg[6..170] = msgbuf[0..127] +
+ * netboot_tail[0..36].  Sharing this buffer with SNIOS saves ~163 B
+ * BSS over a separate msg[200] static.  Biggest response is
+ * READ-SEQ: 5 hdr + 166 data = 171 B; cfgtbl.fmt+0..170 fits. */
+#define msg ((uint8_t *)&cfgtbl.fmt)
 
 /* cpnos.com produced by RMAC+LINK is CODE-only (DATA section at
  * NDOSRL is runtime-initialized BSS, not stored in the file).
- * Phase A (2026-04-30) placement:
- *   CODE_BASE = 0xDD80 (NDOS), DATA_BASE = 0xD980 (NDOSRL)
- * The .COM file is the CODE section -- 3085 B linked at 0xDD80
- * and record-padded to 3200 B (0xC80) on disk; file offset 0 =
- * memory CPNOS_NDOS_ADDR.  Source of truth is cpnos.sym (extracted
- * into clang/cpnos_addrs.h as CPNOS_NDOS_ADDR). */
+ * Option β (2026-04-30) placement:
+ *   CODE_BASE = 0xE080 (NDOS), DATA_BASE = 0xDC80 (NDOSRL)
+ * The .COM file is the CODE section -- linked at CODE_BASE and
+ * record-padded to 0xC80 on disk; file offset 0 = memory
+ * CPNOS_NDOS_ADDR.  Source of truth is cpnos.sym (extracted into
+ * clang/cpnos_addrs.h as CPNOS_NDOS_ADDR). */
 #include "cpnos_addrs.h"
 #define IMG_BASE   ((uint8_t *)CPNOS_NDOS_ADDR)
 #define ENTRY_ADDR (CPNOS_NDOS_ADDR)
 
 /* MP/M II default password on mpm-net2-1.dsk.  Override at build time
- * with -DRC702_LOGIN_PWD='"OTHER   "' (8 chars, space padded). */
+ * with -DRC702_LOGIN_PWD='"OTHER   "' (8 chars, space padded).  The
+ * literal landed in .payload (resident rodata) when used as a plain
+ * string literal -- pinned into .init.rodata so the byte sequence
+ * sits in PROM-only init memory. */
 #ifndef RC702_LOGIN_PWD
 #define RC702_LOGIN_PWD "PASSWORD"
 #endif
+__attribute__((section(".init.rodata")))
+static const uint8_t login_pwd[8] = RC702_LOGIN_PWD;
 
 /* FCB header for A:CPNOS.IMG (drive + 8.3 name).  Bytes +12..+35
  * are left zero — msg[] lives in BSS so the zero tail is already
  * there, and install_fcb only runs once before any FCB response
  * has overwritten those slots. */
+__attribute__((section(".init.rodata")))
 static const uint8_t FCB_HEAD[12] = {
     0x01,                                /* +0  drive A (1-based) */
     'C','P','N','O','S',' ',' ',' ',     /* +1..+8  name */
     'I','M','G',                          /* +9..+11 ext */
 };
 
-/* msg[] lives in the high scratch region (0xEC24..0xECFF -- the 220 B
- * gap between IVT and payload).  Phase B (2026-04-30): pulled out of
- * the low scratch_bss to free it for cpnos.com's load region, lifting
- * NDOS from 0xDD80 -> 0xDEA0.  The buffer is only used during netboot
- * -- post-netboot, NDOS hands its own buffer pointer to SNDMSG/RCVMSG. */
-static uint8_t msg[MSG_MAX] __attribute__((section(".scratch_bss_hi")));
-
 /* Build and send a CP/NET request, then wait for the response.
  * Data must already be in msg[DAT..DAT+dat_len-1].  siz_minus_1 must be
  * dat_len - 1 per DRI convention (SIZ=0 means 1 byte).
  * Returns response retcode (msg[DAT] on success); 0xFE on transport err. */
+__attribute__((section(".init.text")))
 static uint8_t cpnet_xact(uint8_t fnc, uint8_t siz_minus_1) {
     msg[FMT] = 0x00;
     msg[DID] = 0x00;                 /* to master */
@@ -104,6 +105,7 @@ static uint8_t cpnet_xact(uint8_t fnc, uint8_t siz_minus_1) {
 
 /* Copy the 12-byte FCB header into msg.  The 24-byte zero tail is
  * already zero in BSS. */
+__attribute__((section(".init.text")))
 static void install_fcb(void) {
     msg[DAT] = 0;                    /* user number */
     __builtin_memcpy(&msg[DAT + 1], FCB_HEAD, 12);
@@ -111,11 +113,12 @@ static void install_fcb(void) {
 
 /* Rewrite only DAT[0]=user.  FCB is already in msg[DAT+1..DAT+36] from
  * the previous response — caller should not touch it between calls. */
+__attribute__((section(".init.text")))
 static void reuse_fcb(void) {
     msg[DAT] = 0;                    /* user number */
 }
 
-PROM1_CODE
+__attribute__((section(".init.text")))
 uint16_t netboot_mpm(void) {
     BOOT_MARK(8, 'N');               /* entered netboot_mpm */
     /* Arm SNIOS.  Drains SIO RX and flips CFGTBL.NETST.ACTIVE. */
@@ -128,8 +131,8 @@ uint16_t netboot_mpm(void) {
      * the trailing 7 bytes drops below the unroll threshold and
      * dispatches to the runtime _memcpy stub (LDIR), which is much
      * smaller per call site (the stub itself is shared). */
-    msg[DAT] = RC702_LOGIN_PWD[0];
-    __builtin_memcpy(&msg[DAT + 1], &RC702_LOGIN_PWD[1], 7);
+    msg[DAT] = login_pwd[0];
+    __builtin_memcpy(&msg[DAT + 1], &login_pwd[1], 7);
     if (cpnet_xact(64, 7) != 0) return 0;
     BOOT_MARK(10, 'L');              /* LOGIN ok */
 
@@ -152,15 +155,14 @@ uint16_t netboot_mpm(void) {
         __builtin_memcpy(dma, &msg[DAT + 37], 128);
         dma += 128;
         impl_conout('.');            /* one dot per 128-byte sector */
-        /* Safety: refuse to overflow into our running scratch BSS lo
-         * region (cfgtbl / kbd_ring -- netboot uses those through the
-         * READ-SEQ loop).  Phase B (2026-04-30): _msg moved to the
-         * high scratch region so the lo region butts against IVT at
-         * 0xEC00; cpnos.com loads into 0xDEA0..0xEB20.  Strict `>`:
-         * dma == 0xEB20 means the last 128 B sector landed exactly
-         * at the limit (loaded into 0xEAA0..0xEB1F), which is fine --
-         * the next iteration's READ-SEQ returns EOF and breaks. */
-        if (dma > (uint8_t *)0xEB20) return 0;
+        /* Safety: refuse to overflow into our resident BIOS at 0xED00.
+         * Option β (post init/resident split): scratch BSS moved to
+         * upper RAM (0xF410..) so cpnos.com's load region runs up to
+         * 0xED00.  Strict `>`: dma == 0xED00 means the last 128 B
+         * sector landed exactly at the limit (loaded into
+         * 0xEC80..0xECFF), which is fine -- the next READ-SEQ returns
+         * EOF and breaks. */
+        if (dma > (uint8_t *)0xED00) return 0;
     }
     BOOT_MARK(13, 'E');              /* EOF reached */
     impl_conout(0x0d); impl_conout(0x0a);

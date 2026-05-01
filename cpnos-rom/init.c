@@ -18,25 +18,18 @@ extern void isr_pio_par(void);
 extern void set_i_reg(uint8_t page);
 extern void enable_im2(void);
 
-/* IVT at 0xF100; each slot is 2 bytes, so slot N lives at 0xF100+2N.
+/* IVT at __ivt_start (page-aligned, supplied by payload.ld).  Each
+ * slot is 2 bytes, so slot N lives at __ivt_start + 2N.
  *   slot 0..3  (vec 0x00..0x06): CTC channels 0..3 (ch2 = CRT refresh)
  *   slot 8..10 (vec 0x10..0x14): SIO-B rx/tx/extstatus (polled, slots
  *                                 installed as noop for the daisy chain)
  *   slot 16    (vec 0x20):       PIO-A keyboard
  *   slot 17    (vec 0x22):       PIO-B (unused)
- */
-/* IVT moved from 0xF100 to 0xEC00 in session 33 follow-up: with
- * BIOS_BASE at 0xED00, .resident code spans 0xED00..~0xF250 and
- * 0xF100..0xF123 fell inside that range, so the old IVT slot would
- * have been overwritten by memcpy (or stomped resident code if IVT
- * were written first).  0xEC00 sits between scratch_bss LO (which
- * after Phase B ends at 0xEC00) and RESIDENT (0xED00..), with enough
- * room for 18 × 2-byte entries.  scratch_bss HI (just _msg, post-
- * Phase B) lives in the 0xEC24..0xECEC tail of the IVT page. */
-/* IVT location provided by the linker script (cpnos_rom.ld) so the
- * ld ASSERTs and setup_ivt() stay in sync.  If .resident or BSS grows
- * to overlap _ivt_start.._ivt_end, the link fails at build time (issue
- * #35) instead of silently stomping the vector table at boot. */
+ *
+ * Option β (2026-04-30): IVT moved from 0xEC00 to 0xF500 so cpnos.com
+ * can load up to 0xED00.  The address is owned by the linker; the ld
+ * ASSERTs catch overlaps with .payload, .scratch_bss, or the stack
+ * region (issue #35). */
 extern uint8_t _ivt_start[];
 #define IVT_ADDR     ((uint16_t)(uintptr_t)_ivt_start)
 #define IVT_ENTRIES  18
@@ -46,6 +39,7 @@ extern uint8_t _ivt_start[];
 /* Unified port-init table.  Each pair (port, value) is written in
  * order with OUT (C),A.  Centralises ~30 scattered port writes into
  * one table + one loop — smaller than inline port_out calls. */
+__attribute__((section(".init.rodata")))
 static const uint8_t port_init[] = {
     /* CTC ch0: vector=0, SIO-A baud timer. */
     PORT_CTC0, 0x00,   PORT_CTC0, 0x47,   PORT_CTC0, 0x01,
@@ -118,6 +112,7 @@ static const uint8_t port_init[] = {
     PORT_CRT_CMD,   0x23,
 };
 
+__attribute__((section(".init.text")))
 static void setup_ivt(void) {
     /* 18 x 16-bit slots at IVT_ADDR (page-aligned).  All slots default
      * to isr_noop; CTC ch2 (slot 2) gets the CRT refresh ISR. */
@@ -136,6 +131,7 @@ static void setup_ivt(void) {
     enable_im2();
 }
 
+__attribute__((section(".init.text")))
 void init_hardware(void) {
     /* IVT + IM2 first so any stray interrupt lands on isr_noop rather
      * than the reset vector.  Interrupts stay disabled; resident_entry
@@ -164,13 +160,9 @@ void init_hardware(void) {
     extern void clear_screen(void);
     clear_screen();
 
-    /* Visible bring-up marker: "INIT OK" via BOOT_MARK at indices
-     * 0..6 (display row 0, cols 60..66 — upper-right strip).  See
-     * BOOT_MARK in hal.h for the placement rationale. */
-    {
-        static const char marker[] = "INIT OK";
-        for (uint8_t i = 0; i < sizeof(marker) - 1; ++i) {
-            BOOT_MARK(i, marker[i]);
-        }
-    }
+    /* Visible bring-up marker: 'I' at BOOT_MARK index 0 (display row 0,
+     * col 60).  Single char instead of "INIT OK" -- the 7-byte rodata
+     * + 7-iteration write loop was ~18 B for marginal value;
+     * cpnos_cold_entry already paints the boot-strip after this. */
+    BOOT_MARK(0, 'I');
 }
