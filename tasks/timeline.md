@@ -196,6 +196,9 @@
   - ravn/llvm-z80 #89 — Loop-invariant 16-bit constant reloaded into
     DE every iteration despite IR-level hoist (regalloc clobbers DE
     for loop counter).  IR is clean; backend-side bug.
+  - ravn/llvm-z80 #90 — `(uint8_t)(extern_addr >> 8)` byte-arg call
+    routes through DE→L→H→A in 10 B instead of `ld a, high(sym); call
+    fn` in 5 B.  Hits `set_i_reg(IVT_ADDR>>8)` for 5 B savings.
 
 - **Easy/Medium/Hard/Painful tags**:
   - Tagging sources with section attrs: **(Easy)**.

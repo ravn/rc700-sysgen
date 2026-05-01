@@ -587,11 +587,13 @@ through `make integration-test`.**
 
 #### Follow-up items still open
 
-- [ ] **`set_i_reg(0xF5)` codegen pessimization.**  In `setup_ivt`,
-      clang routes the constant 0xF5 through DE -> L -> A -> call in
-      10 B instead of `ld a,0xF5; call _set_i_reg` in 5 B.  Worth
-      filing as a separate llvm-z80 issue (sibling to #89).  Saves
-      ~5 B at every `set_i_reg` / similar single-byte-arg call.
+- [x] **`set_i_reg(0xF5)` codegen pessimization filed as ravn/llvm-z80
+      #90** (2026-05-01).  Clang routes the high byte of an extern
+      symbol address through DE -> L -> A -> call in 10 B instead of
+      `ld a, high(sym); call fn` in 5 B.  Plain constants and >>8 of
+      numeric literals are already optimized; only the extern-address
+      case is pessimized.  Saves 5 B at the `setup_ivt` site and at
+      any similar byte-arg call derived from a link-time address.
 - [ ] **`INIT_TEXT` / `INIT_RODATA` macros** (CLion squiggle suppression).
       `((section(".init.text")))` is treated as suspicious by CLion's
       host-triple analyzer; wrap in macros like the existing
