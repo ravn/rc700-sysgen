@@ -161,6 +161,119 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 32: llvm-z80 codegen-fix burst (May 1-2, 2026) — branch `z80-close-all-issues` in llvm-z80
+
+- **Goal**: tighten cluster 2 (DJNZ + LDIR family) and adjacent
+  pessimizations, flip the long-standing XFAIL test to PASS, and
+  measure the BIOS / cpnos-rom size delta.
+
+- **Result**:
+  - **rcbios BIOS**: 5998 B → **5972 B** (-26 B, -0.43 %).  Smallest
+    yet; 49 B below the 6021 B initial baseline.
+  - **cpnos-rom payload**: 1738 B → **1734 B** (-4 B).
+  - **Z80 lit suite**: 65/66 + 1 XFAIL → **72/72**, no XFAILs.
+
+- **Issues closed (7)**: ravn/llvm-z80 #78, #88, #64, #91, #82, #76,
+  #93.  Each landed with reproducer + lit test + measured size delta.
+
+- **Issues filed (5)**: #91 (LDDR setup quality, fixed same session),
+  #92 (nested-loop DJNZ direction reversed), #93 (constant-trip
+  countdown emits count-up + carry-test; fixed same session via
+  path b), #94 (sequential loops: B not re-hinted between loops),
+  #95 (long-term path a -- prevent the IV rewrite at IR level).
+
+- **Mechanism (per fix)**:
+  - **#78 LDIR aftermath**: late peephole rewrites
+    `LD HL,(slot); LD DE,N; ADD HL,DE; <sink>` to direct DE-reuse
+    (LD H,D / LD L,E, or skip-EX, or store-DE-back), with ±1 INC/DEC
+    fixup.  Order-independent matcher.  cpnos READ-SEQ inner loop
+    -6 B/iter absorbed into payload alignment.
+  - **#88 pattern-fill loop idiom**: new IR-level pass
+    `Z80LoopIdiomFill` (both new-PM and legacy-PM entry points)
+    rewrites K-byte (K∈{1,2,3,4}) constant-trip-count fill loops as
+    `seed K bytes; memcpy(base+K, base, K*(N-1))`, which the backend
+    lowers as `seed; LDIR`.  K=3 (jump-table / IVT shape) was
+    explicitly requested.
+  - **#64 memmove inline**: `G_MEMMOVE` `.libcall()` → `.custom()`
+    in `Z80LegalizerInfo` with direction analysis (same pointer,
+    G_PTR_ADD chains, common base).  Picks LDIR or LDDR; otherwise
+    libcall.
+  - **#91 LDDR setup quality**: when Size is constant, fold Size-1
+    + chained G_PTR_ADDs at legalization so end-pointers collapse
+    to single G_PTR_ADD(base, total).  Global-base case 22 B → 12 B.
+  - **#82 BSS-spill peephole orphan-reload bug**: spill→PUSH/POP
+    rewrite was missing a check for orphan loads to a different
+    register pair.  Added the check; the long-standing XFAIL flips
+    to PASS.
+  - **#76 LD A,(HL); LD r,A → LD r,(HL)** (and symmetric store):
+    direct-form is 1 B / 4 T cheaper than A-via.  Peephole rewrites
+    both directions when A is dead after.  Hits CONOUT and FDC
+    paths in BIOS.
+  - **#93 carry-roundtrip elimination** (path b -- post-RA peephole):
+    two composing peepholes — `SBC A,A; AND 1; XOR 1; RRCA; JR C`
+    → `JR NC` and `LD A,r; ADD A,1; LD r,A; JR NC` → `INC r;
+    JR NZ`.  11 B → 3 B per loop body for constant-trip-count
+    countdowns.
+
+- **Pain points caught**:
+  - lit `CHECK-NOT djnz` matched the substring inside function names
+    like `_call_in_body_no_djnz`.  Fixed by anchoring on whitespace.
+    **(Easy)**, but caught only when writing the comprehensive DJNZ
+    test.
+  - cmake/ninja not on PATH on macOS; user has no brew.  Found
+    CLion-bundled cmake/ninja under `/Applications/CLion.app`.
+    Recorded path in user memory `reference_build_binaries.md`.
+    **(Medium)** — 15 min lost.
+  - SCEV's `getBackedgeTakenCount` semantics: returns body iteration
+    count (= trip count), NOT trips-1, for the while-style for-loop
+    shape tested.  Initial #88 pass had off-by-one CopyLen.
+    **(Medium)** — caught by lit CHECK on the `LD BC,N` immediate.
+  - `clang` driver caches built artifacts; the new #88 IR pass only
+    fired via `llc` until clang was rebuilt too (separate
+    `ninja clang` from `ninja llc`).  **(Painful)** — spent ~30 min
+    wondering why `errs()` didn't print before realising clang
+    binary was stale.
+  - #89 LICM extern-addr investigation hit a deeper issue: the
+    constant gets rematerialised INTO the loop body by the register
+    coalescer before regalloc can place a hint.  Backed out the
+    exploratory hint extension; documented on the issue (no commit
+    this round). **(Hard)** — open follow-up.
+
+- **Easy/Medium/Hard/Painful tags**:
+  - LDIR aftermath / LD r,(HL) / memmove inlining peepholes:
+    **(Easy)** — pattern matches in late-opt are well-tooled.
+  - `Z80LoopIdiomFill` new IR pass with both PM hooks:
+    **(Medium)** — legacy + new PM dual entry, cmake registration,
+    pass-pipeline placement.
+  - #93 chain matching with two distinct forms: **(Medium)**.
+  - clang stale-artifact debugging: **(Painful)**.
+
+- **Files touched** (in llvm-z80):
+  `llvm/lib/Target/Z80/Z80LateOptimization.cpp`,
+  `llvm/lib/Target/Z80/Z80LegalizerInfo.cpp`,
+  `llvm/lib/Target/Z80/Z80LoopIdiomFill.{h,cpp}` (new),
+  `llvm/lib/Target/Z80/Z80TargetMachine.cpp`,
+  `llvm/lib/Target/Z80/Z80.h`,
+  `llvm/lib/Target/Z80/CMakeLists.txt`,
+  `llvm/lib/Transforms/InstCombine/InstCombineCalls.cpp` (#87 guard),
+  9 new `llvm/test/CodeGen/Z80/*.ll` lit tests.
+  No source touched in `rc700-gensmedet`; size deltas are pure
+  compiler-side wins.
+
+- **Not yet fixed** (deferred to future sessions):
+  - **#92** nested-loop DJNZ direction (regalloc hint needs
+    MachineLoopInfo).
+  - **#93** partial: INC counter still in D, not B, so DJNZ
+    doesn't fire (needs path a -- #95 -- or a count-up→countdown
+    rewrite chained with B-hint).
+  - **#94** sequential-loops B re-hint.
+  - **#89** LICM extern-addr (deeper rematerialisation cost-model
+    work).
+  - **#95** long-term path a for #93 (target-aware IV rewrite
+    suppression at IR level).
+  - All pinned via lit tests (`djnz-comprehensive.ll` and
+    per-issue files) so they're regression-locked.
+
 ## Phase 31: Init/resident split + Option β (Apr 30 - May 1, 2026) — branch `init-resident-split`
 
 - **Goal**: shrink cpnos-rom resident RAM footprint by moving init-only
