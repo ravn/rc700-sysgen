@@ -172,16 +172,17 @@
     handles 3 pred shapes × 2 body orderings; covers param-pointer
     (`LD C,L; LD B,H`), constant-in-both (`LD HL,nn N; LD BC,nn N`),
     and constant-in-BC-only (`LD BC,nn N` rewritten to `LD HL,nn N`).
-  - **#97a** filed: i16-counter sub-case (counter and pointer
-    compete for HL).  XFAIL test pinned; deferred.
-  - **Z80LoopRotate stays default off** despite #97 closing.
+  - **#99 filed**: i16-counter sub-case of #97 (counter and pointer
+    compete for HL).  XFAIL test pinned; deferred — needs regalloc-
+    level swap.
+  - **#100 filed**: rotation-around-CALL BSS-spill regression.
+    `Z80LoopRotate` stays default off despite #97 closing.
     Measurement on 2026-05-02 with rotation forced on showed rcbios
-    +33 B, cpnos-rom +4 B from a separate regression: rotated loops
-    containing a CALL force regalloc to BSS-spill the loop carrier
-    across the call (e.g. `_netboot_mpm` inner banner loop +28 B).
-    Documented inline in `Z80LoopRotate.cpp` as the new gate on
-    #77a; possible fixes are a peephole rewriting the spill-around-
-    CALL shape or a regalloc cost-model tweak.
+    +33 B, cpnos-rom +4 B (e.g. `_netboot_mpm` inner banner loop
+    +28 B alone).  Tracked at `tasks/followup-77a-rotation-around-
+    call.md` in llvm-z80; closes #77a once a fix lands (peephole
+    rewriting the spill-around-CALL shape, or a regalloc cost-model
+    tweak).
   - **rcbios BIOS**: 5920 B unchanged from session 33 baseline.
   - **cpnos-rom payload**: 1708 B unchanged from session 33
     baseline.  PROM0 init code -1 B (the peephole still fires on
