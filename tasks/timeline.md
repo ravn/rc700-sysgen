@@ -161,6 +161,65 @@
   impl_boot traps re-pointed at 0xD000 (issue U).  **(Hard)** — each bug
   was silent at build time and only showed up as a mid-boot lockup.
 
+## Phase 33: close ravn/llvm-z80#97 BC ping-pong (May 2, 2026) — branch `session-35-issue-97` in llvm-z80
+
+- **Goal**: close #97 (BC ping-pong in rotated single-BB self-loops),
+  the gate on #77a (Z80LoopRotate default-on), and measure whether
+  flipping rotation default-on is now profitable.
+
+- **Result** (final, end of session):
+  - **#97** closed.  Post-RA peephole in `Z80LateOptimization.cpp`
+    handles 3 pred shapes × 2 body orderings; covers param-pointer
+    (`LD C,L; LD B,H`), constant-in-both (`LD HL,nn N; LD BC,nn N`),
+    and constant-in-BC-only (`LD BC,nn N` rewritten to `LD HL,nn N`).
+  - **#97a** filed: i16-counter sub-case (counter and pointer
+    compete for HL).  XFAIL test pinned; deferred.
+  - **Z80LoopRotate stays default off** despite #97 closing.
+    Measurement on 2026-05-02 with rotation forced on showed rcbios
+    +33 B, cpnos-rom +4 B from a separate regression: rotated loops
+    containing a CALL force regalloc to BSS-spill the loop carrier
+    across the call (e.g. `_netboot_mpm` inner banner loop +28 B).
+    Documented inline in `Z80LoopRotate.cpp` as the new gate on
+    #77a; possible fixes are a peephole rewriting the spill-around-
+    CALL shape or a regalloc cost-model tweak.
+  - **rcbios BIOS**: 5920 B unchanged from session 33 baseline.
+  - **cpnos-rom payload**: 1708 B unchanged from session 33
+    baseline.  PROM0 init code -1 B (the peephole still fires on
+    Case 1 hand-written shapes even with rotation off).
+  - **Z80 lit suite**: 76 PASS + 1 XFAIL → **77 PASS + 1 XFAIL**.
+
+- **Pain points caught** (all in llvm-z80):
+  - LD_HL_nn operand layout: passing `RegState::Define` plus a
+    second `addReg(HL)` produced the literal `ld hl,hl` — operand 0
+    is the immediate / global / MC-symbol; the def is implicit.
+    **(Easy)**.
+  - Symbol vs. immediate operand comparison: Case 2 matcher only
+    checked `isImm()` and silently bailed on `__ivt_start`-style
+    global / MC-symbol operands.  Required diffing cpnos-rom asm
+    function-by-function to spot.  **(Medium)**.
+  - Two body orderings (anchor-first vs. anchor-last in the loop
+    block): visible only after flipping rotation default-on.
+    Restructured matcher to walk three regions regardless of order.
+    **(Medium)**.
+  - Rotation-around-CALL spill regression: ~30 min chasing the
+    +4 B mystery on cpnos-rom before realising it was a separate
+    regalloc-spill-around-CALL shape, not a residual ping-pong.
+    **(Medium)**.
+
+- **Files touched**:
+  - `llvm-z80/llvm/lib/Target/Z80/Z80LateOptimization.cpp` (new
+    ~250-LOC peephole after the existing #84 peephole).
+  - `llvm-z80/llvm/lib/Target/Z80/Z80LoopRotate.cpp` (default
+    confirmed off; comment updated to document the new gate).
+  - `llvm-z80/llvm/test/CodeGen/Z80/issue-97-bc-pingpong-singlebb.ll`
+    (XFAIL dropped, i16 case extracted, header rewritten).
+  - `llvm-z80/llvm/test/CodeGen/Z80/issue-97a-bc-pingpong-i16-counter.ll`
+    (new XFAIL).
+  - `llvm-z80/llvm/test/CodeGen/Z80/issue-77a-loop-rotate.ll`
+    (header refreshed; RUN lines unchanged).
+  - `llvm-z80/tasks/session35-summary.md` (new).
+  - No source touched in `rc700-gensmedet`.
+
 ## Phase 32: llvm-z80 codegen-fix burst (May 1-2, 2026) — branch `z80-close-all-issues` in llvm-z80
 
 - **Goal**: tighten cluster 2 (DJNZ + LDIR family) and adjacent
