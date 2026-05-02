@@ -5,9 +5,11 @@
 | Toolchain | BIOS size | Delta |
 |---|---:|---:|
 | Pre-session (`main`)              | 5998 B | — |
-| Post-session (`z80-close-all-issues`) | **5972 B** | **−26 B** |
+| Mid-session (after #76)            | 5972 B | −26 B |
+| Post-session (after #86)           | **5967 B** | **−31 B** |
 
-cpnos-rom payload: 1738 B → 1734 B (−4 B).
+cpnos-rom payload: 1738 B → 1730 B (−8 B).
+Z80 lit suite: 65/66 + 1 XFAIL → **73/73**, no XFAILs.
 
 The 26 B BIOS win came from compiler-side peepholes (no rcbios source
 changes this session).  Bigger surface area in BIOS than in the smaller
@@ -48,6 +50,8 @@ beyond `main`.
   the most BIOS-heavy fix; this is where the 26 B mostly came from.
 - **#93** Carry-roundtrip elimination (post-RA peephole, path b) —
   11 B → 3 B per constant-trip-count countdown loop body.
+- **#86** u8 switch range-check 16→8 bit — saves 4 B per switch
+  (BIOS has several `case 0x..:` chains in CONOUT that hit this).
 
 ### Filed (deferred work)
 

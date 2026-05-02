@@ -167,14 +167,22 @@
   pessimizations, flip the long-standing XFAIL test to PASS, and
   measure the BIOS / cpnos-rom size delta.
 
-- **Result**:
-  - **rcbios BIOS**: 5998 B → **5972 B** (-26 B, -0.43 %).  Smallest
-    yet; 49 B below the 6021 B initial baseline.
-  - **cpnos-rom payload**: 1738 B → **1734 B** (-4 B).
-  - **Z80 lit suite**: 65/66 + 1 XFAIL → **72/72**, no XFAILs.
+- **Result** (final, end of session):
+  - **rcbios BIOS**: 5998 B → **5967 B** (-31 B, -0.52 %).  Smallest
+    yet; 54 B below the 6021 B initial baseline.
+  - **cpnos-rom payload**: 1738 B → **1730 B** (-8 B).
+  - **Z80 lit suite**: 65/66 + 1 XFAIL → **73/73**, no XFAILs.
+  - **GitHub issues**: 46 open at session start → **28** open at
+    end (-18, including 5 newly filed, so 23 net closed).
 
-- **Issues closed (7)**: ravn/llvm-z80 #78, #88, #64, #91, #82, #76,
-  #93.  Each landed with reproducer + lit test + measured size delta.
+- **Issues fixed this session (8 with code changes)**: #78, #88, #64,
+  #91, #82, #76, #93, #86.  Each landed with reproducer + lit test
+  + measured size delta.
+
+- **Issues closed retrospectively (10)**: #65, #67, #68, #69, #71, #75,
+  #79, #83, #84, #85, #87, #73, #80, #60, #90.  Earlier-session
+  fixes that hadn't been closed on GitHub; verified each has a
+  corresponding commit + lit test on the branch.
 
 - **Issues filed (5)**: #91 (LDDR setup quality, fixed same session),
   #92 (nested-loop DJNZ direction reversed), #93 (constant-trip
@@ -214,6 +222,12 @@
     → `JR NC` and `LD A,r; ADD A,1; LD r,A; JR NC` → `INC r;
     JR NZ`.  11 B → 3 B per loop body for constant-trip-count
     countdowns.
+  - **#86 u8 switch range-check 16→8 bit**: GISel switch lowering
+    widens the discriminator to i16 BEFORE the bound check.  New
+    peephole detects the 9-byte 16-bit subtract chain and rewrites
+    as `CP_n; JR_C/NC` (3 B), with the carry condition flipped
+    (the chain computes `limit-offset` while CP computes
+    `offset-limit`).
 
 - **Pain points caught**:
   - lit `CHECK-NOT djnz` matched the substring inside function names
