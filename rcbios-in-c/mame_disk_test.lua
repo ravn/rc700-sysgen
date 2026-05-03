@@ -46,7 +46,10 @@ emu.register_frame_done(function()
             end
             f:close()
             done = true
-            os.exit(0)
+            -- Use manager.machine:exit(); os.exit() does not terminate
+            -- the host MAME process, leaving it running.  See
+            -- feedback_bench_must_self_terminate memory rule.
+            manager.machine:exit()
         end
     end
 end)

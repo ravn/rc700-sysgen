@@ -32,15 +32,20 @@ emu.register_frame_done(function()
     if done then return end
     frame = frame + 1
 
+    -- Pass/fail is signalled via the leading line of
+    -- /tmp/mame_boot_verify.txt ("OK" / "TIMEOUT"), not via the host
+    -- MAME exit code.  Use manager.machine:exit(); os.exit() does not
+    -- terminate the host MAME process and leaves it running.  See
+    -- feedback_bench_must_self_terminate memory rule.
     if at_prompt() then
         local scr = screen_text()
         local f = io.open("/tmp/mame_boot_verify.txt", "w")
-        f:write(scr .. "\n")
+        f:write("OK\n" .. scr .. "\n")
         f:close()
         print("=== Boot screen ===")
         print(scr)
         done = true
-        os.exit(0)
+        manager.machine:exit()
     end
 
     if frame > 50 * 30 then
@@ -51,6 +56,6 @@ emu.register_frame_done(function()
         print("=== TIMEOUT ===")
         print(scr)
         done = true
-        os.exit(1)
+        manager.machine:exit()
     end
 end)
