@@ -12,22 +12,34 @@ Disassembly of section .boot:
        4: 21 68 00     	ld	hl,$68
        7: 11 00 60     	ld	de,$6000
        a: 01 15 07     	ld	bc,$715
-       d: ed b0        	ldir
+       d: 78           	ld	a,b
+       e: b1           	or	c
+       f: 28 02        	jr	z,$13
+      11: ed b0        	ldir
 ;         memset(BSS_DST, 0, BSS_SIZE);
-       f: 21 e0 66     	ld	hl,$66e0
-      12: af           	xor	a
-      13: 77           	ld	(hl),a
-      14: 11 e1 66     	ld	de,$66e1
-      17: 01 34 00     	ld	bc,$34
-      1a: ed b0        	ldir
+      13: 21 e0 66     	ld	hl,$66e0
+      16: 1e 00        	ld	e,$0
+      18: 01 35 00     	ld	bc,$35
+      1b: 78           	ld	a,b
+      1c: b1           	or	c
+      1d: 28 0b        	jr	z,$2a
+      1f: 73           	ld	(hl),e
+      20: 0b           	dec	bc
+      21: 78           	ld	a,b
+      22: b1           	or	c
+      23: 28 05        	jr	z,$2a
+      25: 54           	ld	d,h
+      26: 5d           	ld	e,l
+      27: 13           	inc	de
+      28: ed b0        	ldir
 ;     main_relocated();
-      1c: c3 20 64     	jp	$6420
+      2a: c3 20 64     	jp	$6420
 
-0000001f <_banner_string>:
-      1f: 20 52 43 37 30 30 20 43          RC700 C
-      27: 4c 20 32 30 32 36 2d 30         L 2026-0
-      2f: 35 2d 30 34 20 32 30 2e         5-04 20.
-      37: 34 34 2f 72 61 76 6e 00         44/ravn.
+0000002d <_banner_string>:
+      2d: 20 52 43 37 30 30 20 43          RC700 C
+      35: 4c 20 32 30 32 36 2d 30         L 2026-0
+      3d: 35 2d 30 34 20 32 30 2e         5-04 20.
+      45: 34 34 2f 72 61 76 6e 00         44/ravn.
 
 Disassembly of section .nmi:
 
@@ -1041,7 +1053,7 @@ Disassembly of section .text:
     6505: 01 b0 07     	ld	bc,$7b0
     6508: ed b0        	ldir
 ;     memcpy(dspstr, BANNER_PTR, BANNER_LENGTH);
-    650a: 21 1f 00     	ld	hl,$1f
+    650a: 21 2d 00     	ld	hl,$2d
     650d: 11 00 7a     	ld	de,$7a00
     6510: 01 1f 00     	ld	bc,$1f
     6513: ed b0        	ldir

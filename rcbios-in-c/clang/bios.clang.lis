@@ -8,7 +8,7 @@ Disassembly of section .boot:
        8: 20 52 43 37 30 32 20 43          RC702 C
       10: 2d 42 49 4f 53 20 32 30         -BIOS 20
       18: 32 36 2d 30 35 2d 30 35         26-05-05
-      20: 20 30 30 3a 31 36 20 2f          00:16 /
+      20: 20 30 30 3a 32 38 20 2f          00:28 /
       28: 54 68 6f 72 62 6a 6f 65         Thorbjoe
       30: 72 6e 20 52 61 76 6e 20         rn Ravn 
       38: 41 6e 64 65 72 73 65 6e         Andersen
@@ -96,8 +96,8 @@ Disassembly of section .boot_code:
 00000280 <_coldboot>:
      280: f3           	di
      281: cd 90 02     	call	$290
-     284: cd bf 02     	call	$2bf
-     287: cd d0 02     	call	$2d0
+     284: cd c7 02     	call	$2c7
+     287: cd d8 02     	call	$2d8
      28a: 31 00 f5     	ld	sp,$f500
      28d: c3 8f da     	jp	$da8f
 
@@ -110,281 +110,287 @@ Disassembly of section .boot_code:
      297: 77           	ld	(hl),a
 ;     memcpy(&_bss_compiler_head + 1,
      298: 01 05 07     	ld	bc,$705
-     29b: ed b0        	ldir
+     29b: 78           	ld	a,b
+     29c: b1           	or	c
+     29d: 28 02        	jr	z,$2a1
+     29f: ed b0        	ldir
 ;     memcpy((void *)BIOS_BASE,
-     29d: 21 69 04     	ld	hl,$469
-     2a0: 11 00 da     	ld	de,$da00
-     2a3: 01 d4 12     	ld	bc,$12d4
-     2a6: ed b0        	ldir
+     2a1: 21 71 04     	ld	hl,$471
+     2a4: 11 00 da     	ld	de,$da00
+     2a7: 01 d4 12     	ld	bc,$12d4
+     2aa: 78           	ld	a,b
+     2ab: b1           	or	c
+     2ac: 28 02        	jr	z,$2b0
+     2ae: ed b0        	ldir
 ;     memcpy((void *)CFG_ADDR, confi_on_disk, 128);
-     2a8: 21 80 00     	ld	hl,$80
-     2ab: 11 00 d5     	ld	de,$d500
-     2ae: 01 80 00     	ld	bc,$80
-     2b1: ed b0        	ldir
+     2b0: 21 80 00     	ld	hl,$80
+     2b3: 11 00 d5     	ld	de,$d500
+     2b6: 01 80 00     	ld	bc,$80
+     2b9: ed b0        	ldir
 ;     memcpy((void *)CONV_ADDR, conv_tables, 384);
-     2b3: 21 00 01     	ld	hl,$100
-     2b6: 11 80 f6     	ld	de,$f680
-     2b9: 01 80 01     	ld	bc,$180
-     2bc: ed b0        	ldir
+     2bb: 21 00 01     	ld	hl,$100
+     2be: 11 80 f6     	ld	de,$f680
+     2c1: 01 80 01     	ld	bc,$180
+     2c4: ed b0        	ldir
 ; }
-     2be: c9           	ret
+     2c6: c9           	ret
 
-000002bf <_verify_relocation>:
+000002c7 <_verify_relocation>:
 ;     if (_sentinel_addr != SENTINEL_VALUE)
-     2bf: 2a d2 ec     	ld	hl,($ecd2)              ; 0xecd2 <__sentinel_addr>
-     2c2: 7c           	ld	a,h
-     2c3: ee 18        	xor	$18
-     2c5: 57           	ld	d,a
-     2c6: 7d           	ld	a,l
-     2c7: ee 42        	xor	$42
-     2c9: b2           	or	d
-     2ca: 20 01        	jr	nz,$2cd
+     2c7: 2a d2 ec     	ld	hl,($ecd2)              ; 0xecd2 <__sentinel_addr>
+     2ca: 7c           	ld	a,h
+     2cb: ee 18        	xor	$18
+     2cd: 57           	ld	d,a
+     2ce: 7d           	ld	a,l
+     2cf: ee 42        	xor	$42
+     2d1: b2           	or	d
+     2d2: 20 01        	jr	nz,$2d5
 ; }
-     2cc: c9           	ret
+     2d4: c9           	ret
 ; static inline void intrinsic_halt(void) { __asm__ volatile("halt"); }
-     2cd: 76           	halt
+     2d5: 76           	halt
 ;         for (;;) hal_halt();  /* hang — display will show nothing */
-     2ce: 18 fd        	jr	$2cd
+     2d6: 18 fd        	jr	$2d5
 
-000002d0 <_bios_hw_init>:
+000002d8 <_bios_hw_init>:
 ;     memcpy((void *)IVT_ADDR, ivt_template, sizeof(ivt_template));
-     2d0: 21 24 00     	ld	hl,$24
-     2d3: e5           	push	hl
-     2d4: 21 00 f6     	ld	hl,$f600
-     2d7: 11 45 04     	ld	de,$445
-     2da: cd 0b eb     	call	$eb0b
+     2d8: 21 24 00     	ld	hl,$24
+     2db: e5           	push	hl
+     2dc: 21 00 f6     	ld	hl,$f600
+     2df: 11 4d 04     	ld	de,$44d
+     2e2: cd 0b eb     	call	$eb0b
 ;     set_i_reg(IVT_ADDR >> 8);
-     2dd: 3e f6        	ld	a,$f6
-     2df: cd a4 ea     	call	$eaa4
+     2e5: 3e f6        	ld	a,$f6
+     2e7: cd a4 ea     	call	$eaa4
 ; static inline void intrinsic_im_2(void) { __asm__ volatile("im 2"); }
-     2e2: ed 5e        	im	2
+     2ea: ed 5e        	im	2
 ; DEFPORT(pio_a_ctrl,   PORT_PIO_A_CTRL)
-     2e4: 3e 20        	ld	a,$20
-     2e6: d3 12        	out	($12),a
-; DEFPORT(pio_b_ctrl,   PORT_PIO_B_CTRL)
-     2e8: 3e 22        	ld	a,$22
-     2ea: d3 13        	out	($13),a
-; DEFPORT(pio_a_ctrl,   PORT_PIO_A_CTRL)
-     2ec: 3e 4f        	ld	a,$4f
+     2ec: 3e 20        	ld	a,$20
      2ee: d3 12        	out	($12),a
 ; DEFPORT(pio_b_ctrl,   PORT_PIO_B_CTRL)
-     2f0: 3e 0f        	ld	a,$f
+     2f0: 3e 22        	ld	a,$22
      2f2: d3 13        	out	($13),a
 ; DEFPORT(pio_a_ctrl,   PORT_PIO_A_CTRL)
-     2f4: 3e 83        	ld	a,$83
+     2f4: 3e 4f        	ld	a,$4f
      2f6: d3 12        	out	($12),a
 ; DEFPORT(pio_b_ctrl,   PORT_PIO_B_CTRL)
-     2f8: d3 13        	out	($13),a
+     2f8: 3e 0f        	ld	a,$f
+     2fa: d3 13        	out	($13),a
+; DEFPORT(pio_a_ctrl,   PORT_PIO_A_CTRL)
+     2fc: 3e 83        	ld	a,$83
+     2fe: d3 12        	out	($12),a
+; DEFPORT(pio_b_ctrl,   PORT_PIO_B_CTRL)
+     300: d3 13        	out	($13),a
 ; DEFPORT(ctc0,         PORT_CTC0)
-     2fa: af           	xor	a
-     2fb: d3 0c        	out	($c),a
+     302: af           	xor	a
+     303: d3 0c        	out	($c),a
 ;     port_out(ctc0, CFG.ctc_mode0);
-     2fd: 3a 00 d5     	ld	a,($d500)               ; 0xd500 <__boot_end+0xd097>
+     305: 3a 00 d5     	ld	a,($d500)               ; 0xd500 <__boot_end+0xd08f>
 ; DEFPORT(ctc0,         PORT_CTC0)
-     300: d3 0c        	out	($c),a
+     308: d3 0c        	out	($c),a
 ;     port_out(ctc0, CFG.ctc_count0);
-     302: 3a 01 d5     	ld	a,($d501)               ; 0xd501 <__boot_end+0xd098>
+     30a: 3a 01 d5     	ld	a,($d501)               ; 0xd501 <__boot_end+0xd090>
 ; DEFPORT(ctc0,         PORT_CTC0)
-     305: d3 0c        	out	($c),a
+     30d: d3 0c        	out	($c),a
 ;     port_out(ctc1, CFG.ctc_mode1);
-     307: 3a 02 d5     	ld	a,($d502)               ; 0xd502 <__boot_end+0xd099>
+     30f: 3a 02 d5     	ld	a,($d502)               ; 0xd502 <__boot_end+0xd091>
 ; DEFPORT(ctc1,         PORT_CTC1)
-     30a: d3 0d        	out	($d),a
+     312: d3 0d        	out	($d),a
 ;     port_out(ctc1, CFG.ctc_count1);
-     30c: 3a 03 d5     	ld	a,($d503)               ; 0xd503 <__boot_end+0xd09a>
+     314: 3a 03 d5     	ld	a,($d503)               ; 0xd503 <__boot_end+0xd092>
 ; DEFPORT(ctc1,         PORT_CTC1)
-     30f: d3 0d        	out	($d),a
+     317: d3 0d        	out	($d),a
 ;     port_out(ctc2, CFG.ctc_mode2);
-     311: 3a 04 d5     	ld	a,($d504)               ; 0xd504 <__boot_end+0xd09b>
+     319: 3a 04 d5     	ld	a,($d504)               ; 0xd504 <__boot_end+0xd093>
 ; DEFPORT(ctc2,         PORT_CTC2)
-     314: d3 0e        	out	($e),a
+     31c: d3 0e        	out	($e),a
 ;     port_out(ctc2, CFG.ctc_count2);
-     316: 3a 05 d5     	ld	a,($d505)               ; 0xd505 <__boot_end+0xd09c>
+     31e: 3a 05 d5     	ld	a,($d505)               ; 0xd505 <__boot_end+0xd094>
 ; DEFPORT(ctc2,         PORT_CTC2)
-     319: d3 0e        	out	($e),a
+     321: d3 0e        	out	($e),a
 ;     port_out(ctc3, CFG.ctc_mode3);
-     31b: 3a 06 d5     	ld	a,($d506)               ; 0xd506 <__boot_end+0xd09d>
+     323: 3a 06 d5     	ld	a,($d506)               ; 0xd506 <__boot_end+0xd095>
 ; DEFPORT(ctc3,         PORT_CTC3)
-     31e: d3 0f        	out	($f),a
+     326: d3 0f        	out	($f),a
 ;     port_out(ctc3, CFG.ctc_count3);
-     320: 3a 07 d5     	ld	a,($d507)               ; 0xd507 <__boot_end+0xd09e>
+     328: 3a 07 d5     	ld	a,($d507)               ; 0xd507 <__boot_end+0xd096>
 ; DEFPORT(ctc3,         PORT_CTC3)
-     323: d3 0f        	out	($f),a
+     32b: d3 0f        	out	($f),a
 ;     ASM_VOLATILE(
-     325: 21 08 d5     	ld	hl,$d508
-     328: 0e 0a        	ld	c,$a
-     32a: 06 09        	ld	b,$9
-     32c: ed b3        	otir
-     32e: 0e 0b        	ld	c,$b
-     330: 06 0b        	ld	b,$b
-     332: ed b3        	otir
+     32d: 21 08 d5     	ld	hl,$d508
+     330: 0e 0a        	ld	c,$a
+     332: 06 09        	ld	b,$9
+     334: ed b3        	otir
+     336: 0e 0b        	ld	c,$b
+     338: 06 0b        	ld	b,$b
+     33a: ed b3        	otir
 ; DEFPORT(sio_a_ctrl,   PORT_SIO_A_CTRL)
-     334: db 0a        	in	a,($a)
-     336: 3e 01        	ld	a,$1
-     338: d3 0a        	out	($a),a
-     33a: db 0a        	in	a,($a)
-; DEFPORT(sio_b_ctrl,   PORT_SIO_B_CTRL)
-     33c: db 0b        	in	a,($b)
+     33c: db 0a        	in	a,($a)
      33e: 3e 01        	ld	a,$1
-     340: d3 0b        	out	($b),a
-     342: db 0b        	in	a,($b)
+     340: d3 0a        	out	($a),a
+     342: db 0a        	in	a,($a)
+; DEFPORT(sio_b_ctrl,   PORT_SIO_B_CTRL)
+     344: db 0b        	in	a,($b)
+     346: 3e 01        	ld	a,$1
+     348: d3 0b        	out	($b),a
+     34a: db 0b        	in	a,($b)
 ; DEFPORT(dma_cmd,      PORT_DMA_CMD)
-     344: 3e 20        	ld	a,$20
-     346: d3 f8        	out	($f8),a
+     34c: 3e 20        	ld	a,$20
+     34e: d3 f8        	out	($f8),a
 ; DEFPORT(dma_mode,     PORT_DMA_MODE)
-     348: 3e 48        	ld	a,$48
-     34a: d3 fb        	out	($fb),a
-     34c: 3e 4a        	ld	a,$4a
-     34e: d3 fb        	out	($fb),a
-     350: 3e 4b        	ld	a,$4b
+     350: 3e 48        	ld	a,$48
      352: d3 fb        	out	($fb),a
+     354: 3e 4a        	ld	a,$4a
+     356: d3 fb        	out	($fb),a
+     358: 3e 4b        	ld	a,$4b
+     35a: d3 fb        	out	($fb),a
 ; DEFPORT(fdc_status,   PORT_FDC_STATUS)
-     354: db 04        	in	a,($4)
+     35c: db 04        	in	a,($4)
 ;     while (port_in(fdc_status) & (FDC_MSR_CB | FDC_MSR_DRIVE_SEEKING))
-     356: e6 1f        	and	$1f
-     358: 20 fa        	jr	nz,$354
+     35e: e6 1f        	and	$1f
+     360: 20 fa        	jr	nz,$35c
 ;     fdc_write(0x03);            /* SPECIFY command */
-     35a: 3e 03        	ld	a,$3
-     35c: cd 71 da     	call	$da71
+     362: 3e 03        	ld	a,$3
+     364: cd 71 da     	call	$da71
 ;     fdc_write(0xDF);            /* step rate 3ms, head unload 240ms */
-     35f: 3e df        	ld	a,$df
-     361: cd 71 da     	call	$da71
+     367: 3e df        	ld	a,$df
+     369: cd 71 da     	call	$da71
 ;     fdc_write(0x28);            /* head load 40ms, DMA mode */
-     364: 3e 28        	ld	a,$28
-     366: cd 71 da     	call	$da71
+     36c: 3e 28        	ld	a,$28
+     36e: cd 71 da     	call	$da71
 ;     memset(DISPLAY_ROW(0), ' ', sizeof(Display));
-     369: 21 d0 07     	ld	hl,$7d0
-     36c: e5           	push	hl
-     36d: 21 00 f8     	ld	hl,$f800
-     370: 11 20 00     	ld	de,$20
-     373: cd 17 eb     	call	$eb17
+     371: 21 d0 07     	ld	hl,$7d0
+     374: e5           	push	hl
+     375: 21 00 f8     	ld	hl,$f800
+     378: 11 20 00     	ld	de,$20
+     37b: cd 17 eb     	call	$eb17
 ;     memset((void *)(WORK_ADDR + 1), 0, 0xFFFF - WORK_ADDR);
-     376: 21 2f 00     	ld	hl,$2f
-     379: e5           	push	hl
-     37a: 21 d1 ff     	ld	hl,$ffd1
-     37d: 11 00 00     	ld	de,$0
-     380: cd 17 eb     	call	$eb17
+     37e: 21 2f 00     	ld	hl,$2f
+     381: e5           	push	hl
+     382: 21 d1 ff     	ld	hl,$ffd1
+     385: 11 00 00     	ld	de,$0
+     388: cd 17 eb     	call	$eb17
 ; DEFPORT(crt_cmd,      PORT_CRT_CMD)
-     383: af           	xor	a
-     384: d3 01        	out	($1),a
+     38b: af           	xor	a
+     38c: d3 01        	out	($1),a
 ;     port_out(crt_param, CFG.par[0]);   /* chars/row */
-     386: 3a 20 d5     	ld	a,($d520)               ; 0xd520 <__boot_end+0xd0b7>
+     38e: 3a 20 d5     	ld	a,($d520)               ; 0xd520 <__boot_end+0xd0af>
 ; DEFPORT(crt_param,    PORT_CRT_PARAM)
-     389: d3 00        	out	($0),a
+     391: d3 00        	out	($0),a
 ;     port_out(crt_param, CFG.par[1]);   /* rows/frame */
-     38b: 3a 21 d5     	ld	a,($d521)               ; 0xd521 <__boot_end+0xd0b8>
+     393: 3a 21 d5     	ld	a,($d521)               ; 0xd521 <__boot_end+0xd0b0>
 ; DEFPORT(crt_param,    PORT_CRT_PARAM)
-     38e: d3 00        	out	($0),a
+     396: d3 00        	out	($0),a
 ;     port_out(crt_param, CFG.par[2]);   /* lines/char + underline */
-     390: 3a 22 d5     	ld	a,($d522)               ; 0xd522 <__boot_end+0xd0b9>
+     398: 3a 22 d5     	ld	a,($d522)               ; 0xd522 <__boot_end+0xd0b1>
 ; DEFPORT(crt_param,    PORT_CRT_PARAM)
-     393: d3 00        	out	($0),a
+     39b: d3 00        	out	($0),a
 ;     port_out(crt_param, CFG.par[3]);   /* cursor format */
-     395: 3a 23 d5     	ld	a,($d523)               ; 0xd523 <__boot_end+0xd0ba>
+     39d: 3a 23 d5     	ld	a,($d523)               ; 0xd523 <__boot_end+0xd0b2>
 ; DEFPORT(crt_param,    PORT_CRT_PARAM)
-     398: d3 00        	out	($0),a
+     3a0: d3 00        	out	($0),a
 ; DEFPORT(crt_cmd,      PORT_CRT_CMD)
-     39a: 3e 80        	ld	a,$80
-     39c: d3 01        	out	($1),a
+     3a2: 3e 80        	ld	a,$80
+     3a4: d3 01        	out	($1),a
 ; DEFPORT(crt_param,    PORT_CRT_PARAM)
-     39e: af           	xor	a
-     39f: d3 00        	out	($0),a
-     3a1: d3 00        	out	($0),a
+     3a6: af           	xor	a
+     3a7: d3 00        	out	($0),a
+     3a9: d3 00        	out	($0),a
 ; DEFPORT(crt_cmd,      PORT_CRT_CMD)
-     3a3: 3e e0        	ld	a,$e0
-     3a5: d3 01        	out	($1),a
-     3a7: 3e 23        	ld	a,$23
-     3a9: d3 01        	out	($1),a
+     3ab: 3e e0        	ld	a,$e0
+     3ad: d3 01        	out	($1),a
+     3af: 3e 23        	ld	a,$23
+     3b1: d3 01        	out	($1),a
 ;     wr5a = CFG.sioa[6] & 0x60;  /* SIO-A bits/char from WR5 */
-     3ab: 3a 0e d5     	ld	a,($d50e)               ; 0xd50e <__boot_end+0xd0a5>
-     3ae: e6 60        	and	$60
-     3b0: 32 34 da     	ld	($da34),a               ; 0xda34 <_bios_jump_vector_table+0x34>
-;     wr5b = CFG.siob[6] & 0x60;  /* SIO-B bits/char from WR5 (test console order) */
-     3b3: 3a 17 d5     	ld	a,($d517)               ; 0xd517 <__boot_end+0xd0ae>
+     3b3: 3a 0e d5     	ld	a,($d50e)               ; 0xd50e <__boot_end+0xd09d>
      3b6: e6 60        	and	$60
-     3b8: 32 35 da     	ld	($da35),a               ; 0xda35 <_bios_jump_vector_table+0x35>
+     3b8: 32 34 da     	ld	($da34),a               ; 0xda34 <_bios_jump_vector_table+0x34>
+;     wr5b = CFG.siob[6] & 0x60;  /* SIO-B bits/char from WR5 (test console order) */
+     3bb: 3a 17 d5     	ld	a,($d517)               ; 0xd517 <__boot_end+0xd0a6>
+     3be: e6 60        	and	$60
+     3c0: 32 35 da     	ld	($da35),a               ; 0xda35 <_bios_jump_vector_table+0x35>
 ;     adrmod = xyflg;              /* copy addressing mode (via CFG macro) */
-     3bb: 3a 2c d5     	ld	a,($d52c)               ; 0xd52c <__boot_end+0xd0c3>
-     3be: 32 33 da     	ld	($da33),a               ; 0xda33 <_bios_jump_vector_table+0x33>
+     3c3: 3a 2c d5     	ld	a,($d52c)               ; 0xd52c <__boot_end+0xd0bb>
+     3c6: 32 33 da     	ld	($da33),a               ; 0xda33 <_bios_jump_vector_table+0x33>
 ;     stptim_var = CFG.stptim;
-     3c1: 2a 2d d5     	ld	hl,($d52d)              ; 0xd52d <__boot_end+0xd0c4>
-     3c4: 22 ea ff     	ld	($ffea),hl              ; 0xffea <__sfrend_sec_rw+0xc10>
+     3c9: 2a 2d d5     	ld	hl,($d52d)              ; 0xd52d <__boot_end+0xd0bc>
+     3cc: 22 ea ff     	ld	($ffea),hl              ; 0xffea <__sfrend_sec_rw+0xc10>
 ;         memcpy((void *)fd0, (const void *)CFG.infd, sizeof(fd0));
-     3c7: 21 10 00     	ld	hl,$10
-     3ca: e5           	push	hl
-     3cb: 21 37 da     	ld	hl,$da37
-     3ce: 11 2f d5     	ld	de,$d52f
-     3d1: cd 0b eb     	call	$eb0b
+     3cf: 21 10 00     	ld	hl,$10
+     3d2: e5           	push	hl
+     3d3: 21 37 da     	ld	hl,$da37
+     3d6: 11 2f d5     	ld	de,$d52f
+     3d9: cd 0b eb     	call	$eb0b
 ;     memset((void *)(WORK_ADDR + 1), 0, 0xFFFF - WORK_ADDR);
-     3d4: 01 00 00     	ld	bc,$0
-     3d7: 16 00        	ld	d,$0
+     3dc: 01 00 00     	ld	bc,$0
+     3df: 16 00        	ld	d,$0
 ;         max_drive_num = 0;
-     3d9: af           	xor	a
-     3da: 32 ec ee     	ld	($eeec),a               ; 0xeeec <_max_drive_num>
+     3e1: af           	xor	a
+     3e2: 32 ec ee     	ld	($eeec),a               ; 0xeeec <_max_drive_num>
 ;         for (d = 0; d < 16; d++) {
-     3dd: 79           	ld	a,c
-     3de: fe 10        	cp	$10
-     3e0: 28 13        	jr	z,$3f5
+     3e5: 79           	ld	a,c
+     3e6: fe 10        	cp	$10
+     3e8: 28 13        	jr	z,$3fd
 ;             if (fd0[d] == 0xFF)
-     3e2: 21 37 da     	ld	hl,$da37
-     3e5: 09           	add	hl,bc
-     3e6: 7e           	ld	a,(hl)
-     3e7: fe ff        	cp	$ff
-     3e9: 28 0a        	jr	z,$3f5
+     3ea: 21 37 da     	ld	hl,$da37
+     3ed: 09           	add	hl,bc
+     3ee: 7e           	ld	a,(hl)
+     3ef: fe ff        	cp	$ff
+     3f1: 28 0a        	jr	z,$3fd
 ;             max_drive_num = d;
-     3eb: 69           	ld	l,c
-     3ec: 60           	ld	h,b
-     3ed: 55           	ld	d,l
-     3ee: 7d           	ld	a,l
-     3ef: 32 ec ee     	ld	($eeec),a               ; 0xeeec <_max_drive_num>
+     3f3: 69           	ld	l,c
+     3f4: 60           	ld	h,b
+     3f5: 55           	ld	d,l
+     3f6: 7d           	ld	a,l
+     3f7: 32 ec ee     	ld	($eeec),a               ; 0xeeec <_max_drive_num>
 ;         for (d = 0; d < 16; d++) {
-     3f2: 03           	inc	bc
-     3f3: 18 e8        	jr	$3dd
+     3fa: 03           	inc	bc
+     3fb: 18 e8        	jr	$3e5
 ;             dph_table[0] = dph0;
-     3f5: 21 25 04     	ld	hl,$425
-     3f8: 7a           	ld	a,d
-     3f9: 11 ff ee     	ld	de,$eeff
-     3fc: 01 10 00     	ld	bc,$10
-     3ff: ed b0        	ldir
+     3fd: 21 2d 04     	ld	hl,$42d
+     400: 7a           	ld	a,d
+     401: 11 ff ee     	ld	de,$eeff
+     404: 01 10 00     	ld	bc,$10
+     407: ed b0        	ldir
 ;             if (max_drive_num >= 1)
-     401: b7           	or	a
-     402: 28 0b        	jr	z,$40f
+     409: b7           	or	a
+     40a: 28 0b        	jr	z,$417
 ;                 dph_table[1] = dph1;
-     404: 21 35 04     	ld	hl,$435
-     407: 11 0f ef     	ld	de,$ef0f
-     40a: 01 10 00     	ld	bc,$10
-     40d: ed b0        	ldir
+     40c: 21 3d 04     	ld	hl,$43d
+     40f: 11 0f ef     	ld	de,$ef0f
+     412: 01 10 00     	ld	bc,$10
+     415: ed b0        	ldir
 ;         hostbuf_valid = 0;
-     40f: af           	xor	a
-     410: 32 db ec     	ld	($ecdb),a               ; 0xecdb <_wb+0x7>
+     417: af           	xor	a
+     418: 32 db ec     	ld	($ecdb),a               ; 0xecdb <_wb+0x7>
 ;         hostbuf_dirty = 0;
-     413: 32 dc ec     	ld	($ecdc),a               ; 0xecdc <_wb+0x8>
+     41b: 32 dc ec     	ld	($ecdc),a               ; 0xecdc <_wb+0x8>
 ;         unalloc_count = 0;
-     416: 32 de ec     	ld	($ecde),a               ; 0xecde <_unalloc_count>
+     41e: 32 de ec     	ld	($ecde),a               ; 0xecde <_unalloc_count>
 ;         disk_error = 0;
-     419: 32 dd ec     	ld	($ecdd),a               ; 0xecdd <_wb+0x9>
+     421: 32 dd ec     	ld	($ecdd),a               ; 0xecdd <_wb+0x9>
 ;         current_format_idx = 0xFF;       /* force format reload on first SELDSK */
-     41c: 3e ff        	ld	a,$ff
-     41e: 32 ed ee     	ld	($eeed),a               ; 0xeeed <_current_format_idx>
+     424: 3e ff        	ld	a,$ff
+     426: 32 ed ee     	ld	($eeed),a               ; 0xeeed <_current_format_idx>
 ;         last_seek_disk = 0xFF;      /* force seek on first access */
-     421: 32 e7 ee     	ld	($eee7),a               ; 0xeee7 <_last_seek_disk>
+     429: 32 e7 ee     	ld	($eee7),a               ; 0xeee7 <_last_seek_disk>
 ; }
-     424: c9           	ret
+     42c: c9           	ret
 
-00000425 <_bios_hw_init.dph0>:
-     425: 00 00 00 00 00 00 00 00         ........
-     42d: 39 ef cd eb 00 f0 b9 ef         9.......
+0000042d <_bios_hw_init.dph0>:
+     42d: 00 00 00 00 00 00 00 00         ........
+     435: 39 ef cd eb 00 f0 b9 ef         9.......
 
-00000435 <_bios_hw_init.dph1>:
-     435: 00 00 00 00 00 00 00 00         ........
-     43d: 39 ef cd eb 67 f0 20 f0         9...g. .
+0000043d <_bios_hw_init.dph1>:
+     43d: 00 00 00 00 00 00 00 00         ........
+     445: 39 ef cd eb 67 f0 20 f0         9...g. .
 
-00000445 <_ivt_template>:
-     445: b9 e4 b9 e4 a7 ea c0 ea         ........
-     44d: bc e4 b9 e4 b9 e4 b9 e4         ........
-     455: bf e4 cd e4 db e4 16 e5         ........
-     45d: 2f e5 3d e5 f2 ea 7b e5         /.=...{.
-     465: d9 ea 94 e5                     ....
+0000044d <_ivt_template>:
+     44d: b9 e4 b9 e4 a7 ea c0 ea         ........
+     455: bc e4 b9 e4 b9 e4 b9 e4         ........
+     45d: bf e4 cd e4 db e4 16 e5         ........
+     465: 2f e5 3d e5 f2 ea 7b e5         /.=...{.
+     46d: d9 ea 94 e5                     ....
 
 Disassembly of section .text:
 
@@ -472,7 +478,7 @@ Disassembly of section .text:
 ; static inline void intrinsic_ei(void)   { __asm__ volatile("ei"); }
     dad4: fb           	ei
 ;     puts_p("\x0C"                       /* form feed = clear screen */
-    dad5: 21 76 ec     	ld	hl,$ec76
+    dad5: 21 5a ec     	ld	hl,$ec5a
     dad8: cd ed da     	call	$daed
 ;     if (IOBYTE_CON(iobyte) == IOB_UC1)
     dadb: 3a 03 00     	ld	a,($3)                  ; 0x3 <_boot_header+0x3>
@@ -561,7 +567,7 @@ Disassembly of section .text:
     db59: e6 0f        	and	$f
     db5b: c3 34 ea     	jp	$ea34
 ;             puts_p("\r\nDisk read error - reset\r\n");
-    db5e: 21 5a ec     	ld	hl,$ec5a
+    db5e: 21 8e ec     	ld	hl,$ec8e
     db61: cd ed da     	call	$daed
 ; static inline void intrinsic_halt(void) { __asm__ volatile("halt"); }
     db64: 76           	halt
