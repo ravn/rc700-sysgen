@@ -8,13 +8,32 @@
 #   make size                 Check binary size
 #   make clean                Clean both compiler outputs
 #
-# Both compilers produce $(COMPILER)/bios.cim from the same shared sources.
+# Each compiler produces its own distinguishable artifact from shared sources:
+#   clang -> clang/bios.clang.cim  (annotated listing: clang/bios.clang.lis,
+#                                    tracked in git)
+#   sdcc  -> sdcc/bios.cim
+# Distinct filenames let both compilers build in parallel without colliding.
+# Use $(BIOS_CIM) / $(BIOS_ELF) below to refer to the artifacts compiler-
+# agnostically.
 
 # ================================================================
 # Compiler selection
 # ================================================================
 
 COMPILER ?= clang
+
+# Compiler-distinct artifact names (avoids clang/sdcc parallel-build
+# collisions, makes it obvious from the filename which toolchain produced
+# a given .cim).
+ifeq ($(COMPILER),clang)
+  BIOS_CIM    = clang/bios.clang.cim
+  BIOS_ELF    = clang/bios.clang.elf
+  BIOS_TARGET = bios.clang.cim
+else
+  BIOS_CIM    = sdcc/bios.cim
+  BIOS_ELF    = sdcc/bios.elf
+  BIOS_TARGET = bios.cim
+endif
 
 # ================================================================
 # Shared configuration
@@ -96,11 +115,11 @@ builddate.inc: FORCE
 FORCE:
 
 # ================================================================
-# Compiler dispatch: make bios → $(COMPILER)/bios.cim
+# Compiler dispatch: make bios → $(BIOS_CIM)
 # ================================================================
 
 bios: builddate.h verify-skew
-	$(MAKE) -C $(COMPILER) bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+	$(MAKE) -C $(COMPILER) $(BIOS_TARGET) MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
 
 # Verify the hand-written sector skew tables in bios.c match the CP/M
 # skew algorithm (analog of the original DRI assembler XLT macro).
@@ -115,7 +134,7 @@ verify-skew:
 # ================================================================
 
 size: bios
-	@SIZE=$$(wc -c < $(COMPILER)/bios.cim | tr -d ' '); \
+	@SIZE=$$(wc -c < $(BIOS_CIM) | tr -d ' '); \
 	echo "$(COMPILER) BIOS: $$SIZE bytes"; \
 	if [ $$SIZE -le $(MINI_LIMIT) ]; then \
 		echo "  MINI (5.25\"): OK ($$(($(MINI_LIMIT) - SIZE)) bytes to spare)"; \
@@ -129,13 +148,13 @@ size: bios
 	fi
 
 # ================================================================
-# MAME boot targets — use $(COMPILER)/bios.cim
+# MAME boot targets — use $(BIOS_CIM)
 # ================================================================
 
 mame-mini: bios
 	@if [ "$(FORCE)" = "1" ] || [ ! -f /tmp/bios_c_mini.mfi ]; then \
 		cp $(IMG_MINI) /tmp/bios_c_mini.imd; \
-		$(PATCH) /tmp/bios_c_mini.imd $(COMPILER)/bios.cim; \
+		$(PATCH) /tmp/bios_c_mini.imd $(BIOS_CIM); \
 		rm -f /tmp/bios_c_mini.mfi; \
 		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_mini.imd /tmp/bios_c_mini.mfi >/dev/null 2>&1; \
 		rm -f /tmp/bios_c_mini.imd; \
@@ -150,7 +169,7 @@ mame-mini: bios
 mame-maxi: bios
 	@if [ "$(FORCE)" = "1" ] || [ ! -f /tmp/bios_c_maxi.mfi ]; then \
 		cp $(IMG_MAXI) /tmp/bios_c_maxi.imd; \
-		$(PATCH) /tmp/bios_c_maxi.imd $(COMPILER)/bios.cim; \
+		$(PATCH) /tmp/bios_c_maxi.imd $(BIOS_CIM); \
 		rm -f /tmp/bios_c_maxi.mfi; \
 		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_maxi.imd /tmp/bios_c_maxi.mfi >/dev/null 2>&1; \
 		rm -f /tmp/bios_c_maxi.imd; \
@@ -180,7 +199,7 @@ SIOB_DEBUG_PORT ?= 4023
 mame-siob-debug: bios
 	@if [ "$(FORCE)" = "1" ] || [ ! -f /tmp/bios_c_maxi.mfi ]; then \
 		cp $(IMG_MAXI) /tmp/bios_c_maxi.imd; \
-		$(PATCH) /tmp/bios_c_maxi.imd $(COMPILER)/bios.cim; \
+		$(PATCH) /tmp/bios_c_maxi.imd $(BIOS_CIM); \
 		rm -f /tmp/bios_c_maxi.mfi; \
 		$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_maxi.imd /tmp/bios_c_maxi.mfi >/dev/null 2>&1; \
 		rm -f /tmp/bios_c_maxi.imd; \
@@ -257,7 +276,7 @@ conotest: conout_test.c builddate.h
 
 conout-test: bios conotest
 	cp $(IMG_MAXI) /tmp/bios_c_conout.imd
-	$(PATCH) /tmp/bios_c_conout.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_conout.imd $(BIOS_CIM)
 	$(CPMCP) -f rc702-8dd /tmp/bios_c_conout.imd conotest.com 0:CONOTEST.COM
 	$(eval KBBUF_ADDR := $(shell grep '_kbbuf ' $(COMPILER)/bios.map 2>/dev/null | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/' || echo 0))
 	$(eval KBHEAD_ADDR := $(shell grep '_kbhead ' $(COMPILER)/bios.map 2>/dev/null | sed 's/.*= \$$\([0-9A-F]*\).*/0x\1/' || echo 0))
@@ -274,7 +293,7 @@ conout-test: bios conotest
 IMG ?= $(IMG_MAXI)
 mame-test: bios
 	cp $(IMG) /tmp/bios_c_test.imd
-	$(PATCH) /tmp/bios_c_test.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_test.imd $(BIOS_CIM)
 	python3 verify_checksums.py /tmp/bios_c_test.imd > /tmp/expected_checksums.txt
 	$(MAME_BIN) rc702 -rompath $(MAME)/roms \
 		-flop1 /tmp/bios_c_test.imd \
@@ -289,7 +308,7 @@ mame-test: bios
 bgstar-test: bios bgstar_test.asm mame_bgstar_test.lua
 	$(ZMAC) -z --dri bgstar_test.asm
 	cp $(IMG_MAXI) /tmp/bios_c_bgtest.imd
-	$(PATCH) /tmp/bios_c_bgtest.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_bgtest.imd $(BIOS_CIM)
 	$(CPMCP) -f rc702-8dd /tmp/bios_c_bgtest.imd zout/bgstar_test.cim 0:BGTEST.COM
 	rm -f /tmp/bios_c_bgtest.mfi
 	$(FLOPTOOL) flopconvert auto mfi /tmp/bios_c_bgtest.imd /tmp/bios_c_bgtest.mfi >/dev/null 2>&1
@@ -436,7 +455,7 @@ siob-iobyte-test: bios mame-roms
 	fi
 	@echo "Using MAME_BIN=$(MAME_BIN)"
 	cp $(IMG_MAXI) /tmp/bios_c_siob.imd
-	$(PATCH) /tmp/bios_c_siob.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_siob.imd $(BIOS_CIM)
 	@# Payload the server will send over SIO-B.  The Lua script scrapes
 	@# the CRT for $(SIOB_MARKER) after PIP echoes it.
 	@printf '$(SIOB_MARKER)\r\n' > /tmp/siob_iobyte_payload.txt
@@ -473,7 +492,7 @@ siob-test: bios
 	@echo "=== SIO-B direct BIOS test ==="
 	../zmac/bin/zmac -z siob_test.asm
 	cp $(IMG_MAXI) /tmp/bios_c_siob2.imd
-	$(PATCH) /tmp/bios_c_siob2.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_siob2.imd $(BIOS_CIM)
 	$(CPMCP) -f rc702-8dd /tmp/bios_c_siob2.imd zout/siob_test.cim 0:SIOBTEST.COM
 	@printf '$(SIOB_MARKER)\r\n' > /tmp/siob_test_payload.txt
 	@rm -f /tmp/siob_iobyte_trigger /tmp/siob_test_result
@@ -511,7 +530,7 @@ DEPLOY_DAT_PORT ?= 4325
 MLOAD_COM = $(CURDIR)/../cpm-utils/mload/zout/mload.cim
 
 clang-bios: builddate.h
-	$(MAKE) -C clang bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
+	$(MAKE) -C clang bios.clang.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
 
 sdcc-bios: builddate.h
 	$(MAKE) -C sdcc bios.cim MSIZE=$(MSIZE) KBLANG=$(KBLANG) KBDPORT=$(KBDPORT)
@@ -519,7 +538,7 @@ sdcc-bios: builddate.h
 deploy-serial: clang-bios sdcc-bios
 	@echo "=== BIOS deploy via serial (SDCC→clang) ==="
 	@echo "  Disk boots with SDCC BIOS, clang BIOS deployed over serial"
-	python3 mk_sysgen_hex.py clang/bios.cim cpm56.hex
+	python3 mk_sysgen_hex.py clang/bios.clang.cim cpm56.hex
 	@# BDOSCCP.COM: padding (0x0100-0x08FF) + CCP+BDOS (0x0900-0x44FF), no BIOS
 	python3 -c "d=open('cpm56_original.com','rb').read(); open('/tmp/bdosccp.com','wb').write(d[:0x4400])"
 	cp $(IMG_MAXI) /tmp/bios_deploy.imd
@@ -568,7 +587,7 @@ CONSOLE_PORT ?= 4324
 siob-console-test: bios
 	@echo "=== SIO-B serial console test ==="
 	cp $(IMG_MAXI) /tmp/bios_c_console.imd
-	$(PATCH) /tmp/bios_c_console.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_console.imd $(BIOS_CIM)
 	@rm -f /tmp/siob_console_done /tmp/siob_console_result /tmp/siob_console_serial.txt /tmp/siob_console_crt.txt /tmp/siob_console_trigger
 	@echo "Starting console server on port $(CONSOLE_PORT) ..."
 	@python3 -u siob_console_server.py $(CONSOLE_PORT) \
@@ -613,8 +632,8 @@ siob-baud: bios
 	@echo "=== SIO-B baud rate test (idx=$(BAUD_IDX)) ==="
 	@# Generate address include from current BIOS ELF
 	@LLVMNM=$(firstword $(wildcard $(LLVM_Z80)/build-linux/bin/llvm-nm $(LLVM_Z80)/build-macos/bin/llvm-nm $(LLVM_Z80)/build/bin/llvm-nm)); \
-	 WB=$$($$LLVMNM $(COMPILER)/bios.elf | awk '/_wb$$/{print "0x"$$1}'); \
-	 RXBUF=$$($$LLVMNM $(COMPILER)/bios.elf | awk '/_rxbuf_b$$/{print "0x"$$1}'); \
+	 WB=$$($$LLVMNM $(BIOS_ELF) | awk '/_wb$$/{print "0x"$$1}'); \
+	 RXBUF=$$($$LLVMNM $(BIOS_ELF) | awk '/_rxbuf_b$$/{print "0x"$$1}'); \
 	 printf '; Auto-generated from %s/bios.elf — do not edit\n' $(COMPILER) > siob_bios_addrs.inc; \
 	 printf 'RXHEAD_B equ %s + 5\n' "$$WB" >> siob_bios_addrs.inc; \
 	 printf 'RXTAIL_B equ %s + 6\n' "$$WB" >> siob_bios_addrs.inc; \
@@ -622,7 +641,7 @@ siob-baud: bios
 	 echo "Generated siob_bios_addrs.inc: WB=$$WB RXBUF=$$RXBUF"
 	$(ZMAC) -z siob_baud_test.asm
 	cp $(IMG_MAXI) /tmp/bios_c_siob_baud.imd
-	$(PATCH) /tmp/bios_c_siob_baud.imd $(COMPILER)/bios.cim
+	$(PATCH) /tmp/bios_c_siob_baud.imd $(BIOS_CIM)
 	$(CPMCP) -f rc702-8dd /tmp/bios_c_siob_baud.imd zout/siob_baud_test.cim 0:SIOBBAUD.COM
 	@printf '$(SIOB_MARKER)\r\n' > /tmp/siob_test_payload.txt
 	@rm -f /tmp/siob_iobyte_trigger /tmp/siob_baud_result

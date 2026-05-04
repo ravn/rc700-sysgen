@@ -9,8 +9,29 @@
 # ================================================================
 # Compiler selection
 # ================================================================
+#
+# Each compiler produces its own distinguishable PROM artifact from the
+# shared sources:
+#   clang -> clang/prom.clang.bin  (annotated listing: clang/prom.clang.lis,
+#                                    tracked in git so historical diffs work
+#                                    without rebuilding clang)
+#   sdcc  -> sdcc/prom.bin
+# Distinct filenames let both compilers build in parallel without colliding.
 
 COMPILER ?= clang
+
+# Compiler-distinct artifact names.
+ifeq ($(COMPILER),clang)
+  PROM_BIN     = clang/prom.clang.bin
+  PROM_ELF     = clang/prom.clang.elf
+  PROM_LIS     = clang/prom.clang.lis
+  PROM_TARGET  = clang/prom.clang.bin
+else
+  PROM_BIN     = sdcc/prom.bin
+  PROM_ELF     = sdcc/prom.elf
+  PROM_LIS     = sdcc/prom.lis
+  PROM_TARGET  = sdcc/prom.bin
+endif
 
 # ================================================================
 # Shared configuration
@@ -36,16 +57,16 @@ all: prom
 # ================================================================
 
 prom:
-	$(MAKE) $(COMPILER)/prom.bin
-	@PROM=$$(wc -c < $(COMPILER)/prom.bin | tr -d ' '); \
+	$(MAKE) $(PROM_TARGET)
+	@PROM=$$(wc -c < $(PROM_BIN) | tr -d ' '); \
 	 echo "$(COMPILER) PROM: $$PROM / 4096 bytes"; \
 	 if [ $$PROM -gt 4096 ]; then \
 	   echo "WARNING: exceeds 4096-byte limit by $$((PROM - 4096)) bytes"; \
 	 else \
 	   echo "OK: $$((4096 - PROM)) bytes free"; \
 	 fi
-	@{ cat $(COMPILER)/prom.bin; \
-	   perl -e "print \"\\xff\" x (4096 - $$(wc -c < $(COMPILER)/prom.bin | tr -d ' '))"; \
+	@{ cat $(PROM_BIN); \
+	   perl -e "print \"\\xff\" x (4096 - $$(wc -c < $(PROM_BIN) | tr -d ' '))"; \
 	 } > $(COMPILER)/prom0.ic66
 	cp $(COMPILER)/prom0.ic66 $(MAME_ROM)
 
@@ -62,7 +83,7 @@ mame: prom mamesym
 
 mamesym:
 ifeq ($(COMPILER),clang)
-	@$(RUN) $(CLANG_NM) --numeric-sort clang/prom.elf | \
+	@$(RUN) $(CLANG_NM) --numeric-sort clang/prom.clang.elf | \
 		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
 		> clang/prom0_mame.sym
 else
@@ -105,7 +126,7 @@ CLANG_OBJCOPY = $(CLANG_BUILD)/llvm-objcopy
 CLANG_OBJDUMP = $(CLANG_BUILD)/llvm-objdump
 CLANG_NM      = $(CLANG_BUILD)/llvm-nm
 
-CLANG_CFLAGS = --target=z80 -Oz -nostdlib \
+CLANG_CFLAGS = --target=z80 -Oz -g -nostdlib \
 	       -ffunction-sections -fdata-sections \
 	       -Xclang -target-feature -Xclang +static-stack \
 	       -Xclang -target-feature -Xclang +shadow-regs \
@@ -119,13 +140,19 @@ CLANG_CFLAGS = --target=z80 -Oz -nostdlib \
 	       -Wno-gcc-compat \
 	       -Wno-declaration-after-statement \
 	       -Wno-pre-c11-compat
+# -g enables DWARF debug info; binary unchanged because objcopy -O binary
+# only emits ALLOC sections and .debug_* are non-ALLOC.  The DWARF info
+# is what makes the source-annotated listing (clang/prom.clang.lis)
+# possible.
 
 CLANG_OBJS = clang/boot.o clang/intvec.o clang/rom.o clang/runtime.o
 
-clang/prom.bin: $(CLANG_OBJS) clang/rc700_prom.ld
-	$(RUN) $(CLANG_LD) --gc-sections -T clang/rc700_prom.ld $(CLANG_OBJS) -o clang/prom.elf
-	$(RUN) $(CLANG_OBJCOPY) -O binary clang/prom.elf clang/prom.bin
-	$(RUN) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf > clang/prom.lis
+clang/prom.clang.bin: $(CLANG_OBJS) clang/rc700_prom.ld
+	$(RUN) $(CLANG_LD) --gc-sections -T clang/rc700_prom.ld $(CLANG_OBJS) -o clang/prom.clang.elf
+	$(RUN) $(CLANG_OBJCOPY) -O binary clang/prom.clang.elf clang/prom.clang.bin
+	# Source-annotated listing (committed to git for historical diffs
+	# without needing to rebuild clang).
+	$(RUN) $(CLANG_OBJDUMP) -d -S --triple=z80 clang/prom.clang.elf > clang/prom.clang.lis
 
 clang/banner.h:
 	@BANNER=" RC700 CL $$(date '+%Y-%m-%d %H.%M')/$$(whoami)"; \
@@ -147,23 +174,20 @@ clang/rom.o: rom.c rom.h $(CLANG_COMPILER)
 clang_asm: rom.c rom.h
 	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -S rom.c -o /dev/stdout
 
-clang_disasm: clang/prom.bin
-	$(RUN) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.elf
+clang_disasm: clang/prom.clang.bin
+	$(RUN) $(CLANG_OBJDUMP) -d --triple=z80 clang/prom.clang.elf
 
-clang_src_lis: rom.c rom.h boot_rom.c intvec.c clang/rc700_prom.ld $(CLANG_COMPILER)
-	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -g -c boot_rom.c -o /tmp/boot_g.o
-	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -g -c intvec.c -o /tmp/intvec_g.o
-	$(RUN) $(CLANG_CC) $(CLANG_CFLAGS) -g -c rom.c -o /tmp/rom_g.o
-	$(RUN) $(CLANG_CC) --target=z80 -c clang/runtime.s -o /tmp/runtime_g.o
-	$(RUN) $(CLANG_LD) --gc-sections -T clang/rc700_prom.ld /tmp/boot_g.o /tmp/intvec_g.o /tmp/rom_g.o /tmp/runtime_g.o -o /tmp/prom_g.elf
-	$(RUN) $(CLANG_OBJDUMP) -d -S --triple=z80 /tmp/prom_g.elf > clang/prom_src.lis
-	@echo "wrote clang/prom_src.lis"
+# Source-annotated listing is now produced by the default build at
+# clang/prom.clang.lis (since CLANG_CFLAGS already includes -g).  This
+# alias rebuilds it explicitly for convenience.
+clang_src_lis: clang/prom.clang.bin
+	@echo "wrote clang/prom.clang.lis (built by default rule)"
 
-clang_symbols: clang/prom.bin
-	$(RUN) $(CLANG_NM) --numeric-sort clang/prom.elf
+clang_symbols: clang/prom.clang.bin
+	$(RUN) $(CLANG_NM) --numeric-sort clang/prom.clang.elf
 
-clang_mamesym: clang/prom.bin
-	@$(RUN) $(CLANG_NM) --numeric-sort clang/prom.elf | \
+clang_mamesym: clang/prom.clang.bin
+	@$(RUN) $(CLANG_NM) --numeric-sort clang/prom.clang.elf | \
 		awk '/ [TtBbDd] / { sub(/^_/, "", $$3); printf "%s %s\n", $$1, $$3 }' \
 		> clang/prom0_mame.sym
 	@echo "wrote clang/prom0_mame.sym ($$(wc -l < clang/prom0_mame.sym) symbols)"

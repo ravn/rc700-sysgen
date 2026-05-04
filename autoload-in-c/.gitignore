@@ -20,3 +20,7 @@ boot_entry.c.i
 rom.c.i
 clang/*.elf
 clang/banner.h
+
+# Source-annotated clang PROM listing — committed to git so historical
+# diffs work without rebuilding clang.  Negate the "*.lis" rule above.
+!clang/prom.clang.lis

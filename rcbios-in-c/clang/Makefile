@@ -1,8 +1,10 @@
 # clang/Makefile — Build RC702 BIOS with LLVM-Z80 clang
 #
-# Produces bios.cim from shared sources in parent directory.
+# Produces bios.clang.cim from shared sources in parent directory.
+# (Filename intentionally distinct from SDCC's sdcc/bios.cim so both
+# compilers can build in parallel without stepping on each other.)
 # Uses native build if available, falls back to Docker.
-# Called from parent: make -C clang bios.cim MSIZE=56 KBLANG=DANISH
+# Called from parent: make -C clang bios.clang.cim MSIZE=56 KBLANG=DANISH
 
 PARENT = ..
 
@@ -47,14 +49,17 @@ OBJS = boot_block.o boot_confi.o boot_entry.o bios_hw_init.o \
 .PHONY: clean
 
 # Build rules — $(RUN) is empty for native, Docker prefix for container
-bios.cim: $(PARENT)/builddate.h $(OBJS) rc700_bios.ld
+bios.clang.cim: $(PARENT)/builddate.h $(OBJS) rc700_bios.ld
 	$(RUN) $(B)/ld.lld --gc-sections --defsym BIOSAD=$(BIOSAD) \
-		-T clang/rc700_bios.ld $(addprefix clang/,$(OBJS)) -o clang/bios.elf
-	$(RUN) $(B)/llvm-objcopy -O binary clang/bios.elf clang/bios.cim
+		-T clang/rc700_bios.ld $(addprefix clang/,$(OBJS)) -o clang/bios.clang.elf
+	$(RUN) $(B)/llvm-objcopy -O binary clang/bios.clang.elf clang/bios.clang.cim
+	# Source-annotated listing (committed to git for historical diffs).
 	# Note: add -l for file:line references (clickable in terminal, not in editor)
-	$(RUN) $(B)/llvm-objdump -d -S --triple=z80 clang/bios.elf > bios.lis
-	@echo "clang BIOS: $$(wc -c < bios.cim | tr -d ' ') bytes"
-	@SIG=$$(dd if=bios.cim bs=1 skip=8 count=6 2>/dev/null); \
+	$(RUN) $(B)/llvm-objdump -d -S --triple=z80 clang/bios.clang.elf > clang/bios.clang.lis
+	@# wc/dd run from the clang/ subdir cwd (no $(RUN) prefix), so use
+	@# the bare filename without the clang/ prefix here.
+	@echo "clang BIOS: $$(wc -c < bios.clang.cim | tr -d ' ') bytes"
+	@SIG=$$(dd if=bios.clang.cim bs=1 skip=8 count=6 2>/dev/null); \
 	if [ "$$SIG" != " RC702" ]; then \
 		echo "ERROR: RC702 signature not found!"; exit 1; \
 	fi
@@ -90,4 +95,7 @@ $(PARENT)/builddate.h: FORCE
 FORCE:
 
 clean:
-	rm -f *.o bios.elf bios.cim bios.bin bios.lis bios_src.S bios_src.lis
+	rm -f *.o bios.clang.elf bios.clang.cim bios.bin bios_src.S bios_src.lis
+	# Note: clang/bios.clang.lis is intentionally NOT removed by clean —
+	# it is tracked in git so historical disassembly is available without
+	# rebuilding clang.  Use `git restore clang/bios.clang.lis` if needed.
