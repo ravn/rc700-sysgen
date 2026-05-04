@@ -381,6 +381,24 @@ mame-roms: $(RC702_ROMS)
 	@echo "=== RC702 ROMs present in $(RC702_ROM_DIR) ==="
 	@ls -l $(RC702_ROM_DIR)
 
+# Switch MAME into rcbios standalone boot mode -- installs the
+# original hand-assembled autoload PROM into roa375.ic66.  This is
+# the value-oracle PROM: pairs with a CP/M floppy image to boot
+# rcbios end-to-end (no host-side server needed).  See
+# llvm-z80/tasks/lessons-2026-05-04-structural-fix-failures.md.
+#
+# NOTE: the C reimplementation in autoload-in-c/ is currently broken
+# -- it gets stuck in `_fdc_detect_sector_size_and_density` and
+# never hands off to the BIOS.  Until that is fixed, the assembly
+# original is the working autoload PROM for rcbios standalone mode.
+# See ../autoload-in-c/tasks/known-bugs.md.
+mame-roms-rcbios: $(RC702_ROM_DIR)/roa375.ic66
+	cp ../roa375/roa375.rom $(RC702_ROM_DIR)/roa375.ic66
+	@echo "Switched MAME into rcbios standalone mode (assembly autoload PROM)"
+	@echo "  $(RC702_ROM_DIR)/roa375.ic66 (roa375 hand-assembly)"
+	@echo "To switch into cpnos mode, run:"
+	@echo "  cd ../cpnos-rom && make mame-roms-cpnos"
+
 $(RC702_ROM_DIR)/%.rom:
 	@mkdir -p $(RC702_ROM_DIR)
 	curl -fsSL -o $@ $(RC702_ROM_BASE)/$(notdir $@)
