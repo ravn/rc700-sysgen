@@ -414,6 +414,54 @@ cpnos-burn: clang/cpnos.bin
 	@echo "PROM0 (0x0000-0x07FF): clang/prom0.bin ($$(wc -c < clang/prom0.bin | tr -d ' ') B)"
 	@echo "PROM1 (0x2000-0x27FF): clang/prom1.bin ($$(wc -c < clang/prom1.bin | tr -d ' ') B)"
 
+# ---- Switch MAME into cpnos boot mode ----------------------------
+#
+# RC702 has two PROM slots and the MAME rc702 driver loads each from
+# a separate file:
+#     PROM 0 ($0000..$07FF) <- mame/roms/rc702/roa375.ic66
+#     PROM 1 ($2000..$27FF) <- mame/roms/rc702/prom1.ic65
+#
+# This target SWITCHES MAME into the cpnos network-boot mode by
+# overwriting BOTH files with today's cpnos build:
+#     prom0.bin -> roa375.ic66
+#     prom1.bin -> prom1.ic65
+#
+# Both MUST be refreshed in lockstep.  Refreshing only one
+# mismatches the patcher's checksum correction (which lives in
+# payload_b -> prom1.bin) against today's body sum, triggering the
+# cpnos PROM's BAD CHECKSUM infinite loop -- visible as a black
+# screen with "BAD CHECKSUM" at row 0 of the CRT.
+#
+# Mode swap: to go back to the rcbios standalone (autoload-PROM)
+# boot mode, run `make prom` in ../autoload-in-c/, which writes
+# autoload-in-c's prom.bin -> roa375.ic66 (overwriting cpnos's
+# PROM 0).  prom1.ic65 is unused in autoload mode but stays as
+# whatever was last installed.
+#
+# Note: cpnos requires a host-side z80pack mpm-net2 server to do
+# anything beyond the banner (per project_cpnos_mame_prereqs).
+# This target refreshes PROMs only -- spinning up mpm is the
+# user's job.  For BIOS-only verification work (no cpnos network
+# code), use rcbios standalone mode instead -- it boots end-to-end
+# without mpm.
+
+MAME_ROMS_DIR ?= $(CURDIR)/../../mame/roms/rc702
+
+mame-roms-cpnos: clang/cpnos.bin
+	@test -d "$(MAME_ROMS_DIR)" || \
+	    { echo "ERROR: MAME_ROMS_DIR=$(MAME_ROMS_DIR) does not exist"; exit 1; }
+	@P0=$$(wc -c < clang/prom0.bin | tr -d ' '); \
+	 P1=$$(wc -c < clang/prom1.bin | tr -d ' '); \
+	 test "$$P0" = "2048" || { echo "ERROR: prom0.bin is $$P0 B, expected 2048"; exit 1; }; \
+	 test "$$P1" = "2048" || { echo "ERROR: prom1.bin is $$P1 B, expected 2048"; exit 1; }
+	cp clang/prom0.bin "$(MAME_ROMS_DIR)/roa375.ic66"
+	cp clang/prom1.bin "$(MAME_ROMS_DIR)/prom1.ic65"
+	@echo "Switched MAME into cpnos mode:"
+	@echo "  $(MAME_ROMS_DIR)/roa375.ic66 (cpnos prom0)"
+	@echo "  $(MAME_ROMS_DIR)/prom1.ic65 (cpnos prom1)"
+	@echo "To switch back to rcbios standalone mode, run:"
+	@echo "  cd ../autoload-in-c && make prom"
+
 # ---- Inspection --------------------------------------------------
 
 cpnos-disasm: clang/payload.elf clang/relocator.elf

@@ -16,7 +16,7 @@ COMPILER ?= clang
 # Shared configuration
 # ================================================================
 
-MAME = /Users/ravn/git/mame
+MAME ?= $(CURDIR)/../../mame
 MAME_ROM = $(MAME)/roms/rc702/roa375.ic66
 MAME_RUN = $(MAME)/regnecentralend rc702 -rompath $(MAME)/roms \
 	-nothrottle -window -skip_gameinfo \
