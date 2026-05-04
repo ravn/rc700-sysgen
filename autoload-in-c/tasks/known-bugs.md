@@ -27,8 +27,44 @@ RC700 56k CP/M 2.2 C-bios/clang 2026-05-04 02:31
 SIO-B debugging enabled (38400 8N1)
 ```
 
-So the bug is in `autoload-in-c/rom.c`'s FDC detection /
-initialization path, not in MAME or the disk image.  The function
+So the bug is either in `autoload-in-c/rom.c` (the C source) OR in
+`llvm-z80`'s codegen for that source.  Not in MAME or the disk
+image.
+
+**Source unchanged since April 26.**  `git log autoload-in-c/rom.c
+autoload-in-c/rom.h autoload-in-c/boot_rom.c autoload-in-c/intvec.c`
+shows no commits since Apr 25.  The compiled `prom.bin` from
+April 26 (1832 B) presumably worked then; the same C source
+rebuilt today (1832 B) does not.  Therefore the regression is in
+`llvm-z80` codegen between April 26 and today.
+
+**Optimization-level invariant:** rebuilt with `-Oz`, `-O1`, and
+`-O0` -- all three produce broken builds (different symptoms, all
+non-booting).  -Oz and -O1 hang at PC=0x02D6 (in
+`_fdc_detect_sector_size_and_density`); -O0 jumps PC randomly
+through RAM (different crash mode).  Bug is NOT in optimization
+passes alone; some lower-level codegen change affects all opt
+levels.
+
+**PC trajectory comparison (assembly autoload vs clang autoload),
+sampled every 0.5 sim seconds:**
+
+```
+                 t=0.5s    t=1.0s   t=1.5s   t=2.0s   t=2.5s   t=3.0s+
+assembly roa375  0x76B9    0x76B6   0x76B7   0x02B0   0xE821   0xDA8E (BIOS code)
+clang -Oz prom   0x6051    0x6052   0x02B0   0x02D6   0x02D6   0x02D6 (stuck)
+```
+
+Both autoloads pass through PC=0x02B0 (in PROM 0 region, executing
+the LMA copy of `_fdc_get_result_bytes`).  The assembly version
+transitions OUT (to 0xE821 = BIOS code in upper RAM); the clang
+version gets stuck at 0x02D6 (= `_fdc_detect_sector_size_and_density`
++ 0x09, just after a call returns).
+
+**I/O port trace:** clang autoload writes ~108 chargen events
+(loading SEM702 font), then stops doing I/O writes after t=0.04s.
+Assembly autoload also goes silent on I/O writes after t=0.98s
+(both continue computing without writing for some time).  The function
 involved is:
 
 ```c
@@ -58,12 +94,51 @@ Likely failure modes (not yet diagnosed):
   3. The DMA / FDC port write sequence diverges from the
      hand-assembled ROA375.
 
-To diagnose: capture a trace of `IN/OUT` to FDC ports (0x04/0x05)
-and the FDC interrupt firing, comparing the C version's sequence
-to the hand-assembly version's sequence on the same disk image.
-MAME has a `-d` debug mode and a `Lua install_read_tap` /
-`install_write_tap` API for this (see
-`feedback_lua_no_port_reads` memory rule for caveats).
+To diagnose (next session):
+
+  1. **Bisect llvm-z80** between commit `703d96f07a06` (last
+     pre-April-26 Z80 backend commit, presumed good) and current
+     HEAD.  The naive checkout-Z80-only-dir approach FAILED
+     because the Z80 backend uses LLVM core APIs that have drifted
+     since April 26 -- a partial checkout doesn't compile against
+     current LLVM core.  Cleaner approach: bisect with full
+     `git checkout <commit>` of the entire llvm-z80 tree (slower
+     because of full LLVM rebuild per iteration, but works).
+
+     Commits to bisect (oldest first):
+     - 2c9395f645a2 EXX shadow-bank deletion
+     - 95d2cd718a4f AsmParser ex-af-af
+     - bbd882f2f56d LDIR/LDDR BC=0 guard (#63)
+     - 41fdb83a9c6a #105 doc
+     - 3ef14efcbafb in-mem INC/DEC H/L liveness (#104)
+     - d7505c8e8caa #85 chain peephole H/L liveness (#107)
+     - 3dc83747a1b5 runtime BC==0 guard for variable-size memcpy (#105)
+     - fa6cc884907c IX/IY in large-offset spill (#28)
+     - 8b268e18eedc #38 doc
+     - 90687fc74d6d sequential DJNZ counter split (#94)
+     - e9564bf0a9ef BCReg + i16 counter (#99)
+     - 5748dddf96c8 IX/IY un-reservation diagnosis (session 40)
+     - 28613369fa08 GR16NoIR + LSHR16/ASHR16 (#112)
+     - 5f84730bac84 GR16NoIR on CMP16/CMP_ZERO16 (#113)
+     - 33ceae174673 SBC HL,rr ISel attempt (#116, reverted)
+     - f1eece6e0c55 post-RA peephole for i16 EQ/NE (#116)
+     - e4b3496a81b1 GR16NoIR on XOR_CMP_*16 (#113)
+     - c8d2dbedff90 #121 IR16 fallback drop
+
+  2. **Asm diff:** once a regressing commit is identified, compare
+     `clang/prom.lis` from before vs after.  Look for changes in
+     `_fdc_detect_sector_size_and_density` and its callees.
+
+  3. **Port trace:** capture FDC port writes via Lua
+     `install_write_tap(0x04, 0x05, ...)` for both PROMs on the
+     same disk and diff (see `feedback_lua_no_port_reads` for
+     caveats).  Initial trace already done -- clang version stops
+     doing I/O writes at t=0.04s while assembly version keeps
+     going.  The clang version's chargen-load completes; FDC
+     init / detect loop then does no port writes (busy-loop on
+     CPU-only state, possibly polling a memory variable that
+     never updates, suggesting an ISR isn't firing or its handler
+     isn't updating the variable).
 
 **Workaround:** for any work that needs rcbios standalone MAME
 boot (the value-oracle MAME path -- see
