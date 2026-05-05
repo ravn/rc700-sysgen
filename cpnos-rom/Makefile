@@ -168,7 +168,7 @@ RELOC_LD = relocator.ld
 ALL_OBJS = $(PAYLOAD_OBJS) $(RELOC_OBJS)
 
 .PHONY: all cpnos cpnos-size cpnos-burn cpnos-disasm cpnos-clean \
-        integration-test test
+        integration-test test cpnos-polypascal-test
 
 all: cpnos
 
@@ -177,7 +177,11 @@ all: cpnos
 # whole stack (transport, NDOS, BDOS, console, keyboard, file load,
 # code execution, output framing).  Not part of `all` -- a normal build
 # shouldn't boot MAME.  `make test` is an alias.
-integration-test test: cpnos-ppas-test
+integration-test test: cpnos-polypascal-test
+
+# Backwards-compatible alias for the old `make cpnos-ppas-test` name.
+.PHONY: cpnos-ppas-test
+cpnos-ppas-test: cpnos-polypascal-test
 
 cpnos: clang/cpnos.bin cpnos-size cpnos-lis
 
@@ -1055,12 +1059,13 @@ conout-acid: cpnos-install testutil/acid.com
 	@cat /tmp/cpnos_boot_result.txt 2>/dev/null || echo '(no result file)'
 	@grep -q '^PASS' /tmp/cpnos_boot_result.txt
 
-# PPAS regression: drive cpnos through "PPAS PRIMES" / "R" / "Q",
-# verify primes are printed (looks for the last prime, 29989), and
-# verify Q returns to the CCP E> prompt.  Forces MIRROR_SIOB=1 so the
-# Lua script can scrape /tmp/cpnos_siob.raw for completion markers.
-# MP/M is restarted from scratch so the run is hermetic.
-cpnos-ppas-test:
+# PolyPascal regression: drive cpnos through "PPAS PRIMES" / "R" / "Q"
+# (PPAS is the PolyPascal interpreter command), verify primes are
+# printed (looks for the last prime, 29989), and verify Q returns to
+# the CCP E> prompt.  Forces MIRROR_SIOB=1 so the Lua script can
+# scrape /tmp/cpnos_siob.raw for completion markers.  MP/M is
+# restarted from scratch so the run is hermetic.
+cpnos-polypascal-test:
 	@echo "=== 1/4 (re)starting MP/M with fresh disks ==="
 	-screen -S mpm -X quit >/dev/null 2>&1 || true
 	@sleep 1
@@ -1076,18 +1081,18 @@ cpnos-ppas-test:
 	@echo "=== 3/4 building cpnos-rom with MIRROR_SIOB=1 + installing ==="
 	$(MAKE) MIRROR_SIOB=1 cpnos-install
 	@rm -f /tmp/cpnos_siob.raw /tmp/cpnos_sioa.raw \
-	       /tmp/cpnos_ppas_log.txt /tmp/cpnos_ppas_result.txt
+	       /tmp/cpnos_polypascal_log.txt /tmp/cpnos_polypascal_result.txt
 	@echo "=== 4/4 syncing ROMs to IRQ-fix MAME tree ==="
 	cp $(MAME)/roms/rc702/roa375.ic66 $(MAME_IRQ)/roms/rc702/roa375.ic66
 	cp $(MAME)/roms/rc702/prom1.ic65  $(MAME_IRQ)/roms/rc702/prom1.ic65
-	@echo "=== generating clang/cpnos_ppas_addrs.lua from payload.elf ==="
+	@echo "=== generating clang/cpnos_polypascal_addrs.lua from payload.elf ==="
 	@KH=$$($(NM) clang/payload.elf | awk '/_kbd_head$$/{print $$1}'); \
 	 KR=$$($(NM) clang/payload.elf | awk '/_kbd_ring$$/{print $$1}'); \
 	 [ -n "$$KH" ] && [ -n "$$KR" ] || { echo "ERROR: kbd_head/kbd_ring missing from payload.elf"; exit 1; }; \
 	 printf 'return {\n  kbd_head = 0x%s,\n  kbd_ring = 0x%s,\n}\n' "$$KH" "$$KR" \
-	   > clang/cpnos_ppas_addrs.lua
-	@cat clang/cpnos_ppas_addrs.lua
-	@echo "=== launching MAME with PPAS test driver (max ~4 min) ==="
+	   > clang/cpnos_polypascal_addrs.lua
+	@cat clang/cpnos_polypascal_addrs.lua
+	@echo "=== launching MAME with PolyPascal test driver (max ~4 min) ==="
 	-$(MAME_IRQ)/regnecentralend rc702 -rompath $(MAME_IRQ)/roms \
 	    -nothrottle -window -skip_gameinfo \
 	    -seconds_to_run 240 \
@@ -1095,12 +1100,12 @@ cpnos-ppas-test:
 	    -rs232b null_modem -bitb2 /tmp/cpnos_siob.raw \
 	    -piob cpnet_bridge \
 	    -bitb3 socket.127.0.0.1:4002 \
-	    -autoboot_script mame_ppas_test.lua
-	@echo "--- ppas-test log tail ---"
-	@tail -30 /tmp/cpnos_ppas_log.txt 2>/dev/null
+	    -autoboot_script mame_polypascal_test.lua
+	@echo "--- polypascal-test log tail ---"
+	@tail -30 /tmp/cpnos_polypascal_log.txt 2>/dev/null
 	@echo "--- result ---"
-	@cat /tmp/cpnos_ppas_result.txt 2>/dev/null || echo '(no result file)'
-	@grep -q '^PASS' /tmp/cpnos_ppas_result.txt 2>/dev/null
+	@cat /tmp/cpnos_polypascal_result.txt 2>/dev/null || echo '(no result file)'
+	@grep -q '^PASS' /tmp/cpnos_polypascal_result.txt 2>/dev/null
 
 # Interactive: boot CP/NOS, leave MAME running at the E> prompt so a
 # human can type on the native keyboard (PIO-A path).  SIO-B output

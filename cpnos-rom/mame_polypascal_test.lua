@@ -1,7 +1,8 @@
--- PPAS regression test.
+-- PolyPascal regression test (target: `make cpnos-polypascal-test`).
 --
 -- Drives the slave through:
---   E>           type "PPAS PRIMES" + CR
+--   E>           type "PPAS PRIMES" + CR    (PPAS = the PolyPascal
+--                                            interpreter command)
 --   <PPAS loads> watch for ">>" command prompt
 --   >>           type "R" (Run)
 --   <primes>     watch SIO-B mirror for the last known prime "29989"
@@ -13,21 +14,21 @@
 -- Validation: scrape /tmp/cpnos_siob.raw which captures every byte
 -- impl_conout sends (cpnos-rom built with MIRROR_SIOB=1).
 --
--- Result lands at /tmp/cpnos_ppas_result.txt:
+-- Result lands at /tmp/cpnos_polypascal_result.txt:
 --   "PASS"  + a one-line summary, OR
 --   "FAIL: <reason>"
 
 -- BSS addresses for kbd_head/kbd_ring are extracted from the linked
--- payload.elf at build time into clang/cpnos_ppas_addrs.lua so the
--- harness automatically tracks scratch_bss layout changes (Phase B
--- moved these from 0xEA24/0xEA2A to 0xEB24/0xEB2A).
-local addrs = dofile("clang/cpnos_ppas_addrs.lua")
+-- payload.elf at build time into clang/cpnos_polypascal_addrs.lua so
+-- the harness automatically tracks scratch_bss layout changes (Phase
+-- B moved these from 0xEA24/0xEA2A to 0xEB24/0xEB2A).
+local addrs = dofile("clang/cpnos_polypascal_addrs.lua")
 local KBD_HEAD = addrs.kbd_head
 local KBD_RING = addrs.kbd_ring
 
 local SIOB_RAW = "/tmp/cpnos_siob.raw"
-local RESULT   = "/tmp/cpnos_ppas_result.txt"
-local LOG      = "/tmp/cpnos_ppas_log.txt"
+local RESULT   = "/tmp/cpnos_polypascal_result.txt"
+local LOG      = "/tmp/cpnos_polypascal_log.txt"
 do local f = io.open(LOG, "w") if f then f:close() end end
 do local f = io.open(RESULT, "w") if f then f:close() end end
 

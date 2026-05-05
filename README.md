@@ -14,8 +14,8 @@ straight to `E>` (= master `I:` 4 MB hard disk on cpmsim mpm-net2),
 with floppy A:..D: + a second 4 MB disk on `F:`.  ISRs no longer
 touch the Z80 shadow register set, so PolyPascal v3 (Hejlsberg's
 pre-Turbo native compiler) and other shadow-reg-using programs run
-cleanly.  End-to-end regression `make cpnos-ppas-test` drives the
-slave through PolyPascal computing primes < 30 000 in ~50 s.  See
+cleanly.  End-to-end regression `make cpnos-polypascal-test` drives
+the slave through PolyPascal computing primes < 30 000 in ~50 s.  See
 `docs/imd_to_mpm.md` for how to extract files from RC700 IMD images
 onto the master MP/M disks.
 
