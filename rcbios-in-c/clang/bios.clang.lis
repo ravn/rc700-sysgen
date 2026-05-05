@@ -8,7 +8,7 @@ Disassembly of section .boot:
        8: 20 52 43 37 30 32 20 43          RC702 C
       10: 2d 42 49 4f 53 20 32 30         -BIOS 20
       18: 32 36 2d 30 35 2d 30 35         26-05-05
-      20: 20 30 35 3a 34 38 20 2f          05:48 /
+      20: 20 30 36 3a 30 34 20 2f          06:04 /
       28: 54 68 6f 72 62 6a 6f 65         Thorbjoe
       30: 72 6e 20 52 61 76 6e 20         rn Ravn 
       38: 41 6e 64 65 72 73 65 6e         Andersen
@@ -479,7 +479,7 @@ Disassembly of section .text:
 ; static inline void intrinsic_ei(void)   { __asm__ volatile("ei"); }
     dad4: fb           	ei
 ;     puts_p("\x0C"                       /* form feed = clear screen */
-    dad5: 21 a0 ec     	ld	hl,$eca0
+    dad5: 21 5e ec     	ld	hl,$ec5e
     dad8: cd ed da     	call	$daed
 ;     if (IOBYTE_CON(iobyte) == IOB_UC1)
     dadb: 3a 03 00     	ld	a,($3)                  ; 0x3 <_boot_header+0x3>
@@ -487,7 +487,7 @@ Disassembly of section .text:
     dae0: fe 03        	cp	$3
     dae2: 20 06        	jr	nz,$daea
 ;         puts_p("SIO-B debugging enabled (" SIOB_BAUD_STR " 8N1)\r\n");
-    dae4: 21 7a ec     	ld	hl,$ec7a
+    dae4: 21 ae ec     	ld	hl,$ecae
     dae7: cd ed da     	call	$daed
 ;     wboot_c();
     daea: c3 f9 da     	jp	$daf9
@@ -568,7 +568,7 @@ Disassembly of section .text:
     db59: e6 0f        	and	$f
     db5b: c3 38 ea     	jp	$ea38
 ;             puts_p("\r\nDisk read error - reset\r\n");
-    db5e: 21 5e ec     	ld	hl,$ec5e
+    db5e: 21 92 ec     	ld	hl,$ec92
     db61: cd ed da     	call	$daed
 ; static inline void intrinsic_halt(void) { __asm__ volatile("halt"); }
     db64: 76           	halt
